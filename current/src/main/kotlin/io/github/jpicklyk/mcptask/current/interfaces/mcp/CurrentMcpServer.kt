@@ -93,7 +93,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  *   - "http" — Ktor CIO HTTP server with Streamable HTTP transport
  *
  * @param version The server version string.
- * @param shutdownCoordinator Optional shutdown coordinator for graceful shutdown.
+ * @param shutdownCoordinator Shutdown coordinator for graceful shutdown. Cleanup actions drain LIFO, so
+ *   registration order is: database (first, drained last), JWKS providers, MCP server, HTTP server.
  * @param appConfig Typed environment snapshot, read ONCE at construction. Built before
  *   [databaseManager] so the DB layer reads its config from the same snapshot. Injectable for tests.
  * @param onBeforeTransportStart Test seam invoked as the first statement inside the try block
@@ -106,7 +107,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class CurrentMcpServer(
     private val version: String,
-    private val shutdownCoordinator: ShutdownCoordinator? = null,
+    private val shutdownCoordinator: ShutdownCoordinator = ShutdownCoordinator(),
     private val appConfig: AppConfig = AppConfig.fromEnv(),
     internal val onBeforeTransportStart: (String) -> Unit = {},
     internal val stdioInput: () -> InputStream = { System.`in` },
@@ -157,6 +158,11 @@ class CurrentMcpServer(
                 logger.error("Failed to initialize database at: $dbPath")
                 return@runBlocking Failed(Reason.DATABASE_INIT, "Failed to initialize database at: $dbPath")
             }
+            // Registered right after initialize so the LIFO drain closes the database LAST, after
+            // the HTTP server, MCP server and JWKS providers registered later have stopped.
+            shutdownCoordinator.addCleanupAction("Close Database") {
+                databaseManager.shutdown()
+            }
             if (!databaseManager.updateSchema()) {
                 logger.error("Failed to update database schema")
                 return@runBlocking Failed(Reason.SCHEMA_UPDATE, "Failed to update database schema")
@@ -166,10 +172,8 @@ class CurrentMcpServer(
             // FLYWAY_REPAIR=true: the schema manager already ran repair (not migrate) inside
             // updateSchema() above and it succeeded. Exit here — before ServerComposition is built
             // and before the readiness marker is written — so a repair-only run never serves and
-            // the Docker HEALTHCHECK never reports healthy for it. Gated on useFlyway too: when
-            // USE_FLYWAY=false, SchemaManagerFactory picks Direct mode and ignores flywayRepair
-            // entirely (logs its own WARN), so this process should keep going and serve normally.
-            if (appConfig.useFlyway && appConfig.flywayRepair) {
+            // the Docker HEALTHCHECK never reports healthy for it.
+            if (appConfig.flywayRepair) {
                 logger.info("FLYWAY_REPAIR=true: repair completed successfully; exiting without serving.")
                 return@runBlocking RepairCompleted
             }
@@ -253,11 +257,8 @@ class CurrentMcpServer(
     }
 
     private fun registerCommonCleanup(server: Server) {
-        shutdownCoordinator?.addCleanupAction("Close MCP Server") {
+        shutdownCoordinator.addCleanupAction("Close MCP Server") {
             runBlocking { server.close() }
-        }
-        shutdownCoordinator?.addCleanupAction("Close Database") {
-            databaseManager.shutdown()
         }
     }
 
@@ -290,7 +291,6 @@ class CurrentMcpServer(
         server.onClose {
             logger.info("Server closed")
             done.complete()
-            if (shutdownCoordinator == null) databaseManager.shutdown()
         }
 
         try {
@@ -321,13 +321,8 @@ class CurrentMcpServer(
         // Reached on stdin EOF (or any other close). If a signal already started shutdown, skip it so
         // the log does not misattribute the cause. Run off the runBlocking thread: the coordinator's
         // "Close MCP Server" action itself calls runBlocking { server.close() }.
-        val coordinator = shutdownCoordinator
-        if (coordinator != null) {
-            if (!coordinator.isShutdownInitiated()) {
-                withContext(Dispatchers.IO) { coordinator.initiateShutdown("stdin EOF") }
-            }
-        } else {
-            runCatching { server.close() }
+        if (!shutdownCoordinator.isShutdownInitiated()) {
+            withContext(Dispatchers.IO) { shutdownCoordinator.initiateShutdown("stdin EOF") }
         }
         return Started
     }
@@ -432,25 +427,16 @@ class CurrentMcpServer(
         // this process never served on).
         val httpStarted = AtomicBoolean(false)
 
-        shutdownCoordinator?.addCleanupAction("Stop HTTP Server") {
+        // Registered MCP-close first, then HTTP stop: the LIFO drain stops HTTP, closes MCP, then
+        // (registered earlier still) the JWKS providers and the database.
+        registerCommonCleanup(server)
+        shutdownCoordinator.addCleanupAction("Stop HTTP Server") {
             if (httpStarted.get()) ktorServer.stop(gracePeriodMillis = 1000, timeoutMillis = 5000)
             done.complete()
         }
-        registerCommonCleanup(server)
 
         server.onClose {
             logger.info("Server closed")
-            if (shutdownCoordinator == null) databaseManager.shutdown()
-        }
-
-        if (shutdownCoordinator == null) {
-            Runtime.getRuntime().addShutdownHook(
-                Thread {
-                    if (httpStarted.get()) ktorServer.stop(1000, 5000)
-                    done.complete()
-                    databaseManager.shutdown()
-                }
-            )
         }
 
         try {

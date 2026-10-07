@@ -1,0 +1,20 @@
+# Flyway history snapshot: version|script|checksum. Captured at base commit 327690d2 (pre-P2a).
+# The migration files are byte-identical since then (git rename-only diff). A mismatch means a released
+# migration changed or moved: never edit a released migration (checksums are validated on every start).
+1|V1__Current_Initial_Schema.sql|1642467784
+2|V2__Work_Item_Field_Updates.sql|1013955485
+3|V3__Add_Work_Item_Type_And_Properties.sql|608928550
+4|V4__Add_Actor_Attribution.sql|1375087882
+5|V5__Add_Claim_Fields.sql|-1801036949
+6|V6__Reshape_Claim_Indexes.sql|869215538
+7|V7__FTS5_And_Unbounded_Depth.sql|1713927529
+8|V8__Restrict_FTS_Update_Triggers.sql|250902821
+9|V9__Add_Root_Id.sql|-1614441203
+10|V10__Project_Config.sql|-1221492208
+11|V11__Add_Project_Config_Fingerprint_History.sql|416044129
+12|V12__Plan_Documents.sql|-384866341
+13|V13__Repair_Terminal_Status_Labels.sql|-1434745658
+14|V14__Add_Consumed_Credentials.sql|375937259
+15|V15__Resource_Leases.sql|1173170734
+16|V16__Resource_Lease_History.sql|-527478894
+17|V17__Store_Actor_Proof_Evidence.sql|-1932963354

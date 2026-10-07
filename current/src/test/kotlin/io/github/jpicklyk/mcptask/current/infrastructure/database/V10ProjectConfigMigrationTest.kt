@@ -76,7 +76,7 @@ class V10ProjectConfigMigrationTest {
     private fun applyV10Migration() {
         val resourceStream =
             requireNotNull(
-                Thread.currentThread().contextClassLoader.getResourceAsStream("db/migration/V10__Project_Config.sql")
+                Thread.currentThread().contextClassLoader.getResourceAsStream("db/migration/sqlite/V10__Project_Config.sql")
             ) { "V10__Project_Config.sql not found on the test classpath" }
         val sqlText = resourceStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
         val withoutComments =

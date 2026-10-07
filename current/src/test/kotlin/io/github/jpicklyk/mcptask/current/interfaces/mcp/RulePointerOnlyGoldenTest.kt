@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
@@ -114,7 +115,7 @@ class RulePointerOnlyGoldenTest {
             ServerComposition(
                 appConfig = appConfig,
                 databaseManager = buildDatabaseManager(),
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
             ).build()
 
         val repo = composition.toolContext.repositoryProvider

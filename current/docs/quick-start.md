@@ -405,8 +405,8 @@ After adding or editing this file, reconnect the MCP server:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_PATH` | `data/current-tasks.db` | SQLite file path inside the container |
-| `USE_FLYWAY` | `true` | Apply database migrations on startup. `false` selects Direct mode for disposable dev/test databases only: it has no upgrade path, and Flyway mode refuses a Direct-created database. |
-| `FLYWAY_REPAIR` | `false` | Run Flyway repair (fix migration checksums) instead of migrate, then exit 0 without serving — the process never starts a transport or reports healthy. Ignored (with a WARN) if `USE_FLYWAY=false`. |
+| `SCHEMA_MODE` | `migrate` | `migrate` applies pending migrations on startup; `validate` runs no migrate and fails startup on a pending or future version; it is not read-only (it takes the lock file, may create an empty DB file on a missing path, and runs the FTS integrity check, which may rebuild). An invalid value fails startup even with `FLYWAY_REPAIR=true`. `USE_FLYWAY` is removed and ignored with a WARN. |
+| `FLYWAY_REPAIR` | `false` | Run Flyway repair (fix migration checksums) instead of migrate, then exit 0 without serving — the process never starts a transport or reports healthy. Takes precedence over a valid `SCHEMA_MODE`. |
 | `AGENT_CONFIG_DIR` | _(unset)_ | Parent directory of `.taskorchestrator/`; set when mounting a config folder into the container |
 | `LOG_LEVEL` | `INFO` | Verbosity: `DEBUG`, `INFO`, `WARN`, `ERROR` |
 | `LOG_FILE` | _(unset)_ | Opt-in log file path (e.g. `/app/data/logs/task-orchestrator.log`). Unset means no file logging. |

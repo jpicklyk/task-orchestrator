@@ -82,7 +82,7 @@ status with:
 docker inspect --format '{{.State.Health.Status}}' <container>
 ```
 
-**First boot after upgrading is slower — startup compaction.** The first Flyway-mode start after
+**First boot after upgrading is slower — startup compaction.** The first start after
 upgrading to a build carrying the V17 actor-proof scrub runs a one-time startup compaction
 (`VACUUM` + FTS5 rebuild — see "Proof handling" → Remediation below) before the readiness marker
 is written. Measured throughput is roughly ~2 minutes per GB of database file. On a multi-GB
@@ -749,7 +749,7 @@ out of scope; this is a known, accepted forensic gap for anything written before
 
 1. **Rotate first.** Rotate actor signing keys and reissue long-lived tokens. The only remedy
    reaching every copy; then purge pre-upgrade backups.
-2. **Compaction now runs automatically.** The first Flyway-mode start after upgrading to a build
+2. **Compaction now runs automatically.** The first start after upgrading to a build
    with this remediation runs a one-time startup compaction — `VACUUM`, a rebuild + `integrity-check`
    of all four FTS5 shadow tables, and a WAL checkpoint — gated on `PRAGMA user_version` so
    it runs exactly once per database file (a repeat boot is a no-op; a failed attempt is WARN-logged
@@ -764,7 +764,7 @@ out of scope; this is a known, accepted forensic gap for anything written before
    `Startup compaction: starting one-time compaction of N bytes` followed by `Startup compaction
    complete: X bytes -> Y bytes in Zms` (or the DatabaseManager-level `Startup compaction outcome:
    COMPACTED` line) confirms it ran and finished.
-3. **Offline compaction runbook (opt-out fallback, or Direct mode).** Live file only; needs free
+3. **Offline compaction runbook (opt-out fallback).** Live file only; needs free
    disk ≥2× DB size. Note that `VACUUM`'s temporary copy is written to SQLite's own temp directory
    (`SQLITE_TMPDIR`/`TMPDIR`, typically `/var/tmp` or `/tmp` — the container's overlay filesystem
    in Docker, not the `mcp-task-data` volume), so the ≥2× headroom must exist there, not only on the
@@ -787,12 +787,35 @@ out of scope; this is a known, accepted forensic gap for anything written before
 
 | Variable | Required when | Default | Description |
 |----------|--------------|---------|-------------|
-| `DB_COMPACT_ON_UPGRADE` | Flyway mode, opting out | `true` | Set `false` to skip the automatic one-time startup compaction described above (e.g. to run the offline runbook manually instead, or to avoid the extra startup time on a very large database). Ignored in Direct mode and during a `FLYWAY_REPAIR` run — neither ever runs the automatic compaction regardless of this variable. |
+| `DB_COMPACT_ON_UPGRADE` | Opting out | `true` | Set `false` to skip the automatic one-time startup compaction described above (e.g. to run the offline runbook manually instead, or to avoid the extra startup time on a very large database). Ignored during a `FLYWAY_REPAIR` run, which never runs the automatic compaction regardless of this variable. |
 
-Direct mode (`USE_FLYWAY=false`) is for disposable dev/test databases and has no upgrade path: it
-does not apply V17 (or any other migration) to an existing database, and Flyway mode refuses to
-open a Direct-created database (tables present, no `flyway_schema_history`) with an error. Point
+### Schema management, locking and startup integrity
+
+Flyway is the only schema path. Direct mode (`USE_FLYWAY=false`) has been removed and `USE_FLYWAY` is
+ignored (one WARN if still set). A database with tables but no `flyway_schema_history` is baselined at
+V17 only when its schema matches the V17 shape exactly; otherwise it is refused unmodified. Point
 `DATABASE_PATH` at a new file, or restore a Flyway-mode backup.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SCHEMA_MODE` | `migrate` | `migrate` applies pending migrations. `validate` runs no migrate and no baseline: a pending or future version, or an empty database, fails startup. Any other value fails startup. `FLYWAY_REPAIR` takes precedence, but only over a valid value: an invalid `SCHEMA_MODE` fails startup even with `FLYWAY_REPAIR=true`. `validate` is not read-only: it takes the `<db>.migrate.lock` file, may create an empty database file when `DATABASE_PATH` points at a missing path, and still runs the FTS integrity check, which may rebuild an index. |
+
+- **Future versions fail closed.** A database whose history is ahead of the binary refuses to start. The remedy is to upgrade the binary to the release that wrote the schema; `FLYWAY_REPAIR` is not a way past it.
+- **Migration lock.** The whole schema phase runs under an OS file lock `<dbfile>.migrate.lock` next to
+  the database file, so concurrent boots serialize. A second boot waits (INFO log every 10 s) and gives
+  up after 300 s, naming the lock file. The lock file is never deleted; leaving it in place is normal.
+  A bounded retry on `SQLITE_BUSY` covers filesystems where the lock is advisory only.
+- **Startup integrity.** After migrate, startup verifies that the four FTS5 tables and the FTS and
+  parent-cycle triggers exist (a missing one fails startup and nothing is re-created), runs the FTS5
+  `integrity-check` on each FTS table and rebuilds one that is desynced. It also logs WARN-only reports
+  (never failing, never writing) for placement drift (depth or `root_id` inconsistent with the parent,
+  orphans) and mutually blocking dependency pairs, each with a count and the first 10 ids.
+- **Backups.** Do not `VACUUM` or dump/restore without rebuilding the FTS indexes (the startup compaction and the offline runbook do both): they can renumber `rowid`s and desync the
+  external-content FTS indexes. Use the sqlite3 `.backup` command, or copy the
+  file with the server stopped (include the `-wal`/`-shm` files or checkpoint first).
+- **Topology.** One HTTP server hub is the recommended shape; one stdio process per session against the
+  same database file is supported (the migration lock serializes their boots). Stop every 3.x process
+  before upgrading: a 3.x binary does not fail closed on a newer database.
 
 ---
 

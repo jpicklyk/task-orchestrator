@@ -1582,7 +1582,7 @@ only) cannot. Requires `READ`.
 capability — same inline redaction rule `GET /resources/leases` applies to `acquiredByActorId`.
 
 No pruning/retention in v1 — the table is append-only and grows with lease-event cardinality
-(documented, accepted behavior; see `current/src/main/resources/db/migration/V16__Resource_Lease_History.sql`).
+(documented, accepted behavior; see `current/src/main/resources/db/migration/sqlite/V16__Resource_Lease_History.sql`).
 
 ---
 

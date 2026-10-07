@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
+import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
@@ -146,7 +147,11 @@ work_item_schemas:
     ): CompositionResult {
         materializeGlobalConfig(tempDir, globalConfig)
         val appConfig = AppConfig.fromEnv { key -> if (key == "AGENT_CONFIG_DIR") tempDir.toString() else null }
-        return ServerComposition(appConfig = appConfig, databaseManager = buildDatabaseManager(), shutdownCoordinator = null).build()
+        return ServerComposition(
+            appConfig = appConfig,
+            databaseManager = buildDatabaseManager(),
+            shutdownCoordinator = ShutdownCoordinator()
+        ).build()
     }
 
     private fun Application.configureProductionRestApp(

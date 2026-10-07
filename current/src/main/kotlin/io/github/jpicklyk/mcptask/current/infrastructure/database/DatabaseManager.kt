@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.database
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.FlywayDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.SchemaManagerFactory
+import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.SchemaMode
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
@@ -17,7 +17,7 @@ import java.sql.Connection
  * Manages database connections and schema management for the Current (v3) MCP Task Orchestrator.
  *
  * @param customDatabase Optional pre-configured database connection (useful for testing).
- * @param appConfig Typed env snapshot supplying `useFlyway` and the busy_timeout value. Defaults to
+ * @param appConfig Typed env snapshot supplying the busy_timeout value, FLYWAY_REPAIR and the raw env resolver. Defaults to
  *   a fresh [AppConfig.fromEnv] snapshot so existing no-arg construction (and tests) keep the prior
  *   env-driven behavior unchanged.
  */
@@ -127,10 +127,27 @@ class DatabaseManager(
 
             // Create schema manager if not already created
             if (!::schemaManager.isInitialized) {
-                val useFlyway = appConfig.useFlyway
+                if (appConfig.envResolver("USE_FLYWAY") != null) {
+                    logger.warn(
+                        "USE_FLYWAY is ignored: Flyway is the only schema path and Direct mode has been removed. " +
+                            "Remove USE_FLYWAY from the environment."
+                    )
+                }
+                val schemaMode =
+                    try {
+                        SchemaMode.parse(appConfig.envResolver("SCHEMA_MODE"))
+                    } catch (e: IllegalArgumentException) {
+                        logger.error("${e.message}. Failing startup.")
+                        return false
+                    }
                 val jdbcUrl = database?.url
-                logger.info("Creating schema manager (Flyway: $useFlyway)")
-                schemaManager = SchemaManagerFactory.create(useFlyway, jdbcUrl, appConfig.flywayRepair)
+                if (jdbcUrl == null) {
+                    logger.error("Cannot update schema: no JDBC URL available")
+                    return false
+                }
+                logger.info("Creating Flyway schema manager (SCHEMA_MODE=${schemaMode.name.lowercase()})")
+                schemaManager =
+                    FlywayDatabaseSchemaManager(jdbcUrl, appConfig.flywayRepair, appConfig.databaseBusyTimeoutMs, schemaMode)
             }
 
             val result = schemaManager.updateSchema()
@@ -198,14 +215,12 @@ class DatabaseManager(
     }
 
     /**
-     * Runs the one-time post-V17 [StartupCompaction] when eligible: Flyway-mode schema
-     * management, not a `FLYWAY_REPAIR` run (which exits before serving), and
+     * Runs the one-time post-V17 [StartupCompaction] when eligible: not a `FLYWAY_REPAIR` run (which exits before serving), and
      * [AppConfig.dbCompactOnUpgrade] not disabled. Wrapped in [runCatching] as an extra safety
      * net on top of [StartupCompaction.runOnce] never throwing on its own — compaction must
      * never fail startup or change [updateSchema]'s return value.
      */
     private fun runStartupCompactionIfEligible() {
-        if (schemaManager !is FlywayDatabaseSchemaManager) return
         if (appConfig.flywayRepair) return
         if (!appConfig.dbCompactOnUpgrade) return
 
