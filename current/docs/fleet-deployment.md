@@ -681,6 +681,8 @@ actor_authentication:
     type: jwks
     jwks_uri: "http://localhost:8080/jwks.json"
     allow_insecure_url: true   # local dev/test only — never in production
+    issuer: "http://localhost:8080"
+    audience: "task-orchestrator"
     algorithms: [RS256]
 ```
 

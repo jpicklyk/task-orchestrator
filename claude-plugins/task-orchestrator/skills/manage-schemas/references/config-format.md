@@ -903,6 +903,8 @@ actor_authentication:
   verifier:
     type: jwks
     oidc_discovery: "https://agentlair.dev/.well-known/openid-configuration"
+    audience: "task-orchestrator"
+    algorithms: ["EdDSA", "RS256"]
 ```
 
 **Example — File-based (air-gapped):**
@@ -913,6 +915,9 @@ actor_authentication:
   verifier:
     type: jwks
     jwks_path: ".agentlair/jwks.json"
+    issuer: "https://agentlair.dev"
+    audience: "task-orchestrator"
+    algorithms: ["EdDSA", "RS256"]
 ```
 
 **Example — Full config (all options):**

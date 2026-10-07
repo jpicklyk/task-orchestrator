@@ -1026,8 +1026,7 @@ Single item by UUID.
 
 **Responses:**
 - `200 OK` → `ItemDto`
-+
-- 400 bad_request — invalid UUID
+- `304 Not Modified` -- when `If-None-Match` matches the current ETag; only possible when no recognized `include` (`notes`, `deps`, `children`) is requested. With a recognized `include` the response is always `200 OK` (no `ETag` header, `If-None-Match` ignored)
 - `400 bad_request` — invalid UUID
 - `403 scope_forbidden`
 - `404 not_found`

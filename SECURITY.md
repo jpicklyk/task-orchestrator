@@ -152,6 +152,7 @@ actor_authentication:
     oidc_discovery: "https://identity-provider/.well-known/openid-configuration"
     issuer: "https://identity-provider"
     audience: "mcp-task-orchestrator"
+    algorithms: ["EdDSA", "RS256"]
     require_sub_match: true   # JWT 'sub' must match actor.id
 ```
 
