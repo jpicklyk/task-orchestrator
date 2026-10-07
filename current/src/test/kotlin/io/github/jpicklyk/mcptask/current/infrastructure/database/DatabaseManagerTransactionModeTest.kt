@@ -7,6 +7,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
@@ -25,6 +26,7 @@ import java.util.concurrent.TimeUnit
  * S1: 8 threads each run 5 `SELECT`-then-`UPDATE` transactions on the same row through `writeTx`, behind a latch.
  * S2: a single transaction still commits and the pool busy_timeout (1000 ms, fixed) is applied.
  */
+@Timeout(value = 120, unit = TimeUnit.SECONDS)
 class DatabaseManagerTransactionModeTest {
     private val managers = mutableListOf<DatabaseManager>()
 

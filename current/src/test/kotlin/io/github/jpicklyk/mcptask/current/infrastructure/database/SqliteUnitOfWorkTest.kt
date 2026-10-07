@@ -14,17 +14,20 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
 import org.sqlite.SQLiteErrorCode
 import org.sqlite.SQLiteException
 import java.sql.DriverManager
 import java.time.Instant
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 import kotlin.coroutines.cancellation.CancellationException
@@ -43,6 +46,7 @@ import kotlin.test.assertTrue
  * S1 join, S2 rollback rule, S4 cancellation, S5 reader is query_only, S6 writer serialization, S7 own writes,
  * S14 clock; plus the hook contract (carry-in 8) and the nesting / write-in-read probes.
  */
+@Timeout(value = 120, unit = TimeUnit.SECONDS)
 class SqliteUnitOfWorkTest {
     @RegisterExtension
     @JvmField
@@ -301,6 +305,42 @@ class SqliteUnitOfWorkTest {
             assertEquals(80, results.map { (it as Outcome.Ok).value }.toSet().size, "every unit saw a distinct counter value")
         }
 
+    // S6 (queueing past the pool checkout window): oracle plan section 3.2 / PART A - in-process writers queue on the
+    // writer Mutex, bounded by the 10 s unit deadline, instead of failing `unavailable` when the 2 s pool checkout
+    // window (connectionTimeout) expires. With the Mutex removed the second unit would wait on the pool and time out.
+    @Test
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    fun `S6 a second writer queued behind a unit holding the writer for 3s succeeds instead of unavailable`(): Unit =
+        runBlocking {
+            db.createProbeTables()
+            val uow = db.uow()
+            val holding = CompletableDeferred<Unit>()
+            val first =
+                async(Dispatchers.Default) {
+                    uow.write("S6.hold") {
+                        dm.writeTx("S6.hold.row") { exec("INSERT INTO p5a_probe (id, v) VALUES (1, 1)") }
+                        holding.complete(Unit)
+                        delay(3_000)
+                        Outcome.Ok("first")
+                    }
+                }
+            holding.await()
+            val t0 = System.nanoTime()
+            val second =
+                async(Dispatchers.Default) {
+                    uow.write("S6.queued") {
+                        dm.writeTx("S6.queued.row") { exec("INSERT INTO p5a_probe (id, v) VALUES (2, 2)") }
+                        Outcome.Ok("second")
+                    }
+                }
+            assertEquals(Outcome.Ok("first"), first.await())
+            val secondResult = second.await()
+            val waitedMs = (System.nanoTime() - t0) / 1_000_000
+            assertEquals(Outcome.Ok("second"), secondResult, "a queued in-process writer must not fail `unavailable` after ${waitedMs}ms")
+            assertTrue(waitedMs >= 2_000, "the second unit must have queued past the 2 s checkout window, waited ${waitedMs}ms")
+            assertEquals(2, dm.countRows("p5a_probe"), "both units committed")
+        }
+
     // ---------------------------------------------------------------- S7
     @Test
     fun `S7 a unit reads its own uncommitted writes while a concurrent outside read does not`(): Unit =
@@ -413,6 +453,7 @@ class SqliteUnitOfWorkTest {
         }
 
     @Test
+    @Timeout(value = 20, unit = TimeUnit.SECONDS)
     fun `an Err from the outermost block fires a joined afterRollback once with that error and no commit hooks`(): Unit =
         runBlocking {
             val uow = db.uow()

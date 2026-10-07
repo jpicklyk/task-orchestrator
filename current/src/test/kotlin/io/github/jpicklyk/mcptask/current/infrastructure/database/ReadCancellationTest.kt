@@ -12,7 +12,9 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
 import java.sql.DriverManager
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -28,6 +30,7 @@ import kotlin.test.assertTrue
  * outlived the cancel would pin the WAL, so a TRUNCATE checkpoint from a separate connection must not report busy.
  * The fixture's close (via use) fails on a leaked connection on Windows.
  */
+@Timeout(value = 120, unit = TimeUnit.SECONDS)
 class ReadCancellationTest {
     @Test
     fun `S17 cancelling mid-read outside a unit returns the connection and leaves no open transaction`(): Unit =

@@ -32,6 +32,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
 import org.sqlite.SQLiteErrorCode
 import org.sqlite.SQLiteException
@@ -39,6 +40,7 @@ import java.sql.SQLException
 import java.sql.SQLTransientConnectionException
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 import kotlin.coroutines.cancellation.CancellationException
@@ -57,6 +59,7 @@ import kotlin.time.Duration.Companion.milliseconds
  * task-scope translation table (section 4 of the declarations); the pools use a FIXED 1 s busy_timeout and a 2 s
  * connection checkout (carry-in 4), the unit deadline is adjustable through UnitRunner.deadline.
  */
+@Timeout(value = 120, unit = TimeUnit.SECONDS)
 class UnitRunnerTranslationTest {
     @RegisterExtension
     @JvmField

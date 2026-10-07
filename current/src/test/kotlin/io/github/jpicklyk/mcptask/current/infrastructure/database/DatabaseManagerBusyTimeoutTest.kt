@@ -8,8 +8,10 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 /**
  * Integration tests verifying the busy_timeout the [DatabaseManager] pools apply to their SQLite connections.
@@ -20,6 +22,7 @@ import java.io.File
  * longer holds, and a `mode=memory` URL is now refused (S8) so these tests use a file-backed database.
  * The validation logic of DATABASE_BUSY_TIMEOUT_MS is covered separately in [DatabaseConfigTest].
  */
+@Timeout(value = 120, unit = TimeUnit.SECONDS)
 class DatabaseManagerBusyTimeoutTest {
     private val managers = mutableListOf<DatabaseManager>()
 

@@ -9,13 +9,14 @@ import kotlin.test.assertTrue
  * `infrastructure/repository/TransactionHelper.kt` no production code line may open an Exposed transaction, and no
  * file may import `...jdbc.transactions.transaction` or `...suspendTransaction`. Oracle: task-scope section 7
  * (TransactionOpenerTest). No baseline: P5a sweeps every opener site, so the expected violation count is zero.
- * The lookbehind keeps names such as `inTransaction(` and member calls such as `x.transaction(` clean.
+ * The lookbehind keeps names such as `inTransaction(` and member calls such as `x.transaction(` clean, while a call
+ * fully qualified through the Exposed package (`org.jetbrains.exposed.v1.jdbc.transactions.transaction(`) is flagged.
  */
 class TransactionOpenerTest {
     companion object {
         val OPENER =
             Regex(
-                """(?<![A-Za-z0-9_.])(suspendTransaction|transaction|inTopLevelTransaction|inTopLevelSuspendTransaction|newSuspendedTransaction)\s*\("""
+                """(?<![A-Za-z0-9_])(?:(?<![A-Za-z0-9_.])|(?<=jdbc\.transactions\.))(suspendTransaction|transaction|inTopLevelTransaction|inTopLevelSuspendTransaction|newSuspendedTransaction)\s*\("""
             )
         val IMPORT = Regex("""^\s*import\s+[\w.]*jdbc\.transactions\.(transaction|suspendTransaction)\s*$""")
         val ALLOWED = setOf("infrastructure/database/UnitRunner.kt", "infrastructure/repository/TransactionHelper.kt")
@@ -23,9 +24,14 @@ class TransactionOpenerTest {
         fun violations(text: String): List<String> =
             text
                 .lineSequence()
-                .filter(GuardSupport::isCodeLine)
-                .filter { GuardSupport.stripStrings(it).let { code -> OPENER.containsMatchIn(code) || IMPORT.containsMatchIn(code) } }
-                .map { it.trim() }
+                .withIndex()
+                .filter { (_, line) -> GuardSupport.isCodeLine(line) }
+                .filter { (_, line) ->
+                    GuardSupport.stripStrings(line).let { code ->
+                        OPENER.containsMatchIn(code) ||
+                            IMPORT.containsMatchIn(code)
+                    }
+                }.map { (i, line) -> "L${i + 1}: ${line.trim()}" }
                 .toList()
     }
 
@@ -55,6 +61,24 @@ class TransactionOpenerTest {
         assertEquals(1, violations("transaction (db) { }").size)
         assertEquals(1, violations("import org.jetbrains.exposed.v1.jdbc.transactions.transaction").size)
         assertEquals(1, violations("import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction").size)
+        assertEquals(1, violations("    org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction(db) { }").size)
+        assertEquals(1, violations("val r = org.jetbrains.exposed.v1.jdbc.transactions.transaction(db) { 1 }").size)
+    }
+
+    @Test
+    fun `a fully qualified opener is flagged with its line number and a string mention is not`() {
+        val source =
+            listOf(
+                "package x",
+                "",
+                "fun f() {",
+                "    org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction(db) { }",
+                "}"
+            ).joinToString(System.lineSeparator())
+        val found = violations(source)
+        assertEquals(1, found.size)
+        assertTrue(found.single().startsWith("L4:"), "line number must be reported: $found")
+        assertEquals(0, violations("val s = \"org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction(db)\"").size)
     }
 
     @Test

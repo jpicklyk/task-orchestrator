@@ -12,12 +12,14 @@ import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.sql.DriverManager
 import java.time.Instant
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 import kotlin.test.assertEquals
@@ -32,6 +34,7 @@ import kotlin.test.assertTrue
  * constructor (writer == reader == custom, carry-in 6). Oracle: plans/v4-phase1-core.md lines 77-81 and the
  * task-scope connections section; busy_timeout is a FIXED 1000 ms on both pools (carry-in 4).
  */
+@Timeout(value = 120, unit = TimeUnit.SECONDS)
 class DatabasePoolsTest {
     @RegisterExtension
     @JvmField
@@ -197,6 +200,7 @@ class DatabasePoolsTest {
 
     // ---------------------------------------------------------------- customDatabase (H2) - carry-in 6
     @Test
+    @Timeout(value = 20, unit = TimeUnit.SECONDS)
     fun `customDatabase makes writer and reader the same database and units still join and roll back`(): Unit =
         runBlocking {
             val h2 = Database.connect("jdbc:h2:mem:p5a_${System.nanoTime()};DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
