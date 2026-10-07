@@ -203,6 +203,4 @@ default.
 - **SQLite ≥ 3.45** — required for the FTS5 trigram tokenizer used by the substring table.
   The server bundles SQLite via the `xerial/sqlite-jdbc` driver (included in the Docker image),
   so no local SQLite installation is required.
-- **H2 (test environment):** FTS5 is SQLite-only. When running in an H2 database (unit test
-  environment), all `search` operations return empty results. Integration tests for FTS5 use a
-  real SQLite database.
+- Integration tests for FTS5 run against a real SQLite database (the `SqliteTestDatabase` fixture).

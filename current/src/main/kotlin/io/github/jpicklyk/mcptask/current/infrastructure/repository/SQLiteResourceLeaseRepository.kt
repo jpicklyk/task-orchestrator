@@ -22,8 +22,6 @@ import org.jetbrains.exposed.v1.core.java.UUIDColumnType
 import org.jetbrains.exposed.v1.core.lessEq
 import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.core.or
-import org.jetbrains.exposed.v1.core.vendors.H2Dialect
-import org.jetbrains.exposed.v1.core.vendors.currentDialect
 import org.jetbrains.exposed.v1.jdbc.andWhere
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
@@ -33,7 +31,6 @@ import org.jetbrains.exposed.v1.jdbc.update
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.time.LocalDateTime
-import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.UUID
@@ -45,9 +42,7 @@ import java.util.UUID
  * interface KDoc). Mirrors [SQLiteWorkItemRepository.claim]'s transaction/DB-clock discipline:
  * every timestamp compared or written for lease-freshness decisions is DB-side (`datetime('now')`
  * in raw SQL, or an [Instant] read from the DB clock via [dbNow] for typed Exposed comparisons) —
- * never [Instant.now] — except the H2 test-harness fallback in `releaseAllForItem`/
- * `forceReleaseByKey`, which uses the JVM clock because H2 cannot parse the SQLite-only
- * `datetime()` statement those methods otherwise use.
+ * never [Instant.now].
  */
 class SQLiteResourceLeaseRepository(
     private val databaseManager: DatabaseManager
@@ -92,25 +87,10 @@ class SQLiteResourceLeaseRepository(
             Instant.now()
         }
 
-    private fun parseDbTimestamp(raw: String): Instant {
-        val isoCandidate = raw.replace(" ", "T")
-        val tzPattern = Regex("([+-]\\d{2}(:\\d{2})?|Z)$")
-        val tzMatch = tzPattern.find(isoCandidate)
-        return if (tzMatch != null) {
-            val tz = tzMatch.value
-            val normalized =
-                if (tz.startsWith("Z") || tz.contains(":")) {
-                    isoCandidate
-                } else {
-                    isoCandidate.dropLast(tz.length) + tz + ":00"
-                }
-            OffsetDateTime.parse(normalized, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toInstant()
-        } else {
-            LocalDateTime
-                .parse(isoCandidate, DateTimeFormatter.ISO_LOCAL_DATE_TIME)
-                .toInstant(ZoneOffset.UTC)
-        }
-    }
+    private fun parseDbTimestamp(raw: String): Instant =
+        LocalDateTime
+            .parse(raw.replace(" ", "T"), DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+            .toInstant(ZoneOffset.UTC)
 
     override suspend fun acquireAll(
         holderItemId: UUID,
@@ -389,10 +369,8 @@ class SQLiteResourceLeaseRepository(
         try {
             suspendTransaction(db = databaseManager.getDatabase()) {
                 val uuidType = UUIDColumnType()
-                // Close every OPEN interval this holder has, across all its keys. On SQLite,
-                // releasedAt is stamped DB-side (datetime('now')) — never the JVM clock — via the
-                // raw statement in the else branch below; see the H2 branch's own comment for why
-                // it differs.
+                // Close every OPEN interval this holder has, across all its keys. releasedAt is
+                // stamped DB-side (datetime('now')) — never the JVM clock — via the raw statement below.
                 //
                 // datetime(expires_at) wrapping is load-bearing, here and in forceReleaseByKey:
                 // Exposed timestamp columns store fractional seconds ('...:49.937') while
@@ -400,31 +378,15 @@ class SQLiteResourceLeaseRepository(
                 // lexicographically — so within a shared second the fractional value sorts LATER
                 // and a just-lapsed hold would compare as unexpired (no clamp, reason 'released').
                 // datetime() canonicalizes both sides to second precision.
-                if (currentDialect is H2Dialect) {
-                    // H2 (test harness only — production always runs SQLite): the raw
-                    // datetime()/CASE statement in the else branch below is SQLite-only syntax H2
-                    // cannot parse. Portable fallback via the Exposed DSL. Best-effort semantics: no
-                    // expired-vs-released distinction (always "released") and the JVM clock
-                    // instead of the DB clock — acceptable because this branch is only ever
-                    // exercised by tests, never by production traffic.
-                    ResourceLeaseHistoryTable.update({
-                        (ResourceLeaseHistoryTable.holderItemId eq holderItemId) and
-                            ResourceLeaseHistoryTable.releasedAt.isNull()
-                    }) {
-                        it[releasedAt] = Instant.now()
-                        it[releaseReason] = "released"
-                    }
-                } else {
-                    exec(
-                        """
-                        UPDATE resource_lease_history
-                           SET released_at = min(datetime('now'), datetime(expires_at)),
-                               release_reason = CASE WHEN datetime(expires_at) < datetime('now') THEN 'expired' ELSE 'released' END
-                         WHERE holder_item_id = ? AND released_at IS NULL
-                        """.trimIndent(),
-                        args = listOf(uuidType to holderItemId)
-                    )
-                }
+                exec(
+                    """
+                    UPDATE resource_lease_history
+                       SET released_at = min(datetime('now'), datetime(expires_at)),
+                           release_reason = CASE WHEN datetime(expires_at) < datetime('now') THEN 'expired' ELSE 'released' END
+                     WHERE holder_item_id = ? AND released_at IS NULL
+                    """.trimIndent(),
+                    args = listOf(uuidType to holderItemId)
+                )
                 val count = ResourceLeasesTable.deleteWhere { ResourceLeasesTable.holderItemId eq holderItemId }
                 LeaseReleaseResult.Success(count)
             }
@@ -443,27 +405,16 @@ class SQLiteResourceLeaseRepository(
                 // runs in this one transaction. Semantics per chunk are identical to
                 // releaseAllForItem (datetime(expires_at) wrapping, expired-vs-released CASE).
                 for (chunk in holderItemIds.chunked(SQL_IN_CHUNK_SIZE)) {
-                    if (currentDialect is H2Dialect) {
-                        // H2 test-harness fallback; see releaseAllForItem for its best-effort semantics.
-                        ResourceLeaseHistoryTable.update({
-                            (ResourceLeaseHistoryTable.holderItemId inList chunk) and
-                                ResourceLeaseHistoryTable.releasedAt.isNull()
-                        }) {
-                            it[releasedAt] = Instant.now()
-                            it[releaseReason] = "released"
-                        }
-                    } else {
-                        val placeholders = chunk.joinToString(",") { "?" }
-                        exec(
-                            """
-                            UPDATE resource_lease_history
-                               SET released_at = min(datetime('now'), datetime(expires_at)),
-                                   release_reason = CASE WHEN datetime(expires_at) < datetime('now') THEN 'expired' ELSE 'released' END
-                             WHERE holder_item_id IN ($placeholders) AND released_at IS NULL
-                            """.trimIndent(),
-                            args = chunk.map { uuidType to it }
-                        )
-                    }
+                    val placeholders = chunk.joinToString(",") { "?" }
+                    exec(
+                        """
+                        UPDATE resource_lease_history
+                           SET released_at = min(datetime('now'), datetime(expires_at)),
+                               release_reason = CASE WHEN datetime(expires_at) < datetime('now') THEN 'expired' ELSE 'released' END
+                         WHERE holder_item_id IN ($placeholders) AND released_at IS NULL
+                        """.trimIndent(),
+                        args = chunk.map { uuidType to it }
+                    )
                     total += ResourceLeasesTable.deleteWhere { ResourceLeasesTable.holderItemId inList chunk }
                 }
                 LeaseReleaseResult.Success(total)
@@ -484,30 +435,16 @@ class SQLiteResourceLeaseRepository(
                 val actorType = VarCharColumnType(500)
                 // Close every OPEN interval on this key, regardless of holder. released_by_actor_id
                 // records the acting principal (the REST route threads its tokenId through).
-                if (currentDialect is H2Dialect) {
-                    // H2 (test harness only — production always runs SQLite): see releaseAllForItem
-                    // for why this branch exists and its best-effort semantics (always
-                    // "force_released", JVM clock instead of DB clock).
-                    ResourceLeaseHistoryTable.update({
-                        (ResourceLeaseHistoryTable.resourceKey eq resourceKey) and
-                            ResourceLeaseHistoryTable.releasedAt.isNull()
-                    }) {
-                        it[releasedAt] = Instant.now()
-                        it[releaseReason] = "force_released"
-                        it[releasedByActorId] = actorId
-                    }
-                } else {
-                    exec(
-                        """
-                        UPDATE resource_lease_history
-                           SET released_at = min(datetime('now'), datetime(expires_at)),
-                               release_reason = CASE WHEN datetime(expires_at) < datetime('now') THEN 'expired' ELSE 'force_released' END,
-                               released_by_actor_id = ?
-                         WHERE resource_key = ? AND released_at IS NULL
-                        """.trimIndent(),
-                        args = listOf(actorType to actorId, keyType to resourceKey)
-                    )
-                }
+                exec(
+                    """
+                    UPDATE resource_lease_history
+                       SET released_at = min(datetime('now'), datetime(expires_at)),
+                           release_reason = CASE WHEN datetime(expires_at) < datetime('now') THEN 'expired' ELSE 'force_released' END,
+                           released_by_actor_id = ?
+                     WHERE resource_key = ? AND released_at IS NULL
+                    """.trimIndent(),
+                    args = listOf(actorType to actorId, keyType to resourceKey)
+                )
                 val count = ResourceLeasesTable.deleteWhere { ResourceLeasesTable.resourceKey eq resourceKey }
                 LeaseReleaseResult.Success(count)
             }

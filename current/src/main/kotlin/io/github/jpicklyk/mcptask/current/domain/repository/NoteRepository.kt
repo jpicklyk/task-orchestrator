@@ -27,9 +27,6 @@ interface NoteRepository {
     /**
      * Full-text search on note bodies using the V7 FTS5 virtual tables.
      *
-     * **H2 (test environment):** FTS5 is SQLite-only. Implementations return an empty
-     * [SearchResult] immediately when the current dialect is H2.
-     *
      * @param sanitizedFtsQuery FTS5 query string, already sanitized by the caller (QueryNotesTool).
      * @param matchMode Which FTS table(s) to query.
      * @param scope     Optional structural scope filters. [SearchScope.itemId] narrows to notes on

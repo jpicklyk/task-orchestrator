@@ -23,7 +23,7 @@ data class WorkItem(
      * field stamped with stale data.
      *
      * Nullable and NOT validated against [depth] or [parentId] here — rows written before
-     * the root_id backfill migration (or in H2 test fixtures that construct [WorkItem]
+     * the root_id backfill migration (or in fixtures that construct [WorkItem]
      * directly without going through the create/reparent paths) may legitimately have a
      * null or stale value. Treat this as a best-effort denormalization for read-path scope
      * filtering, not a structural invariant enforced at the domain layer.

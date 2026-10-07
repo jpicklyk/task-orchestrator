@@ -1636,8 +1636,6 @@ Results are ranked by RRF-fused relevance (trigram + porter tokenizer). Returns 
 
 **Response:** `200 OK` → `List<SearchHitDto>`
 
-**H2 caveat:** Returns an empty list in test environments where the repository is H2-backed (FTS5 requires SQLite).
-
 ### GET /notes/search
 
 FTS5 full-text search over note bodies.
@@ -2218,4 +2216,4 @@ fail-closed drop for tag-scoped subscribers is unconditional.
 
 **SSE honors bearer, JWKS, and unauthenticated modes.** The pre-flight auth plugin for the SSE route resolves `Authorization: Bearer` (and, when enabled, `?token=`) using the same shared Bearer-scheme parser as `ApiBearerAuth`, and explicitly short-circuits for `API_AUTH_MODE=none` (§1/§21) exactly like the bearer route. JWKS-mode JWT authentication for SSE is exercised by the automated expiry-watchdog test suite, which sends JWKS-signed tokens through this plugin.
 
-**FTS5 requires SQLite.** Search endpoints (`GET /search`, `GET /notes/search`) return empty results when the repository is H2-backed (test/embedded environments). FTS5 is only available against the production SQLite database.
+**FTS5 requires SQLite.** Search endpoints (`GET /search`, `GET /notes/search`) run on the SQLite FTS5 virtual tables created by the Flyway migrations.

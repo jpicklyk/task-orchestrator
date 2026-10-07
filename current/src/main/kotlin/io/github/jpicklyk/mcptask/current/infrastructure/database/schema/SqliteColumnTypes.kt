@@ -18,7 +18,7 @@ import java.util.UUID
 // declared column type verbatim (SchemaParityTest diffs the two). Read/write behavior is
 // unchanged: every value conversion delegates to Exposed's own column type for the same Kotlin
 // type (JavaInstantColumnType / UUIDColumnType / BooleanColumnType) — only sqlType() differs, and
-// only on SQLite. H2 (the JVM-only repository test dialect) is untouched: sqlType() falls through
+// only on SQLite: sqlType() falls through
 // to the delegate's own sqlType() for every dialect other than SQLite.
 //
 // Deliberately NOT applied to any UUIDTable `id` (primary-key) column: Exposed generates `id`

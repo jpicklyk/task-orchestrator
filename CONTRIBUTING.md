@@ -330,7 +330,7 @@ echo '{"tool_input": {"id": "test", "status": "completed"}}' | \
 
 ### Database Changes
 
-For schema changes, see [docs/developer-guides/database-migrations.md](docs/developer-guides/database-migrations.md).
+For schema changes, follow the migration checklist in [.claude/skills/add-component/SKILL.md](.claude/skills/add-component/SKILL.md).
 
 **Production migrations** (Flyway):
 1. Create file: `src/main/resources/db/migration/sqlite/V{N}__{Description}.sql`
@@ -362,7 +362,18 @@ For schema changes, see [docs/developer-guides/database-migrations.md](docs/deve
 - Use descriptive test names that explain what's being tested
 - Test both success and error cases
 - Mock external dependencies using MockK
-- Use H2 in-memory database for repository tests
+- Repository and route tests run on a real, file-backed SQLite database through the shared fixture
+  `SqliteTestDatabase` (`current/src/test/kotlin/.../test/sqlite/`): a copy of one Flyway-migrated
+  template per JVM, opened through the production `DatabaseManager`. Declare it with
+  `@RegisterExtension val db = SqliteTestDatabase.perMethod()` (a fresh database per test) or, on a
+  companion `@JvmField`, `SqliteTestDatabase.perClass()` (one per class, for read-only tests); use
+  `SqliteTestDatabase.open().use { }` when one test needs several databases. Pass `db.database` (never a
+  global default) to `transaction(db = ...)`.
+- For unit tests that only need collaborators stubbed, use the shared `MockRepositoryProvider`
+  (`current/src/test/kotlin/.../test/MockRepositoryProvider.kt`); it stubs every `RepositoryProvider`
+  accessor and a reflection test fails when a new accessor is left unstubbed.
+- Migration and upgrade tests build their starting database with `UpgradeHarness` (see
+  `UpgradeHarnessTest` and `GoldenV17UpgradeTest`).
 
 **Test Structure**:
 ```kotlin

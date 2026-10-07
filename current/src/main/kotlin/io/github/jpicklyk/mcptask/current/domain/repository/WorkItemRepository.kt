@@ -12,8 +12,8 @@ import java.util.UUID
  * Hard bound on how many levels any repository-level hierarchy traversal will walk.
  *
  * Item depth is intentionally unbounded from V7 onward, so this is not a product limit — it is a
- * corruption backstop. A cyclic `parent_id` edge (reachable through pre-V7 rows, or on H2 where the
- * cycle-check triggers are not installed) otherwise makes every recursive descent run forever.
+ * corruption backstop. A cyclic `parent_id` edge (reachable through pre-V7 rows, before the
+ * cycle-check triggers were installed) otherwise makes every recursive descent run forever.
  * The value sits far above any plausible real tree, so hitting it means the data is cyclic, not deep.
  *
  * Traversals that feed destructive or whole-subtree work ([WorkItemRepository.findDescendants],
@@ -578,8 +578,7 @@ interface WorkItemRepository {
      * When [rootIds] is empty, returns an empty list immediately (no implicit fallback to
      * [findByFilters] — an empty scope set is an unambiguous empty result).
      *
-     * On SQLite the subtree is computed via a single recursive CTE. On H2 (test environment)
-     * a BFS loop is used instead (H2's recursive CTE syntax differs from SQLite's).
+     * The subtree is computed via a single recursive CTE.
      *
      * All filter parameters mirror [findByFilters] exactly and are AND-combined on top of the
      * scope constraint.
@@ -648,10 +647,6 @@ interface WorkItemRepository {
 
     /**
      * Full-text search on work items using the V7 FTS5 virtual tables.
-     *
-     * **H2 (test environment):** FTS5 is SQLite-only. Implementations return an empty
-     * [SearchResult] immediately when the current dialect is H2 — unit tests that exercise
-     * the search path must use a real SQLite DB (see `Fts5MigrationTest`).
      *
      * @param sanitizedFtsQuery FTS5 query string. Callers (QueryItemsTool / FtsQuerySanitizer)
      *   are responsible for sanitizing user input before calling this method. Passing raw user
