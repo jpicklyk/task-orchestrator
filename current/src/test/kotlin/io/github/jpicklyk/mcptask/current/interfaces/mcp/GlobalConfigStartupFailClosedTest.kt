@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
+import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.mockk.mockk
 import io.mockk.verify
 import org.jetbrains.exposed.v1.jdbc.Database
@@ -90,7 +91,7 @@ class GlobalConfigStartupFailClosedTest {
             ServerComposition(
                 appConfig = agentConfigDirAppConfig(tempDir),
                 databaseManager = buildDatabaseManager(),
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
             ).build()
 
         assertEquals(DegradedModePolicy.ACCEPT_CACHED, composition.degradedModePolicy)
@@ -122,7 +123,7 @@ class GlobalConfigStartupFailClosedTest {
         )
         val logger = mockk<Logger>(relaxed = true)
 
-        ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), null, logger).build()
+        ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator(), logger).build()
 
         verify(exactly = 1) { logger.warn(match<String> { it.contains("accept-cached") }) }
     }
@@ -145,7 +146,7 @@ class GlobalConfigStartupFailClosedTest {
         )
         val logger = mockk<Logger>(relaxed = true)
 
-        ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), null, logger).build()
+        ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator(), logger).build()
 
         verify(exactly = 1) { logger.warn(match<String> { it.contains("accept-cached") }) }
     }
@@ -190,7 +191,7 @@ class GlobalConfigStartupFailClosedTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = AppConfig.fromEnv { key -> env[key] }
             )
 
@@ -222,7 +223,7 @@ class GlobalConfigStartupFailClosedTest {
 
         val ex =
             assertFailsWith<IllegalArgumentException> {
-                ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), null).build()
+                ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator()).build()
             }
         assertTrue(ex.message?.contains("banana") == true, "Expected 'banana' in: ${ex.message}")
     }
@@ -239,7 +240,7 @@ class GlobalConfigStartupFailClosedTest {
         writeGlobalConfig(tempDir, jwksConfig(policy = "reject"))
         val logger = mockk<Logger>(relaxed = true)
 
-        ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), null, logger).build()
+        ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator(), logger).build()
 
         verify(exactly = 0) { logger.warn(match<String> { it.contains("accept-cached") }) }
     }
@@ -251,7 +252,7 @@ class GlobalConfigStartupFailClosedTest {
         writeGlobalConfig(tempDir, jwksConfig(policy = "accept-self-reported"))
         val logger = mockk<Logger>(relaxed = true)
 
-        ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), null, logger).build()
+        ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator(), logger).build()
 
         verify(exactly = 0) { logger.warn(match<String> { it.contains("accept-cached") }) }
     }
@@ -270,7 +271,7 @@ class GlobalConfigStartupFailClosedTest {
         )
         val logger = mockk<Logger>(relaxed = true)
 
-        ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), null, logger).build()
+        ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator(), logger).build()
 
         verify(exactly = 0) { logger.warn(match<String> { it.contains("accept-cached") }) }
     }
@@ -283,7 +284,7 @@ class GlobalConfigStartupFailClosedTest {
         val appConfig = agentConfigDirAppConfig(tempDir, extraEnv = mapOf("DEGRADED_MODE_POLICY" to "reject"))
         val logger = mockk<Logger>(relaxed = true)
 
-        ServerComposition(appConfig, buildDatabaseManager(), null, logger).build()
+        ServerComposition(appConfig, buildDatabaseManager(), ShutdownCoordinator(), logger).build()
 
         verify(exactly = 0) { logger.warn(match<String> { it.contains("accept-cached") }) }
     }
@@ -296,7 +297,7 @@ class GlobalConfigStartupFailClosedTest {
         val appConfig = agentConfigDirAppConfig(tempDir, extraEnv = mapOf("DEGRADED_MODE_POLICY" to "accept-cached"))
         val logger = mockk<Logger>(relaxed = true)
 
-        ServerComposition(appConfig, buildDatabaseManager(), null, logger).build()
+        ServerComposition(appConfig, buildDatabaseManager(), ShutdownCoordinator(), logger).build()
 
         verify(exactly = 1) { logger.warn(match<String> { it.contains("accept-cached") }) }
     }

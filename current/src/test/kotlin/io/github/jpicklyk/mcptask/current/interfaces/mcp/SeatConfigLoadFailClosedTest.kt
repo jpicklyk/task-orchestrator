@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
+import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.WRITE_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureProjectConfigTestApp
@@ -173,7 +174,7 @@ class SeatConfigLoadFailClosedTest {
 
         val ex =
             assertFailsWith<IllegalArgumentException> {
-                ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), null).build()
+                ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator()).build()
             }
         assertTrue(ex.message?.contains(configPath.toString()) == true, "message must name the config path: ${ex.message}")
         assertTrue(ex.message?.contains("work") == true, "message must name phase 'work': ${ex.message}")
@@ -187,7 +188,7 @@ class SeatConfigLoadFailClosedTest {
 
         val ex =
             assertFailsWith<IllegalArgumentException> {
-                ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), null).build()
+                ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator()).build()
             }
         assertTrue(ex.message?.contains(configPath.toString()) == true, "message must name the config path: ${ex.message}")
         assertTrue(ex.message?.contains("work") == true, "message must name phase 'work': ${ex.message}")
@@ -284,7 +285,7 @@ class SeatConfigLoadFailClosedTest {
 
         val ex =
             assertFailsWith<IllegalArgumentException> {
-                ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), null).build()
+                ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator()).build()
             }
         assertTrue(ex.message?.contains(configPath.toString()) == true, "message must name the config path: ${ex.message}")
     }
@@ -323,7 +324,7 @@ class SeatConfigLoadFailClosedTest {
 
         val ex =
             assertFailsWith<IllegalArgumentException> {
-                ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), null).build()
+                ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator()).build()
             }
         assertTrue(ex.message?.contains(configPath.toString()) == true, "message must name the config path: ${ex.message}")
         assertTrue(ex.message?.contains("unowned") == true, "message must name the reserved seat name: ${ex.message}")
@@ -363,7 +364,7 @@ class SeatConfigLoadFailClosedTest {
 
         val ex =
             assertFailsWith<IllegalArgumentException> {
-                ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), null).build()
+                ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator()).build()
             }
         assertTrue(ex.message?.contains(configPath.toString()) == true, "message must name the config path: ${ex.message}")
     }
@@ -434,7 +435,7 @@ class SeatConfigLoadFailClosedTest {
         writeGlobalConfig(tempDir, warningsYaml)
 
         // Must NOT throw -- warnings are non-fatal.
-        val composition = ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), null).build()
+        val composition = ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator()).build()
         assertTrue(composition.noteSchemaService.getConfigFingerprint() != null, "the (warning-laden but valid) config must still load")
     }
 

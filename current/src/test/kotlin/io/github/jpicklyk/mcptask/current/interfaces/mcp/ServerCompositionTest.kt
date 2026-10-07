@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
+import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
@@ -36,7 +37,7 @@ class ServerCompositionTest {
             ServerComposition(
                 appConfig = disabledApiConfig(),
                 databaseManager = buildDatabaseManager(),
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
             ).build()
 
         assertNotNull(composition.toolContext, "ToolExecutionContext must be wired")
@@ -51,7 +52,7 @@ class ServerCompositionTest {
             ServerComposition(
                 appConfig = disabledApiConfig(),
                 databaseManager = buildDatabaseManager(),
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
             ).build()
 
         val wiring = composition.apiWiring
@@ -74,7 +75,7 @@ class ServerCompositionTest {
             ServerComposition(
                 appConfig = disabledApiConfig(),
                 databaseManager = buildDatabaseManager(),
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
             ).build()
 
         // With no actor_authentication config present, the verifier is noop → actorAuthEnabled=false.

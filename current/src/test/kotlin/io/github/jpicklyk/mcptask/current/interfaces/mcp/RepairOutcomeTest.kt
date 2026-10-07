@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.mockk.every
 import io.mockk.mockkConstructor
 import io.mockk.unmockkAll
@@ -58,7 +59,7 @@ class RepairOutcomeTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = repairAppConfig(tempDir, readinessFile = readinessFile),
                 onBeforeTransportStart = { transportStarted = true }
             )
@@ -77,7 +78,7 @@ class RepairOutcomeTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = repairAppConfig(tempDir)
             )
 
@@ -99,7 +100,7 @@ class RepairOutcomeTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = repairAppConfig(tempDir)
             )
 
@@ -132,7 +133,7 @@ class RepairOutcomeTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = AppConfig.fromEnv { key -> env[key] }
             )
 

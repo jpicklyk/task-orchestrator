@@ -105,7 +105,7 @@ class V9RootIdMigrationTest {
      */
     private fun applyV9Migration() {
         val resourceStream =
-            requireNotNull(Thread.currentThread().contextClassLoader.getResourceAsStream("db/migration/V9__Add_Root_Id.sql")) {
+            requireNotNull(Thread.currentThread().contextClassLoader.getResourceAsStream("db/migration/sqlite/V9__Add_Root_Id.sql")) {
                 "V9__Add_Root_Id.sql not found on the test classpath"
             }
         val sqlText = resourceStream.bufferedReader(Charsets.UTF_8).use { it.readText() }

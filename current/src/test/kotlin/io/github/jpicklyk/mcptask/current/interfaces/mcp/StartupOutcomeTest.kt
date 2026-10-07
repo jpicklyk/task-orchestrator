@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.mockk.every
 import io.mockk.mockkConstructor
 import io.mockk.unmockkAll
@@ -72,7 +73,7 @@ class StartupOutcomeTest {
         mockkConstructor(DatabaseManager::class)
         every { anyConstructed<DatabaseManager>().initialize(any()) } returns false
 
-        val server = CurrentMcpServer(version = "test", shutdownCoordinator = null, appConfig = AppConfig.fromEnv { null })
+        val server = CurrentMcpServer(version = "test", shutdownCoordinator = ShutdownCoordinator(), appConfig = AppConfig.fromEnv { null })
         val outcome = server.run()
 
         assertTrue(outcome is Failed, "expected Failed, got $outcome")
@@ -85,7 +86,7 @@ class StartupOutcomeTest {
         every { anyConstructed<DatabaseManager>().initialize(any()) } returns true
         every { anyConstructed<DatabaseManager>().updateSchema() } returns false
 
-        val server = CurrentMcpServer(version = "test", shutdownCoordinator = null, appConfig = AppConfig.fromEnv { null })
+        val server = CurrentMcpServer(version = "test", shutdownCoordinator = ShutdownCoordinator(), appConfig = AppConfig.fromEnv { null })
         val outcome = server.run()
 
         assertTrue(outcome is Failed, "expected Failed, got $outcome")
@@ -107,7 +108,7 @@ class StartupOutcomeTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = AppConfig.fromEnv { key -> env[key] }
             )
         val outcome = server.run()
@@ -133,7 +134,7 @@ class StartupOutcomeTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = AppConfig.fromEnv { key -> env[key] }
             )
         val outcome = server.run()
@@ -184,7 +185,7 @@ class StartupOutcomeTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = invalidTransportAppConfig(tempDir, transportValue)
             )
         val outcome = server.run()

@@ -73,7 +73,7 @@ class V15ResourceLeasesMigrationTest {
     private fun applyV15Migration() {
         val resourceStream =
             requireNotNull(
-                Thread.currentThread().contextClassLoader.getResourceAsStream("db/migration/V15__Resource_Leases.sql")
+                Thread.currentThread().contextClassLoader.getResourceAsStream("db/migration/sqlite/V15__Resource_Leases.sql")
             ) { "V15__Resource_Leases.sql not found on the test classpath" }
         val sqlText = resourceStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
         val withoutComments =

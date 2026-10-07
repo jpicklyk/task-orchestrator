@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLo
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
+import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
 import kotlin.test.assertIs
@@ -41,7 +42,7 @@ class ServerCompositionResolverWiringTest {
             ServerComposition(
                 appConfig = disabledApiConfig(),
                 databaseManager = buildDatabaseManager(),
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
             ).build()
 
         assertSame(

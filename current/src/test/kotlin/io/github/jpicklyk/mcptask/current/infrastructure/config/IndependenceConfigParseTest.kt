@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.managem
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
@@ -170,7 +171,7 @@ class IndependenceConfigParseTest {
         materializeGlobalConfig(tempDir, globalConfig)
         val appConfig = AppConfig.fromEnv { key -> if (key == "AGENT_CONFIG_DIR") tempDir.toString() else null }
         return io.github.jpicklyk.mcptask.current.interfaces.mcp
-            .ServerComposition(appConfig = appConfig, databaseManager = buildDatabaseManager(), shutdownCoordinator = null)
+            .ServerComposition(appConfig = appConfig, databaseManager = buildDatabaseManager(), shutdownCoordinator = ShutdownCoordinator())
             .build()
     }
 
