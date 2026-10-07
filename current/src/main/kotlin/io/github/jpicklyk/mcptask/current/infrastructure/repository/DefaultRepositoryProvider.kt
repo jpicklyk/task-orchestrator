@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
@@ -43,8 +44,6 @@ class DefaultRepositoryProvider(
     override fun planDocumentRepository(): PlanDocumentRepository = planDocumentRepo
 
     override fun resourceLeaseRepository(): ResourceLeaseRepository = resourceLeaseRepo
-
-    override fun database(): org.jetbrains.exposed.v1.jdbc.Database? = databaseManager.getDatabase()
 
     override fun workTreeExecutor(): WorkTreeExecutor = workTreeExecutorInstance
 }

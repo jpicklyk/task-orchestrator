@@ -60,7 +60,6 @@ class CreateWorkTreeToolTest {
         every { repoProvider.dependencyRepository() } returns mockk()
         every { repoProvider.noteRepository() } returns mockk()
         every { repoProvider.roleTransitionRepository() } returns mockk()
-        every { repoProvider.database() } returns null
         every { repoProvider.workTreeExecutor() } returns mockExecutor
 
         context = ToolExecutionContext(repoProvider)
@@ -251,7 +250,6 @@ class CreateWorkTreeToolTest {
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.database() } returns null
             every { provider2.workTreeExecutor() } returns mockExecutor2
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
 
@@ -823,7 +821,6 @@ class CreateWorkTreeToolTest {
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.database() } returns null
             every { provider2.workTreeExecutor() } returns mockExecutor2
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
 
@@ -893,7 +890,6 @@ class CreateWorkTreeToolTest {
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.database() } returns null
             every { provider2.workTreeExecutor() } returns mockExecutor2
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
 
@@ -966,7 +962,6 @@ class CreateWorkTreeToolTest {
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.database() } returns null
             every { provider2.workTreeExecutor() } returns mockExecutor2
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
 
@@ -1032,7 +1027,6 @@ class CreateWorkTreeToolTest {
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.database() } returns null
             every { provider2.workTreeExecutor() } returns mockExecutor2
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
 
@@ -1103,7 +1097,6 @@ class CreateWorkTreeToolTest {
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.database() } returns null
             every { provider2.workTreeExecutor() } returns mockExecutor2
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
 
@@ -1416,7 +1409,6 @@ class CreateWorkTreeToolTest {
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.database() } returns null
             every { provider2.workTreeExecutor() } returns mockExecutor2
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
 
@@ -1805,7 +1797,6 @@ class CreateWorkTreeToolTest {
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.database() } returns null
             every { provider2.workTreeExecutor() } returns mockExecutor2
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
 
@@ -1867,7 +1858,6 @@ class CreateWorkTreeToolTest {
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.database() } returns null
             every { provider2.workTreeExecutor() } returns mockExecutor2
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
 
@@ -1930,7 +1920,6 @@ class CreateWorkTreeToolTest {
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.database() } returns null
             every { provider2.workTreeExecutor() } returns mockExecutor2
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
 
@@ -2105,7 +2094,6 @@ class CreateWorkTreeToolTest {
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.database() } returns null
             every { provider2.workTreeExecutor() } returns mockExecutor2
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
 

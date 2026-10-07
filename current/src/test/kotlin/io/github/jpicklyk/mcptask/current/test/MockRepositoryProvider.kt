@@ -34,7 +34,6 @@ class MockRepositoryProvider {
         every { provider.noteRepository() } returns noteRepo
         every { provider.dependencyRepository() } returns depRepo
         every { provider.roleTransitionRepository() } returns roleTransitionRepo
-        every { provider.database() } returns null
         every { provider.workTreeExecutor() } returns workTreeExecutor
         // Default: workItemRepo.dbNow() returns JVM time (suitable for tests not exercising clock skew)
         coEvery { workItemRepo.dbNow() } returns Instant.now()

@@ -2,6 +2,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
@@ -21,9 +23,10 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlActorAuthent
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlNoteSchemaService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.database.SqliteUnitOfWork
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
+import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
@@ -74,6 +77,7 @@ class CompositionResult(
     val actorAuthEnabled: Boolean,
     val configResolver: EffectiveConfigResolver,
     val advanceServiceFactory: AdvanceServiceFactory,
+    val unitOfWork: UnitOfWork,
 )
 
 /**
@@ -154,6 +158,8 @@ class ServerComposition(
         // REST previously built its own PerRootConfigService (a separate last-known-good cache);
         // sharing this instance is the only intended observable behavior change in this item.
         val configResolver = EffectiveConfigResolver(LayerBackedGlobalLookup(globalConfigFile.layer()), perRootConfigService)
+        // The unit of work hands scopes the SAME (possibly event-publishing) provider the tools use.
+        val unitOfWork: UnitOfWork = SqliteUnitOfWork(databaseManager, effectiveProvider, SystemClock)
         val toolContext =
             ToolExecutionContext(
                 repositoryProvider = effectiveProvider,
@@ -165,6 +171,8 @@ class ServerComposition(
                 nextItemRecommender = nextItemRecommender,
                 perRootConfigService = perRootConfigService,
                 configResolver = configResolver,
+                clock = SystemClock,
+                unitOfWork = unitOfWork,
             )
         logger.info(
             "Repository provider and tool context initialized (API {})",
@@ -187,6 +195,7 @@ class ServerComposition(
             actorAuthEnabled = actorAuthEnabled,
             configResolver = configResolver,
             advanceServiceFactory = toolContext.advanceServiceFactory(),
+            unitOfWork = unitOfWork,
         )
     }
 

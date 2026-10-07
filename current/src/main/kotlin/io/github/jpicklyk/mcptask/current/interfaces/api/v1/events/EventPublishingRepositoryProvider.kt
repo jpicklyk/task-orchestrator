@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
@@ -19,7 +20,6 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseReposit
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.UUID
@@ -565,8 +565,6 @@ class EventPublishingRepositoryProvider(
 
     // No event publishing for resource leases — pure pass-through decorator.
     override fun resourceLeaseRepository(): ResourceLeaseRepository = delegate.resourceLeaseRepository()
-
-    override fun database() = delegate.database()
 
     override fun workTreeExecutor(): WorkTreeExecutor = wrappedWorkTreeExecutor
 

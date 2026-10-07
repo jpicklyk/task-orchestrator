@@ -28,7 +28,6 @@ import org.jetbrains.exposed.v1.core.vendors.H2Dialect
 import org.jetbrains.exposed.v1.core.vendors.currentDialect
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.upsert
 import org.slf4j.LoggerFactory
 import java.time.Instant
@@ -41,7 +40,7 @@ class SQLiteNoteRepository(
     private val databaseManager: DatabaseManager
 ) : NoteRepository {
     override suspend fun getById(id: UUID): Result<Note> =
-        databaseManager.suspendedTransaction("Failed to get Note by id") {
+        databaseManager.readResult("Failed to get Note by id") {
             val row = NotesTable.selectAll().where { NotesTable.id eq id }.singleOrNull()
             if (row != null) {
                 Result.Success(mapRowToNote(row))
@@ -145,18 +144,18 @@ class SQLiteNoteRepository(
     }
 
     override suspend fun upsert(note: Note): Result<Note> =
-        databaseManager.suspendedTransaction("Failed to upsert Note") {
+        databaseManager.writeResult("NoteRepository.upsert", "Failed to upsert Note") {
             upsertRow(note)
         }
 
     override suspend fun delete(id: UUID): Result<Boolean> =
-        databaseManager.suspendedTransaction("Failed to delete Note") {
+        databaseManager.writeResult("NoteRepository.delete", "Failed to delete Note") {
             val deletedCount = NotesTable.deleteWhere { NotesTable.id eq id }
             Result.Success(deletedCount > 0)
         }
 
     override suspend fun deleteByItemId(itemId: UUID): Result<Int> =
-        databaseManager.suspendedTransaction("Failed to delete Notes by itemId") {
+        databaseManager.writeResult("NoteRepository.deleteByItemId", "Failed to delete Notes by itemId") {
             val deletedCount = NotesTable.deleteWhere { NotesTable.itemId eq itemId }
             Result.Success(deletedCount)
         }
@@ -165,7 +164,7 @@ class SQLiteNoteRepository(
         itemId: UUID,
         role: String?
     ): Result<List<Note>> =
-        databaseManager.suspendedTransaction("Failed to find Notes by itemId") {
+        databaseManager.readResult("Failed to find Notes by itemId") {
             val notes =
                 if (role != null) {
                     NotesTable
@@ -181,7 +180,7 @@ class SQLiteNoteRepository(
 
     override suspend fun findByItemIds(itemIds: Set<UUID>): Result<Map<UUID, List<Note>>> {
         if (itemIds.isEmpty()) return Result.Success(emptyMap())
-        return databaseManager.suspendedTransaction("Failed to find Notes by itemIds") {
+        return databaseManager.readResult("Failed to find Notes by itemIds") {
             val notes =
                 NotesTable
                     .selectAll()
@@ -195,7 +194,7 @@ class SQLiteNoteRepository(
         itemId: UUID,
         key: String
     ): Result<Note?> =
-        databaseManager.suspendedTransaction("Failed to find Note by itemId and key") {
+        databaseManager.readResult("Failed to find Note by itemId and key") {
             val row =
                 NotesTable
                     .selectAll()
@@ -287,11 +286,11 @@ class SQLiteNoteRepository(
         val effectiveLimit = limit.coerceIn(1, MAX_FTS_RESULTS)
 
         return try {
-            suspendTransaction(db = databaseManager.getDatabase()) {
+            databaseManager.readTx {
                 // currentDialect is only accessible within an active transaction.
                 // FTS5 is SQLite-only — return empty for H2 (test environment).
                 if (currentDialect is H2Dialect) {
-                    return@suspendTransaction SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
+                    return@readTx SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
                 }
                 val uuidType = UUIDColumnType()
                 val varcharType = VarCharColumnType(4000)
@@ -437,7 +436,7 @@ class SQLiteNoteRepository(
 
                 val allRowIds = (trigramHits.keys + textHits.keys).toSet()
                 if (allRowIds.isEmpty()) {
-                    return@suspendTransaction SearchResult(
+                    return@readTx SearchResult(
                         hits = emptyList(),
                         totalHits = 0,
                         nextOffset = null,

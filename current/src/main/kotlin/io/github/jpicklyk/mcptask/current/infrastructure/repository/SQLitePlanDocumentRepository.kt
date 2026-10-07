@@ -39,7 +39,7 @@ class SQLitePlanDocumentRepository(
         slug: String,
         body: String
     ): Result<PlanDocumentStashOutcome> =
-        databaseManager.suspendedTransaction("Failed to stash PlanDocument") {
+        databaseManager.writeResult("PlanDocumentRepository.stash", "Failed to stash PlanDocument") {
             val existing =
                 PlanDocumentsTable
                     .selectAll()
@@ -47,7 +47,7 @@ class SQLitePlanDocumentRepository(
                     .singleOrNull()
 
             if (existing != null && existing[PlanDocumentsTable.status] == PlanDocumentStatus.ADOPTED.toDbValue()) {
-                return@suspendedTransaction Result.Success(
+                return@writeResult Result.Success(
                     PlanDocumentStashOutcome.AdoptedConflict(mapRowToPlanDocument(existing))
                 )
             }
@@ -88,7 +88,7 @@ class SQLitePlanDocumentRepository(
         rootItemId: UUID,
         slug: String
     ): Result<PlanDocument?> =
-        databaseManager.suspendedTransaction("Failed to get PlanDocument") {
+        databaseManager.readResult("Failed to get PlanDocument") {
             val row =
                 PlanDocumentsTable
                     .selectAll()
@@ -101,7 +101,7 @@ class SQLitePlanDocumentRepository(
         rootItemId: UUID,
         status: PlanDocumentStatus?
     ): Result<List<PlanDocumentSummary>> =
-        databaseManager.suspendedTransaction("Failed to list PlanDocuments") {
+        databaseManager.readResult("Failed to list PlanDocuments") {
             var query =
                 PlanDocumentsTable
                     .select(
@@ -126,7 +126,7 @@ class SQLitePlanDocumentRepository(
         slug: String,
         adoptedByItemId: UUID
     ): Result<PlanDocumentAdoptOutcome> =
-        databaseManager.suspendedTransaction("Failed to mark PlanDocument adopted") {
+        databaseManager.writeResult("PlanDocumentRepository.markAdopted", "Failed to mark PlanDocument adopted") {
             Result.Success(markAdoptedRow(rootItemId, slug, adoptedByItemId))
         }
 
