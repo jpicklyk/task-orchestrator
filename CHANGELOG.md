@@ -34,10 +34,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   schemas `delegation-metadata` is no longer assigned to the implicit implementer: it moves to the
   item's `orchestratorNotes`, the seat prompt says never to write it, and the orchestrator records it.
   Plans without `optionalNotes` audit exactly as before.
+- **Fixed: yaml-lite section matching.** The hook-side YAML reader now matches only column-0 section headers and first-level keys, so a nested key with the same name as a top-level section is no longer read as that section.
+- **Fixed: hook output shapes and ralph git calls.** `retro-trigger` reads `structuredContent` first when parsing MCP results, the `config-sync` FileChanged hook reports through a top-level `systemMessage`, and the ralph loop's worktree git calls pass arguments as an argv array instead of a shell string.
 
 ### Fixed
 
+- **`GET /api/v1/transitions` scope filter fails closed.** When the scope lookup for a scoped token errors, every scoped row in that scan is dropped instead of being returned unfiltered.
+- **Per-item transitions paging honours `page`.** The per-item transitions listing now returns the requested page rather than always the first.
+- **`GET /api/v1/items/{id}` no longer returns `304` with a recognized `include`.** With `include=notes`, `deps` or `children` the response is always `200` and ignores `If-None-Match`; `304` applies only when no recognized include is requested.
+- **MCP and REST share one item placement pipeline.** Creating and reparenting items runs the same placement validation on both surfaces, and the reparent cycle check fails closed when an ancestor lookup errors, on both surfaces.
+- **Subtree delete, reparent and complete scale past the SQLite variable limit.** Id lists are chunked, and a subtree delete runs in bulk by traversal level; SSE delete events are now emitted per traversal level.
+- **A Direct-mode database opened under Flyway fails fast.** A database created with `USE_FLYWAY=false` is refused with an actionable error instead of being migrated, and Flyway `clean` is disabled.
+- **Stale readiness marker cleared at startup.** The `READINESS_FILE` marker left by a crashed run is removed before DB init, so the Docker health check cannot report ready before startup succeeds.
+- **The server ignores `actor_authentication.enabled`.** The key is read only by the plugin hook (client-side config); claim ownership is enforced by the server whenever an item is claimed, and a call with no actor on a claimed item is rejected.
 - **stdio transport shuts down on stdin EOF.** In `stdio` mode the server only exited on a signal, so a host that just closed stdin (`docker run -i` pipelines, CI harnesses) left a running process with an open database and a healthy readiness marker. The transport's close callback now completes the run and triggers the normal shutdown sequence (marker cleared, database closed).
+- **Terminal cascades honour the BLOCKED hold and blocking dependencies.** A terminal cascade previously applied the parent's TERMINAL transition without validation, so a held (`blocked`) parent or one with an unmet blocking dependency was silently completed when its last child finished. `AdvanceService` now suppresses it (`applied: false`, climb stops) before the note gate, for cancel-originated cascades too, and reports `roleBlocked` or `dependencyBlocked` + `blockers` on the `cascadeEvents` entry (MCP `advance_item`/`complete_tree` and REST `CascadeEventDto`).
+
+### Changed
+
+- **Static JWKS actor verifier warns when `audience`/`issuer` are missing.** A `type: jwks` verifier in static mode (`jwks_uri`/`jwks_path`/`oidc_discovery`) with no `audience`, or no `issuer` when `oidc_discovery` is not set, logs a startup WARN; an `oidc_discovery` config whose discovery document supplies no `issuer` logs a one-time WARN. Behaviour is unchanged: such configs still parse and verify tokens exactly as before. Set `audience` (and `issuer` for `jwks_uri`/`jwks_path`) to bind tokens to this server.
+- **Unparsable list filter values now return `400 validation_error`.** An unrecognized `role`, `priority` or `claimStatus` filter value on the REST list and search routes is rejected instead of being silently ignored; matching stays case-insensitive.
 
 ## [3.16.0] - 2026-10-02
 

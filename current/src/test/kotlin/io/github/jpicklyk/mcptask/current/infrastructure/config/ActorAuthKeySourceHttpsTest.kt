@@ -62,6 +62,8 @@ class ActorAuthKeySourceHttpsTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - RS256
@@ -84,6 +86,8 @@ class ActorAuthKeySourceHttpsTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "HTTPS://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - RS256
@@ -103,6 +107,7 @@ class ActorAuthKeySourceHttpsTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
                     oidc_discovery: "https://accounts.example.com/.well-known/openid-configuration"
                     algorithms:
                       - RS256
@@ -122,6 +127,8 @@ class ActorAuthKeySourceHttpsTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_path: "/etc/keys/jwks.json"
                     algorithms:
                       - RS256
@@ -176,6 +183,8 @@ class ActorAuthKeySourceHttpsTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "http://localhost:8080/j"
                     allow_insecure_url: true
                     algorithms:
@@ -197,6 +206,8 @@ class ActorAuthKeySourceHttpsTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "http://127.0.0.1:9000/j"
                     allow_insecure_url: true
                     algorithms:
@@ -217,6 +228,8 @@ class ActorAuthKeySourceHttpsTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "http://[::1]:9000/j"
                     allow_insecure_url: true
                     algorithms:
@@ -237,6 +250,8 @@ class ActorAuthKeySourceHttpsTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - RS256
@@ -269,6 +284,8 @@ class ActorAuthKeySourceHttpsTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "http://idp.example/j"
                     algorithms:
                       - RS256
@@ -290,6 +307,7 @@ class ActorAuthKeySourceHttpsTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
                     oidc_discovery: "http://idp.example/.well-known/openid-configuration"
                     algorithms:
                       - RS256
@@ -316,6 +334,8 @@ class ActorAuthKeySourceHttpsTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "file:///j.json"
                     allow_insecure_url: true
                     algorithms:
@@ -338,6 +358,8 @@ class ActorAuthKeySourceHttpsTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "ftp://idp/j"
                     allow_insecure_url: true
                     algorithms:
@@ -360,6 +382,8 @@ class ActorAuthKeySourceHttpsTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "not a url"
                     algorithms:
                       - RS256
@@ -387,6 +411,8 @@ class ActorAuthKeySourceHttpsTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "http://auth.example.com/j"
                     allow_insecure_url: true
                     algorithms:
@@ -406,6 +432,8 @@ class ActorAuthKeySourceHttpsTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "http://127.0.0.1.evil.com/j"
                     allow_insecure_url: true
                     algorithms:
@@ -425,6 +453,8 @@ class ActorAuthKeySourceHttpsTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "http://localhost.evil.com/j"
                     allow_insecure_url: true
                     algorithms:
@@ -444,6 +474,8 @@ class ActorAuthKeySourceHttpsTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "http://127.0.0.256/j"
                     allow_insecure_url: true
                     algorithms:
@@ -463,6 +495,8 @@ class ActorAuthKeySourceHttpsTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "http://127.0.0.1%2eevil.com/j"
                     allow_insecure_url: true
                     algorithms:
@@ -487,6 +521,8 @@ class ActorAuthKeySourceHttpsTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     allow_insecure_url: "true"
                     algorithms:
@@ -513,6 +549,8 @@ class ActorAuthKeySourceHttpsTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     allow_insecure_url: 1
                     algorithms:

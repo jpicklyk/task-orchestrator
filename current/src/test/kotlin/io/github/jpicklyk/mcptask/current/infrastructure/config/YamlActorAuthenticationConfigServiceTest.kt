@@ -1,11 +1,16 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
+import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import io.github.jpicklyk.mcptask.current.domain.model.ActorAuthenticationConfig
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import org.slf4j.LoggerFactory
 import java.io.File
 import java.nio.file.Path
 
@@ -24,7 +29,6 @@ class YamlActorAuthenticationConfigServiceTest {
 
         val config = service.getConfig()
         assertEquals(ActorAuthenticationConfig(), config)
-        assertTrue(config.enabled)
         assertEquals(VerifierConfig.Noop, config.verifier)
         assertTrue(service.getWarnings().isEmpty())
     }
@@ -41,7 +45,6 @@ class YamlActorAuthenticationConfigServiceTest {
         val service = YamlActorAuthenticationConfigService(configFile)
 
         val config = service.getConfig()
-        assertTrue(config.enabled)
         assertEquals(VerifierConfig.Noop, config.verifier)
         assertTrue(service.getWarnings().isEmpty())
     }
@@ -219,6 +222,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_path: "/etc/keys/jwks.json"
                     algorithms:
                       - EdDSA
@@ -243,6 +248,7 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
                     oidc_discovery: "https://accounts.example.com/.well-known/openid-configuration"
                     algorithms:
                       - EdDSA
@@ -267,6 +273,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - EdDSA
@@ -295,6 +303,7 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
                     issuer: "https://accounts.example.com"
                 """.trimIndent()
             )
@@ -339,6 +348,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - RS256
@@ -360,6 +371,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - EdDSA
@@ -379,6 +392,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - EdDSA
@@ -398,6 +413,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                 """.trimIndent()
             )
@@ -415,6 +432,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms: []
                 """.trimIndent()
@@ -433,6 +452,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - EdDSA
@@ -452,6 +473,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - EdDSA
@@ -472,6 +495,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - EdDSA
@@ -485,19 +510,24 @@ class YamlActorAuthenticationConfigServiceTest {
     }
 
     @Test
-    fun `actor_authentication enabled flag false is respected`() {
-        val configFile =
-            createConfigFile(
-                """
-                actor_authentication:
-                  enabled: false
-                  verifier:
-                    type: noop
-                """.trimIndent()
-            )
-        val service = YamlActorAuthenticationConfigService(configFile)
+    fun `actor_authentication enabled key is ignored by the server`() {
+        fun load(flag: Boolean) =
+            YamlActorAuthenticationConfigService(
+                createConfigFile(
+                    """
+                    actor_authentication:
+                      enabled: $flag
+                      verifier:
+                        type: noop
+                    """.trimIndent()
+                )
+            ).getConfig()
 
-        assertFalse(service.getConfig().enabled)
+        val off = load(false)
+        val on = load(true)
+
+        assertEquals(off, on)
+        assertEquals(ActorAuthenticationConfig(), off)
     }
 
     // -------------------------------------------------------------------------
@@ -964,6 +994,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - EdDSA
@@ -991,6 +1023,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     jwks_path: "/etc/keys/jwks.json"
                     algorithms:
@@ -1013,6 +1047,7 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
                     oidc_discovery: "https://accounts.example.com/.well-known/openid-configuration"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
@@ -1083,6 +1118,299 @@ class YamlActorAuthenticationConfigServiceTest {
             ex.message?.contains(configFile.toString()) == true,
             "Expected the config path to be named, got: ${ex.message}"
         )
+    }
+
+    // -------------------------------------------------------------------------
+    // F-011: static JWKS mode warns (never fails) when audience/issuer are missing
+    // -------------------------------------------------------------------------
+
+    private class WarnCapture : AutoCloseable {
+        private val logbackLogger =
+            LoggerFactory.getLogger(YamlActorAuthenticationConfigService::class.java) as Logger
+        private val appender =
+            ListAppender<ILoggingEvent>().also {
+                it.start()
+                logbackLogger.addAppender(it)
+            }
+        private val savedLevel = logbackLogger.level
+
+        init {
+            logbackLogger.level = Level.WARN
+        }
+
+        fun warnings(): List<String> = appender.list.filter { it.level == Level.WARN }.map { it.formattedMessage }
+
+        override fun close() {
+            logbackLogger.detachAppender(appender)
+            logbackLogger.level = savedLevel
+        }
+    }
+
+    private fun loadWithWarnings(yaml: String): Pair<VerifierConfig.Jwks, List<String>> =
+        WarnCapture().use { capture ->
+            val service = YamlActorAuthenticationConfigService(createConfigFile(yaml.trimIndent()))
+            val v = service.getConfig().verifier as VerifierConfig.Jwks
+            v to capture.warnings()
+        }
+
+    @Test
+    fun `jwks_uri without audience or issuer parses and warns naming both`() {
+        val (v, warns) =
+            loadWithWarnings(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://idp.example/jwks.json"
+                    algorithms: [RS256]
+                """
+            )
+        assertNull(v.audience)
+        assertNull(v.issuer)
+        assertEquals(1, warns.size, warns.toString())
+        assertTrue(warns[0].contains("audience and issuer"), warns[0])
+    }
+
+    @Test
+    fun `jwks_uri with issuer but no audience parses and warns naming audience`() {
+        val (v, warns) =
+            loadWithWarnings(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://idp.example/jwks.json"
+                    issuer: "https://idp.example"
+                    algorithms: [RS256]
+                """
+            )
+        assertNull(v.audience)
+        assertEquals("https://idp.example", v.issuer)
+        assertEquals(1, warns.size, warns.toString())
+        assertTrue(warns[0].contains("has no audience;"), warns[0])
+    }
+
+    @Test
+    fun `jwks_path with audience but no issuer parses and warns naming issuer`() {
+        val (v, warns) =
+            loadWithWarnings(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_path: "/etc/keys/jwks.json"
+                    audience: "aud"
+                    algorithms: [RS256]
+                """
+            )
+        assertEquals("aud", v.audience)
+        assertNull(v.issuer)
+        assertEquals(1, warns.size, warns.toString())
+        assertTrue(warns[0].contains("has no issuer;"), warns[0])
+    }
+
+    @Test
+    fun `oidc_discovery with audience and no issuer parses without an issuer warning`() {
+        val (v, warns) =
+            loadWithWarnings(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    oidc_discovery: "https://idp.example/.well-known/openid-configuration"
+                    audience: "aud"
+                    algorithms: [RS256]
+                """
+            )
+        assertNull(v.issuer)
+        assertEquals("aud", v.audience)
+        assertTrue(warns.isEmpty(), warns.toString())
+    }
+
+    @Test
+    fun `oidc_discovery without audience parses and warns naming audience only`() {
+        val (v, warns) =
+            loadWithWarnings(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    oidc_discovery: "https://idp.example/.well-known/openid-configuration"
+                    algorithms: [RS256]
+                """
+            )
+        assertNull(v.audience)
+        assertEquals(1, warns.size, warns.toString())
+        assertTrue(warns[0].contains("has no audience;"), warns[0])
+    }
+
+    @Test
+    fun `jwks static mode with empty audience parses as written and warns`() {
+        val (v, warns) =
+            loadWithWarnings(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://idp.example/jwks.json"
+                    issuer: "https://idp.example"
+                    audience: ""
+                    algorithms: [RS256]
+                """
+            )
+        assertEquals("", v.audience)
+        assertEquals(1, warns.size, warns.toString())
+        assertTrue(warns[0].contains("has no audience;"), warns[0])
+    }
+
+    @Test
+    fun `jwks static mode with whitespace audience parses as written and warns`() {
+        val (v, warns) =
+            loadWithWarnings(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://idp.example/jwks.json"
+                    issuer: "https://idp.example"
+                    audience: "  "
+                    algorithms: [RS256]
+                """
+            )
+        assertEquals("  ", v.audience)
+        assertEquals(1, warns.size, warns.toString())
+        assertTrue(warns[0].contains("has no audience;"), warns[0])
+    }
+
+    @Test
+    fun `jwks static mode with empty issuer parses as written and warns`() {
+        val (v, warns) =
+            loadWithWarnings(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_path: "/etc/keys/jwks.json"
+                    audience: "aud"
+                    issuer: ""
+                    algorithms: [RS256]
+                """
+            )
+        assertEquals("", v.issuer)
+        assertEquals(1, warns.size, warns.toString())
+        assertTrue(warns[0].contains("has no issuer;"), warns[0])
+    }
+
+    @Test
+    fun `jwks static mode with whitespace issuer parses as written and warns`() {
+        val (v, warns) =
+            loadWithWarnings(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_path: "/etc/keys/jwks.json"
+                    audience: "aud"
+                    issuer: "  "
+                    algorithms: [RS256]
+                """
+            )
+        assertEquals("  ", v.issuer)
+        assertEquals(1, warns.size, warns.toString())
+        assertTrue(warns[0].contains("has no issuer;"), warns[0])
+    }
+
+    @Test
+    fun `oidc_discovery with blank audience parses as written and warns`() {
+        val (v, warns) =
+            loadWithWarnings(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    oidc_discovery: "https://idp.example/.well-known/openid-configuration"
+                    audience: "  "
+                    algorithms: [RS256]
+                """
+            )
+        assertEquals("  ", v.audience)
+        assertEquals(1, warns.size, warns.toString())
+        assertTrue(warns[0].contains("has no audience;"), warns[0])
+    }
+
+    @Test
+    fun `audience and issuer both set logs no warning`() {
+        val (v, warns) =
+            loadWithWarnings(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://idp.example/jwks.json"
+                    issuer: "https://idp.example"
+                    audience: "aud"
+                    algorithms: [RS256]
+                """
+            )
+        assertEquals("aud", v.audience)
+        assertTrue(warns.isEmpty(), warns.toString())
+    }
+
+    @Test
+    fun `DID mode without audience or issuer parses without a warning`() {
+        val (v, warns) =
+            loadWithWarnings(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    did_allowlist:
+                      - "did:web:agent.example"
+                    algorithms: [EdDSA]
+                """
+            )
+        assertNull(v.issuer)
+        assertNull(v.audience)
+        assertTrue(warns.isEmpty(), warns.toString())
+    }
+
+    @Test
+    fun `AgentLair-shaped config with jwks_path and no issuer or audience parses and warns`() {
+        val jwksFile = File(tempDir.toFile(), "jwks.json")
+        jwksFile.writeText("""{"keys":[]}""")
+        val jwksPathYaml = jwksFile.absolutePath.replace(File.separatorChar, '/')
+        val (v, warns) =
+            loadWithWarnings(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_path: "$jwksPathYaml"
+                    algorithms: [EdDSA]
+                """
+            )
+        assertEquals(jwksPathYaml, v.jwksPath)
+        assertNull(v.issuer)
+        assertNull(v.audience)
+        assertEquals(1, warns.size, warns.toString())
+        assertTrue(warns[0].contains("audience and issuer"), warns[0])
+    }
+
+    @Test
+    fun `empty algorithms error still wins over missing audience`() {
+        val service =
+            YamlActorAuthenticationConfigService(
+                createConfigFile(
+                    """
+                    actor_authentication:
+                      verifier:
+                        type: jwks
+                        jwks_uri: "https://idp.example/jwks.json"
+                    """.trimIndent()
+                )
+            )
+        val msg = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }.message
+        assertTrue(msg!!.contains("algorithms"), msg)
     }
 
     // -------------------------------------------------------------------------

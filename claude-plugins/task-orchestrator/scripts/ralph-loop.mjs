@@ -10,7 +10,7 @@
 // Stdlib-only. Node 18+.
 
 import { parseArgs, promisify } from "node:util";
-import { spawn, exec } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -23,9 +23,15 @@ import {
     buildIterationArgs,
     decideIdleBackoff,
     buildIterationEnv,
+    worktreeNameForOutcome,
+    resumeCwd,
+    renameWorktree,
+    maybeCleanupWorktree,
 } from "./ralph-lib.mjs";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+// Injected git runner for ralph-lib worktree helpers: argv array, no shell.
+const gitIo = { git: (args) => execFileAsync("git", args) };
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PROMPT_PATH = path.resolve(HERE, "../skills/ralph/iteration-prompt.md");
@@ -238,7 +244,7 @@ while (stats.iterations < cfg.max) {
             `  ↳ no RALPH_OUTCOME marker; resuming session ${envelope.session_id} ` +
                 `(continuation ${continuationsUsed}/${cfg.maxContinuations}, $${decision.remainingUsd.toFixed(2)} remaining)`
         );
-        currentCwd = path.resolve(".claude", "worktrees", tempWorktreeName);
+        currentCwd = resumeCwd(tempWorktreeName);
         currentArgs = buildResumeArgs({
             sessionId: envelope.session_id,
             cfg,
@@ -257,9 +263,9 @@ while (stats.iterations < cfg.max) {
     // now, so file locks aren't a concern (incl. on Windows). On rename
     // failure, we keep the temp name and continue — purely cosmetic.
     if (outcome.itemId) {
-        const uuidWorktreeName = `ralph-${outcome.itemId.slice(0, 8)}-${iterIndex}`;
+        const uuidWorktreeName = worktreeNameForOutcome(outcome.itemId, iterIndex, tempWorktreeName);
         if (uuidWorktreeName !== tempWorktreeName) {
-            const renameResult = await renameWorktree(tempWorktreeName, uuidWorktreeName);
+            const renameResult = await renameWorktree(gitIo, tempWorktreeName, uuidWorktreeName);
             if (renameResult.ok) {
                 worktreeName = uuidWorktreeName;
                 console.log(`  ↳ worktree renamed: ${tempWorktreeName} → ${uuidWorktreeName}`);
@@ -330,7 +336,7 @@ while (stats.iterations < cfg.max) {
     // preserve if the worktree has uncommitted changes or unpushed commits — those
     // are the cases where the iteration produced something worth pushing or reviewing.
     if (cfg.cleanupOnTerminal && (outcome.status === "terminal" || outcome.status === "no-item")) {
-        const cleanupResult = await maybeCleanupWorktree(worktreeName, cfg.baseRef);
+        const cleanupResult = await maybeCleanupWorktree(gitIo, worktreeName, cfg.baseRef);
         const formatted = formatCleanupResult(worktreeName, cleanupResult);
         if (formatted) console.log(formatted);
         // Annotate the outcome record so the final summary reflects what happened
@@ -451,91 +457,6 @@ function formatPreflight(cfg) {
   Base ref:      ${cfg.baseRef}
   Cleanup:       ${cleanupDesc}
 `;
-}
-
-/**
- * Rename an existing worktree directory via `git worktree move`. Used after
- * an iteration completes so preserved worktrees carry the claimed item's
- * UUID prefix in their name (e.g., `ralph-44abe365-1`) instead of the
- * pid+timestamp temp name. Returns { ok: true } on success or
- * { ok: false, reason } on failure (e.g., destination exists, ref mismatch).
- */
-async function renameWorktree(oldName, newName) {
-    if (oldName === newName) return { ok: true };
-    const oldPath = path.posix.join(".claude", "worktrees", oldName);
-    const newPath = path.posix.join(".claude", "worktrees", newName);
-    try {
-        await execAsync(`git worktree move "${oldPath}" "${newPath}"`);
-        return { ok: true };
-    } catch (err) {
-        // Surface a single-line reason; git's stderr is multi-line.
-        const reason = (err.stderr || err.message || "")
-            .split("\n")
-            .map((s) => s.trim())
-            .filter(Boolean)[0] || "unknown error";
-        return { ok: false, reason };
-    }
-}
-
-/**
- * Smart-cleanup decision for a finished iteration's worktree.
- * Returns one of:
- *   { action: "removed" }
- *   { action: "preserved", reason: <string> }
- *   { action: "absent" }    — worktree never existed (e.g., no-item iteration didn't reach spawn)
- *   { action: "failed", reason: <string> }
- *
- * Preserves the worktree if it has uncommitted changes OR commits ahead of
- * the configured base ref (default `origin/main`, override with --base-ref).
- * Removes it otherwise. This way, smoke-test-style runs that produce no diffs
- * get cleaned up automatically, while real-work iterations with commits to
- * push are preserved for review.
- */
-async function maybeCleanupWorktree(worktreeName, baseRef) {
-    const worktreePath = path.posix.join(".claude", "worktrees", worktreeName);
-
-    // Check that the worktree actually exists in git's registry
-    try {
-        const { stdout: listOut } = await execAsync("git worktree list --porcelain");
-        if (!listOut.includes(worktreePath) && !listOut.includes(worktreePath.replace(/\//g, path.sep))) {
-            return { action: "absent" };
-        }
-    } catch (err) {
-        return { action: "failed", reason: `git worktree list failed: ${err.message}` };
-    }
-
-    // Check for uncommitted changes (any porcelain output = dirty)
-    try {
-        const { stdout: statusOut } = await execAsync(`git -C "${worktreePath}" status --porcelain`);
-        if (statusOut.trim().length > 0) {
-            return { action: "preserved", reason: "uncommitted changes present" };
-        }
-    } catch (err) {
-        return { action: "failed", reason: `git status failed: ${err.message}` };
-    }
-
-    // Check for commits ahead of the configured base ref. If the ref isn't
-    // resolvable, preserve the worktree — that's the safer error than
-    // accidentally removing one with real commits.
-    try {
-        const { stdout: aheadOut } = await execAsync(
-            `git -C "${worktreePath}" rev-list --count ${baseRef}..HEAD`
-        );
-        const ahead = parseInt(aheadOut.trim(), 10);
-        if (Number.isFinite(ahead) && ahead > 0) {
-            return { action: "preserved", reason: `${ahead} commit(s) ahead of ${baseRef}` };
-        }
-    } catch {
-        return { action: "preserved", reason: `could not compare against ${baseRef}` };
-    }
-
-    // Clean — remove the worktree
-    try {
-        await execAsync(`git worktree remove "${worktreePath}"`);
-        return { action: "removed" };
-    } catch (err) {
-        return { action: "failed", reason: `git worktree remove failed: ${err.message}` };
-    }
 }
 
 function formatCleanupResult(worktreeName, result) {

@@ -147,7 +147,7 @@ inside `to_scope` are treated as malformed.
 **Failing requests receive:**
 - `401 Unauthorized` + `WWW-Authenticate: Bearer error="invalid_request"` — missing `Authorization` header, a header that does not use the `Bearer` scheme (wrong scheme name, or no space between the scheme and the token — the scheme name itself is case-insensitive), or a present-but-empty Bearer credential
 - `401 Unauthorized` + `WWW-Authenticate: Bearer error="invalid_token"` — bad/expired token
-- `403 Forbidden` — token valid but lacks required capability
+- `403 Forbidden` (`insufficient_scope`) -- token valid but lacks the required capability (body shapes: see §6)
 
 **`degradedModePolicy` interaction (JWKS mode):** a JWT reaching a route handler has already been validated by the auth plugin, so its verification status is always `VERIFIED` by the time `DegradedModePolicy` is applied to the synthesized audit actor — every policy, including `reject`, trusts a `VERIFIED` result. Write endpoints therefore never actually return `verification_failed` in practice; `DEGRADED_MODE_POLICY` only changes behavior for MCP tool calls carrying a self-reported `actor.id` under a degraded (non-`VERIFIED`) JWKS verification result. Bearer mode and unauthenticated mode are unaffected regardless (neither has a JWKS chain to degrade).
 
@@ -278,6 +278,8 @@ omission: gate status depends on the item's notes and its resolved schema/config
 versioned by `item.modifiedAt` — an `ETag` derived from the item alone would go stale the moment a
 note is upserted or the config changes, without the item itself being touched.
 
+**`GET /items/{id}` with a recognized `include` (`notes`, `deps`, `children`) carries no `ETag` and ignores `If-None-Match`.** Same rationale as `/gate`: inlined notes, dependencies and (per-principal tag-filtered) children are not versioned by `item.modifiedAt`, so an item-only validator would serve a stale `304` after a note upsert or child creation. An absent, empty or unrecognized-only `include` keeps the normal `ETag`/`304` behavior. The `etag` field inside the body is still `etagFor(item.modifiedAt)` and remains the `If-Match` validator for `PATCH`/`DELETE`; it is not a conditional-read validator.
+
 ### Config ETags
 
 Config/schema endpoints (`/config`, `/config/schemas`, etc.) use a fingerprint-based ETag:
@@ -328,7 +330,7 @@ Idempotency-Key: <UUID>
 
 ## 6. Error Codes
 
-All error responses use:
+Most error responses use the `ErrorDto` envelope:
 
 ```json
 {
@@ -338,11 +340,26 @@ All error responses use:
 }
 ```
 
+Authentication and authorization rejections from the auth plugins (`401 invalid_request`,
+`401 invalid_token`, `403 insufficient_scope`) and the SSE pre-flight `400 validation_error` (§21)
+instead use an OAuth/RFC 6750-style envelope with `error_description` and **no** `message` field:
+
+```json
+{
+  "error": "<machine-readable-code>",
+  "error_description": "<human-readable description>"
+}
+```
+
+The 401 responses also carry a `WWW-Authenticate: Bearer error="<code>"` header (§1). Rows below
+marked "`error_description` body" use this second shape; every other row uses `ErrorDto`. The
+other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability`) use `ErrorDto`.
+
 | `error` value | Typical HTTP status | Description |
 |--------------|---------------------|-------------|
 | `host_not_allowed` | 403 | The request's `Host` header isn't `localhost`/`127.0.0.1`/`[::1]` (any port) or listed in `MCP_ALLOWED_HOSTS` — DNS-rebinding protection, checked ahead of authentication on every route. Never discloses the rejected `Host` value; see §1. |
 | `bad_request` | 400 | Missing or malformed path/query parameter |
-| `validation_error` | 400 | Invalid field value or deserialization failure; or (SSE-specific) `GET /api/v1/events` was called with a `?root=` query parameter that yields no valid UUID (see §21) |
+| `validation_error` | 400 | Invalid field value or deserialization failure (`ErrorDto` body); or (SSE-specific, `error_description` body) `GET /api/v1/events` was called with a `?root=` query parameter that yields no valid UUID (see §21) |
 | `precondition_required` | 400 | `PATCH` missing required `If-Match` header |
 | `not_found` | 404 | Item, note, or dependency not found |
 | `rule_not_found` | 404 | `GET /roots/{rootId}/rules/{key}` (§19a): the root resolves and is depth-0, but no `rule/<key>` plan document exists there — distinct from `not_found`, which covers an unknown `{rootId}` itself |
@@ -355,10 +372,11 @@ All error responses use:
 | `etag_mismatch` | 412 | `If-Match` header does not match current ETag |
 | `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT /items/{id}/notes/{key}`, and `POST /dependencies` share a 1 MiB limit; `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB, except a `{slug}` starting with `rule/` (e.g. `rule%2Fcommit-discipline`), which is capped tighter at 16384 bytes (16 KiB) — the single enforcement point `query_rules`/§19a rely on, so those read surfaces never re-check size themselves (see §18, §19, §19a). |
 | `version_conflict` | 409 | `PATCH /items/{id}`: `If-Match` matched at read time, but a concurrent writer's update won the version race before this write committed — optimistic-lock loss, distinct from `etag_mismatch`. Retry with a fresh `If-Match` ETag. |
-| `unauthenticated` | 401 | No authenticated principal (missing/invalid token) |
+| `invalid_request` | 401 | `error_description` body. Missing `Authorization` header, a non-Bearer scheme, or an empty Bearer credential (also the SSE pre-flight when no header or allowed `?token=` is presented). Carries `WWW-Authenticate: Bearer error="invalid_request"`. |
+| `invalid_token` | 401 | `error_description` body. Unknown, expired, or otherwise invalid token (bearer or JWKS). Carries `WWW-Authenticate: Bearer error="invalid_token"`. |
 | `verification_failed` | 401 | Not currently reachable via REST — a JWT passing `ApiBearerAuth` is always `VERIFIED`, which every `degradedModePolicy` trusts. Reserved for the same audit-policy check used by MCP tool calls, where a self-reported actor under a degraded JWKS result can still be rejected. |
 | `insufficient_capability` | 403 | Caller's token lacks a capability required by the request itself (distinct from `scope_forbidden`'s root-scope check) — e.g. a non-ADMIN caller sets `overrideResourceLeases: true` on `POST /items/{id}/advance`, or calls `DELETE /api/v1/resources/leases/{key}` without `ADMIN` |
-| `insufficient_scope` | 403 | A generic `requireCapability` check failed for the plugin's configured capability; (SSE-specific) a `GET /api/v1/events` connection carries a `tags_include` scope but the route has no `WorkItemRepository` wired to filter by it — fail-closed rather than serving an unfiltered stream; or (SSE-specific) a root-scoped principal's `?root=` values do not intersect its token's `scope.rootIds` — the requested roots are entirely outside scope (see §21) |
+| `insufficient_scope` | 403 | `error_description` body. A generic `requireCapability` check failed for the plugin's configured capability; (SSE-specific) a `GET /api/v1/events` connection presents a valid token that lacks the `read` capability (see §21); (SSE-specific) a `GET /api/v1/events` connection carries a `tags_include` scope but the route has no `WorkItemRepository` wired to filter by it -- fail-closed rather than serving an unfiltered stream; or (SSE-specific) a root-scoped principal's `?root=` values do not intersect its token's `scope.rootIds` -- the requested roots are entirely outside scope (see §21) |
 | `transition_failed` | 422 | Role transition rejected (invalid trigger, gate failure, dependency blocker) |
 | `resource_unavailable` | 409 | Resource-lease gate contention on `POST /items/{id}/advance` into WORK — transient, retryable. Carries a `Retry-After` header and `details.contendedResources`/`details.retryAfterMs`. Never discloses the current holder. |
 | `config_unavailable` | 503 | Per-root config read failed (a transient database error) and there was no last-known-good cached config to serve for that root — transient, retryable; the caller applies its own backoff (no `Retry-After` header). Returned by `POST /items/{id}/advance`, `GET /items/{id}/gate` (see §9, §10), and `GET /roots/{rootId}/config/effective` (see §18). REST and the MCP tools now read per-root config through the same `EffectiveConfigResolver`/last-known-good cache (one shared instance, built once in `ServerComposition`) — a transient DB error on one surface is absorbed by a cache warmed by the other, so this error is rarer than it was when each surface kept its own cache. |
@@ -404,7 +422,7 @@ Query parameters: `?page=<int>` (default 1, must be an integer in `1..100000`) a
   "role": "queue|work|review|terminal|blocked",
   "previousRole": "queue|work|review|null",
   "statusLabel": "string|null",
-  "priority": "HIGH|MEDIUM|LOW|CRITICAL|BACKLOG",
+  "priority": "high|medium|low",
   "complexity": 5,
   "requiresVerification": false,
   "tags": ["string"],
@@ -963,24 +981,26 @@ All require `READ` capability.
 
 Paginated list of work items with optional filters.
 
+Any supplied but unparsable filter value is rejected with `400 validation_error` (`{"error":"validation_error","message":"Invalid parentId 'xyz': must be a UUID"}`), never silently ignored, so a malformed filter cannot widen the result set. A present but blank value (`?parentId=`) is treated as absent. The same rule applies to `GET /items/{id}/tree` `depth`, `GET /transitions` `since`, and `ancestorId`/`role` on `GET /search` and `GET /notes/search`. Validation runs before any scope check, so an invalid `ancestorId` yields `400` rather than `403 scope_forbidden`. (`orderBy`/`orderDir` keep their `400 bad_request` code.)
+
 **Query parameters:**
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `page` | int | Page number (default 1, `1..100000`) |
 | `pageSize` | int | Items per page (default 50, max 200) |
-| `role` | string | Filter by role: `queue`, `work`, `review`, `terminal`, `blocked` |
-| `priority` | string | Filter by priority: `HIGH`, `MEDIUM`, `LOW`, `CRITICAL`, `BACKLOG` |
+| `role` | string | Filter by role: `queue`, `work`, `review`, `terminal`, `blocked` (case-insensitive). Invalid value -> `400 validation_error`. |
+| `priority` | string | Filter by priority: `high`, `medium`, `low` (case-insensitive; output is lower-case). Invalid value -> `400 validation_error`. |
 | `tag` | string | Comma-separated tags; all listed tags must be present (AND match) |
 | `tagAny` | string | Comma-separated tags; any listed tag must be present (OR match). Overrides `tag` when both present. |
 | `type` | string | Filter by item type |
-| `parentId` | UUID | Filter to direct children of this parent |
-| `rootId` | UUID | Filter to items within this root's subtree (intersected with principal scope) |
-| `modifiedAfter` | ISO-8601 | Modified after this timestamp |
-| `modifiedBefore` | ISO-8601 | Modified before this timestamp |
-| `createdAfter` | ISO-8601 | Created after this timestamp |
-| `createdBefore` | ISO-8601 | Created before this timestamp |
-| `claimStatus` | string | Filter by claim state: `claimed`, `unclaimed`, `expired` |
+| `parentId` | UUID | Filter to direct children of this parent. Invalid value -> `400 validation_error`. |
+| `rootId` | UUID | Filter to items within this root's subtree (intersected with principal scope). Invalid value -> `400 validation_error`. |
+| `modifiedAfter` | ISO-8601 | Modified after this timestamp. Invalid value -> `400 validation_error`. |
+| `modifiedBefore` | ISO-8601 | Modified before this timestamp. Invalid value -> `400 validation_error`. |
+| `createdAfter` | ISO-8601 | Created after this timestamp. Invalid value -> `400 validation_error`. |
+| `createdBefore` | ISO-8601 | Created before this timestamp. Invalid value -> `400 validation_error`. |
+| `claimStatus` | string | Filter by claim state: `claimed`, `unclaimed`, `expired` (case-insensitive). Invalid value -> `400 validation_error`. |
 | `orderBy` | string | Sort field: `title`, `priority`, `complexity`, `createdAt`, `modifiedAt` (also accepts legacy `created`/`modified` aliases). Unknown value → `400 bad_request`. |
 | `orderDir` | string | Sort direction: `asc`, `desc` (default: `desc`). Unknown value → `400 bad_request`. |
 
@@ -1006,7 +1026,7 @@ Single item by UUID.
 
 **Responses:**
 - `200 OK` → `ItemDto`
-- `304 Not Modified` — when `If-None-Match` matches current ETag
+- `304 Not Modified` -- when `If-None-Match` matches the current ETag; only possible when no recognized `include` (`notes`, `deps`, `children`) is requested. With a recognized `include` the response is always `200 OK` (no `ETag` header, `If-None-Match` ignored)
 - `400 bad_request` — invalid UUID
 - `403 scope_forbidden`
 - `404 not_found`
@@ -1016,7 +1036,7 @@ Single item by UUID.
 Descendant tree, paginated as a flat list (root item always included as first element).
 
 **Query parameters:**
-- `depth` — maximum relative depth from the root item (optional)
+- `depth` — maximum relative depth from the root item (optional; non-negative integer, otherwise `400 validation_error`)
 - Standard pagination params
 
 **Response:** `200 OK` → `PageDto<ItemDto>`
@@ -1285,7 +1305,14 @@ way).
 
 `CascadeEventDto` DOES carry `error` (string, optional, omitted when null): populated when a
 cascade's own apply step fails outright (a persistence conflict) — as opposed to being suppressed
-by `gateBlocked`, or by the not-yet-parity-mapped resource block above — naming the failure reason.
+by `gateBlocked`, `roleBlocked`, `dependencyBlocked`, or the not-yet-parity-mapped resource block
+above — naming the failure reason.
+
+`CascadeEventDto` also carries `roleBlocked` (boolean, default `false`) — a terminal cascade
+suppressed because the parent is `blocked` — and `dependencyBlocked` (boolean, default `false`)
+plus `blockers` (array of `{fromItemId, currentRole, requiredRole}`, non-null only when
+`dependencyBlocked`) — a terminal cascade suppressed by an unmet blocking dependency on the parent.
+Both apply to cancel-originated cascades too.
 Any resource lease that cascade itself acquired for entering `work` is released in the same call.
 
 **Response `200 OK`:** `AdvanceResponseDto`
@@ -1321,7 +1348,7 @@ Any resource lease that cascade itself acquired for entering `work` is released 
 }
 ```
 
-The `cascadeEvents`, `unblockedItems`, and `expectedNotes` fields are **additive** — they were added when the REST and MCP advance paths were unified. A gate-blocked cascade carries `"applied": false`, `"gateBlocked": true`, and a `missingNotes` array.
+The `cascadeEvents`, `unblockedItems`, and `expectedNotes` fields are **additive** — they were added when the REST and MCP advance paths were unified. A gate-blocked cascade carries `"applied": false`, `"gateBlocked": true`, and a `missingNotes` array; a role-suppressed one carries `"roleBlocked": true`, and a dependency-suppressed one `"dependencyBlocked": true` plus a `blockers` array.
 
 `violations` (array, optional, A2) — on the top-level response and on each `cascadeEvents` entry — reports independence-attestation findings for that transition's target schema, `IndependenceViolationDto` objects mirroring `GateStatusDto.violations` above, but under a stricter presence rule: present ONLY when the list is non-empty. It is omitted (not `[]`) both when independence checking applies but finds nothing, and when independence mode is `off` or the target schema declares no `independent_of`. Populated in `warn` mode too, whenever there is something to report (a `warn`-mode transition still applies and still reports what it found).
 
@@ -1565,7 +1592,7 @@ All require `READ`. `actor` and `verification` fields are redacted (null) for no
 
 ### GET /items/{id}/transitions
 
-Per-item role-transition history (append-only audit log), paginated.
+Per-item role-transition history (append-only audit log), paginated. Newest first (`transitionedAt` descending); accepts the standard `page` and `pageSize` parameters.
 
 **Response:** `200 OK` → `PageDto<RoleTransitionDto>`
 
@@ -1574,10 +1601,10 @@ Per-item role-transition history (append-only audit log), paginated.
 Recent transitions across all items. Default window: last 24 hours.
 
 **Query parameters:**
-- `since` — ISO-8601 timestamp; default: 24 hours ago
+- `since` — ISO-8601 timestamp; default: 24 hours ago when absent or blank; an unparsable value returns `400 validation_error`
 - Standard pagination params
 
-Scope-filtered: scoped tokens only see transitions for items within their scope (ancestor-chain check).
+Scope-filtered: scoped tokens only see transitions for items within their scope (ancestor-chain check). If the scope lookup fails, every scoped row in that scan is dropped (fail closed) rather than returned unfiltered.
 
 **Scan cap:** the underlying fetch is bounded at 1000 rows (`minOf(offset + pageSize + 1, 1000)`)
 regardless of how many transitions actually occurred since `since`. If more than 1000 transitions
@@ -1601,8 +1628,8 @@ FTS5 full-text search over item titles and summaries.
 
 **Query parameters:**
 - `q` (required) — search query; special characters are auto-sanitized
-- `ancestorId` — scope results to a subtree
-- `role` — filter by item role
+- `ancestorId` — scope results to a subtree (invalid UUID -> `400 validation_error`)
+- `role` — filter by item role (invalid value -> `400 validation_error`)
 - `tag` — comma-separated tag filter
 
 Results are ranked by RRF-fused relevance (trigram + porter tokenizer). Returns up to 50 hits.
@@ -1617,7 +1644,7 @@ FTS5 full-text search over note bodies.
 
 **Query parameters:**
 - `q` (required) — search query
-- `ancestorId` — scope results to a subtree
+- `ancestorId` — scope results to a subtree (invalid UUID -> `400 validation_error`)
 
 Returns up to 50 hits. `noteKey` is populated on every hit (note-body search always has a key).
 
@@ -2016,7 +2043,7 @@ route-scoped by nesting alone, so `publicPaths` is the only lever that keeps the
 3. `API_AUTH_MODE=none` + `API_ALLOW_UNAUTHENTICATED=true` (§1) — the pre-flight plugin short-circuits
    with the synthetic unauthenticated principal, mirroring `ApiBearerAuth`'s `Unauthenticated` branch;
    no token is required or checked
-4. If none of the above apply → `401`
+4. If none of the above apply → `401 invalid_request` when no token is presented (no `Authorization` header and no allowed `?token=`), or `401 invalid_token` for an unknown, expired, or invalid token; a valid token lacking the `read` capability gets `403 insufficient_scope`
 
 **Tag-scope guard:** Per-event `tags_include` filtering (below) needs the route's `WorkItemRepository`
 wiring to resolve an event's item tags. If a principal's `scope.tags_include` is non-empty but no

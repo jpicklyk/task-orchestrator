@@ -623,3 +623,87 @@ test('to_mod_retro flag absent or not true: the hook acts as before', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ─── Production CallToolResult shape (F-020) ─────────────────────────────────
+// The server returns CallToolResult { content: [{type:'text', text: <human summary>}],
+// structuredContent: <payload> } (McpToolAdapter). The bare fixtures above stay as back-compat.
+
+function prodShape(payload, text = 'Completed 3 items.') {
+  return { content: [{ type: 'text', text }], structuredContent: payload };
+}
+
+test('production shape: complete_tree (structuredContent.summary.completed >= threshold) dispatches', () => {
+  const dir = tmpConfigDir();
+  writeConfig(dir, 'retrospective:\n  mode: dispatch\n  dispatchThreshold: 3\n');
+  const sessionId = `test-trigger-prod-ct-${randomUUID()}`;
+  const marker = markerPath(sessionId);
+  try {
+    const res = spawnHook(dir, {
+      session_id: sessionId,
+      tool_name: 'mcp__mcp-task-orchestrator__complete_tree',
+      tool_input: { rootId: 'aaaaaaaa-0000-0000-0000-000000000001' },
+      tool_response: prodShape({ summary: { completed: 3 } }),
+    });
+    assert.equal(res.status, 0);
+    const text = JSON.parse(res.stdout).hookSpecificOutput.additionalContext;
+    assert.ok(text.includes('Retrospective dispatch'), text);
+  } finally {
+    rmSync(marker, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('production shape: advance_item terminal results trigger', () => {
+  const dir = tmpConfigDir();
+  writeConfig(dir, 'retrospective:\n  mode: dispatch\n  dispatchThreshold: 3\n');
+  const sessionId = `test-trigger-prod-adv-${randomUUID()}`;
+  const marker = markerPath(sessionId);
+  try {
+    const res = spawnHook(dir, {
+      session_id: sessionId,
+      tool_name: 'mcp__mcp-task-orchestrator__advance_item',
+      tool_input: {},
+      tool_response: prodShape(
+        {
+          results: [
+            { itemId: 'child-1', newRole: 'terminal', unblockedItems: [], cascadeEvents: [] },
+            { itemId: 'child-2', newRole: 'terminal', unblockedItems: [], cascadeEvents: [] },
+            {
+              itemId: 'child-3',
+              newRole: 'terminal',
+              unblockedItems: [],
+              cascadeEvents: [{ itemId: 'parent-1', targetRole: 'terminal', applied: true }],
+            },
+          ],
+        },
+        'Advanced 3 items.',
+      ),
+    });
+    assert.equal(res.status, 0);
+    const text = JSON.parse(res.stdout).hookSpecificOutput.additionalContext;
+    assert.ok(text.includes('Retrospective dispatch'), text);
+  } finally {
+    rmSync(marker, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('production shape: non-JSON content[0].text alongside structuredContent still triggers', () => {
+  const dir = tmpConfigDir();
+  writeConfig(dir, 'retrospective:\n  mode: nudge\n');
+  const sessionId = `test-trigger-prod-text-${randomUUID()}`;
+  const marker = markerPath(sessionId);
+  try {
+    const res = spawnHook(dir, {
+      session_id: sessionId,
+      tool_name: 'mcp__mcp-task-orchestrator__complete_tree',
+      tool_input: { rootId: 'aaaaaaaa-0000-0000-0000-000000000001' },
+      tool_response: prodShape({ summary: { completed: 1 } }, 'this is not { json'),
+    });
+    assert.equal(res.status, 0);
+    assert.ok(JSON.parse(res.stdout).hookSpecificOutput.additionalContext.includes('Retrospective suggested'));
+  } finally {
+    rmSync(marker, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -5,13 +5,16 @@ import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManage
 import io.mockk.every
 import io.mockk.mockkConstructor
 import io.mockk.unmockkAll
+import io.mockk.verify
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
+import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -24,6 +27,10 @@ import kotlin.test.assertTrue
  * `DockerHealthcheckTest`.
  *
  * ## Scenario coverage and deliberate scope limits
+ * - T1/T2 (item 3df042a7, F-008): a stale readiness marker left by an earlier SIGKILLed process is
+ *   cleared as the first step of `run()` (T1, even when DB init then fails), and a failure to clear
+ *   it fails startup closed as `READINESS_MARKER` before DB init is attempted (T2). Both inject a
+ *   temp-dir `READINESS_FILE` so they never touch the real default path.
  * - S3/S4 (`DATABASE_INIT`/`SCHEMA_UPDATE`) use `mockkConstructor` on [DatabaseManager] to pin the
  *   exact precondition ("initialize() returns false" / "updateSchema() returns false") — `run()`
  *   returns immediately after either check fails, before touching any other collaborator, so no
@@ -83,6 +90,57 @@ class StartupOutcomeTest {
 
         assertTrue(outcome is Failed, "expected Failed, got $outcome")
         assertEquals(Reason.SCHEMA_UPDATE, outcome.reason)
+    }
+
+    // ---- T1 / T2: stale readiness marker is cleared at startup (F-008) ----
+
+    @Test
+    fun `T1 stale readiness marker is cleared at startup even when DATABASE_INIT fails`(
+        @TempDir tempDir: Path
+    ) {
+        val marker = tempDir.resolve("ready")
+        Files.writeString(marker, "ready")
+        mockkConstructor(DatabaseManager::class)
+        every { anyConstructed<DatabaseManager>().initialize(any()) } returns false
+
+        val env = mapOf("READINESS_FILE" to marker.toString())
+        val server =
+            CurrentMcpServer(
+                version = "test",
+                shutdownCoordinator = null,
+                appConfig = AppConfig.fromEnv { key -> env[key] }
+            )
+        val outcome = server.run()
+
+        assertTrue(outcome is Failed, "expected Failed, got $outcome")
+        assertEquals(Reason.DATABASE_INIT, outcome.reason)
+        assertFalse(Files.exists(marker), "stale readiness marker must be removed at startup")
+    }
+
+    @Test
+    fun `T2 failure to clear a stale readiness marker fails startup as READINESS_MARKER before DB init`(
+        @TempDir tempDir: Path
+    ) {
+        // A non-empty directory at the marker path makes Files.deleteIfExists throw
+        // DirectoryNotEmptyException on every platform.
+        val marker = tempDir.resolve("ready")
+        Files.createDirectories(marker)
+        Files.writeString(marker.resolve("child"), "x")
+        mockkConstructor(DatabaseManager::class)
+        every { anyConstructed<DatabaseManager>().initialize(any()) } returns true
+
+        val env = mapOf("READINESS_FILE" to marker.toString())
+        val server =
+            CurrentMcpServer(
+                version = "test",
+                shutdownCoordinator = null,
+                appConfig = AppConfig.fromEnv { key -> env[key] }
+            )
+        val outcome = server.run()
+
+        assertTrue(outcome is Failed, "expected Failed, got $outcome")
+        assertEquals(Reason.READINESS_MARKER, outcome.reason)
+        verify(exactly = 0) { anyConstructed<DatabaseManager>().initialize(any()) }
     }
 
     // ---- S5 / S8 / S9 / probes: unrecognized MCP_TRANSPORT, real DB, real transport dispatch ----

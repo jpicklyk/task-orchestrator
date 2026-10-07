@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
+import io.github.jpicklyk.mcptask.current.application.service.PlacedWriteOutcome
+import io.github.jpicklyk.mcptask.current.application.service.WorkItemPlacementService
 import io.github.jpicklyk.mcptask.current.application.service.buildSchemaResponseFields
 import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
@@ -207,17 +209,11 @@ class CreateItemHandler(
                 sharedParentId
             }
 
-        // Validate hierarchy guards (self-parent, ancestor cycle) — the returned depth is
-        // NOT used to stamp; placement is resolved fresh inside the write transaction
-        // below so a concurrent reparent/delete of the parent cannot leave this item
-        // stamped with stale depth/rootId (AR-19).
-        if (parentId != null) {
-            hierarchyValidator.validateAndComputeDepth(
-                itemId = itemId,
-                parentId = parentId,
-                repo = repo,
-                errorPrefix = "Item at index $index"
-            )
+        // Existence guard only: a fresh random itemId can never be its own parent or an ancestor
+        // of the parent, so no cycle check applies on create. Placement (depth/rootId) is resolved
+        // inside the write transaction in createWithPlacement (AR-19).
+        if (parentId != null && !WorkItemPlacementService(repo, hierarchyValidator).parentExists(parentId)) {
+            throw ToolValidationException("Item at index $index: parent '$parentId' not found")
         }
 
         // Parse role with default
@@ -266,42 +262,29 @@ class CreateItemHandler(
     }
 
     /**
-     * Resolves depth/rootId and creates in ONE transaction: when [ParsedCreateSpec.parentId] is
-     * non-null, the parent is read via `resolveChildPlacement` INSIDE the same transaction as
+     * Resolves depth/rootId and creates via [WorkItemPlacementService.create]: when
+     * [ParsedCreateSpec.parentId] is non-null, placement is read INSIDE the same transaction as
      * the insert, so a concurrent reparent/delete of the parent cannot leave this new item
-     * stamped with stale placement (AR-19). Root items (no parent) need no placement read at
-     * all. Mirrors the pre-refactor inline logic byte-for-byte.
+     * stamped with stale placement (AR-19). Root items need no placement read at all.
      */
     private suspend fun createWithPlacement(
         spec: ParsedCreateSpec,
         index: Int,
         repo: WorkItemRepository
-    ): Result<WorkItem> {
-        var createResult: Result<WorkItem>? = null
-        var placementNotFoundMessage: String? = null
-        if (spec.parentId == null) {
-            val workItem = spec.toWorkItem(parentId = null, rootId = spec.itemId, depth = 0)
-            createResult = repo.create(workItem)
-        } else {
-            repo.inTransaction {
-                when (val placementResult = repo.resolveChildPlacement(spec.parentId)) {
-                    is Result.Success -> {
-                        val placement = placementResult.data
-                        val workItem =
-                            spec.toWorkItem(parentId = spec.parentId, rootId = placement.rootId, depth = placement.depth)
-                        createResult = repo.create(workItem)
-                    }
-                    is Result.Error -> {
-                        placementNotFoundMessage = "Item at index $index: parent '${spec.parentId}' not found"
-                    }
+    ): Result<WorkItem> =
+        when (
+            val outcome =
+                WorkItemPlacementService(repo, hierarchyValidator).create(spec.itemId, spec.parentId) { depth, rootId ->
+                    spec.toWorkItem(parentId = spec.parentId, rootId = rootId, depth = depth)
                 }
-            }
-            if (placementNotFoundMessage != null) {
-                throw ToolValidationException(placementNotFoundMessage!!)
-            }
+        ) {
+            is PlacedWriteOutcome.Written -> Result.Success(outcome.item)
+            is PlacedWriteOutcome.ParentNotFound ->
+                throw ToolValidationException("Item at index $index: parent '${outcome.parentId}' not found")
+            is PlacedWriteOutcome.BuildFailed -> throw ToolValidationException(outcome.message)
+            is PlacedWriteOutcome.WriteFailed -> Result.Error(outcome.error)
+            is PlacedWriteOutcome.CascadeFailed -> throw IllegalStateException(outcome.message)
         }
-        return createResult!!
-    }
 
     /**
      * Builds the response JSON for one successfully-created item, including the response-only

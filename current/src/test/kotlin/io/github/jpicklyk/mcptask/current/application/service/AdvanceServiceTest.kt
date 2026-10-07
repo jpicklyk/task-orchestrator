@@ -18,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
@@ -28,6 +29,7 @@ import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -529,5 +531,173 @@ class AdvanceServiceTest {
             assertEquals(Role.WORK, success.result.newRole)
             // The actor is still recorded for audit even though ownership is bypassed.
             assertEquals("api:token", success.result.actorClaim?.id)
+        }
+
+    // ----------------------------------------------
+    // F-003: terminal cascade honours BLOCKED hold and blocking dependencies
+    // ----------------------------------------------
+
+    private class CascadeFixture(
+        val parentId: UUID,
+        val child: WorkItem,
+    )
+
+    /** Parent (role/previousRole as given) with one child in WORK whose completion makes all children terminal. */
+    private fun cascadeFixture(
+        parentRole: Role,
+        parentPreviousRole: Role? = null,
+    ): CascadeFixture {
+        val parentId = UUID.randomUUID()
+        val parent = makeItem(id = parentId, role = parentRole, previousRole = parentPreviousRole, title = "Parent")
+        val child = makeItem(role = Role.WORK, title = "Child", parentId = parentId)
+        coEvery { workItemRepo.getById(child.id) } returns Result.Success(child)
+        coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+        coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
+        return CascadeFixture(parentId, child)
+    }
+
+    private fun stubIncomingBlocker(
+        parentId: UUID,
+        blockerRole: Role,
+    ): UUID {
+        val blockerId = UUID.randomUUID()
+        val blocker = makeItem(id = blockerId, role = blockerRole, title = "Blocker")
+        val dep = Dependency(fromItemId = blockerId, toItemId = parentId, type = DependencyType.BLOCKS)
+        every { depRepo.findByToItemId(parentId) } returns listOf(dep)
+        coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blocker)
+        return blockerId
+    }
+
+    @Test
+    fun `terminal cascade is suppressed with roleBlocked when parent is BLOCKED`(): Unit =
+        runBlocking {
+            val fx = cascadeFixture(Role.BLOCKED, Role.WORK)
+
+            val outcome =
+                serviceWith().advance(fx.child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+            val success = assertIs<AdvanceOutcome.Success>(outcome)
+            val cascade = success.result.cascadeEvents.single()
+            assertEquals(fx.parentId, cascade.itemId)
+            assertFalse(cascade.applied)
+            assertTrue(cascade.roleBlocked)
+            assertFalse(cascade.dependencyBlocked)
+            assertFalse(cascade.gateBlocked)
+            assertEquals(Role.BLOCKED, cascade.previousRole)
+            assertEquals(Role.TERMINAL, cascade.targetRole)
+            assertNull(cascade.error)
+            coVerify(exactly = 0) { workItemRepo.update(match { it.id == fx.parentId }) }
+        }
+
+    @Test
+    fun `terminal cascade is suppressed with dependencyBlocked and blockers for an incoming BLOCKS dependency`(): Unit =
+        runBlocking {
+            val fx = cascadeFixture(Role.WORK)
+            val blockerId = stubIncomingBlocker(fx.parentId, Role.QUEUE)
+
+            val outcome =
+                serviceWith().advance(fx.child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+            val success = assertIs<AdvanceOutcome.Success>(outcome)
+            val cascade = success.result.cascadeEvents.single()
+            assertFalse(cascade.applied)
+            assertTrue(cascade.dependencyBlocked)
+            assertFalse(cascade.roleBlocked)
+            assertNull(cascade.error)
+            val blocker = cascade.blockers.single()
+            assertEquals(blockerId, blocker.fromItemId)
+            assertEquals(Role.QUEUE, blocker.currentRole)
+            assertEquals("terminal", blocker.requiredRole)
+            coVerify(exactly = 0) { workItemRepo.update(match { it.id == fx.parentId }) }
+        }
+
+    @Test
+    fun `terminal cascade is suppressed with dependencyBlocked for an outgoing IS_BLOCKED_BY dependency`(): Unit =
+        runBlocking {
+            val fx = cascadeFixture(Role.WORK)
+            val blockerId = UUID.randomUUID()
+            val blocker = makeItem(id = blockerId, role = Role.WORK, title = "Blocker")
+            val dep = Dependency(fromItemId = fx.parentId, toItemId = blockerId, type = DependencyType.IS_BLOCKED_BY)
+            every { depRepo.findByFromItemId(fx.parentId) } returns listOf(dep)
+            coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blocker)
+
+            val outcome =
+                serviceWith().advance(fx.child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+            val success = assertIs<AdvanceOutcome.Success>(outcome)
+            val cascade = success.result.cascadeEvents.single()
+            assertFalse(cascade.applied)
+            assertTrue(cascade.dependencyBlocked)
+            assertEquals(blockerId, cascade.blockers.single().fromItemId)
+            assertEquals(Role.WORK, cascade.blockers.single().currentRole)
+            coVerify(exactly = 0) { workItemRepo.update(match { it.id == fx.parentId }) }
+        }
+
+    @Test
+    fun `terminal cascade control - parent with satisfied blocking dependency still cascades`(): Unit =
+        runBlocking {
+            val fx = cascadeFixture(Role.WORK)
+            stubIncomingBlocker(fx.parentId, Role.TERMINAL)
+
+            val outcome =
+                serviceWith().advance(fx.child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+            val success = assertIs<AdvanceOutcome.Success>(outcome)
+            val cascade = success.result.cascadeEvents.single()
+            assertTrue(cascade.applied)
+            assertFalse(cascade.roleBlocked)
+            assertFalse(cascade.dependencyBlocked)
+            assertTrue(cascade.blockers.isEmpty())
+            coVerify { workItemRepo.update(match { it.id == fx.parentId && it.role == Role.TERMINAL }) }
+        }
+
+    @Test
+    fun `cancel-originated terminal cascade is still suppressed for a BLOCKED parent`(): Unit =
+        runBlocking {
+            val fx = cascadeFixture(Role.BLOCKED, Role.WORK)
+
+            val outcome =
+                serviceWith().advance(fx.child, "cancel", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+            val success = assertIs<AdvanceOutcome.Success>(outcome)
+            val cascade = success.result.cascadeEvents.single()
+            assertFalse(cascade.applied)
+            assertTrue(cascade.roleBlocked)
+            coVerify(exactly = 0) { workItemRepo.update(match { it.id == fx.parentId }) }
+        }
+
+    @Test
+    fun `cancel-originated terminal cascade is still suppressed for a dependency-blocked parent`(): Unit =
+        runBlocking {
+            val fx = cascadeFixture(Role.WORK)
+            val blockerId = stubIncomingBlocker(fx.parentId, Role.QUEUE)
+
+            val outcome =
+                serviceWith().advance(fx.child, "cancel", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+            val success = assertIs<AdvanceOutcome.Success>(outcome)
+            val cascade = success.result.cascadeEvents.single()
+            assertFalse(cascade.applied)
+            assertTrue(cascade.dependencyBlocked)
+            assertEquals(blockerId, cascade.blockers.single().fromItemId)
+            coVerify(exactly = 0) { workItemRepo.update(match { it.id == fx.parentId }) }
+        }
+
+    @Test
+    fun `a suppressed terminal cascade stops the climb so the grandparent is not cascaded`(): Unit =
+        runBlocking {
+            val grandparentId = UUID.randomUUID()
+            val grandparent = makeItem(id = grandparentId, role = Role.WORK, title = "Grandparent")
+            val parentId = UUID.randomUUID()
+            val parent =
+                makeItem(id = parentId, role = Role.BLOCKED, previousRole = Role.WORK, title = "Parent", parentId = grandparentId)
+            val child = makeItem(role = Role.WORK, title = "Child", parentId = parentId)
+            coEvery { workItemRepo.getById(child.id) } returns Result.Success(child)
+            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(grandparentId) } returns Result.Success(grandparent)
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
+            coEvery { workItemRepo.countChildrenByRole(grandparentId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
+
+            val outcome =
+                serviceWith().advance(child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+            val success = assertIs<AdvanceOutcome.Success>(outcome)
+            val cascade = success.result.cascadeEvents.single()
+            assertEquals(parentId, cascade.itemId)
+            assertTrue(cascade.roleBlocked)
+            coVerify(exactly = 0) { workItemRepo.update(match { it.id == parentId || it.id == grandparentId }) }
         }
 }

@@ -4,6 +4,8 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.domain.model.Dependency
+import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
@@ -189,5 +191,91 @@ class AdvanceResultCascadeErrorDtoTest {
             val dtoCascade = dto.cascadeEvents.single()
 
             assertNull(dtoCascade.error, "a successful (non-failing) cascade must map to a null DTO error")
+        }
+
+    @Test
+    fun `toDto maps roleBlocked and omits blockers for a BLOCKED parent terminal cascade`(): Unit =
+        runBlocking {
+            val parentId = UUID.randomUUID()
+            val parent = makeItem(id = parentId, role = Role.BLOCKED, title = "Parent")
+            val child = makeItem(role = Role.WORK, title = "Child", parentId = parentId)
+            coEvery { workItemRepo.getById(child.id) } returns Result.Success(child)
+            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
+            coEvery { leaseRepo.releaseAllForItem(any()) } returns LeaseReleaseResult.Success(0)
+
+            val outcome =
+                serviceWith(emptyMap()).advance(child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+
+            val success = assertIs<AdvanceOutcome.Success>(outcome)
+            val dtoCascade =
+                success.result
+                    .toDto(existingNoteKeys = emptySet())
+                    .cascadeEvents
+                    .single()
+            assertEquals(false, dtoCascade.applied)
+            assertTrue(dtoCascade.roleBlocked)
+            assertEquals(false, dtoCascade.dependencyBlocked)
+            assertNull(dtoCascade.blockers)
+        }
+
+    @Test
+    fun `toDto maps dependencyBlocked and blockers for a dependency-blocked parent terminal cascade`(): Unit =
+        runBlocking {
+            val parentId = UUID.randomUUID()
+            val blockerId = UUID.randomUUID()
+            val parent = makeItem(id = parentId, role = Role.WORK, title = "Parent")
+            val child = makeItem(role = Role.WORK, title = "Child", parentId = parentId)
+            val blocker = makeItem(id = blockerId, role = Role.QUEUE, title = "Blocker")
+            coEvery { workItemRepo.getById(child.id) } returns Result.Success(child)
+            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blocker)
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
+            coEvery { leaseRepo.releaseAllForItem(any()) } returns LeaseReleaseResult.Success(0)
+            every { depRepo.findByToItemId(parentId) } returns
+                listOf(Dependency(fromItemId = blockerId, toItemId = parentId, type = DependencyType.BLOCKS))
+
+            val outcome =
+                serviceWith(emptyMap()).advance(child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+
+            val success = assertIs<AdvanceOutcome.Success>(outcome)
+            val dtoCascade =
+                success.result
+                    .toDto(existingNoteKeys = emptySet())
+                    .cascadeEvents
+                    .single()
+            assertEquals(false, dtoCascade.applied)
+            assertTrue(dtoCascade.dependencyBlocked)
+            assertEquals(false, dtoCascade.roleBlocked)
+            val blockerDto = dtoCascade.blockers!!.single()
+            assertEquals(blockerId.toString(), blockerDto.fromItemId)
+            assertEquals("queue", blockerDto.currentRole)
+            assertEquals("terminal", blockerDto.requiredRole)
+        }
+
+    @Test
+    fun `toDto leaves roleBlocked dependencyBlocked and blockers unset for an applied terminal cascade`(): Unit =
+        runBlocking {
+            val parentId = UUID.randomUUID()
+            val parent = makeItem(id = parentId, role = Role.WORK, title = "Parent")
+            val child = makeItem(role = Role.WORK, title = "Child", parentId = parentId)
+            coEvery { workItemRepo.getById(child.id) } returns Result.Success(child)
+            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
+            coEvery { leaseRepo.releaseAllForItem(any()) } returns LeaseReleaseResult.Success(0)
+
+            val outcome =
+                serviceWith(emptyMap()).advance(child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+
+            val success = assertIs<AdvanceOutcome.Success>(outcome)
+            val dtoCascade =
+                success.result
+                    .toDto(existingNoteKeys = emptySet())
+                    .cascadeEvents
+                    .single()
+            assertTrue(dtoCascade.applied)
+            assertEquals(false, dtoCascade.roleBlocked)
+            assertEquals(false, dtoCascade.dependencyBlocked)
+            assertNull(dtoCascade.blockers)
         }
 }

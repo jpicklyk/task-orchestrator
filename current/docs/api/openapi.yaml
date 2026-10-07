@@ -352,6 +352,22 @@ components:
           type: object
           nullable: true
 
+    AuthErrorDto:
+      type: object
+      description: >-
+        OAuth/RFC 6750-style error body used by authentication/authorization rejections
+        (401 invalid_request / invalid_token, 403 insufficient_scope) and the SSE pre-flight
+        400 validation_error. Unlike ErrorDto it has error_description and no message.
+      required: [error, error_description]
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code
+          enum: [invalid_request, invalid_token, insufficient_scope, validation_error]
+        error_description:
+          type: string
+          description: Human-readable description
+
     ItemDeleteResultDto:
       type: object
       required: [id, deleted, descendantsDeleted]
@@ -635,8 +651,20 @@ components:
           nullable: true
           description: >-
             Reason this cascade's own apply step failed (a persistence conflict), when applied is
-            false and gateBlocked is not true. Null on success and on every gate/resource
-            suppression.
+            false and no suppression flag is set. Null on success and on every
+            gate/resource/role/dependency suppression.
+        roleBlocked:
+          type: boolean
+          description: True when a terminal cascade was suppressed because the parent is blocked (held).
+        dependencyBlocked:
+          type: boolean
+          description: True when a terminal cascade was suppressed by an unmet blocking dependency on the parent.
+        blockers:
+          type: array
+          nullable: true
+          description: Present only when dependencyBlocked is true.
+          items:
+            $ref: "#/components/schemas/CascadeBlockerDto"
         violations:
           type: array
           nullable: true
@@ -648,6 +676,18 @@ components:
             report.
           items:
             $ref: "#/components/schemas/IndependenceViolationDto"
+
+    CascadeBlockerDto:
+      type: object
+      required: [fromItemId, currentRole, requiredRole]
+      properties:
+        fromItemId:
+          type: string
+          format: uuid
+        currentRole:
+          type: string
+        requiredRole:
+          type: string
 
     IndependenceViolationDto:
       type: object
@@ -1438,17 +1478,30 @@ components:
 
   responses:
     Unauthorized:
-      description: Missing or invalid bearer token
+      description: >-
+        Missing or invalid bearer token. error is invalid_request (missing, non-Bearer or empty
+        credential) or invalid_token (unknown, expired or invalid token); the body carries
+        error_description, not message, and the response has a WWW-Authenticate header.
+      headers:
+        WWW-Authenticate:
+          description: Bearer challenge, e.g. Bearer error="invalid_token"
+          schema:
+            type: string
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/ErrorDto"
+            $ref: "#/components/schemas/AuthErrorDto"
     Forbidden:
-      description: Authenticated but lacks required capability or scope
+      description: >-
+        Authenticated but lacks required capability or scope. insufficient_scope uses the
+        AuthErrorDto body (error_description); host_not_allowed, scope_forbidden and
+        insufficient_capability use ErrorDto (message).
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/ErrorDto"
+            oneOf:
+              - $ref: "#/components/schemas/ErrorDto"
+              - $ref: "#/components/schemas/AuthErrorDto"
     NotFound:
       description: Resource not found
       content:
@@ -1495,12 +1548,16 @@ paths:
         - $ref: "#/components/parameters/pageSize"
         - name: role
           in: query
+          description: Matching is case-insensitive (the enum lists the canonical lower-case values). An unrecognized value returns 400 validation_error.
           schema:
             type: string
+            enum: [queue, work, review, blocked, terminal]
         - name: priority
           in: query
+          description: Matching is case-insensitive (the enum lists the canonical lower-case values). An unrecognized value returns 400 validation_error.
           schema:
             type: string
+            enum: [high, medium, low]
         - name: tag
           in: query
           schema:
@@ -1547,6 +1604,7 @@ paths:
             format: date-time
         - name: claimStatus
           in: query
+          description: Matching is case-insensitive (the enum lists the canonical lower-case values). An unrecognized value returns 400 validation_error.
           schema:
             type: string
             enum: [claimed, unclaimed, expired]
@@ -1573,6 +1631,8 @@ paths:
                         type: array
                         items:
                           $ref: "#/components/schemas/ItemDto"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1685,9 +1745,12 @@ paths:
           schema:
             type: string
           description: >-
-            Comma-separated inclusions - notes, deps, children.
+            Comma-separated inclusions - notes, deps, children. When any recognized token is
+            present the response carries no ETag header and If-None-Match is ignored (never 304).
         - name: If-None-Match
           in: header
+          description: >-
+            Honored only when no recognized include is requested; ignored otherwise.
           schema:
             type: string
       responses:
@@ -1695,6 +1758,7 @@ paths:
           description: Item
           headers:
             ETag:
+              description: Absent when a recognized include is requested.
               schema:
                 type: string
           content:
@@ -1702,7 +1766,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ItemDto"
         "304":
-          description: Not modified (If-None-Match matched)
+          description: Not modified (If-None-Match matched; never returned when include is requested)
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -1994,7 +2058,8 @@ paths:
           in: query
           schema:
             type: integer
-          description: Max relative depth from root item
+            minimum: 0
+          description: Max relative depth from root item. A non-integer or negative value returns 400 validation_error.
       responses:
         "200":
           description: Tree nodes (root item always first)
@@ -2008,6 +2073,8 @@ paths:
                         type: array
                         items:
                           $ref: "#/components/schemas/ItemDto"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2565,7 +2632,7 @@ paths:
           schema:
             type: string
             format: date-time
-          description: Default 24 hours ago
+          description: Default 24 hours ago when absent or blank. An unparsable value returns 400 validation_error.
         - $ref: "#/components/parameters/page"
         - $ref: "#/components/parameters/pageSize"
       responses:
@@ -2581,6 +2648,8 @@ paths:
                         type: array
                         items:
                           $ref: "#/components/schemas/RoleTransitionDto"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -2606,8 +2675,10 @@ paths:
             format: uuid
         - name: role
           in: query
+          description: Matching is case-insensitive (the enum lists the canonical lower-case values). An unrecognized value returns 400 validation_error.
           schema:
             type: string
+            enum: [queue, work, review, blocked, terminal]
         - name: tag
           in: query
           schema:
@@ -3494,7 +3565,13 @@ paths:
                   time, 401 invalid_token). Does not fire for API_AUTH_MODE=none unauthenticated
                   sessions or for a bearer token with no expires_at — neither has an expiry to watch.
         "400":
-          $ref: "#/components/responses/BadRequest"
+          description: >-
+            Pre-flight validation failure: ?root= present but yields zero valid UUIDs
+            (validation_error, error_description body).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthErrorDto"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

@@ -51,6 +51,13 @@ private class FailOnIdWorkItemRepository(
         } else {
             delegate.delete(id)
         }
+
+    override suspend fun deleteAll(ids: Set<UUID>): Result<Int> =
+        if (failingId in ids) {
+            Result.Error(RepositoryError.DatabaseError("Simulated bulk delete failure for $failingId"))
+        } else {
+            delegate.deleteAll(ids)
+        }
 }
 
 /** Wraps a real [RepositoryProvider], substituting [failingWorkItemRepo] for [workItemRepository]. */

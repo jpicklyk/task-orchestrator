@@ -6,7 +6,9 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
-import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
+import io.github.jpicklyk.mcptask.current.application.service.PlacedWriteOutcome
+import io.github.jpicklyk.mcptask.current.application.service.ReparentCheck
+import io.github.jpicklyk.mcptask.current.application.service.WorkItemPlacementService
 import io.github.jpicklyk.mcptask.current.application.service.rest.MergePatchApplier
 import io.github.jpicklyk.mcptask.current.application.service.rest.WorkItemPatchProjection
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
@@ -329,7 +331,6 @@ fun Route.itemWriteRoutes(
     warnOnClaimedAdvance: Boolean = defaultWarnOnClaimedAdvance,
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
-    val hierarchyValidator = ItemHierarchyValidator()
 
     // Parses and validates the POST /items/{id}/advance request body: the 415 Content-Type gate,
     // the bounded body read + AdvanceRequestDto decode, trigger parsing, and credentialRefs
@@ -513,59 +514,31 @@ fun Route.itemWriteRoutes(
                     )
 
                 // depth/rootId are resolved from the CURRENT parent state INSIDE the same
-                // transaction as the insert (via resolveChildPlacement) so a concurrent
+                // transaction as the insert (inside WorkItemPlacementService.create) so a concurrent
                 // reparent/delete of the parent between the pre-checks above and this write
                 // cannot leave the new item stamped with stale placement (AR-19).
-                var createResult: Result<WorkItem>? = null
-                var notFoundMessage: String? = null
-                var validationMessage: String? = null
-                if (parentId != null) {
-                    workItemRepo.inTransaction {
-                        when (val placementResult = workItemRepo.resolveChildPlacement(parentId)) {
-                            is Result.Success -> {
-                                val placement = placementResult.data
-                                val item =
-                                    try {
-                                        buildItem(placement.depth, placement.rootId)
-                                    } catch (e: Exception) {
-                                        validationMessage = e.message ?: "Validation failed"
-                                        return@inTransaction
-                                    }
-                                createResult =
-                                    withEventActor(actorClaim) { workItemRepo.create(item) }
-                            }
-                            is Result.Error -> {
-                                notFoundMessage = "Parent item $parentId not found"
-                            }
+                return when (
+                    val outcome =
+                        withEventActor(actorClaim) {
+                            WorkItemPlacementService(workItemRepo)
+                                .create(itemId, parentId) { depth, rootId -> buildItem(depth, rootId) }
                         }
-                    }
-                    if (notFoundMessage != null) {
-                        return errorCaptured(HttpStatusCode.BadRequest, "not_found", notFoundMessage!!)
-                    }
-                    if (validationMessage != null) {
-                        return errorCaptured(HttpStatusCode.BadRequest, "validation_error", validationMessage!!)
-                    }
-                } else {
-                    val item =
-                        try {
-                            buildItem(0, itemId)
-                        } catch (e: Exception) {
-                            return errorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Validation failed")
-                        }
-                    createResult =
-                        withEventActor(actorClaim) { workItemRepo.create(item) }
-                }
-
-                return when (val result = createResult!!) {
-                    is Result.Error -> {
-                        writeLogger.warn("POST /items DB error: {}", result.error.message)
+                ) {
+                    is PlacedWriteOutcome.ParentNotFound ->
+                        errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item ${outcome.parentId} not found")
+                    is PlacedWriteOutcome.BuildFailed ->
+                        errorCaptured(HttpStatusCode.BadRequest, "validation_error", outcome.message)
+                    is PlacedWriteOutcome.WriteFailed -> {
+                        writeLogger.warn("POST /items DB error: {}", outcome.error.message)
                         errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to create item")
                     }
-                    is Result.Success ->
+                    is PlacedWriteOutcome.CascadeFailed ->
+                        errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to create item")
+                    is PlacedWriteOutcome.Written ->
                         CachedHttpResponse(
                             statusCode = HttpStatusCode.Created.value,
-                            bodyJson = writeJson.encodeToString(ItemDto.serializer(), result.data.toDto()),
-                            etag = etagFor(result.data.modifiedAt),
+                            bodyJson = writeJson.encodeToString(ItemDto.serializer(), outcome.item.toDto()),
+                            etag = etagFor(outcome.item.modifiedAt),
                         )
                 }
             }
@@ -762,40 +735,30 @@ fun Route.itemWriteRoutes(
                             return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for parent $newParentId")
                         }
 
-                        // Cycle guard. Re-parenting an item onto itself, or onto one of its own
-                        // descendants, makes the hierarchy cyclic — and the descendant depth/rootId
-                        // cascade further down then walks that cycle forever, so the request hangs
-                        // instead of failing. Reject both as client errors BEFORE any write. Ordered
-                        // after the existence and scope checks so not_found / scope_forbidden
-                        // precedence is unchanged.
-                        if (newParentId == id) {
-                            return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "An item cannot be its own parent")
-                        }
-                        // Walk the proposed parent's full ancestor chain: if this item appears in it,
-                        // the proposed parent lives inside this item's own subtree. Delegated to
-                        // findAncestorChains rather than a manual getById walk — it carries its own
-                        // visited set (so it is unbounded by, and unaffected by, this row's own
-                        // possibly-stale `depth` column) and is one batched query instead of N
-                        // sequential round-trips. On a lookup failure, fail CLOSED: a transient DB
-                        // error must not be treated as "not an ancestor" and let a cyclic re-parent
-                        // through into the depth cascade below, which cannot handle a cycle.
-                        val ancestorChainResult = workItemRepo.findAncestorChains(setOf(newParentId))
-                        if (ancestorChainResult is Result.Error) {
-                            writeLogger.warn(
-                                "PATCH /items/{} ancestor-chain lookup failed for proposed parent {}: {}",
-                                id,
-                                newParentId,
-                                ancestorChainResult.error.message,
-                            )
-                            return errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to update item")
-                        }
-                        val ancestorChain = (ancestorChainResult as Result.Success).data[newParentId] ?: emptyList()
-                        if (ancestorChain.any { it.id == id }) {
-                            return errorCaptured(
-                                HttpStatusCode.BadRequest,
-                                "validation_error",
-                                "Cannot re-parent an item under its own descendant",
-                            )
+                        // Cycle guard (self-parent / own-descendant), fail CLOSED on a lookup error — see
+                        // WorkItemPlacementService.checkReparent. Ordered after the existence and
+                        // scope checks so not_found / scope_forbidden precedence is unchanged.
+                        when (val check = WorkItemPlacementService(workItemRepo).checkReparent(id, newParentId)) {
+                            ReparentCheck.Ok -> {}
+                            ReparentCheck.SelfParent ->
+                                return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "An item cannot be its own parent")
+                            ReparentCheck.DescendantCycle ->
+                                return errorCaptured(
+                                    HttpStatusCode.BadRequest,
+                                    "validation_error",
+                                    "Cannot re-parent an item under its own descendant",
+                                )
+                            is ReparentCheck.LookupFailed -> {
+                                writeLogger.warn(
+                                    "PATCH /items/{} ancestor-chain lookup failed for proposed parent {}: {}",
+                                    id,
+                                    newParentId,
+                                    check.message,
+                                )
+                                return errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to update item")
+                            }
+                            is ReparentCheck.ParentNotFound ->
+                                return errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $newParentId not found")
                         }
                     }
                 }
@@ -832,111 +795,45 @@ fun Route.itemWriteRoutes(
                 // half-updated. Gated on parentId change rather than depthDelta != 0: moving an
                 // item between two different root subtrees at the same depth leaves depth
                 // unchanged but still requires a rootId cascade over every descendant.
-                var updateResult: Result<WorkItem>? = null
-                var cascadeErrorMessage: String? = null
-                var notFoundMessage: String? = null
-                var validationMessage: String? = null
-                if (parentChanged) {
-                    try {
-                        // The actor scope encloses the whole transaction so the descendant cascade's
-                        // per-descendant updates publish item.updated events attributed to the caller.
-                        withEventActor(actorClaim) {
-                            workItemRepo.inTransaction {
-                                val newDepth: Int
-                                val newRootId: UUID?
-                                if (newParentId != null) {
-                                    when (val placementResult = workItemRepo.resolveChildPlacement(newParentId)) {
-                                        is Result.Success -> {
-                                            newDepth = placementResult.data.depth
-                                            newRootId = placementResult.data.rootId
-                                        }
-                                        is Result.Error -> {
-                                            notFoundMessage = "Parent item $newParentId not found"
-                                            return@inTransaction
-                                        }
-                                    }
-                                } else {
-                                    // Explicit move-to-root — no parent to read.
-                                    newDepth = 0
-                                    newRootId = id
-                                }
-
-                                val updated =
-                                    try {
-                                        buildUpdated(newDepth, newRootId)
-                                    } catch (e: Exception) {
-                                        validationMessage = e.message ?: "Validation failed"
-                                        return@inTransaction
-                                    }
-
-                                val depthDelta = newDepth - existing.depth
-                                val txResult = workItemRepo.update(updated)
-                                updateResult = txResult
-                                if (txResult is Result.Success) {
-                                    when (
-                                        val cascadeResult =
-                                            hierarchyValidator.recomputeDescendantDepths(id, depthDelta, newRootId ?: id, workItemRepo)
-                                    ) {
-                                        is Result.Success -> {}
-                                        is Result.Error -> {
-                                            cascadeErrorMessage = cascadeResult.error.message
-                                            throw DepthCascadeException(cascadeResult.error.message)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } catch (e: DepthCascadeException) {
-                        // Expected abort path — cascadeErrorMessage already holds the detail and the
-                        // transaction has rolled back, so no partial writes remain.
+                val outcome =
+                    withEventActor(actorClaim) {
+                        WorkItemPlacementService(workItemRepo)
+                            .update(existing, newParentId, parentChanged) { depth, rootId -> buildUpdated(depth, rootId) }
                     }
-                    if (notFoundMessage != null) {
-                        return errorCaptured(HttpStatusCode.BadRequest, "not_found", notFoundMessage!!)
-                    }
-                    if (validationMessage != null) {
-                        return errorCaptured(HttpStatusCode.BadRequest, "validation_error", validationMessage!!)
-                    }
-                } else {
-                    val updated =
-                        try {
-                            buildUpdated(existing.depth, existing.rootId)
-                        } catch (e: Exception) {
-                            return errorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Validation failed")
-                        }
-                    updateResult =
-                        withEventActor(actorClaim) { workItemRepo.update(updated) }
-                }
 
-                if (cascadeErrorMessage != null) {
-                    writeLogger.warn("PATCH /items/{} descendant depth cascade failed: {}", id, cascadeErrorMessage)
-                    return errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to update item")
-                }
-
-                return when (val result = updateResult!!) {
-                    is Result.Error -> {
+                return when (outcome) {
+                    is PlacedWriteOutcome.ParentNotFound ->
+                        errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item ${outcome.parentId} not found")
+                    is PlacedWriteOutcome.BuildFailed ->
+                        errorCaptured(HttpStatusCode.BadRequest, "validation_error", outcome.message)
+                    is PlacedWriteOutcome.CascadeFailed -> {
+                        writeLogger.warn("PATCH /items/{} descendant depth cascade failed: {}", id, outcome.message)
+                        errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to update item")
+                    }
+                    is PlacedWriteOutcome.WriteFailed -> {
                         // Optimistic-lock loss (WorkItemRepository.update's version-mismatch branch)
                         // is a distinct, retryable condition from a genuine DB failure — and distinct
                         // from an If-Match precondition failure (handled above as 412 before update()
                         // is ever called: If-Match matched here, but another writer's update() won the
                         // version race in between). Map it to 409 so REST clients can safely retry with
                         // a fresh GET + If-Match, instead of treating it as an opaque server error.
-                        if (result.error is RepositoryError.ConflictError) {
-                            writeLogger.debug("PATCH /items/{} optimistic-lock conflict: {}", id, result.error.message)
+                        if (outcome.error is RepositoryError.ConflictError) {
+                            writeLogger.debug("PATCH /items/{} optimistic-lock conflict: {}", id, outcome.error.message)
                             errorCaptured(
                                 HttpStatusCode.Conflict,
                                 "version_conflict",
                                 "Item was modified by another request; retry with a fresh If-Match ETag",
                             )
                         } else {
-                            writeLogger.warn("PATCH /items/{} DB error: {}", id, result.error.message)
+                            writeLogger.warn("PATCH /items/{} DB error: {}", id, outcome.error.message)
                             errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to update item")
                         }
                     }
-                    is Result.Success ->
+                    is PlacedWriteOutcome.Written ->
                         CachedHttpResponse(
                             statusCode = HttpStatusCode.OK.value,
-                            bodyJson = writeJson.encodeToString(ItemDto.serializer(), result.data.toDto()),
-                            etag = etagFor(result.data.modifiedAt),
+                            bodyJson = writeJson.encodeToString(ItemDto.serializer(), outcome.item.toDto()),
+                            etag = etagFor(outcome.item.modifiedAt),
                         )
                 }
             }
@@ -1203,13 +1100,3 @@ fun Route.itemWriteRoutes(
         }
     }
 }
-
-/**
- * Internal marker exception used to abort the shared `workItemRepo.inTransaction` block in the
- * PATCH `/items/{id}` handler when the descendant-depth cascade fails after the item's own depth
- * write succeeded. Caught immediately around the `inTransaction` call and converted into a 500
- * response; never surfaced to the client as a raw exception.
- */
-private class DepthCascadeException(
-    message: String
-) : Exception(message)

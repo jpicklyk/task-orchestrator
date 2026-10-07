@@ -158,8 +158,7 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
                     return@get
                 }
 
-            val ancestorIdRaw = call.request.queryParameters["ancestorId"]
-            val requestedAncestorId = ancestorIdRaw?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+            val requestedAncestorId = (call.uuidParamOrRespond("ancestorId") ?: return@get).value
 
             val principalRoots = principal?.scope?.rootIds
 

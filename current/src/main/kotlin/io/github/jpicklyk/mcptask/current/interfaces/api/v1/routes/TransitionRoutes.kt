@@ -5,9 +5,8 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowedItemIdsForTagScope
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowedItemIdsForScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.hasTagScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.RoleTransitionDto
@@ -82,7 +81,7 @@ fun Route.transitionRoutes(
             }
 
             val pp = call.pageParamsOrRespond() ?: return@get
-            val result = transitionRepo.findByItemId(id, limit = pp.pageSize + 1)
+            val result = transitionRepo.findByItemId(id, limit = pp.pageSize + 1, offset = pp.offset)
             when (result) {
                 is Result.Error -> {
                     transitionLogger.warn("GET /items/{}/transitions DB error: {}", id, result.error.message)
@@ -105,12 +104,10 @@ fun Route.transitionRoutes(
         // ─── GET /transitions ────────────────────────────────────────────────
         get("/transitions") {
             val principal = call.attributes.getOrNull(ApiPrincipalKey)
-            val sinceRaw = call.request.queryParameters["since"]
-            val since =
-                sinceRaw?.let { runCatching { Instant.parse(it) }.getOrNull() }
-                    ?: Instant.now().minusSeconds(86400) // default: last 24 hours
-
             val pp = call.pageParamsOrRespond() ?: return@get
+            val since =
+                (call.instantParamOrRespond("since") ?: return@get).value
+                    ?: Instant.now().minusSeconds(86400) // default: last 24 hours
             val fetchLimit =
                 minOf(pp.offset.toLong() + pp.pageSize.toLong() + 1L, TRANSITION_SCAN_LIMIT.toLong()).toInt()
             val result = transitionRepo.findSince(since, limit = fetchLimit)
@@ -123,42 +120,17 @@ fun Route.transitionRoutes(
                 is Result.Success -> {
                     var transitions = result.data
 
-                    // Apply scope filtering: only return transitions for items within principal scope
-                    val scopeRootIds = principal?.scope?.rootIds
-                    if (scopeRootIds != null) {
-                        // Fetch unique item IDs from transitions
-                        val itemIds = transitions.map { it.itemId }.distinct().toSet()
-                        val itemsResult = workItemRepo.findByIds(itemIds)
-                        if (itemsResult is Result.Success) {
-                            // Filter: keep only items reachable from principal's roots
-                            val accessibleItemIds = mutableSetOf<UUID>()
-                            for (item in itemsResult.data) {
-                                val chainResult = workItemRepo.findAncestorChains(setOf(item.id))
-                                if (chainResult is Result.Success) {
-                                    val ancestors = chainResult.data[item.id] ?: emptyList()
-                                    val idsInChain = ancestors.map { it.id }.toSet() + item.id
-                                    if (idsInChain.any { it in scopeRootIds }) {
-                                        accessibleItemIds.add(item.id)
-                                    }
-                                }
-                            }
-                            transitions = transitions.filter { it.itemId in accessibleItemIds }
-                        }
-                    }
-
-                    // tags_include is an item-level constraint independent of the root walk
-                    // above, and a RoleTransition carries only itemId — so the tags are looked
-                    // up and the rows filtered by the shared helper. No-op (and no query) for
-                    // principals without a tag scope.
-                    if (principal.hasTagScope()) {
-                        val allowedIds =
-                            allowedItemIdsForTagScope(
-                                principal,
-                                transitions.map { it.itemId }.toSet(),
-                                workItemRepo,
-                            )
-                        transitions = transitions.filter { it.itemId in allowedIds }
-                    }
+                    // Scope filter (root_ids ancestor walk, then tags_include) via the shared helper:
+                    // one batched ancestor lookup, and a lookup error DROPS the rows (deny rather
+                    // than leak) instead of returning them unfiltered. No-op, and no query, for
+                    // unscoped principals.
+                    val allowedIds =
+                        allowedItemIdsForScope(
+                            principal,
+                            transitions.map { it.itemId }.toSet(),
+                            workItemRepo,
+                        )
+                    transitions = transitions.filter { it.itemId in allowedIds }
 
                     // Paginate
                     val page = transitions.drop(pp.offset).take(pp.pageSize)

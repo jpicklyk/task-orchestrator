@@ -66,15 +66,19 @@ class SQLiteRoleTransitionRepository(
 
     override suspend fun findByItemId(
         itemId: UUID,
-        limit: Int
+        limit: Int,
+        offset: Int
     ): Result<List<RoleTransition>> =
         databaseManager.suspendedTransaction("Failed to find RoleTransitions by itemId") {
             val transitions =
                 RoleTransitionsTable
                     .selectAll()
                     .where { RoleTransitionsTable.itemId eq itemId }
-                    .orderBy(RoleTransitionsTable.transitionedAt, SortOrder.DESC)
-                    .limit(limit)
+                    .orderBy(
+                        RoleTransitionsTable.transitionedAt to SortOrder.DESC,
+                        RoleTransitionsTable.id to SortOrder.DESC
+                    ).limit(limit)
+                    .offset(offset.coerceAtLeast(0).toLong())
                     .map { mapRowToRoleTransition(it) }
             Result.Success(transitions)
         }
@@ -116,8 +120,10 @@ class SQLiteRoleTransitionRepository(
                 RoleTransitionsTable
                     .selectAll()
                     .where { RoleTransitionsTable.transitionedAt greaterEq since }
-                    .orderBy(RoleTransitionsTable.transitionedAt, SortOrder.DESC)
-                    .limit(limit)
+                    .orderBy(
+                        RoleTransitionsTable.transitionedAt to SortOrder.DESC,
+                        RoleTransitionsTable.id to SortOrder.DESC
+                    ).limit(limit)
                     .map { mapRowToRoleTransition(it) }
             Result.Success(results)
         }

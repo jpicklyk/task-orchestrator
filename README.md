@@ -250,7 +250,7 @@ To make the claim mandatory, enable actor authentication in config:
 
 ```yaml
 actor_authentication:
-  enabled: true
+  enabled: true   # read by the plugin hook (workspace/user config), not the server
 ```
 
 With the [Claude Code plugin](#claude-code-plugin) installed, a hook then rejects any write that lacks an actor before the call leaves the client. Other MCP clients need to supply the claim by convention. Optional JWKS verification checks that the claim is genuine; see [Fleet Deployment](https://github.com/jpicklyk/task-orchestrator/wiki/fleet-deployment).

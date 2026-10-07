@@ -3,6 +3,10 @@
 // actor_authentication is enabled, or the local-only actor_attribution.required option
 // is set, in .taskorchestrator/config.yaml.
 //
+// The config consulted is the one config-locator finds on the client (AGENT_CONFIG_DIR, workspace,
+// main checkout, or ~/.taskorchestrator), NOT the server's global AGENT_CONFIG_DIR mount; the
+// server never reads actor_authentication.enabled.
+//
 // Config format:
 //   actor_authentication:
 //     enabled: true

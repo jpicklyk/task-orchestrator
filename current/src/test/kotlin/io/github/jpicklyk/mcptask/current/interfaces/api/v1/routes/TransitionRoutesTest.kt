@@ -171,7 +171,58 @@ class TransitionRoutesTest {
                 }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
-            assertTrue(body.contains("\"hasMore\""), "Expected hasMore: $body")
+            assertTrue(body.contains("\"hasMore\":true"), "Expected hasMore true on page 1: $body")
+            assertEquals(2, Regex("\"trigger\":\"start\"").findAll(body).count(), "Expected 2 items on page 1: $body")
+        }
+
+    @Test
+    fun `GET items id transitions page 2 returns the remainder`() =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val base = java.time.Instant.parse("2026-01-01T00:00:00Z")
+            val item =
+                runBlocking {
+                    val i = repo.workItemRepository().create(WorkItem(title = "Paged transitions", depth = 0)).getOrNull()!!
+                    repeat(3) { idx ->
+                        repo.roleTransitionRepository().create(
+                            RoleTransition(
+                                itemId = i.id,
+                                fromRole = "queue",
+                                toRole = "work",
+                                trigger = "start",
+                                summary = "transition $idx",
+                                transitionedAt = base.plusSeconds(idx.toLong()),
+                            )
+                        )
+                    }
+                    i
+                }
+            application {
+                configureTestApp { transitionRoutes(repo) }
+            }
+
+            suspend fun fetch(page: Int): String =
+                client
+                    .get("/api/v1/items/${item.id}/transitions?pageSize=2&page=$page") {
+                        header("Authorization", "Bearer $TEST_TOKEN")
+                    }.also { assertEquals(HttpStatusCode.OK, it.status) }
+                    .bodyAsText()
+
+            val page1 = fetch(1)
+            assertTrue(page1.contains("2026-01-01T00:00:02Z") && page1.contains("2026-01-01T00:00:01Z"), "page 1: $page1")
+            assertTrue(page1.contains("\"hasMore\":true"), "page 1: $page1")
+
+            val page2 = fetch(2)
+            assertTrue(page2.contains("2026-01-01T00:00:00Z"), "page 2: $page2")
+            assertTrue(
+                !page2.contains("2026-01-01T00:00:01Z") && !page2.contains("2026-01-01T00:00:02Z"),
+                "page 2 overlaps page 1: $page2"
+            )
+            assertTrue(page2.contains("\"hasMore\":false"), "page 2: $page2")
+
+            val page3 = fetch(3)
+            assertTrue(page3.contains("\"items\":[]"), "page 3 should be empty: $page3")
+            assertTrue(page3.contains("\"hasMore\":false"), "page 3: $page3")
         }
 
     @Test

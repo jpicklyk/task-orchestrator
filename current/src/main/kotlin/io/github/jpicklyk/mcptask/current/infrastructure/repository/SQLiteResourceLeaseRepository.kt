@@ -433,6 +433,47 @@ class SQLiteResourceLeaseRepository(
             LeaseReleaseResult.DBError(e)
         }
 
+    override suspend fun releaseAllForItems(holderItemIds: Set<UUID>): LeaseReleaseResult {
+        if (holderItemIds.isEmpty()) return LeaseReleaseResult.Success(0)
+        return try {
+            suspendTransaction(db = databaseManager.getDatabase()) {
+                val uuidType = UUIDColumnType()
+                var total = 0
+                // Chunked so the IN list never exceeds SQLite's bound-variable limit; every chunk
+                // runs in this one transaction. Semantics per chunk are identical to
+                // releaseAllForItem (datetime(expires_at) wrapping, expired-vs-released CASE).
+                for (chunk in holderItemIds.chunked(SQL_IN_CHUNK_SIZE)) {
+                    if (currentDialect is H2Dialect) {
+                        // H2 test-harness fallback; see releaseAllForItem for its best-effort semantics.
+                        ResourceLeaseHistoryTable.update({
+                            (ResourceLeaseHistoryTable.holderItemId inList chunk) and
+                                ResourceLeaseHistoryTable.releasedAt.isNull()
+                        }) {
+                            it[releasedAt] = Instant.now()
+                            it[releaseReason] = "released"
+                        }
+                    } else {
+                        val placeholders = chunk.joinToString(",") { "?" }
+                        exec(
+                            """
+                            UPDATE resource_lease_history
+                               SET released_at = min(datetime('now'), datetime(expires_at)),
+                                   release_reason = CASE WHEN datetime(expires_at) < datetime('now') THEN 'expired' ELSE 'released' END
+                             WHERE holder_item_id IN ($placeholders) AND released_at IS NULL
+                            """.trimIndent(),
+                            args = chunk.map { uuidType to it }
+                        )
+                    }
+                    total += ResourceLeasesTable.deleteWhere { ResourceLeasesTable.holderItemId inList chunk }
+                }
+                LeaseReleaseResult.Success(total)
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to release resource leases for ${holderItemIds.size} holders: ${e.message}", e)
+            LeaseReleaseResult.DBError(e)
+        }
+    }
+
     override suspend fun forceReleaseByKey(
         resourceKey: String,
         actorId: String?

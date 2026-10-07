@@ -1,86 +1,18 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import java.util.UUID
 
 /**
- * Validates parent-child hierarchy constraints for WorkItems and computes depth.
+ * Descendant depth/rootId maintenance for WorkItem hierarchy moves.
  *
- * Consolidates the duplicated validation logic previously in create and update operations:
- * - Self-parent guard
- * - Ancestor cycle detection (walk-up loop, unbounded — relies on DB BEFORE-UPDATE trigger for cycle enforcement)
- * - Depth computation from parent
- *
- * No maximum depth is enforced at the application layer. Cycle protection is delegated to the
- * DB BEFORE-UPDATE trigger on work_items.parent_id introduced in V7.
+ * Holds only [recomputeDescendantDepths]. The hierarchy guard rules (parent existence,
+ * self-parent, descendant cycle) and the placement-aware write pipeline live in
+ * [WorkItemPlacementService]; the DB BEFORE-UPDATE trigger on work_items.parent_id (V7) remains
+ * the authoritative cycle guard for persistence.
  */
 class ItemHierarchyValidator {
-    /**
-     * Validates hierarchy constraints (self-parent, ancestor cycle) and computes the depth for
-     * an item given its parent.
-     *
-     * The returned depth is a validation-time snapshot, not a value callers should stamp onto a
-     * write: it is read in its own transaction, separate from the later insert/update. Callers
-     * that write `depth`/`rootId` (CreateItemHandler, UpdateItemHandler, ItemWriteRoutes POST/PATCH,
-     * create_work_tree) call this method ONLY for its guard checks and instead resolve the actual
-     * placement to stamp via
-     * [io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository.resolveChildPlacement],
-     * inside the same transaction as the write — see that method's KDoc (AR-19).
-     *
-     * @param itemId The UUID of the item being created or updated
-     * @param parentId The target parent UUID, or null for root items
-     * @param repo The WorkItem repository for ancestor lookups
-     * @param errorPrefix Context string for error messages (e.g., "Item at index 2" or "Item 'abc-123'")
-     * @return The computed depth (0 for root items, parent.depth + 1 for children) — a guard-time
-     *   snapshot; see the caution above before using it to stamp a write.
-     * @throws ToolValidationException if any hierarchy constraint is violated
-     */
-    suspend fun validateAndComputeDepth(
-        itemId: UUID,
-        parentId: UUID?,
-        repo: WorkItemRepository,
-        errorPrefix: String
-    ): Int {
-        if (parentId == null) return 0
-
-        // Guard: self-parent check
-        if (parentId == itemId) {
-            throw ToolValidationException("$errorPrefix: cannot be its own parent")
-        }
-
-        // Guard: ancestor cycle check — walk up from parentId, ensure itemId is not an ancestor.
-        // Uses a visited set to detect pre-existing cycles in the hierarchy (unbounded walk).
-        // DB BEFORE-UPDATE trigger from V7 is the authoritative cycle guard for persistence;
-        // this app-layer walk is a best-effort fast-fail for reparent operations.
-        val visited = mutableSetOf<UUID>()
-        var cursor: UUID? = parentId
-        while (cursor != null) {
-            if (!visited.add(cursor)) break // Pre-existing cycle — stop walking
-            val ancestor =
-                when (val ancestorResult = repo.getById(cursor)) {
-                    is Result.Success -> ancestorResult.data
-                    is Result.Error -> break
-                }
-            if (ancestor.id == itemId) {
-                throw ToolValidationException(
-                    "$errorPrefix: reparenting to '$parentId' would create a circular hierarchy"
-                )
-            }
-            cursor = ancestor.parentId
-        }
-
-        // Compute depth from parent
-        val parentResult = repo.getById(parentId)
-        return when (parentResult) {
-            is Result.Success -> parentResult.data.depth + 1
-            is Result.Error -> throw ToolValidationException(
-                "$errorPrefix: parent '$parentId' not found"
-            )
-        }
-    }
-
     /**
      * Recomputes the stored `depth` and `rootId` for every descendant of [itemId] after the
      * item's own depth changed by [delta] (`newDepth - oldDepth`) and its own root ancestor
@@ -95,8 +27,11 @@ class ItemHierarchyValidator {
      * [WorkItemRepository.update] (the update builder keeps `modifiedAt` monotonic, and
      * `update` enforces the same optimistic-version check used for any other item write).
      *
-     * This issues one `update` per descendant — there is no bulk-update primitive on
-     * [WorkItemRepository] to batch these into a single statement. Callers that need the parent's
+     * This issues one `update` per descendant on purpose: each per-row write carries the
+     * optimistic version check, monotonic `modifiedAt`, and a per-descendant ITEM_UPDATED event
+     * through the event-publishing decorator. A bulk restamp primitive (a new decorator override
+     * plus SQL-side version/`modifiedAt` semantics) is a known follow-up, not a missing
+     * primitive; the descendant fetch itself is chunked and has no bound-variable limit. Callers that need the parent's
      * own depth/rootId write and this cascade to be atomic (all-or-nothing) MUST invoke both
      * inside a shared [WorkItemRepository.inTransaction] block.
      *

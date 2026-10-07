@@ -65,7 +65,9 @@ labels) still falls back to the default labels with a WARN.
 **Readiness marker.** Once DB init and schema update have both succeeded and the configured
 transport has bound, the server writes a readiness marker file at `READINESS_FILE` (default
 `/tmp/mcp-task-orchestrator.ready`; see the CLAUDE.md env-var table). The marker is cleared on
-graceful shutdown. This is transport-agnostic — **both `stdio` and `http` transports write and
+graceful shutdown, and also as the very first step of startup (before DB init), so a container
+restarted after SIGKILL/OOM does not report healthy from a stale marker during migration or a failed
+start. If the stale marker cannot be removed, startup fails as `READINESS_MARKER`. This is transport-agnostic — **both `stdio` and `http` transports write and
 clear the marker**, so a `stdio`-mode container is just as observable as an `http`-mode one, not
 only the HTTP case. In `stdio` mode the server also shuts down gracefully when its stdin reaches EOF (the client closes the pipe): it clears the marker, closes the DB, and exits 0, so `docker run -i` pipelines and CI harnesses do not leave a healthy-looking orphan.
 
@@ -302,7 +304,7 @@ TO publishes the following as the integration seam — the surface fleet impleme
 
 - **MCP tools** — `claim_item` (acquire/heartbeat/release), `advance_item` (with ownership enforcement on claimed items), `get_context(itemId)` (operator diagnostic with full claim detail), `query_items(claimStatus=...)` (filtered discovery, identity-redacted), `get_next_item(includeClaimed=...)` (work discovery)
 - **Configuration** — `.taskorchestrator/config.yaml` `actor_authentication` block (server policy)
-- **Audit log** — actor claims persisted on every write when `actor_authentication.enabled: true`, queryable via `query_notes`
+- **Audit log** — actor claims persisted on every write regardless of any flag, queryable via `query_notes`
 
 Anything else (specific skill instructions, hook behavior, orchestration-context conventions) is implementation detail of the bundled plugin and not part of the fleet contract.
 
@@ -594,14 +596,14 @@ The four stages below correspond to increasing identity-enforcement strictness. 
 
 | Stage | Config | Server behavior |
 |---|---|---|
-| **0 — Default orchestration** | `actor_authentication.enabled: false` (or absent) | `claim_item` works but is optional. `advance_item` does not enforce ownership. No actor required. |
-| **1 — Actor authentication on, self-reported identity** | `actor_authentication.enabled: true`, `degraded_mode_policy: accept-self-reported`, no `verifier` | Actor required on writes (when paired with an actor-attribution enforcement layer). `claim_item` enforces ownership on subsequent `advance_item` calls. Identity is self-reported — caller-supplied `actor.id` is trusted unconditionally. |
+| **0 — Default orchestration** | `degraded_mode_policy` default, hook-side `enabled` false or absent | `claim_item` works but is optional. `advance_item` does not enforce ownership of unclaimed items. No actor required. |
+| **1 — Actor authentication on, self-reported identity** | Hook-side `actor_authentication.enabled: true` (client config, not read by the server), `degraded_mode_policy: accept-self-reported`, no `verifier` | The plugin hook requires an actor on writes. Claim ownership is not gated by `enabled`: the server enforces it whenever the item is claimed, and a call carrying no actor at all on a claimed item is also rejected. Identity is self-reported — caller-supplied `actor.id` is trusted unconditionally. |
 | **2 — Verifier configured, fallback permitted** | + `verifier: { type: jwks, ... }`, `degraded_mode_policy: accept-cached` | When `actor.proof` is present and JWKS is reachable, the JWT `sub` becomes the trusted identity. When JWKS is briefly unreachable, the stale-cache fallback serves. A `REJECTED` verification (bad signature, wrong issuer/audience, etc.) or an unreachable JWKS with no usable cache both fall back to self-reported `actor.id` with a WARN log; `ABSENT`/`UNCHECKED` fall back silently. |
 | **3 — Verification required** | + `degraded_mode_policy: reject` | Operations requiring verified identity are rejected if verification status is not `VERIFIED`. Unclaimed items remain accessible to unverified actors so existing default-mode clients are not broken — only claim and advance-on-claimed flows are gated. |
 
 ### Recommended Sequence
 
-1. **Stage 0 → Stage 1.** Enable actor authentication in the config. Roll out `actor` plumbing on clients first, then flip `actor_authentication.enabled: true`. Clients that don't pass `actor` will fail writes once attribution enforcement is active.
+1. **Stage 0 → Stage 1.** Enable actor authentication in the config. Roll out `actor` plumbing on clients first, then flip `actor_authentication.enabled: true` in the clients' workspace or user config (the plugin hook reads it; the server does not). Clients that don't pass `actor` will fail writes once attribution enforcement is active.
 2. **Stage 1 → Stage 2.** Configure the JWKS source and have clients begin attaching `actor.proof` JWTs. Stage 2 is forgiving — clients without `actor.proof` continue to work via self-reported fallback. Use this stage to confirm verification metadata in responses (`verification.status: VERIFIED` for upgraded clients).
 3. **Stage 2 → Stage 3.** Once telemetry confirms all client traffic is producing `VERIFIED` outcomes, flip `degraded_mode_policy: reject`. Any remaining unverified clients will start receiving `rejected_by_policy` on `claim_item` and on `advance_item` for claimed items.
 
@@ -621,8 +623,8 @@ When `verifier.type: jwks` is configured, TO reads a narrow subset of claims fro
 
 | Claim | Required | Used for |
 |---|---|---|
-| `iss` | Only if `issuer` is configured (explicitly or via OIDC discovery); **always read under DID trust** (`did_allowlist`/`did_pattern`) to resolve the DID and to bind against `sub` | Must match the configured/discovered issuer; mismatch → rejected with `failureKind: claims`. Under DID trust, also see the `sub`/`iss` binding below. |
-| `aud` | Only if `audience` is configured | Must contain the configured audience; mismatch → rejected with `failureKind: claims` |
+| `iss` | Only if `issuer` is configured (explicitly or via OIDC discovery; strongly recommended in static mode, where a startup WARN is logged when missing); **always read under DID trust** (`did_allowlist`/`did_pattern`) to resolve the DID and to bind against `sub` | Must match the configured/discovered issuer; mismatch → rejected with `failureKind: claims`. Under DID trust, also see the `sub`/`iss` binding below. |
+| `aud` | Only if `audience` is configured (strongly recommended in static mode, where a startup WARN is logged when missing) | Must contain the configured audience; mismatch → rejected with `failureKind: claims` |
 | `sub` | Only when `require_sub_match: true`; **always read under DID trust**, regardless of `require_sub_match` | Verified against the caller's self-reported `actor.id`; mismatch → rejected with `failureKind: claims`. When `require_sub_match: false` and DID trust is not configured, `sub` is not read. Under DID trust, `sub` must equal `iss` exactly (see below) even when `require_sub_match: false`. |
 | `exp` | Required | Enforced with a **60-second clock-skew allowance**; past-expiry → rejected with `failureKind: claims`. A missing `exp` claim is rejected with `reason: "missing exp claim"`, `failureKind: claims`. Also bounds the lifetime cap below (both TO's actor verifier and `JwksApiVerifier` now enforce the same cap; see `max_token_lifetime_seconds` / `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS`). |
 | `nbf` | Optional | If present, enforced with a **60-second clock-skew allowance**; not-yet-valid → rejected with `failureKind: claims` |
@@ -679,6 +681,8 @@ actor_authentication:
     type: jwks
     jwks_uri: "http://localhost:8080/jwks.json"
     allow_insecure_url: true   # local dev/test only — never in production
+    issuer: "http://localhost:8080"
+    audience: "task-orchestrator"
     algorithms: [RS256]
 ```
 
@@ -785,8 +789,10 @@ out of scope; this is a known, accepted forensic gap for anything written before
 |----------|--------------|---------|-------------|
 | `DB_COMPACT_ON_UPGRADE` | Flyway mode, opting out | `true` | Set `false` to skip the automatic one-time startup compaction described above (e.g. to run the offline runbook manually instead, or to avoid the extra startup time on a very large database). Ignored in Direct mode and during a `FLYWAY_REPAIR` run — neither ever runs the automatic compaction regardless of this variable. |
 
-Direct mode (`USE_FLYWAY=false`) does not apply V17 to an existing database; migrate it via
-Flyway.
+Direct mode (`USE_FLYWAY=false`) is for disposable dev/test databases and has no upgrade path: it
+does not apply V17 (or any other migration) to an existing database, and Flyway mode refuses to
+open a Direct-created database (tables present, no `flyway_schema_history`) with an error. Point
+`DATABASE_PATH` at a new file, or restore a Flyway-mode backup.
 
 ---
 
@@ -926,7 +932,7 @@ The identity resolution chain:
 | Surface | What gets persisted |
 |---|---|
 | `work_items.claimed_by` | Current claim holder identity |
-| Audit notes (when `actor_authentication.enabled`) | Actor claim object on every write — `id`, `kind`, `parent`, verification metadata |
+| Audit notes (every write) | Actor claim object on every write — `id`, `kind`, `parent`, verification metadata |
 | `query_notes` body content | Audit notes are readable via standard note queries |
 | `notes.actor_proof_claims` / `role_transitions.actor_proof_claims` (V17) | Verified JWT claims JSON on a `VERIFIED` proof — can hold `sub`/`iss`, so the same PII sensitivity as `claimedBy` applies here too |
 
@@ -1059,9 +1065,9 @@ Fleet operators should treat this as a known gap when planning production rollou
 | Per-root claim breakdown | `query_items(operation="overview")` → `claimSummary` per root item |
 | Stalled items (missing required notes) | `get_context()` → `stalledItems` |
 | Recent role transitions | `get_context(since="<timestamp>")` → `recentTransitions` |
-| Audit log | `actor_authentication.enabled: true` in config — actor claims persisted on write operations; queryable via `query_notes` and `get_context` session-resume mode |
+| Audit log | Actor claims are persisted on write operations regardless of any flag; queryable via `query_notes` and `get_context` session-resume mode |
 
-The audit log via `actor_authentication.enabled` is the only structured per-operation signal available today. Actor claims (including verification status and `parent` chain) are persisted with each write, enabling post-mortem analysis.
+The audit log of persisted actor claims is the only structured per-operation signal available today. Actor claims (including verification status and `parent` chain) are persisted with each write, enabling post-mortem analysis.
 
 ### Known Gaps — Plan Accordingly
 

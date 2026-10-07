@@ -57,6 +57,13 @@ private class FailOnIdResourceLeaseRepository(
         } else {
             delegate.releaseAllForItem(holderItemId)
         }
+
+    override suspend fun releaseAllForItems(holderItemIds: Set<UUID>): LeaseReleaseResult =
+        if (failingHolderId in holderItemIds) {
+            LeaseReleaseResult.DBError(RuntimeException("Simulated lease release failure for $failingHolderId"))
+        } else {
+            delegate.releaseAllForItems(holderItemIds)
+        }
 }
 
 /** Wraps a real [RepositoryProvider], substituting [failingLeaseRepo] for [resourceLeaseRepository]. */

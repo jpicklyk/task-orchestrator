@@ -142,6 +142,8 @@ class GlobalConfigFailClosedTest {
                   degraded_mode_policy: reject
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - RS256
@@ -208,6 +210,7 @@ class GlobalConfigFailClosedTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
                     issuer: "https://accounts.example.com"
                 """.trimIndent()
             )
@@ -435,6 +438,8 @@ class GlobalConfigFailClosedTest {
                   verifier:
                     type: JWKS
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     algorithms:
                       - RS256
                 """.trimIndent()
@@ -487,6 +492,7 @@ class GlobalConfigFailClosedTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - RS256
@@ -508,6 +514,7 @@ class GlobalConfigFailClosedTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - RS256
@@ -527,6 +534,8 @@ class GlobalConfigFailClosedTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri:
                       - x
                     algorithms:
@@ -546,6 +555,8 @@ class GlobalConfigFailClosedTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - RS256
@@ -585,6 +596,8 @@ class GlobalConfigFailClosedTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - RS256
@@ -607,6 +620,8 @@ class GlobalConfigFailClosedTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - RS256
@@ -634,7 +649,8 @@ class GlobalConfigFailClosedTest {
                 actor_authentication:
                   verifier:
                     type: jwks
-                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    did_allowlist:
+                      - "did:web:agent.example"
                     algorithms:
                       - RS256
                     issuer: null

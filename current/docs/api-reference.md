@@ -46,7 +46,7 @@ errors, per-root-config-unavailable failures, and internal errors.
 ### manage_items
 
 **Purpose.** Write operations for WorkItems: batch-create, partial-update, or batch-delete. Depth
-is computed automatically from the parent; nesting depth is unbounded at creation time (cycle protection is enforced at the database level). `delete` walks descendants via a traversal bounded to 1000 levels — a cycle or a subtree at/beyond the bound fails the delete with a data error instead of hanging or silently truncating.
+is computed automatically from the parent; nesting depth is unbounded at creation time (cycle protection is enforced at the database level). `update` additionally rejects a reparent to itself or to one of its own descendants in the application layer, and fails closed: if the ancestor lookup errors, that item fails with a `failed to verify hierarchy` error and nothing is written. `delete` walks descendants via a traversal bounded to 1000 levels — a cycle or a subtree at/beyond the bound fails the delete with a data error instead of hanging or silently truncating.
 
 **Operations.** `create`, `update`, `delete`
 
@@ -1259,14 +1259,20 @@ Trait notes are merged into the resolved schema: `default_traits` from config ap
 
 **Start cascade.** When a child item transitions to WORK, the parent is automatically advanced from QUEUE to WORK if it is still in QUEUE. This is immediate-parent-only — it does not chain further up the ancestor chain (a grandparent stays in QUEUE until the parent itself transitions to WORK through its own trigger or cascade). The cascade gates on the parent's own CURRENT-phase required notes: if the parent has a resolved schema and its required notes for its current phase are not all filled, the cascade is suppressed rather than applied — the `cascadeEvents` entry carries `applied: false`, `gateBlocked: true`, and `missingNotes` (the missing note keys), and the parent is left in QUEUE for the caller to fill notes and advance explicitly. A schema-free parent, or one with no missing required notes for its current phase, cascades exactly as before. This appears in `cascadeEvents` in the response with `trigger="cascade"`.
 
-**Terminal cascade.** When a child item reaches TERMINAL, the parent may also automatically advance if all its children are terminal. Terminal cascades are gated the same way (`gateBlocked` / `missingNotes`), but against ALL required notes across all phases — the same check a direct `complete` on the parent would enforce.
+**Terminal cascade.** When a child item reaches TERMINAL, the parent may also automatically advance if all its children are terminal. A terminal cascade is suppressed (the entry carries `applied: false` and the cascade stops climbing the tree) in three cases, checked in this order:
+
+1. **Parent is BLOCKED** (an explicit hold) — `roleBlocked: true`. Applies regardless of trigger, including a cancel-originated cascade. Resume the parent, or cancel it directly, to move it.
+2. **Parent has an unmet blocking dependency** — `dependencyBlocked: true` plus a `blockers` array of `{fromItemId, currentRole, requiredRole}` (the same element shape as a `dependency_blocked` failure). This is the same validation a direct advance on the parent runs, and applies regardless of trigger.
+3. **Parent has unfilled required notes** — `gateBlocked: true` plus `missingNotes`, checked against ALL required notes across all phases (the same check a direct `complete` on the parent would enforce). A cancel-originated cascade bypasses this note gate only.
+
+`violations` is omitted on role- and dependency-suppressed events because the note gate never evaluated them.
 
 **Reopen cascade.** When a child item is reopened (TERMINAL → QUEUE) and its parent is TERMINAL, the parent is automatically reopened to WORK. This ensures the parent reflects that it has active children again. Reopen cascades never gate on notes — the direct `reopen` trigger itself bypasses gate enforcement (see the `reopen` row above), so gating its cascade would contradict that.
 
 All cascade types are recorded in `cascadeEvents`. When a cascade's own apply step fails (a
 persistence conflict, not a gate/resource suppression), the entry carries `applied: false` and an
 `error` (string) naming the reason; `error` is omitted whenever the cascade applied successfully or
-was suppressed by `gateBlocked`/`resourceBlocked` instead. Any resource lease that cascade itself
+was suppressed by `gateBlocked`/`resourceBlocked`/`roleBlocked`/`dependencyBlocked` instead. Any resource lease that cascade itself
 acquired for entering WORK is released in the same call (see [`workflow-guide.md`](./workflow-guide.md)
 § Resource Leasing).
 
@@ -2778,14 +2784,14 @@ Actor claims are **optional by default** — users who don't need actor authenti
 
 ```yaml
 actor_authentication:
-  enabled: true
+  enabled: true   # read by the plugin hook, not the server
 ```
 
 When enabled, the plugin's `PreToolUse` hook blocks any `advance_item` or `manage_notes(upsert)` call where one or more elements are missing an `actor` object. The call never reaches the server — the agent must retry with actor claims included.
 
 When `enabled` is `false` or the `actor_authentication` section is absent, calls pass through with no enforcement. Actor claims can still be provided voluntarily.
 
-> **Note:** Config changes require an MCP reconnect (`/mcp`) or session restart to take effect.
+> **Note:** The hook re-reads the config file on every call, so a change to `enabled` takes effect on the next write without an MCP reconnect. `enabled` is read only by the hook, from the client-side workspace or user config, not by the server.
 
 #### Subagent Behavior
 
@@ -2808,20 +2814,21 @@ Include an "actor" object on every advance_item and manage_notes call:
 
 ### Verifier Configuration
 
-The `actor_authentication` section in `.taskorchestrator/config.yaml` controls actor attribution enforcement and verification. The `enabled` flag and the `verifier` block are independent — enforcement checks actor presence, while the verifier checks proof validity.
+The `actor_authentication` section in `.taskorchestrator/config.yaml` controls actor attribution enforcement and verification. The `enabled` flag (read only by the plugin hook, from the client-side workspace or user config; the server ignores it) and the `verifier` block (read by the server from the global file) are independent — enforcement checks actor presence, while the verifier checks proof validity.
 
 ```yaml
 actor_authentication:
-  enabled: true          # Enforce actor claims on write operations
+  enabled: true          # Plugin hook only (client-side config); the server ignores this key
   degraded_mode_policy: accept-cached   # accept-cached (default) | accept-self-reported | reject
   verifier:
     type: jwks           # "noop" (default) | "jwks"
-    oidc_discovery: "https://provider.example/.well-known/openid-configuration"
+    # Exactly one key source: jwks_uri, jwks_path, or oidc_discovery.
     jwks_uri: "https://provider.example/.well-known/jwks.json"
-    jwks_path: ".agentlair/jwks.json"
-    issuer: "https://provider.example"
-    audience: "task-orchestrator"
-    algorithms: ["EdDSA", "RS256"]
+    # jwks_path: ".agentlair/jwks.json"
+    # oidc_discovery: "https://provider.example/.well-known/openid-configuration"
+    issuer: "https://provider.example"   # strongly recommended (startup WARN when missing)
+    audience: "task-orchestrator"            # strongly recommended
+    algorithms: ["EdDSA", "RS256"]          # required
     cache_ttl_seconds: 300
     require_sub_match: true
 ```
@@ -2867,8 +2874,8 @@ Configure exactly one of `oidc_discovery`, `jwks_uri`, or `jwks_path`; more than
 | `oidc_discovery` | URL to an OpenID Connect discovery document. The server fetches `jwks_uri` and `issuer` from the document. |
 | `jwks_uri` | Direct URL to a JWKS endpoint. Overrides the URI discovered via `oidc_discovery`. |
 | `jwks_path` | Path to a local JWKS JSON file, relative to `AGENT_CONFIG_DIR`. Useful for local dev and air-gapped environments. |
-| `issuer` | Expected `iss` claim in the JWT. Overrides the issuer discovered via `oidc_discovery`. |
-| `audience` | Expected `aud` claim in the JWT. |
+| `issuer` | Expected `iss` claim in the JWT. Overrides the issuer discovered via `oidc_discovery`. Strongly recommended in `jwks_uri`/`jwks_path` mode; a startup WARN is logged when missing (and `oidc_discovery` is not set). |
+| `audience` | Expected `aud` claim in the JWT. Strongly recommended in static-JWKS mode; a startup WARN is logged when missing. |
 | `algorithms` | List of accepted signing algorithms (e.g., `["EdDSA", "RS256"]`). |
 | `cache_ttl_seconds` | How long to cache fetched JWKS keys (default: 300). |
 | `stale_on_error` | When true (default), a stale cached key set is used if a JWKS refresh fails. The result is `verified` with `metadata.verifiedFromCache="true"` and `metadata.cacheAgeSeconds` set. When false, fetch failures always return `unavailable`. |

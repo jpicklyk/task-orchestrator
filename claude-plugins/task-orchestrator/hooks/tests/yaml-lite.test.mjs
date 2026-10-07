@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readSection, scalar, inlineScalar } from '../yaml-lite.mjs';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 test('readSection: column-0 comment inside a block stays inside the section', () => {
   const content = [
@@ -110,4 +113,71 @@ test('inlineScalar: bounded by comma or closing brace', () => {
 test('inlineScalar: returns null for an absent key or a null inline', () => {
   assert.equal(inlineScalar(' mode: dispatch ', 'missing'), null);
   assert.equal(inlineScalar(null, 'mode'), null);
+});
+
+test('readSection: indented nested header before the real column-0 block is skipped (F-012 T1)', () => {
+  const content = [
+    'work_item_schemas:',
+    '  project:',
+    '    rootId: nested',
+    'project:',
+    '  rootId: real',
+  ].join('\n');
+  const section = readSection(content, 'project', { blockOnly: true });
+  assert.ok(section);
+  assert.equal(scalar(section.lines, 'rootId'), 'real');
+});
+
+test('scalar: only matches at the first-level indent of the block (F-012 T2)', () => {
+  const content = [
+    'retrospective:',
+    '  thresholds:',
+    '    mode: off',
+    '  mode: dispatch',
+  ].join('\n');
+  const section = readSection(content, 'retrospective');
+  assert.ok(section);
+  assert.equal(scalar(section.lines, 'mode'), 'dispatch');
+  assert.equal(scalar(section.lines, 'thresholds'), null);
+  assert.equal(scalar([], 'mode'), null);
+  assert.equal(scalar(['  # only a comment'], 'mode'), null);
+});
+
+test('readSection: an indented-only header is not a section (F-012 T3)', () => {
+  const content = 'other:\n  orchestration:\n    mode: x\n';
+  assert.equal(readSection(content, 'orchestration'), null);
+  assert.equal(readSection(content, 'orchestration', { blockOnly: true }), null);
+});
+
+test('readSection: CRLF input and a BOM-prefixed first line still match (F-012 T4)', () => {
+  const crlf = 'project:\r\n  rootId: abc\r\nother:\r\n  x: 1\r\n';
+  const s1 = readSection(crlf, 'project', { blockOnly: true });
+  assert.ok(s1);
+  assert.equal(scalar(s1.lines, 'rootId'), 'abc');
+  const bom = '﻿project:\n  rootId: abc\n';
+  const s2 = readSection(bom, 'project', { blockOnly: true });
+  assert.ok(s2);
+  assert.equal(scalar(s2.lines, 'rootId'), 'abc');
+});
+
+test('readSection: block header with a trailing comment is recognized (F-012 T5)', () => {
+  const content = 'project:  # anchor\n  rootId: abc\n';
+  const section = readSection(content, 'project', { blockOnly: true });
+  assert.ok(section);
+  assert.equal(scalar(section.lines, 'rootId'), 'abc');
+});
+
+test('inlineScalar: key boundary and brace depth (F-012 T6)', () => {
+  assert.equal(inlineScalar(' not_enabled: x, enabled: true ', 'enabled'), 'true');
+  assert.equal(inlineScalar(' nested: { mode: off }, mode: dispatch ', 'mode'), 'dispatch');
+  assert.equal(inlineScalar(' nested: { mode: off } ', 'mode'), null);
+  assert.equal(inlineScalar(' a: 1 ', 'missing'), null);
+});
+
+test('yaml-lite: hook and mod copies stay byte-identical (F-012 T7)', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const norm = (p) => readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
+  const hook = norm(join(here, '..', 'yaml-lite.mjs'));
+  const mod = norm(join(here, '..', '..', '..', 'task-orchestrator-mod', 'src', 'lib', 'yaml-lite.mjs'));
+  assert.equal(mod, hook);
 });
