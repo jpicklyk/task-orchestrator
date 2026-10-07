@@ -2,26 +2,27 @@ package io.github.jpicklyk.mcptask.current.infrastructure.database.repository
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class SQLiteWorkItemRepositoryPrefixTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
     private lateinit var repository: SQLiteWorkItemRepository
 
     @BeforeEach
     fun setUp() {
-        val dbName = "test_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
+        val database = sqliteDb.database
+        val databaseManager = sqliteDb.databaseManager
         repository = SQLiteWorkItemRepository(databaseManager)
     }
 

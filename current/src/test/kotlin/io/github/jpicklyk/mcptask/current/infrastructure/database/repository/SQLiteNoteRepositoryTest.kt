@@ -9,13 +9,14 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteNoteRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -27,6 +28,10 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SQLiteNoteRepositoryTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
     private lateinit var database: Database
     private lateinit var databaseManager: DatabaseManager
     private lateinit var noteRepository: SQLiteNoteRepository
@@ -36,10 +41,8 @@ class SQLiteNoteRepositoryTest {
     @BeforeEach
     fun setUp() =
         runBlocking {
-            val dbName = "test_${System.nanoTime()}"
-            database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            databaseManager = DatabaseManager(database)
-            DirectDatabaseSchemaManager().updateSchema()
+            database = sqliteDb.database
+            databaseManager = sqliteDb.databaseManager
             noteRepository = SQLiteNoteRepository(databaseManager)
             workItemRepository = SQLiteWorkItemRepository(databaseManager)
 
@@ -409,8 +412,8 @@ class SQLiteNoteRepositoryTest {
      * saw `existing == null` would both attempt INSERT; the second INSERT would hit the UNIQUE
      * constraint on (work_item_id, key) and return Result.Error, silently dropping the write.
      *
-     * The atomic upsert fix uses a single INSERT … ON CONFLICT DO UPDATE (SQLite) /
-     * MERGE INTO (H2) statement, so exactly one of the two writes wins and the other becomes
+     * The atomic upsert fix uses a single INSERT … ON CONFLICT DO UPDATE statement (run under
+     * an IMMEDIATE transaction with busy_timeout; SQLITE_BUSY would be reported, not retried), so exactly one of the two writes wins and the other becomes
      * a conflict-resolved update. After both threads complete, exactly one row must exist and
      * both threads must have received Result.Success (not Result.Error).
      */

@@ -5,12 +5,13 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
@@ -24,22 +25,24 @@ import kotlin.test.assertTrue
  *
  * Follows the coverage pattern of `SQLiteWorkItemRepositoryFindInScopeTest`: sibling-root
  * isolation, unscoped (null) parity with pre-scoping behavior, empty-set scope yielding no
- * rows, and deep-tree (3+ levels) inclusion. Uses H2 (via [DirectDatabaseSchemaManager]) as
- * the rest of this package's repository tests do — the SQLite-vs-H2 CTE/BFS resolution paths
+ * rows, and deep-tree (3+ levels) inclusion. Runs on a real SQLite database
+ * ([io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase]) — the CTE resolution paths
  * inside `resolveScopeIds` are already covered directly by `SQLiteWorkItemRepositoryFindInScopeTest`,
  * so these tests focus on scope composition with each method's own filter logic.
  */
 class SQLiteWorkItemRepositoryScopedVariantsTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
     private lateinit var database: Database
     private lateinit var databaseManager: DatabaseManager
     private lateinit var repository: SQLiteWorkItemRepository
 
     @BeforeEach
     fun setUp() {
-        val dbName = "scoped_variants_${System.nanoTime()}"
-        database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
+        database = sqliteDb.database
+        databaseManager = sqliteDb.databaseManager
         repository = SQLiteWorkItemRepository(databaseManager)
     }
 

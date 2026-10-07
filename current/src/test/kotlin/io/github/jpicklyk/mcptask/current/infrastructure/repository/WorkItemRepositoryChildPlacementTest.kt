@@ -4,12 +4,11 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ChildPlacement
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -33,7 +32,7 @@ import kotlin.test.assertTrue
  * `getById(parentId)`, then `depth = p.depth + 1`, `rootId = p.rootId ?: p.id`; missing parent ->
  * `Result.Error(RepositoryError.NotFound(...))`).
  *
- * These two scenarios test the method's own formula directly against a real H2-backed repository
+ * These two scenarios test the method's own formula directly against a real SQLite-backed repository
  * (`DefaultRepositoryProvider`, the same harness convention as `ManageItemsToolTest` /
  * `DeleteItemHandlerAtomicityTest`) — no wrapper/interleaving seam is needed here because nothing
  * about ordering (O2) is at stake at this level; O2 (read+write sharing one `inTransaction`) is
@@ -41,19 +40,21 @@ import kotlin.test.assertTrue
  *
  * BLINDNESS: authored from this item's `diagnosis` and `test-plan` notes (both queue-phase, frozen
  * before implementation, read via a `keys`-filtered `query_notes` call per the `test-author` skill),
- * the verbatim declarations block supplied in the dispatch prompt, and the existing H2 harness
+ * the verbatim declarations block supplied in the dispatch prompt, and the existing repository harness
  * conventions in `DeleteItemHandlerAtomicityTest.kt` / `ManageItemsToolTest.kt`. No `src/main` file,
  * diff, or commit was read.
  */
 class WorkItemRepositoryChildPlacementTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
     private lateinit var repositoryProvider: DefaultRepositoryProvider
 
     @BeforeEach
     fun setUp() {
-        val dbName = "child_placement_test_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
+        val database = sqliteDb.database
+        val databaseManager = sqliteDb.databaseManager
         repositoryProvider = DefaultRepositoryProvider(databaseManager)
     }
 
