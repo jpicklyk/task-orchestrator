@@ -56,6 +56,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Unparsable list filter values now return `400 validation_error`.** An unrecognized `role`, `priority` or `claimStatus` filter value on the REST list and search routes is rejected instead of being silently ignored; matching stays case-insensitive.
 
+### Fixed
+
+- **stdio transport shuts down on stdin EOF.** In `stdio` mode the server only exited on a signal, so a host that just closed stdin (`docker run -i` pipelines, CI harnesses) left a running process with an open database and a healthy readiness marker. The transport's close callback now completes the run and triggers the normal shutdown sequence (marker cleared, database closed).
+
 ## [3.16.0] - 2026-10-02
 
 ### Plugin

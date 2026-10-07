@@ -69,7 +69,7 @@ graceful shutdown, and also as the very first step of startup (before DB init), 
 restarted after SIGKILL/OOM does not report healthy from a stale marker during migration or a failed
 start. If the stale marker cannot be removed, startup fails as `READINESS_MARKER`. This is transport-agnostic — **both `stdio` and `http` transports write and
 clear the marker**, so a `stdio`-mode container is just as observable as an `http`-mode one, not
-only the HTTP case.
+only the HTTP case. In `stdio` mode the server also shuts down gracefully when its stdin reaches EOF (the client closes the pipe): it clears the marker, closes the DB, and exits 0, so `docker run -i` pipelines and CI harnesses do not leave a healthy-looking orphan.
 
 **Docker `HEALTHCHECK`.** The image's `HEALTHCHECK` (`--interval=30s --timeout=3s
 --start-period=20s --retries=3`) simply checks `test -f "$READINESS_FILE"` — cheap, no HTTP call,
