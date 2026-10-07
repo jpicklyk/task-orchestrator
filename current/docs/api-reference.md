@@ -2816,12 +2816,13 @@ actor_authentication:
   degraded_mode_policy: accept-cached   # accept-cached (default) | accept-self-reported | reject
   verifier:
     type: jwks           # "noop" (default) | "jwks"
-    oidc_discovery: "https://provider.example/.well-known/openid-configuration"
+    # Exactly one key source: jwks_uri, jwks_path, or oidc_discovery.
     jwks_uri: "https://provider.example/.well-known/jwks.json"
-    jwks_path: ".agentlair/jwks.json"
-    issuer: "https://provider.example"
-    audience: "task-orchestrator"
-    algorithms: ["EdDSA", "RS256"]
+    # jwks_path: ".agentlair/jwks.json"
+    # oidc_discovery: "https://provider.example/.well-known/openid-configuration"
+    issuer: "https://provider.example"   # required for jwks_uri/jwks_path; optional with oidc_discovery
+    audience: "task-orchestrator"            # required
+    algorithms: ["EdDSA", "RS256"]          # required
     cache_ttl_seconds: 300
     require_sub_match: true
 ```
