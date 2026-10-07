@@ -352,6 +352,22 @@ components:
           type: object
           nullable: true
 
+    AuthErrorDto:
+      type: object
+      description: >-
+        OAuth/RFC 6750-style error body used by authentication/authorization rejections
+        (401 invalid_request / invalid_token, 403 insufficient_scope) and the SSE pre-flight
+        400 validation_error. Unlike ErrorDto it has error_description and no message.
+      required: [error, error_description]
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code
+          enum: [invalid_request, invalid_token, insufficient_scope, validation_error]
+        error_description:
+          type: string
+          description: Human-readable description
+
     ItemDeleteResultDto:
       type: object
       required: [id, deleted, descendantsDeleted]
@@ -1438,17 +1454,30 @@ components:
 
   responses:
     Unauthorized:
-      description: Missing or invalid bearer token
+      description: >-
+        Missing or invalid bearer token. error is invalid_request (missing, non-Bearer or empty
+        credential) or invalid_token (unknown, expired or invalid token); the body carries
+        error_description, not message, and the response has a WWW-Authenticate header.
+      headers:
+        WWW-Authenticate:
+          description: Bearer challenge, e.g. Bearer error="invalid_token"
+          schema:
+            type: string
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/ErrorDto"
+            $ref: "#/components/schemas/AuthErrorDto"
     Forbidden:
-      description: Authenticated but lacks required capability or scope
+      description: >-
+        Authenticated but lacks required capability or scope. insufficient_scope uses the
+        AuthErrorDto body (error_description); host_not_allowed, scope_forbidden and
+        insufficient_capability use ErrorDto (message).
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/ErrorDto"
+            oneOf:
+              - $ref: "#/components/schemas/ErrorDto"
+              - $ref: "#/components/schemas/AuthErrorDto"
     NotFound:
       description: Resource not found
       content:
@@ -3498,7 +3527,13 @@ paths:
                   time, 401 invalid_token). Does not fire for API_AUTH_MODE=none unauthenticated
                   sessions or for a bearer token with no expires_at — neither has an expiry to watch.
         "400":
-          $ref: "#/components/responses/BadRequest"
+          description: >-
+            Pre-flight validation failure: ?root= present but yields zero valid UUIDs
+            (validation_error, error_description body).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthErrorDto"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

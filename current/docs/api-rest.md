@@ -147,7 +147,7 @@ inside `to_scope` are treated as malformed.
 **Failing requests receive:**
 - `401 Unauthorized` + `WWW-Authenticate: Bearer error="invalid_request"` — missing `Authorization` header, a header that does not use the `Bearer` scheme (wrong scheme name, or no space between the scheme and the token — the scheme name itself is case-insensitive), or a present-but-empty Bearer credential
 - `401 Unauthorized` + `WWW-Authenticate: Bearer error="invalid_token"` — bad/expired token
-- `403 Forbidden` — token valid but lacks required capability
+- `403 Forbidden` (`insufficient_scope`) -- token valid but lacks the required capability (body shapes: see §6)
 
 **`degradedModePolicy` interaction (JWKS mode):** a JWT reaching a route handler has already been validated by the auth plugin, so its verification status is always `VERIFIED` by the time `DegradedModePolicy` is applied to the synthesized audit actor — every policy, including `reject`, trusts a `VERIFIED` result. Write endpoints therefore never actually return `verification_failed` in practice; `DEGRADED_MODE_POLICY` only changes behavior for MCP tool calls carrying a self-reported `actor.id` under a degraded (non-`VERIFIED`) JWKS verification result. Bearer mode and unauthenticated mode are unaffected regardless (neither has a JWKS chain to degrade).
 
@@ -330,7 +330,7 @@ Idempotency-Key: <UUID>
 
 ## 6. Error Codes
 
-All error responses use:
+Most error responses use the `ErrorDto` envelope:
 
 ```json
 {
@@ -340,11 +340,26 @@ All error responses use:
 }
 ```
 
+Authentication and authorization rejections from the auth plugins (`401 invalid_request`,
+`401 invalid_token`, `403 insufficient_scope`) and the SSE pre-flight `400 validation_error` (§21)
+instead use an OAuth/RFC 6750-style envelope with `error_description` and **no** `message` field:
+
+```json
+{
+  "error": "<machine-readable-code>",
+  "error_description": "<human-readable description>"
+}
+```
+
+The 401 responses also carry a `WWW-Authenticate: Bearer error="<code>"` header (§1). Rows below
+marked "`error_description` body" use this second shape; every other row uses `ErrorDto`. The
+other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability`) use `ErrorDto`.
+
 | `error` value | Typical HTTP status | Description |
 |--------------|---------------------|-------------|
 | `host_not_allowed` | 403 | The request's `Host` header isn't `localhost`/`127.0.0.1`/`[::1]` (any port) or listed in `MCP_ALLOWED_HOSTS` — DNS-rebinding protection, checked ahead of authentication on every route. Never discloses the rejected `Host` value; see §1. |
 | `bad_request` | 400 | Missing or malformed path/query parameter |
-| `validation_error` | 400 | Invalid field value or deserialization failure; or (SSE-specific) `GET /api/v1/events` was called with a `?root=` query parameter that yields no valid UUID (see §21) |
+| `validation_error` | 400 | Invalid field value or deserialization failure (`ErrorDto` body); or (SSE-specific, `error_description` body) `GET /api/v1/events` was called with a `?root=` query parameter that yields no valid UUID (see §21) |
 | `precondition_required` | 400 | `PATCH` missing required `If-Match` header |
 | `not_found` | 404 | Item, note, or dependency not found |
 | `rule_not_found` | 404 | `GET /roots/{rootId}/rules/{key}` (§19a): the root resolves and is depth-0, but no `rule/<key>` plan document exists there — distinct from `not_found`, which covers an unknown `{rootId}` itself |
@@ -357,10 +372,11 @@ All error responses use:
 | `etag_mismatch` | 412 | `If-Match` header does not match current ETag |
 | `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT /items/{id}/notes/{key}`, and `POST /dependencies` share a 1 MiB limit; `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB, except a `{slug}` starting with `rule/` (e.g. `rule%2Fcommit-discipline`), which is capped tighter at 16384 bytes (16 KiB) — the single enforcement point `query_rules`/§19a rely on, so those read surfaces never re-check size themselves (see §18, §19, §19a). |
 | `version_conflict` | 409 | `PATCH /items/{id}`: `If-Match` matched at read time, but a concurrent writer's update won the version race before this write committed — optimistic-lock loss, distinct from `etag_mismatch`. Retry with a fresh `If-Match` ETag. |
-| `unauthenticated` | 401 | No authenticated principal (missing/invalid token) |
+| `invalid_request` | 401 | `error_description` body. Missing `Authorization` header, a non-Bearer scheme, or an empty Bearer credential (also the SSE pre-flight when no header or allowed `?token=` is presented). Carries `WWW-Authenticate: Bearer error="invalid_request"`. |
+| `invalid_token` | 401 | `error_description` body. Unknown, expired, or otherwise invalid token (bearer or JWKS). Carries `WWW-Authenticate: Bearer error="invalid_token"`. |
 | `verification_failed` | 401 | Not currently reachable via REST — a JWT passing `ApiBearerAuth` is always `VERIFIED`, which every `degradedModePolicy` trusts. Reserved for the same audit-policy check used by MCP tool calls, where a self-reported actor under a degraded JWKS result can still be rejected. |
 | `insufficient_capability` | 403 | Caller's token lacks a capability required by the request itself (distinct from `scope_forbidden`'s root-scope check) — e.g. a non-ADMIN caller sets `overrideResourceLeases: true` on `POST /items/{id}/advance`, or calls `DELETE /api/v1/resources/leases/{key}` without `ADMIN` |
-| `insufficient_scope` | 403 | A generic `requireCapability` check failed for the plugin's configured capability; (SSE-specific) a `GET /api/v1/events` connection carries a `tags_include` scope but the route has no `WorkItemRepository` wired to filter by it — fail-closed rather than serving an unfiltered stream; or (SSE-specific) a root-scoped principal's `?root=` values do not intersect its token's `scope.rootIds` — the requested roots are entirely outside scope (see §21) |
+| `insufficient_scope` | 403 | `error_description` body. A generic `requireCapability` check failed for the plugin's configured capability; (SSE-specific) a `GET /api/v1/events` connection carries a `tags_include` scope but the route has no `WorkItemRepository` wired to filter by it -- fail-closed rather than serving an unfiltered stream; or (SSE-specific) a root-scoped principal's `?root=` values do not intersect its token's `scope.rootIds` -- the requested roots are entirely outside scope (see §21) |
 | `transition_failed` | 422 | Role transition rejected (invalid trigger, gate failure, dependency blocker) |
 | `resource_unavailable` | 409 | Resource-lease gate contention on `POST /items/{id}/advance` into WORK — transient, retryable. Carries a `Retry-After` header and `details.contendedResources`/`details.retryAfterMs`. Never discloses the current holder. |
 | `config_unavailable` | 503 | Per-root config read failed (a transient database error) and there was no last-known-good cached config to serve for that root — transient, retryable; the caller applies its own backoff (no `Retry-After` header). Returned by `POST /items/{id}/advance`, `GET /items/{id}/gate` (see §9, §10), and `GET /roots/{rootId}/config/effective` (see §18). REST and the MCP tools now read per-root config through the same `EffectiveConfigResolver`/last-known-good cache (one shared instance, built once in `ServerComposition`) — a transient DB error on one surface is absorbed by a cache warmed by the other, so this error is rarer than it was when each surface kept its own cache. |
@@ -2019,7 +2035,7 @@ route-scoped by nesting alone, so `publicPaths` is the only lever that keeps the
 3. `API_AUTH_MODE=none` + `API_ALLOW_UNAUTHENTICATED=true` (§1) — the pre-flight plugin short-circuits
    with the synthetic unauthenticated principal, mirroring `ApiBearerAuth`'s `Unauthenticated` branch;
    no token is required or checked
-4. If none of the above apply → `401`
+4. If none of the above apply → `401 invalid_request` when no token is presented (no `Authorization` header and no allowed `?token=`), or `401 invalid_token` for an unknown, expired, or invalid token; a valid token lacking the `read` capability gets `403 insufficient_scope`
 
 **Tag-scope guard:** Per-event `tags_include` filtering (below) needs the route's `WorkItemRepository`
 wiring to resolve an event's item tags. If a principal's `scope.tags_include` is non-empty but no
