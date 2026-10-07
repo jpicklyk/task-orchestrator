@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking: Flyway is the only schema path.** `USE_FLYWAY=false` no longer selects Direct mode, a database ahead of the binary is refused, and a Direct-mode database is baselined only on an exact V17 match, otherwise refused. `USE_FLYWAY` is removed and ignored (one WARN if still set); `DirectDatabaseSchemaManager` and `SchemaManagerFactory` are deleted from production. Migrations move to `db/migration/sqlite/` (files byte-identical, existing histories validate unchanged). A database whose history is ahead of the binary now refuses to start. A database with tables but no `flyway_schema_history` is baselined at V17 only if its schema matches V17 exactly, otherwise refused. New `SCHEMA_MODE=migrate|validate`; concurrent boots serialize on `<db>.migrate.lock`; Flyway's connection gets `busy_timeout` and an explicit foreign-keys-off policy; startup verifies the FTS5 tables and triggers and rebuilds a desynced FTS index; shutdown cleanup now runs LIFO so the database closes last.
+
 ### Plugin
 
 - **Fixed: retro-analysis and session-retrospective follow-ups.** `retro-analysis` accepts the `plan-to-execution` dimension, validates `maxAgents`, `staleDays` and `maxAdjudicate`, keeps a key-collision match's evidence and observation links (including in audit mode), and returns `stats.unmatchedShards` as a `[{label, kind, targetIds}]` array instead of a count (a result-v1 shape change). Match prompts now define strong vs weak and the deep-mode clusters. `/session-retrospective` documents `--deep` in its argument hint, matches unmatched shards inline, and gains an audit-sweep paragraph; `create-item` materializes an audit proposal under one user-confirmed category container and honours each row's own `type`.

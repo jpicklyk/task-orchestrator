@@ -144,7 +144,7 @@ class V17ActorProofScrubMigrationTest {
         val resourceStream =
             requireNotNull(
                 Thread.currentThread().contextClassLoader.getResourceAsStream(
-                    "db/migration/V17__Store_Actor_Proof_Evidence.sql"
+                    "db/migration/sqlite/V17__Store_Actor_Proof_Evidence.sql"
                 )
             ) { "V17__Store_Actor_Proof_Evidence.sql not found on the test classpath" }
         val sqlText = resourceStream.bufferedReader(Charsets.UTF_8).use { it.readText() }

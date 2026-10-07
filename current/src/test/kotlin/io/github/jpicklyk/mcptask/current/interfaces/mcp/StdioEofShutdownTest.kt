@@ -92,7 +92,7 @@ class StdioEofShutdownTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = appConfigFor(tempDir, marker),
                 stdioInput = { ByteArrayInputStream(ByteArray(0)) },
                 stdioOutput = { ByteArrayOutputStream() }

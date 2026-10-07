@@ -76,7 +76,7 @@ class V12PlanDocumentsMigrationTest {
     private fun applyV12Migration() {
         val resourceStream =
             requireNotNull(
-                Thread.currentThread().contextClassLoader.getResourceAsStream("db/migration/V12__Plan_Documents.sql")
+                Thread.currentThread().contextClassLoader.getResourceAsStream("db/migration/sqlite/V12__Plan_Documents.sql")
             ) { "V12__Plan_Documents.sql not found on the test classpath" }
         val sqlText = resourceStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
         val withoutComments =

@@ -54,7 +54,6 @@ VOLUME /app/data
 # Environment variables (only those consumed by the application)
 ENV MCP_TRANSPORT=stdio
 ENV LOG_LEVEL=INFO
-ENV USE_FLYWAY=true
 ENV AGENT_CONFIG_DIR=/project
 ENV MCP_HTTP_HOST=0.0.0.0
 ENV MCP_HTTP_PORT=3001

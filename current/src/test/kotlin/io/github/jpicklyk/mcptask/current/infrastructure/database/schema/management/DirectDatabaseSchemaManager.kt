@@ -15,6 +15,8 @@ import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.slf4j.LoggerFactory
 
 /**
+ * Test-only fixture bridge; production schema is Flyway-only (P2a). Removed when P4 migrates tests to SqliteTestDatabase.
+ *
  * Development mode schema manager that creates tables directly via Exposed ORM.
  * Tables are created in foreign-key dependency order.
  *

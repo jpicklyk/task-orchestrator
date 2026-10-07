@@ -94,7 +94,7 @@ class V14ConsumedCredentialsMigrationTest {
         val resourceStream =
             requireNotNull(
                 Thread.currentThread().contextClassLoader.getResourceAsStream(
-                    "db/migration/V14__Add_Consumed_Credentials.sql"
+                    "db/migration/sqlite/V14__Add_Consumed_Credentials.sql"
                 )
             ) { "V14__Add_Consumed_Credentials.sql not found on the test classpath" }
         val sqlText = resourceStream.bufferedReader(Charsets.UTF_8).use { it.readText() }

@@ -74,7 +74,7 @@ class V13StatusLabelRepairMigrationTest {
         val resourceStream =
             requireNotNull(
                 Thread.currentThread().contextClassLoader.getResourceAsStream(
-                    "db/migration/V13__Repair_Terminal_Status_Labels.sql"
+                    "db/migration/sqlite/V13__Repair_Terminal_Status_Labels.sql"
                 )
             ) { "V13__Repair_Terminal_Status_Labels.sql not found on the test classpath" }
         val sqlText = resourceStream.bufferedReader(Charsets.UTF_8).use { it.readText() }

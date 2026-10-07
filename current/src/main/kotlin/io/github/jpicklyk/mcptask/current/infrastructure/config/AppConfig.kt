@@ -37,7 +37,6 @@ data class AppConfig(
     val mcpAllowedHosts: List<String>,
     // ---- Database (DatabaseConfig / DatabaseManager) ----
     val databasePath: String,
-    val useFlyway: Boolean,
     val logLevel: String,
     val agentConfigDir: String?,
     val databaseMaxConnections: Int,
@@ -102,7 +101,6 @@ data class AppConfig(
                 mcpAllowedHosts = parseCsv(env("MCP_ALLOWED_HOSTS")) ?: emptyList(),
                 // Database — preserves DatabaseConfig defaults exactly.
                 databasePath = env("DATABASE_PATH") ?: "data/current-tasks.db",
-                useFlyway = EnvBoolean.parse("USE_FLYWAY", env("USE_FLYWAY"), true),
                 logLevel = env("LOG_LEVEL") ?: "INFO",
                 agentConfigDir = env("AGENT_CONFIG_DIR"),
                 databaseMaxConnections = env("DATABASE_MAX_CONNECTIONS")?.toIntOrNull() ?: 10,

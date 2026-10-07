@@ -53,7 +53,7 @@ The `api-reference.md` surface is not machine-checked — update it manually alo
   `parameterSchema` — that's the duplication this program removed
 
 ### New Database Migration
-Create `current/src/main/resources/db/migration/V{N}__{Description}.sql`. SQLite has no `ALTER COLUMN` — schema changes require table recreation. New tables in `DirectDatabaseSchemaManager` must be inserted in foreign-key order.
+Create `current/src/main/resources/db/migration/sqlite/V{N}__{Description}.sql`. SQLite has no `ALTER COLUMN` — schema changes require table recreation (see the migration-review skill's table-recreation template). The migration is the only schema definition: Direct mode no longer exists.
 
 ### New Gradle Dependency
 Add to `gradle/libs.versions.toml` (`[versions]` + `[libraries]`), then reference as `libs.{name}` in `build.gradle.kts`. Check Maven Central for the latest version.

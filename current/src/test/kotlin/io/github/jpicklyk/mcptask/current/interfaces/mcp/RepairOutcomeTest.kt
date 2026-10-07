@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.mockk.every
 import io.mockk.mockkConstructor
 import io.mockk.unmockkAll
@@ -32,7 +33,7 @@ class RepairOutcomeTest {
 
     private fun repairAppConfig(
         tempDir: Path,
-        useFlyway: String = "true",
+        extraEnv: Map<String, String> = emptyMap(),
         readinessFile: Path = tempDir.resolve("ready")
     ): AppConfig {
         val dbPath = tempDir.resolve("repair-outcome-${System.nanoTime()}.db").toString()
@@ -40,9 +41,8 @@ class RepairOutcomeTest {
             mapOf(
                 "DATABASE_PATH" to dbPath,
                 "FLYWAY_REPAIR" to "true",
-                "USE_FLYWAY" to useFlyway,
                 "READINESS_FILE" to readinessFile.toString()
-            )
+            ) + extraEnv
         return AppConfig.fromEnv { key -> env[key] }
     }
 
@@ -58,7 +58,7 @@ class RepairOutcomeTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = repairAppConfig(tempDir, readinessFile = readinessFile),
                 onBeforeTransportStart = { transportStarted = true }
             )
@@ -77,7 +77,7 @@ class RepairOutcomeTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = repairAppConfig(tempDir)
             )
 
@@ -99,7 +99,7 @@ class RepairOutcomeTest {
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
+                shutdownCoordinator = ShutdownCoordinator(),
                 appConfig = repairAppConfig(tempDir)
             )
 
@@ -109,40 +109,30 @@ class RepairOutcomeTest {
         assertEquals(Reason.SCHEMA_UPDATE, outcome.reason)
     }
 
-    // ---- S5: FLYWAY_REPAIR=true + USE_FLYWAY=false does not short-circuit (repair is ignored) ----
+    // ---- S5 (rewritten for Flyway-only): USE_FLYWAY=false is ignored, so repair still completes ----
     //
-    // NOTE: every case here MUST pin MCP_TRANSPORT to a value that fails fast (an unrecognized
-    // transport name) rather than leaving it unset. With USE_FLYWAY=false the repair short-circuit
-    // correctly does not fire, so run() proceeds to the transport dispatch -- an unset/"stdio"
-    // MCP_TRANSPORT would then start a REAL stdio transport and block forever waiting on this test
-    // JVM's stdin (this hung the full suite once; see repairAppConfig's lack of use here).
+    // Oracle: plan v4-phase1-core section 6 ("USE_FLYWAY is ignored") and 3.10 -- there is no Direct
+    // mode left to short-circuit the repair path, so FLYWAY_REPAIR=true yields RepairCompleted
+    // whatever USE_FLYWAY says. Readiness marker and transport stay untouched, as in S3.
 
     @Test
-    fun `S5 probe FLYWAY_REPAIR=true with USE_FLYWAY=false proceeds past the repair check to transport dispatch`(
+    fun `S5 FLYWAY_REPAIR=true with USE_FLYWAY=false still returns RepairCompleted`(
         @TempDir tempDir: Path
     ) {
-        val dbPath = tempDir.resolve("repair-outcome-probe-${System.nanoTime()}.db").toString()
-        val env =
-            mapOf(
-                "DATABASE_PATH" to dbPath,
-                "FLYWAY_REPAIR" to "true",
-                "USE_FLYWAY" to "false",
-                "MCP_TRANSPORT" to "sse"
-            )
+        val readinessFile = tempDir.resolve("ready")
+        var transportStarted = false
         val server =
             CurrentMcpServer(
                 version = "test",
-                shutdownCoordinator = null,
-                appConfig = AppConfig.fromEnv { key -> env[key] }
+                shutdownCoordinator = ShutdownCoordinator(),
+                appConfig = repairAppConfig(tempDir, readinessFile = readinessFile, extraEnv = mapOf("USE_FLYWAY" to "false")),
+                onBeforeTransportStart = { transportStarted = true }
             )
 
         val outcome = server.run()
 
-        assertTrue(outcome is Failed, "expected Failed, got $outcome")
-        assertEquals(
-            Reason.UNKNOWN_TRANSPORT,
-            outcome.reason,
-            "reaching UNKNOWN_TRANSPORT proves the repair short-circuit did not fire under USE_FLYWAY=false"
-        )
+        assertEquals(RepairCompleted, outcome, "USE_FLYWAY=false must not change the repair outcome, got $outcome")
+        assertFalse(Files.exists(readinessFile), "readiness marker must not be written for a repair-only run")
+        assertFalse(transportStarted, "no transport should be started for a repair-only run")
     }
 }

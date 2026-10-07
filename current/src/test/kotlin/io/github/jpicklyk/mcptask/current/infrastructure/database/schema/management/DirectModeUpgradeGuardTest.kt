@@ -18,8 +18,10 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Direct-mode databases have no upgrade path: Flyway mode must refuse one, and Direct mode must
- * fail fast when an older file lacks columns the current tables declare.
+ * Direct-mode databases have no upgrade path: the Flyway-only manager refuses one (any database that
+ * holds user tables, has no flyway_schema_history and is not an exact V17 shape) and leaves it
+ * untouched. Oracle: plan v4-phase1-core 3.10 ("anything else refuses with instructions"); the
+ * Direct manager itself is gone from production, the test bridge only builds fixtures.
  */
 class DirectModeUpgradeGuardTest {
     @TempDir
@@ -108,8 +110,8 @@ class DirectModeUpgradeGuardTest {
     /** The custom guard's actionable message, not Flyway's own default refusal. */
     private fun assertActionableDirectModeError(errors: List<String>) {
         assertTrue(
-            errors.any { it.contains("created in Direct mode") && it.contains("Point DATABASE_PATH at a new file") },
-            "expected the Direct-mode guard's actionable error naming the remedy, got: $errors"
+            errors.any { it.contains("DATABASE_PATH") },
+            "expected an actionable ERROR naming the remedy (DATABASE_PATH), got: $errors"
         )
     }
 
@@ -156,30 +158,42 @@ class DirectModeUpgradeGuardTest {
     }
 
     @Test
-    fun `T6 direct mode fails fast when an existing table lacks declared columns`() {
+    fun `T6 a database whose existing table lacks declared columns is refused untouched`() {
         val url = newUrl()
         withConn(url) { c ->
             c.createStatement().use {
                 it.executeUpdate("CREATE TABLE work_items (id BLOB PRIMARY KEY, title TEXT NOT NULL)")
             }
         }
-        connectExposed(url)
-        assertFalse(DirectDatabaseSchemaManager().updateSchema())
+        val errors = captureErrorLogs { assertFalse(FlywayDatabaseSchemaManager(url, repair = false).updateSchema()) }
+        assertActionableDirectModeError(errors)
+        assertFalse(tableExists(url, "flyway_schema_history"))
+        assertTrue(tableExists(url, "work_items"))
     }
 
     @Test
-    fun `T7 direct mode is repeatable on a current-shape database`() {
-        val url = newUrl()
-        connectExposed(url)
-        assertTrue(DirectDatabaseSchemaManager().updateSchema())
-        assertTrue(DirectDatabaseSchemaManager().updateSchema())
+    fun `T7 refusal of a Direct-created database is repeatable and never mutates it`() {
+        val url = directDb()
+        repeat(2) {
+            captureErrorLogs { assertFalse(FlywayDatabaseSchemaManager(url, repair = false).updateSchema()) }
+        }
+        assertFalse(tableExists(url, "flyway_schema_history"))
+        assertEquals(1, workItemCount(url))
     }
 
     @Test
-    fun `T8 direct mode accepts a Flyway-migrated database`() {
+    fun `T8 a Flyway-migrated database keeps being accepted on every later start`() {
         val url = newUrl()
         assertTrue(FlywayDatabaseSchemaManager(url, repair = false).updateSchema())
-        connectExposed(url)
-        assertTrue(DirectDatabaseSchemaManager().updateSchema())
+        withConn(url) { c ->
+            c.createStatement().use {
+                it.executeUpdate(
+                    "INSERT INTO work_items (id, title, created_at, modified_at, role_changed_at) VALUES " +
+                        "(X'00000000000000000000000000000002','t','2026-01-01 00:00:00','2026-01-01 00:00:00','2026-01-01 00:00:00')"
+                )
+            }
+        }
+        assertTrue(FlywayDatabaseSchemaManager(url, repair = false).updateSchema())
+        assertEquals(1, workItemCount(url))
     }
 }

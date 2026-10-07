@@ -49,7 +49,6 @@ class DatabaseManagerStartupCompactionTest {
         val env =
             mapOf(
                 "DATABASE_PATH" to dbPath,
-                "USE_FLYWAY" to "true",
                 "READINESS_FILE" to readinessFile.toString()
             ) + extraEnv
         return AppConfig.fromEnv { key -> env[key] }
@@ -88,25 +87,26 @@ class DatabaseManagerStartupCompactionTest {
     }
 
     // ────────────────────────────────────────────────────────────────────────
-    // S11 — Direct mode (USE_FLYWAY=false): updateSchema() succeeds but compaction never runs,
-    // since it is gated on `schemaManager is FlywayDatabaseSchemaManager`. [A]
+    // S11 (rewritten for Flyway-only) -- USE_FLYWAY=false is ignored: there is no Direct mode, so
+    // updateSchema() still migrates and compaction still runs. Oracle: plan v4-phase1-core
+    // section 6 ("USE_FLYWAY is ignored") and 3.10 (Direct mode deleted).
     // ────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `S11 updateSchema with Flyway disabled succeeds without ever running compaction`(
+    fun `S11 USE_FLYWAY=false is ignored and compaction still runs`(
         @TempDir tempDir: Path
     ) {
         val appConfig = buildAppConfig(tempDir, "s11.db", extraEnv = mapOf("USE_FLYWAY" to "false"))
         val manager = DatabaseManager(appConfig = appConfig)
         managers += manager
 
-        assertTrue(manager.initialize(appConfig.databasePath), "initialize must succeed in Direct mode")
-        assertTrue(manager.updateSchema(), "updateSchema must succeed in Direct mode")
+        assertTrue(manager.initialize(appConfig.databasePath), "initialize must succeed")
+        assertTrue(manager.updateSchema(), "updateSchema must succeed with USE_FLYWAY=false")
 
         assertEquals(
-            0,
+            StartupCompaction.COMPACTED_USER_VERSION,
             readUserVersion(manager),
-            "Direct mode must never invoke StartupCompaction (gated on FlywayDatabaseSchemaManager); user_version must remain 0"
+            "USE_FLYWAY=false must not select a different path; compaction runs as for a default config"
         )
     }
 

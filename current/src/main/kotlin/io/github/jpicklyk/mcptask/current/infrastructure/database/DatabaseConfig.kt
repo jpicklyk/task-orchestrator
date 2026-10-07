@@ -20,10 +20,6 @@ object DatabaseConfig {
     val databasePath: String
         get() = snapshot.databasePath
 
-    /** Whether to use Flyway for schema management. Override with USE_FLYWAY. Default: true. */
-    val useFlyway: Boolean
-        get() = snapshot.useFlyway
-
     /** Logging verbosity level. Override with LOG_LEVEL. Default: "INFO". */
     val logLevel: String
         get() = snapshot.logLevel
