@@ -94,6 +94,7 @@ class AdvanceLatencyBench {
 
             if (report) {
                 val sorted = latenciesNs.sorted()
+
                 fun pct(p: Double): Double = sorted[minOf(sorted.size - 1, kotlin.math.ceil(p * sorted.size).toInt() - 1)] / 1_000_000.0
                 val mean = sorted.average() / 1_000_000.0
                 println(
@@ -155,7 +156,14 @@ class AdvanceLatencyBench {
         val obj = result as? JsonObject ?: return Outcome.FAILED
         val ok = obj["success"]?.jsonPrimitive?.boolean == true
         val first =
-            runCatching { obj["data"]?.jsonObject?.get("results")?.jsonArray?.firstOrNull()?.jsonObject }.getOrNull()
+            runCatching {
+                obj["data"]
+                    ?.jsonObject
+                    ?.get("results")
+                    ?.jsonArray
+                    ?.firstOrNull()
+                    ?.jsonObject
+            }.getOrNull()
         val applied = first?.get("applied")?.jsonPrimitive?.boolean == true
         if (ok && applied) return Outcome.APPLIED
         val text = result.toString().lowercase()
