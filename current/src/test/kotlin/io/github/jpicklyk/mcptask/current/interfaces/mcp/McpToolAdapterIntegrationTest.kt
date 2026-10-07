@@ -5,7 +5,7 @@ import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import io.github.jpicklyk.mcptask.current.application.tools.*
-import io.github.jpicklyk.mcptask.current.domain.model.ErrorKind
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
