@@ -157,6 +157,11 @@ tasks.test {
     // headroom; production runtime heap is unaffected (this is test-only).
     maxHeapSize = "2g"
 
+    // Run test classes in parallel worker JVMs. Each fork owns its own SQLite template and temp
+    // database files (SqliteTestDatabase), so forks share no database state; the heap cap above
+    // applies per fork.
+    maxParallelForks = 4
+
     // TierClassificationConsistencyTest reads the fragment + its consumers at runtime. Declare them
     // as task inputs so a markdown-only edit (with no Kotlin change) invalidates the cached test
     // result instead of reporting UP-TO-DATE — otherwise Gradle's incremental cache (and CI's
