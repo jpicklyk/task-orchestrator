@@ -15,9 +15,9 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigSer
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.coVerify
 import io.mockk.mockk
 import io.mockk.spyk
@@ -25,6 +25,7 @@ import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
@@ -48,6 +49,9 @@ import kotlin.test.assertNull
  * behavior, not the refactor's internals.
  */
 class LegacyPrecedenceCharacterizationTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var database: Database
     private lateinit var databaseManager: DatabaseManager
     private lateinit var projectConfigRepository: SQLiteProjectConfigRepository
@@ -127,12 +131,10 @@ class LegacyPrecedenceCharacterizationTest {
     @BeforeEach
     fun setUp(): Unit =
         runBlocking {
-            val dbName = "test_${System.nanoTime()}"
-            database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            databaseManager = DatabaseManager(database)
-            DirectDatabaseSchemaManager().updateSchema()
-            projectConfigRepository = SQLiteProjectConfigRepository(databaseManager)
-            workItemRepository = SQLiteWorkItemRepository(databaseManager)
+            database = db.database
+            databaseManager = db.databaseManager
+            projectConfigRepository = db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository
+            workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
             perRootConfigService = PerRootConfigService(projectConfigRepository)
 
             val rWithDefault = WorkItem(title = "Root with per-root default")

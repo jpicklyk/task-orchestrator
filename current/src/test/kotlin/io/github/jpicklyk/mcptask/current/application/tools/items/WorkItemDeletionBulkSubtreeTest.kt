@@ -7,13 +7,14 @@ import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
-import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.jetbrains.exposed.v1.jdbc.update
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.sqlite.SQLiteConnection
 import org.sqlite.SQLiteLimits
 import java.sql.Connection
@@ -27,7 +28,12 @@ import kotlin.test.assertTrue
  * F-016: a recursive delete releases leases in bulk and deletes level by level (deepest traversal
  * level first, computed from parentId links) instead of one row at a time. Runs on real SQLite.
  */
-class WorkItemDeletionBulkSubtreeTest : SQLiteRepositoryTestBase() {
+class WorkItemDeletionBulkSubtreeTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
+    private val repositoryProvider get() = db.repositoryProvider()
+
     private val repo: WorkItemRepository get() = repositoryProvider.workItemRepository()
     private val deletion get() = WorkItemDeletion(repositoryProvider)
 
@@ -91,7 +97,7 @@ class WorkItemDeletionBulkSubtreeTest : SQLiteRepositoryTestBase() {
             // Stale stored depth: a parent carries a LARGER depth than its descendants, so a
             // depth-descending per-row delete would remove a before b (FK violation). Depths stay > 0 so
             // the rows still map to valid WorkItems.
-            transaction(db = database) {
+            transaction(db = db.database) {
                 WorkItemsTable.update({ WorkItemsTable.id eq a.id }) { it[depth] = 5 }
                 WorkItemsTable.update({ WorkItemsTable.id eq b.id }) { it[depth] = 2 }
                 WorkItemsTable.update({ WorkItemsTable.id eq c.id }) { it[depth] = 1 }

@@ -3,21 +3,20 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 /**
- * Tests [ItemHierarchyValidator.recomputeDescendantDepths] against a real in-memory H2 database
- * (via [DefaultRepositoryProvider] / [DirectDatabaseSchemaManager] — the same setup used by
+ * Tests [ItemHierarchyValidator.recomputeDescendantDepths] against a real SQLite database
+ * (via [DefaultRepositoryProvider] / [SqliteTestDatabase] — the same setup used by
  * [io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsToolTest]) rather than a
  * mocked repository, so the fix is exercised against real `findDescendants` + `update` behavior.
  *
@@ -32,16 +31,15 @@ import kotlin.test.assertTrue
  * "restamps rootId ... same depth" test below).
  */
 class ItemHierarchyValidatorTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var repo: WorkItemRepository
     private lateinit var validator: ItemHierarchyValidator
 
     @BeforeEach
     fun setUp() {
-        val dbName = "hierarchy_validator_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
-        repo = DefaultRepositoryProvider(databaseManager).workItemRepository()
+        repo = db.repositoryProvider().workItemRepository()
         validator = ItemHierarchyValidator()
     }
 
