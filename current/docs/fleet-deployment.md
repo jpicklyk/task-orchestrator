@@ -65,7 +65,9 @@ labels) still falls back to the default labels with a WARN.
 **Readiness marker.** Once DB init and schema update have both succeeded and the configured
 transport has bound, the server writes a readiness marker file at `READINESS_FILE` (default
 `/tmp/mcp-task-orchestrator.ready`; see the CLAUDE.md env-var table). The marker is cleared on
-graceful shutdown. This is transport-agnostic — **both `stdio` and `http` transports write and
+graceful shutdown, and also as the very first step of startup (before DB init), so a container
+restarted after SIGKILL/OOM does not report healthy from a stale marker during migration or a failed
+start. If the stale marker cannot be removed, startup fails as `READINESS_MARKER`. This is transport-agnostic — **both `stdio` and `http` transports write and
 clear the marker**, so a `stdio`-mode container is just as observable as an `http`-mode one, not
 only the HTTP case.
 

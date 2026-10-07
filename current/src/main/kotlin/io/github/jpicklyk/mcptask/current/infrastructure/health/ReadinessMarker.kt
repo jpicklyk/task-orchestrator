@@ -14,7 +14,9 @@ import java.nio.file.Path
  * The caller is responsible for the "actually serving" ordering: [markReady] must only be called
  * once the transport has actually started (after `server.createSession` / `ktorServer.start`
  * succeed), and [clear] must be called on every shutdown path so a stopped-but-not-yet-restarted
- * container never reports healthy.
+ * container never reports healthy. [clear] must also be called at process start, before any other
+ * startup work: after SIGKILL/OOM no shutdown path ran, and a restarted container keeps the stale
+ * file in its writable layer and would report healthy before the server is serving.
  */
 class ReadinessMarker(
     val path: Path
