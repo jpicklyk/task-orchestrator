@@ -8,7 +8,6 @@ import io.github.jpicklyk.mcptask.current.application.service.computeMissingBySe
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
-import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ItemSortFields
@@ -39,7 +38,6 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import org.slf4j.LoggerFactory
-import java.time.Instant
 import java.util.UUID
 
 private val logger = LoggerFactory.getLogger("ItemRoutes")
@@ -103,25 +101,21 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             val pp = call.pageParamsOrRespond() ?: return@get
             val params = call.request.queryParameters
 
-            val role =
-                params["role"]?.let { r ->
-                    Role.entries.find { it.name.equals(r, ignoreCase = true) }
-                }
-            val priority =
-                params["priority"]?.let { p ->
-                    Priority.entries.find { it.name.equals(p, ignoreCase = true) }
-                }
+            // Validate every filter up front: a supplied-but-unparsable value is a 400, never a
+            // silently dropped (widened) filter.
+            val role = (call.roleParamOrRespond("role") ?: return@get).value
+            val priority = (call.priorityParamOrRespond("priority") ?: return@get).value
+            val parentId = (call.uuidParamOrRespond("parentId") ?: return@get).value
+            val rootIdFilter = (call.uuidParamOrRespond("rootId") ?: return@get).value
+            val modifiedAfter = (call.instantParamOrRespond("modifiedAfter") ?: return@get).value
+            val modifiedBefore = (call.instantParamOrRespond("modifiedBefore") ?: return@get).value
+            val createdAfter = (call.instantParamOrRespond("createdAfter") ?: return@get).value
+            val createdBefore = (call.instantParamOrRespond("createdBefore") ?: return@get).value
+            val claimStatus = (call.claimStatusParamOrRespond("claimStatus") ?: return@get).value
             val tags = params["tag"]?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
             val tagAny = params["tagAny"]?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
             val effectiveTags = tagAny ?: tags
             val type = params["type"]?.takeIf { it.isNotBlank() }
-            val parentId = params["parentId"]?.let { runCatching { UUID.fromString(it) }.getOrNull() }
-            val rootIdFilter = params["rootId"]?.let { runCatching { UUID.fromString(it) }.getOrNull() }
-            val modifiedAfter = params["modifiedAfter"]?.let { runCatching { Instant.parse(it) }.getOrNull() }
-            val modifiedBefore = params["modifiedBefore"]?.let { runCatching { Instant.parse(it) }.getOrNull() }
-            val createdAfter = params["createdAfter"]?.let { runCatching { Instant.parse(it) }.getOrNull() }
-            val createdBefore = params["createdBefore"]?.let { runCatching { Instant.parse(it) }.getOrNull() }
-            val claimStatus = params["claimStatus"]?.takeIf { it.isNotBlank() }
             val orderBy = params["orderBy"]?.takeIf { it.isNotBlank() }
             val orderDir = params["orderDir"]?.takeIf { it.isNotBlank() }
 
@@ -423,6 +417,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
                     return@get
                 }
+            val maxDepth = (call.nonNegativeIntParamOrRespond("depth") ?: return@get).value
 
             val itemResult = workItemRepo.getById(id)
             if (itemResult is Result.Error) {
@@ -437,7 +432,6 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             }
 
             val pp = call.pageParamsOrRespond() ?: return@get
-            val maxDepth = call.request.queryParameters["depth"]?.toIntOrNull()
 
             val descendantsResult = workItemRepo.findDescendants(id)
             val descendants =

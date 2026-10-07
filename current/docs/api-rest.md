@@ -422,7 +422,7 @@ Query parameters: `?page=<int>` (default 1, must be an integer in `1..100000`) a
   "role": "queue|work|review|terminal|blocked",
   "previousRole": "queue|work|review|null",
   "statusLabel": "string|null",
-  "priority": "HIGH|MEDIUM|LOW|CRITICAL|BACKLOG",
+  "priority": "high|medium|low",
   "complexity": 5,
   "requiresVerification": false,
   "tags": ["string"],
@@ -981,24 +981,26 @@ All require `READ` capability.
 
 Paginated list of work items with optional filters.
 
+Any supplied but unparsable filter value is rejected with `400 validation_error` (`{"error":"validation_error","message":"Invalid parentId 'xyz': must be a UUID"}`), never silently ignored, so a malformed filter cannot widen the result set. A present but blank value (`?parentId=`) is treated as absent. The same rule applies to `GET /items/{id}/tree` `depth`, `GET /transitions` `since`, and `ancestorId`/`role` on `GET /search` and `GET /notes/search`. Validation runs before any scope check, so an invalid `ancestorId` yields `400` rather than `403 scope_forbidden`. (`orderBy`/`orderDir` keep their `400 bad_request` code.)
+
 **Query parameters:**
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `page` | int | Page number (default 1, `1..100000`) |
 | `pageSize` | int | Items per page (default 50, max 200) |
-| `role` | string | Filter by role: `queue`, `work`, `review`, `terminal`, `blocked` |
-| `priority` | string | Filter by priority: `HIGH`, `MEDIUM`, `LOW`, `CRITICAL`, `BACKLOG` |
+| `role` | string | Filter by role: `queue`, `work`, `review`, `terminal`, `blocked` (case-insensitive). Invalid value -> `400 validation_error`. |
+| `priority` | string | Filter by priority: `high`, `medium`, `low` (case-insensitive; output is lower-case). Invalid value -> `400 validation_error`. |
 | `tag` | string | Comma-separated tags; all listed tags must be present (AND match) |
 | `tagAny` | string | Comma-separated tags; any listed tag must be present (OR match). Overrides `tag` when both present. |
 | `type` | string | Filter by item type |
-| `parentId` | UUID | Filter to direct children of this parent |
-| `rootId` | UUID | Filter to items within this root's subtree (intersected with principal scope) |
-| `modifiedAfter` | ISO-8601 | Modified after this timestamp |
-| `modifiedBefore` | ISO-8601 | Modified before this timestamp |
-| `createdAfter` | ISO-8601 | Created after this timestamp |
-| `createdBefore` | ISO-8601 | Created before this timestamp |
-| `claimStatus` | string | Filter by claim state: `claimed`, `unclaimed`, `expired` |
+| `parentId` | UUID | Filter to direct children of this parent. Invalid value -> `400 validation_error`. |
+| `rootId` | UUID | Filter to items within this root's subtree (intersected with principal scope). Invalid value -> `400 validation_error`. |
+| `modifiedAfter` | ISO-8601 | Modified after this timestamp. Invalid value -> `400 validation_error`. |
+| `modifiedBefore` | ISO-8601 | Modified before this timestamp. Invalid value -> `400 validation_error`. |
+| `createdAfter` | ISO-8601 | Created after this timestamp. Invalid value -> `400 validation_error`. |
+| `createdBefore` | ISO-8601 | Created before this timestamp. Invalid value -> `400 validation_error`. |
+| `claimStatus` | string | Filter by claim state: `claimed`, `unclaimed`, `expired` (case-insensitive). Invalid value -> `400 validation_error`. |
 | `orderBy` | string | Sort field: `title`, `priority`, `complexity`, `createdAt`, `modifiedAt` (also accepts legacy `created`/`modified` aliases). Unknown value → `400 bad_request`. |
 | `orderDir` | string | Sort direction: `asc`, `desc` (default: `desc`). Unknown value → `400 bad_request`. |
 
@@ -1035,7 +1037,7 @@ Single item by UUID.
 Descendant tree, paginated as a flat list (root item always included as first element).
 
 **Query parameters:**
-- `depth` — maximum relative depth from the root item (optional)
+- `depth` — maximum relative depth from the root item (optional; non-negative integer, otherwise `400 validation_error`)
 - Standard pagination params
 
 **Response:** `200 OK` → `PageDto<ItemDto>`
@@ -1593,7 +1595,7 @@ Per-item role-transition history (append-only audit log), paginated. Newest firs
 Recent transitions across all items. Default window: last 24 hours.
 
 **Query parameters:**
-- `since` — ISO-8601 timestamp; default: 24 hours ago
+- `since` — ISO-8601 timestamp; default: 24 hours ago when absent or blank; an unparsable value returns `400 validation_error`
 - Standard pagination params
 
 Scope-filtered: scoped tokens only see transitions for items within their scope (ancestor-chain check).
@@ -1620,8 +1622,8 @@ FTS5 full-text search over item titles and summaries.
 
 **Query parameters:**
 - `q` (required) — search query; special characters are auto-sanitized
-- `ancestorId` — scope results to a subtree
-- `role` — filter by item role
+- `ancestorId` — scope results to a subtree (invalid UUID -> `400 validation_error`)
+- `role` — filter by item role (invalid value -> `400 validation_error`)
 - `tag` — comma-separated tag filter
 
 Results are ranked by RRF-fused relevance (trigram + porter tokenizer). Returns up to 50 hits.
@@ -1636,7 +1638,7 @@ FTS5 full-text search over note bodies.
 
 **Query parameters:**
 - `q` (required) — search query
-- `ancestorId` — scope results to a subtree
+- `ancestorId` — scope results to a subtree (invalid UUID -> `400 validation_error`)
 
 Returns up to 50 hits. `noteKey` is populated on every hit (note-body search always has a key).
 

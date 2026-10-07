@@ -105,12 +105,10 @@ fun Route.transitionRoutes(
         // ─── GET /transitions ────────────────────────────────────────────────
         get("/transitions") {
             val principal = call.attributes.getOrNull(ApiPrincipalKey)
-            val sinceRaw = call.request.queryParameters["since"]
-            val since =
-                sinceRaw?.let { runCatching { Instant.parse(it) }.getOrNull() }
-                    ?: Instant.now().minusSeconds(86400) // default: last 24 hours
-
             val pp = call.pageParamsOrRespond() ?: return@get
+            val since =
+                (call.instantParamOrRespond("since") ?: return@get).value
+                    ?: Instant.now().minusSeconds(86400) // default: last 24 hours
             val fetchLimit =
                 minOf(pp.offset.toLong() + pp.pageSize.toLong() + 1L, TRANSITION_SCAN_LIMIT.toLong()).toInt()
             val result = transitionRepo.findSince(since, limit = fetchLimit)

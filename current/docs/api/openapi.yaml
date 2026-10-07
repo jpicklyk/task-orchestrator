@@ -1524,12 +1524,16 @@ paths:
         - $ref: "#/components/parameters/pageSize"
         - name: role
           in: query
+          description: Case-insensitive. An unrecognized value returns 400 validation_error.
           schema:
             type: string
+            enum: [queue, work, review, blocked, terminal]
         - name: priority
           in: query
+          description: Case-insensitive. An unrecognized value returns 400 validation_error.
           schema:
             type: string
+            enum: [high, medium, low]
         - name: tag
           in: query
           schema:
@@ -1602,6 +1606,8 @@ paths:
                         type: array
                         items:
                           $ref: "#/components/schemas/ItemDto"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2027,7 +2033,8 @@ paths:
           in: query
           schema:
             type: integer
-          description: Max relative depth from root item
+            minimum: 0
+          description: Max relative depth from root item. A non-integer or negative value returns 400 validation_error.
       responses:
         "200":
           description: Tree nodes (root item always first)
@@ -2041,6 +2048,8 @@ paths:
                         type: array
                         items:
                           $ref: "#/components/schemas/ItemDto"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2598,7 +2607,7 @@ paths:
           schema:
             type: string
             format: date-time
-          description: Default 24 hours ago
+          description: Default 24 hours ago when absent or blank. An unparsable value returns 400 validation_error.
         - $ref: "#/components/parameters/page"
         - $ref: "#/components/parameters/pageSize"
       responses:
@@ -2614,6 +2623,8 @@ paths:
                         type: array
                         items:
                           $ref: "#/components/schemas/RoleTransitionDto"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -2639,8 +2650,10 @@ paths:
             format: uuid
         - name: role
           in: query
+          description: Case-insensitive. An unrecognized value returns 400 validation_error.
           schema:
             type: string
+            enum: [queue, work, review, blocked, terminal]
         - name: tag
           in: query
           schema:
