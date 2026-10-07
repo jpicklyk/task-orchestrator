@@ -1259,14 +1259,20 @@ Trait notes are merged into the resolved schema: `default_traits` from config ap
 
 **Start cascade.** When a child item transitions to WORK, the parent is automatically advanced from QUEUE to WORK if it is still in QUEUE. This is immediate-parent-only — it does not chain further up the ancestor chain (a grandparent stays in QUEUE until the parent itself transitions to WORK through its own trigger or cascade). The cascade gates on the parent's own CURRENT-phase required notes: if the parent has a resolved schema and its required notes for its current phase are not all filled, the cascade is suppressed rather than applied — the `cascadeEvents` entry carries `applied: false`, `gateBlocked: true`, and `missingNotes` (the missing note keys), and the parent is left in QUEUE for the caller to fill notes and advance explicitly. A schema-free parent, or one with no missing required notes for its current phase, cascades exactly as before. This appears in `cascadeEvents` in the response with `trigger="cascade"`.
 
-**Terminal cascade.** When a child item reaches TERMINAL, the parent may also automatically advance if all its children are terminal. Terminal cascades are gated the same way (`gateBlocked` / `missingNotes`), but against ALL required notes across all phases — the same check a direct `complete` on the parent would enforce.
+**Terminal cascade.** When a child item reaches TERMINAL, the parent may also automatically advance if all its children are terminal. A terminal cascade is suppressed (the entry carries `applied: false` and the cascade stops climbing the tree) in three cases, checked in this order:
+
+1. **Parent is BLOCKED** (an explicit hold) — `roleBlocked: true`. Applies regardless of trigger, including a cancel-originated cascade. Resume the parent, or cancel it directly, to move it.
+2. **Parent has an unmet blocking dependency** — `dependencyBlocked: true` plus a `blockers` array of `{fromItemId, currentRole, requiredRole}` (the same element shape as a `dependency_blocked` failure). This is the same validation a direct advance on the parent runs, and applies regardless of trigger.
+3. **Parent has unfilled required notes** — `gateBlocked: true` plus `missingNotes`, checked against ALL required notes across all phases (the same check a direct `complete` on the parent would enforce). A cancel-originated cascade bypasses this note gate only.
+
+`violations` is omitted on role- and dependency-suppressed events because the note gate never evaluated them.
 
 **Reopen cascade.** When a child item is reopened (TERMINAL → QUEUE) and its parent is TERMINAL, the parent is automatically reopened to WORK. This ensures the parent reflects that it has active children again. Reopen cascades never gate on notes — the direct `reopen` trigger itself bypasses gate enforcement (see the `reopen` row above), so gating its cascade would contradict that.
 
 All cascade types are recorded in `cascadeEvents`. When a cascade's own apply step fails (a
 persistence conflict, not a gate/resource suppression), the entry carries `applied: false` and an
 `error` (string) naming the reason; `error` is omitted whenever the cascade applied successfully or
-was suppressed by `gateBlocked`/`resourceBlocked` instead. Any resource lease that cascade itself
+was suppressed by `gateBlocked`/`resourceBlocked`/`roleBlocked`/`dependencyBlocked` instead. Any resource lease that cascade itself
 acquired for entering WORK is released in the same call (see [`workflow-guide.md`](./workflow-guide.md)
 § Resource Leasing).
 

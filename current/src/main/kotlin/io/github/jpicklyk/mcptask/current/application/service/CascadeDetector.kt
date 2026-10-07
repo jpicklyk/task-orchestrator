@@ -36,7 +36,9 @@ data class UnblockedItem(
  *    Detection recurses up through the full ancestor chain (unbounded depth), reading
  *    current persisted DB state at each level. For multi-level cascades (parent -> grandparent),
  *    callers should use an iterative detect-apply loop: apply the first cascade event, then
- *    re-detect from the cascaded parent with fresh DB state. See
+ *    re-detect from the cascaded parent with fresh DB state. Detection only: the policy that
+ *    suppresses a cascade for a BLOCKED parent or an unmet blocking dependency lives in
+ *    AdvanceService, not here. See
  *    [AdvanceService.detectAndApplyTerminalCascades] for the canonical usage pattern.
  *
  * 2. **Unblock detection** -- when a WorkItem transitions, find any downstream items

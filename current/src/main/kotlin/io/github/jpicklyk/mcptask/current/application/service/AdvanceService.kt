@@ -129,11 +129,19 @@ sealed class AdvanceFailure {
  *   advance still succeeded — only the parent's auto-start was skipped.
  * @property contendedResources contended resource keys on the parent (only when [resourceBlocked]);
  *   never carries holder identity.
+ * @property roleBlocked true when a TERMINAL cascade was suppressed because the parent is in
+ *   [Role.BLOCKED] (an explicit hold); [applied] is false. Applies to cancel-originated cascades too.
+ * @property dependencyBlocked true when a TERMINAL cascade was suppressed because the parent has an
+ *   unmet blocking dependency (the same check a direct advance on the parent runs); [applied] is
+ *   false and [blockers] is populated.
+ * @property blockers the unmet blocking dependencies on the parent (only when [dependencyBlocked]).
  * @property error human-readable reason the cascade's apply step failed (e.g. a persistence
  *   conflict during the parent's role transition). Populated only when [applied] is false AND
- *   neither [gateBlocked] nor [resourceBlocked] suppressed the cascade — i.e. the cascade was
- *   attempted and its apply step itself failed. Null on success and on every gate/resource
- *   suppression.
+ *   none of [gateBlocked], [resourceBlocked], [roleBlocked] or [dependencyBlocked] suppressed the
+ *   cascade, i.e. the cascade was attempted and its apply step itself failed. Null on success and
+ *   on every gate/resource/role/dependency suppression. The single exception: a terminal-cascade
+ *   dependency re-validation that fails with no blockers (for example the parent turned terminal
+ *   in a race) reports its validation message here with [dependencyBlocked] false.
  * @property violations A2 independence-attestation findings for the cascaded parent — null iff
  *   independence mode is OFF or the parent's schema declares no `independent_of` in any phase;
  *   otherwise a (possibly empty) list, populated whenever this event was gate-evaluated (i.e. a
@@ -150,6 +158,9 @@ data class AdvanceCascadeEvent(
     val gateMissingNotes: List<NoteSchemaEntry> = emptyList(),
     val resourceBlocked: Boolean = false,
     val contendedResources: List<String> = emptyList(),
+    val roleBlocked: Boolean = false,
+    val dependencyBlocked: Boolean = false,
+    val blockers: List<BlockerInfo> = emptyList(),
     val error: String? = null,
     val violations: List<IndependenceViolation>? = null
 )
@@ -843,6 +854,11 @@ class AdvanceService(
      * first (immediate-parent) event in its own transaction, then re-detect from the cascaded
      * parent. A terminal cascade is gate-checked against the parent's required notes (all phases)
      * UNLESS the originating trigger was "cancel" (cancel cascades bypass the work-phase gate).
+     *
+     * Before the note gate, every terminal cascade (cancel-originated or not) is also suppressed
+     * when the parent is [Role.BLOCKED] (an explicit hold) or has an unmet blocking dependency
+     * ([RoleTransitionHandler.validateTransition]); the raw [RoleTransitionHandler.cascadeTransition]
+     * apply never validates and [CascadeDetector] is detection-only, so the policy lives here.
      */
     private suspend fun detectAndApplyTerminalCascades(
         source: WorkItem,
@@ -881,6 +897,43 @@ class AdvanceService(
                     is Result.Success -> parentResult.data
                     is Result.Error -> break
                 }
+
+            // Role guard + dependency check: every terminal cascade (including cancel-originated)
+            // is suppressed for a held (BLOCKED) parent or one with an unmet blocking dependency,
+            // mirroring what a direct advance on the parent would refuse. Runs before the note gate.
+            if (event.targetRole == Role.TERMINAL) {
+                if (parentItem.role == Role.BLOCKED) {
+                    out.add(
+                        AdvanceCascadeEvent(
+                            itemId = event.itemId,
+                            title = parentItem.title,
+                            previousRole = Role.BLOCKED,
+                            targetRole = event.targetRole,
+                            applied = false,
+                            roleBlocked = true
+                        )
+                    )
+                    break // Stop cascading up the tree.
+                }
+                val depValidation =
+                    handler.validateTransition(parentItem, Role.TERMINAL, dependencyRepository, workItemRepository)
+                if (!depValidation.valid) {
+                    val hasBlockers = depValidation.blockers.isNotEmpty()
+                    out.add(
+                        AdvanceCascadeEvent(
+                            itemId = event.itemId,
+                            title = parentItem.title,
+                            previousRole = event.currentRole,
+                            targetRole = event.targetRole,
+                            applied = false,
+                            dependencyBlocked = hasBlockers,
+                            blockers = depValidation.blockers,
+                            error = if (hasBlockers) null else (depValidation.error ?: "Transition validation failed")
+                        )
+                    )
+                    break // Stop cascading up the tree.
+                }
+            }
 
             // A2: warn-mode independence findings for this parent, carried onto the APPLIED event.
             var appliedCascadeViolations: List<IndependenceViolation>? = null

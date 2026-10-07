@@ -35,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   item's `orchestratorNotes`, the seat prompt says never to write it, and the orchestrator records it.
   Plans without `optionalNotes` audit exactly as before.
 
+### Fixed
+
+- **Terminal cascades honour the BLOCKED hold and blocking dependencies.** A terminal cascade previously applied the parent's TERMINAL transition without validation, so a held (`blocked`) parent or one with an unmet blocking dependency was silently completed when its last child finished. `AdvanceService` now suppresses it (`applied: false`, climb stops) before the note gate, for cancel-originated cascades too, and reports `roleBlocked` or `dependencyBlocked` + `blockers` on the `cascadeEvents` entry (MCP `advance_item`/`complete_tree` and REST `CascadeEventDto`).
+
 ## [3.16.0] - 2026-10-02
 
 ### Plugin

@@ -507,6 +507,12 @@ data class CascadeEventDto(
     val statusLabel: String? = null,
     val gateBlocked: Boolean = false,
     val missingNotes: List<MissingNoteDto>? = null,
+    /** True when a terminal cascade was suppressed because the parent is BLOCKED (held). */
+    val roleBlocked: Boolean = false,
+    /** True when a terminal cascade was suppressed by an unmet blocking dependency on the parent. */
+    val dependencyBlocked: Boolean = false,
+    /** Unmet blocking dependencies; non-null only when [dependencyBlocked] is set. */
+    val blockers: List<CascadeBlockerDto>? = null,
     val error: String? = null,
     /**
      * A2 independence-attestation findings for this cascaded parent -- null iff independence mode
@@ -514,6 +520,14 @@ data class CascadeEventDto(
      * [IndependenceViolationDto]. Populated in warn mode too (a warn-mode cascade still reports).
      */
     val violations: List<IndependenceViolationDto>? = null,
+)
+
+/** An unmet blocking dependency that suppressed a terminal cascade (mirrors the advance blockers shape). */
+@Serializable
+data class CascadeBlockerDto(
+    val fromItemId: String,
+    val currentRole: String,
+    val requiredRole: String,
 )
 
 /** A downstream item that became fully unblocked as a result of an advance. */

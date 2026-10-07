@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.service.BlockerInfo
+import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
 import io.github.jpicklyk.mcptask.current.domain.model.IndependenceViolation
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import kotlinx.serialization.json.*
@@ -31,6 +33,21 @@ object NoteSchemaJsonHelpers {
                     put("description", JsonPrimitive(entry.description))
                     entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
                     entry.skill?.let { put("skill", JsonPrimitive(it)) }
+                }
+            }
+        )
+
+    /**
+     * Builds the `blockers` array of `{fromItemId, currentRole, requiredRole}` for unmet blocking
+     * dependencies. Shared by the ValidationFailed error shape and the `dependencyBlocked` cascade event.
+     */
+    fun buildBlockersArray(blockers: List<BlockerInfo>): JsonArray =
+        JsonArray(
+            blockers.map { blocker ->
+                buildJsonObject {
+                    put("fromItemId", JsonPrimitive(blocker.fromItemId.toString()))
+                    put("currentRole", JsonPrimitive(blocker.currentRole.toJsonString()))
+                    put("requiredRole", JsonPrimitive(blocker.requiredRole))
                 }
             }
         )

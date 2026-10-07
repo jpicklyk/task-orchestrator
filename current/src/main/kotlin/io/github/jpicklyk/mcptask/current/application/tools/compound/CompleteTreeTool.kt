@@ -662,6 +662,11 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
                 put("resourceBlocked", JsonPrimitive(true))
                 put("contendedResources", JsonArray(event.contendedResources.map { JsonPrimitive(it) }))
             }
+            if (event.roleBlocked) put("roleBlocked", JsonPrimitive(true))
+            if (event.dependencyBlocked) {
+                put("dependencyBlocked", JsonPrimitive(true))
+                put("blockers", NoteSchemaJsonHelpers.buildBlockersArray(event.blockers))
+            }
             event.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
             event.error?.let { put("error", JsonPrimitive(it)) }
             NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty(event.violations)?.let { put("violations", it) }
