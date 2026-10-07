@@ -217,6 +217,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_path: "/etc/keys/jwks.json"
                     algorithms:
                       - EdDSA
@@ -241,6 +243,7 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
                     oidc_discovery: "https://accounts.example.com/.well-known/openid-configuration"
                     algorithms:
                       - EdDSA
@@ -265,6 +268,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - EdDSA
@@ -293,6 +298,7 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
                     issuer: "https://accounts.example.com"
                 """.trimIndent()
             )
@@ -337,6 +343,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - RS256
@@ -358,6 +366,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - EdDSA
@@ -377,6 +387,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - EdDSA
@@ -396,6 +408,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                 """.trimIndent()
             )
@@ -413,6 +427,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms: []
                 """.trimIndent()
@@ -431,6 +447,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - EdDSA
@@ -450,6 +468,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - EdDSA
@@ -470,6 +490,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - EdDSA
@@ -967,6 +989,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - EdDSA
@@ -994,6 +1018,8 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     jwks_path: "/etc/keys/jwks.json"
                     algorithms:
@@ -1016,6 +1042,7 @@ class YamlActorAuthenticationConfigServiceTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
                     oidc_discovery: "https://accounts.example.com/.well-known/openid-configuration"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
@@ -1086,6 +1113,131 @@ class YamlActorAuthenticationConfigServiceTest {
             ex.message?.contains(configFile.toString()) == true,
             "Expected the config path to be named, got: ${ex.message}"
         )
+    }
+
+    // -------------------------------------------------------------------------
+    // F-011: static JWKS mode requires audience (and issuer unless oidc_discovery)
+    // -------------------------------------------------------------------------
+
+    private fun loadMessage(yaml: String): String? {
+        val service = YamlActorAuthenticationConfigService(createConfigFile(yaml.trimIndent()))
+        return assertThrows(IllegalArgumentException::class.java) { service.getConfig() }.message
+    }
+
+    @Test
+    fun `jwks_uri without audience or issuer throws naming both`() {
+        val msg =
+            loadMessage(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://idp.example/jwks.json"
+                    algorithms: [RS256]
+                """
+            )
+        assertTrue(msg!!.contains("audience and issuer"), msg)
+    }
+
+    @Test
+    fun `jwks_uri with issuer but no audience throws naming audience`() {
+        val msg =
+            loadMessage(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://idp.example/jwks.json"
+                    issuer: "https://idp.example"
+                    algorithms: [RS256]
+                """
+            )
+        assertTrue(msg!!.contains("requires audience;"), msg)
+    }
+
+    @Test
+    fun `jwks_path with audience but no issuer throws naming issuer`() {
+        val msg =
+            loadMessage(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_path: "/etc/keys/jwks.json"
+                    audience: "aud"
+                    algorithms: [RS256]
+                """
+            )
+        assertTrue(msg!!.contains("requires issuer;"), msg)
+    }
+
+    @Test
+    fun `oidc_discovery with audience and no issuer parses`() {
+        val service =
+            YamlActorAuthenticationConfigService(
+                createConfigFile(
+                    """
+                    actor_authentication:
+                      verifier:
+                        type: jwks
+                        oidc_discovery: "https://idp.example/.well-known/openid-configuration"
+                        audience: "aud"
+                        algorithms: [RS256]
+                    """.trimIndent()
+                )
+            )
+        val v = service.getConfig().verifier as VerifierConfig.Jwks
+        assertNull(v.issuer)
+        assertEquals("aud", v.audience)
+    }
+
+    @Test
+    fun `oidc_discovery without audience throws`() {
+        val msg =
+            loadMessage(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    oidc_discovery: "https://idp.example/.well-known/openid-configuration"
+                    algorithms: [RS256]
+                """
+            )
+        assertTrue(msg!!.contains("requires audience;"), msg)
+    }
+
+    @Test
+    fun `DID mode without audience or issuer still parses`() {
+        val service =
+            YamlActorAuthenticationConfigService(
+                createConfigFile(
+                    """
+                    actor_authentication:
+                      verifier:
+                        type: jwks
+                        did_allowlist:
+                          - "did:web:agent.example"
+                        algorithms: [EdDSA]
+                    """.trimIndent()
+                )
+            )
+        val v = service.getConfig().verifier as VerifierConfig.Jwks
+        assertNull(v.issuer)
+        assertNull(v.audience)
+    }
+
+    @Test
+    fun `empty algorithms error still wins over missing audience`() {
+        val msg =
+            loadMessage(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://idp.example/jwks.json"
+                """
+            )
+        assertTrue(msg!!.contains("algorithms"), msg)
     }
 
     // -------------------------------------------------------------------------

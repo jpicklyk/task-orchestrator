@@ -2867,8 +2867,8 @@ Configure exactly one of `oidc_discovery`, `jwks_uri`, or `jwks_path`; more than
 | `oidc_discovery` | URL to an OpenID Connect discovery document. The server fetches `jwks_uri` and `issuer` from the document. |
 | `jwks_uri` | Direct URL to a JWKS endpoint. Overrides the URI discovered via `oidc_discovery`. |
 | `jwks_path` | Path to a local JWKS JSON file, relative to `AGENT_CONFIG_DIR`. Useful for local dev and air-gapped environments. |
-| `issuer` | Expected `iss` claim in the JWT. Overrides the issuer discovered via `oidc_discovery`. |
-| `audience` | Expected `aud` claim in the JWT. |
+| `issuer` | Expected `iss` claim in the JWT. Overrides the issuer discovered via `oidc_discovery`. Required in `jwks_uri`/`jwks_path` mode (optional with `oidc_discovery`); startup fails without it. |
+| `audience` | Expected `aud` claim in the JWT. Required in static-JWKS mode; startup fails without it. |
 | `algorithms` | List of accepted signing algorithms (e.g., `["EdDSA", "RS256"]`). |
 | `cache_ttl_seconds` | How long to cache fetched JWKS keys (default: 300). |
 | `stale_on_error` | When true (default), a stale cached key set is used if a JWKS refresh fails. The result is `verified` with `metadata.verifiedFromCache="true"` and `metadata.cacheAgeSeconds` set. When false, fetch failures always return `unavailable`. |

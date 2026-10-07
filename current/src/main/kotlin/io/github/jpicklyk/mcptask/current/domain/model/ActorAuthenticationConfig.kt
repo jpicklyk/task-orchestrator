@@ -119,8 +119,12 @@ sealed class VerifierConfig {
      *   The JWKS URI is fetched from the `jwks_uri` field of the discovery document.
      * @param jwksUri Direct HTTPS URL of a JWKS endpoint.
      * @param jwksPath File-system path to a local JWKS JSON file (resolution done by the provider).
-     * @param issuer Expected `iss` claim value; null means "any issuer accepted".
-     * @param audience Expected `aud` claim value; null means "any audience accepted".
+     * @param issuer Expected `iss` claim value. Null is valid only under DID trust (issuer bound by
+     *   the allowlist/pattern and the sub==iss check) or when supplied by OIDC discovery; the YAML
+     *   loader enforces this for static JWKS mode, and the verifier rejects an OIDC config whose
+     *   discovery document supplied no issuer.
+     * @param audience Expected `aud` claim value. Null is valid only under DID trust; the YAML
+     *   loader requires it in static JWKS mode.
      * @param algorithms Allowed signing algorithms (e.g. `["RS256", "ES256"]`).
      *   An empty list means "accept any algorithm supported by the JWKS".
      * @param cacheTtlSeconds How long (in seconds) to cache the fetched JWKS (default 300).

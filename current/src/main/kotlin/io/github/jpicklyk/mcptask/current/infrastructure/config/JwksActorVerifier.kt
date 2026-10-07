@@ -206,6 +206,11 @@ class JwksActorVerifier(
 
         // iss — explicit config overrides OIDC-discovered issuer
         val effectiveIssuer = config.issuer ?: keySetProvider.getResolvedIssuer()
+        // Fail closed: oidc_discovery with no explicit issuer relies on the discovery document's
+        // `issuer`; if it had none, the iss check would silently be off.
+        if (effectiveIssuer == null && config.oidcDiscovery != null) {
+            return rejected("no issuer configured and OIDC discovery document supplied none", "claims")
+        }
         if (effectiveIssuer != null && claims.issuer != effectiveIssuer) {
             return rejected("issuer mismatch: expected=$effectiveIssuer, got=${claims.issuer}", "claims")
         }

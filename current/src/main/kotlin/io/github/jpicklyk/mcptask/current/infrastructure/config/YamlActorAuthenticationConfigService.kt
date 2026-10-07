@@ -417,6 +417,25 @@ class YamlActorAuthenticationConfigService private constructor(
                     )
                 }
 
+                // Static JWKS mode must bind tokens to an audience, and to an issuer (explicit, or
+                // supplied by oidc_discovery). Without them any token signed by a key in the JWKS is
+                // accepted, including tokens minted for an unrelated service. DID mode is exempt: the
+                // issuer is bound by did_allowlist/did_pattern plus the sub==iss check.
+                if (isStaticJwks) {
+                    val missing =
+                        buildList {
+                            if (audience == null) add("audience")
+                            if (issuer == null && oidcDiscovery == null) add("issuer")
+                        }
+                    if (missing.isNotEmpty()) {
+                        throw IllegalArgumentException(
+                            "actor_authentication.verifier type 'jwks' in '$configPath' (static JWKS mode) " +
+                                "requires ${missing.joinToString(" and ")}; without them any token signed by a " +
+                                "key in the JWKS is accepted"
+                        )
+                    }
+                }
+
                 val cacheTtlSeconds =
                     when (val raw = verifierMap["cache_ttl_seconds"]) {
                         is Int -> raw.toLong()

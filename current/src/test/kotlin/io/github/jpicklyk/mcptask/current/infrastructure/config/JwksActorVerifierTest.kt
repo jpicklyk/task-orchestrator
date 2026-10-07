@@ -347,6 +347,29 @@ class JwksActorVerifierTest {
             assertTrue(result.reason?.contains("issuer mismatch") == true, "reason: ${result.reason}")
         }
 
+    // F-011: oidc_discovery with no explicit issuer and a discovery document that supplied none
+    // must fail closed instead of silently skipping the iss check.
+    @Test
+    fun `oidc_discovery with no resolved issuer rejects a validly signed token`() =
+        runTest {
+            val config =
+                baseConfig(issuer = null).copy(jwksPath = null, oidcDiscovery = "https://idp.example/.well-known/openid-configuration")
+            val provider = rsaMockProvider(resolvedIssuer = null)
+            val result = verifier(config = config, provider = provider).verify(actor(proof = signRsa()))
+            assertEquals(VerificationStatus.REJECTED, result.status)
+            assertEquals("claims", result.metadata["failureKind"])
+        }
+
+    @Test
+    fun `oidc_discovery with a resolved issuer and matching iss is verified`() =
+        runTest {
+            val config =
+                baseConfig(issuer = null).copy(jwksPath = null, oidcDiscovery = "https://idp.example/.well-known/openid-configuration")
+            val provider = rsaMockProvider(resolvedIssuer = "https://test-issuer.example")
+            val result = verifier(config = config, provider = provider).verify(actor(proof = signRsa()))
+            assertEquals(VerificationStatus.VERIFIED, result.status)
+        }
+
     // 15. explicit config.issuer overrides OIDC-discovered issuer
     @Test
     fun `explicit config issuer overrides OIDC-discovered issuer`() =

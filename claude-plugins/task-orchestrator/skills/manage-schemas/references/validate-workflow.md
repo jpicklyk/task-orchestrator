@@ -20,6 +20,7 @@ Parse the file. If YAML is invalid, report the parse error with line number (if 
 - `actor_authentication.verifier` (if present) must be a mapping
 - `verifier.type` must be one of: `noop`, `jwks` (warn on unknown type)
 - When `type: jwks`: at least one of `oidc_discovery`, `jwks_uri`, `jwks_path` must be set (error if none) — unless DID-trust mode is active
+- When `type: jwks` in static-JWKS mode (not DID-trust): `audience` must be set (error if missing), and `issuer` must be set unless `oidc_discovery` is configured (error if missing) — without them any token signed by a key in the JWKS is accepted
 - `algorithms` (if present) must be a list of strings
 - `cache_ttl_seconds` (if present) must be a positive number
 - `require_sub_match` (if present) must be a boolean

@@ -70,6 +70,8 @@ class GlobalConfigStartupFailClosedTest {
           degraded_mode_policy: $policy
           verifier:
             type: jwks
+            audience: "test-audience"
+            issuer: "https://issuer.example.com"
             jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
             algorithms:
               - RS256
@@ -111,6 +113,8 @@ class GlobalConfigStartupFailClosedTest {
             actor_authentication:
               verifier:
                 type: jwks
+                audience: "test-audience"
+                issuer: "https://issuer.example.com"
                 jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                 algorithms:
                   - RS256
@@ -163,6 +167,8 @@ class GlobalConfigStartupFailClosedTest {
               degraded_mode_policy: reject
               verifier:
                 type: jwks
+                audience: "test-audience"
+                issuer: "https://issuer.example.com"
                 jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                 algorithms:
                   - RS256
