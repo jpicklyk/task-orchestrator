@@ -121,7 +121,7 @@ default, and an unrecognized non-empty value either falls back to the default wi
 
 **Key environment variables:**
 - `DATABASE_PATH` — SQLite file path (default: `data/current-tasks.db`)
-- `USE_FLYWAY` — enable Flyway migrations (default: `true` in Docker)
+- `USE_FLYWAY` — enable Flyway migrations (default: `true` in Docker). Direct mode (`USE_FLYWAY=false`) databases are dev-only and disposable; opening an existing Direct-mode DB under Flyway fails fast
 - `AGENT_CONFIG_DIR` — directory containing `.taskorchestrator/` (default: working dir)
 - `MCP_TRANSPORT` — `stdio` (default) or `http`
 - `MCP_HTTP_PORT` — HTTP port (default: `3001`)
@@ -134,7 +134,8 @@ default, and an unrecognized non-empty value either falls back to the default wi
 - `READINESS_FILE` — path to the readiness marker file the server touches once startup (DB init,
   schema update, and transport bind) has fully succeeded; default `/tmp/mcp-task-orchestrator.ready`.
   Backs the Docker image's `HEALTHCHECK` (see `current/docs/fleet-deployment.md`) and covers both
-  `stdio` and `http` transport — the marker is cleared on shutdown
+  `stdio` and `http` transport — the marker is cleared at the start of startup (before DB init, so a
+  stale marker from a crashed run cannot signal readiness) and again on shutdown
 
 **REST API environment variables** (`API_*`, `CORS_*`, `RESOURCE_LEASES_ENFORCED`) are documented with defaults in `current/docs/fleet-deployment.md` and `current/docs/api-rest.md`. Gotchas: `API_ENABLED`/`API_ALLOW_UNAUTHENTICATED` use `EnvBoolean.require` (a bad value fails startup) while the other booleans fall back with a WARN; `RESOURCE_LEASES_ENFORCED` is read fresh on every `advance_item`/advance-route call, but since a running process's environment cannot change and a container's environment changes only when the container is recreated, flipping this var takes effect only after the process or container restarts.
 

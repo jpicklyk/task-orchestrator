@@ -3,7 +3,9 @@ package io.github.jpicklyk.mcptask.current.infrastructure.database.schema.manage
 import io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean
 import org.flywaydb.core.Flyway
 import org.flywaydb.core.api.FlywayException
+import org.flywaydb.core.api.configuration.FluentConfiguration
 import org.slf4j.LoggerFactory
+import java.sql.DriverManager
 
 /**
  * Production mode schema manager that applies versioned Flyway migrations.
@@ -21,8 +23,53 @@ class FlywayDatabaseSchemaManager(
 ) : DatabaseSchemaManager {
     private val logger = LoggerFactory.getLogger(FlywayDatabaseSchemaManager::class.java)
 
+    /**
+     * The single Flyway configuration used by both migrate and repair. `cleanDisabled` is true so a
+     * stray `flyway.clean()` can never wipe a production database, and `baselineOnMigrate` stays at
+     * Flyway's default (false): a non-empty schema without history is refused by
+     * [refuseDirectModeDatabase] before Flyway runs, and baselining at 0 could never be correct
+     * because V1 is not idempotent.
+     */
+    internal fun flywayConfiguration(): FluentConfiguration =
+        Flyway
+            .configure()
+            .dataSource(jdbcUrl, null, null) // SQLite: no username/password needed
+            .locations("classpath:db/migration")
+            .validateMigrationNaming(true)
+            .cleanDisabled(true)
+
+    /**
+     * Returns true (after logging one ERROR) when the database already holds user tables but has
+     * no `flyway_schema_history` table, i.e. it was created in Direct mode (`USE_FLYWAY=false`).
+     * Direct-mode databases are disposable and have no upgrade path; the database is not modified.
+     */
+    private fun refuseDirectModeDatabase(): Boolean {
+        DriverManager.getConnection(jdbcUrl).use { conn ->
+            conn.createStatement().use { st ->
+                st.executeQuery("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").use { rs ->
+                    val names = mutableListOf<String>()
+                    while (rs.next()) names += rs.getString(1)
+                    val hasHistory = names.contains("flyway_schema_history")
+                    val hasUserTables = names.any { it != "flyway_schema_history" }
+                    if (hasUserTables && !hasHistory) {
+                        logger.error(
+                            "Database was created in Direct mode (USE_FLYWAY=false): it contains tables but no " +
+                                "flyway_schema_history. Direct-mode databases are disposable and have no upgrade path, " +
+                                "so Flyway will not migrate it. Point DATABASE_PATH at a new file, or restore a " +
+                                "Flyway-mode backup."
+                        )
+                        return true
+                    }
+                }
+            }
+        }
+        return false
+    }
+
     override fun updateSchema(): Boolean {
         return try {
+            if (refuseDirectModeDatabase()) return false
+
             if (repair) {
                 logger.info("FLYWAY_REPAIR=true detected, running repair...")
                 return repair()
@@ -31,17 +78,7 @@ class FlywayDatabaseSchemaManager(
             logger.info("Starting Flyway database migration...")
             logger.info("Using database URL for Flyway: $jdbcUrl")
 
-            // Create Flyway instance with SQLite-specific configuration
-            val flyway =
-                Flyway
-                    .configure()
-                    .dataSource(jdbcUrl, null, null) // SQLite: no username/password needed
-                    .locations("classpath:db/migration")
-                    .validateMigrationNaming(true)
-                    .cleanDisabled(false) // Allow clean for development
-                    .baselineOnMigrate(true) // Create baseline for existing databases
-                    .baselineVersion("0") // Start baseline at version 0
-                    .load()
+            val flyway = flywayConfiguration().load()
 
             // Apply migrations
             val result = flyway.migrate()
@@ -67,18 +104,7 @@ class FlywayDatabaseSchemaManager(
         try {
             logger.info("Starting Flyway repair...")
 
-            val flyway =
-                Flyway
-                    .configure()
-                    .dataSource(jdbcUrl, null, null)
-                    .locations("classpath:db/migration")
-                    .validateMigrationNaming(true)
-                    .cleanDisabled(false)
-                    .baselineOnMigrate(true)
-                    .baselineVersion("0")
-                    .load()
-
-            flyway.repair()
+            flywayConfiguration().load().repair()
             logger.info("Flyway repair completed successfully")
 
             true

@@ -599,7 +599,7 @@ get_blocked_items(parentId="feature-uuid", includeAncestors=true)
 
 **Start cascade (QUEUE → WORK):** When a child item transitions to WORK, the parent is automatically advanced from QUEUE to WORK (if it is still in QUEUE). This applies to the immediate parent only — it does not recurse further up the ancestor chain — and is skipped when the parent's current-phase required notes are missing (`gateBlocked`) or a declared resource lease is contended (`resourceBlocked`). See [`advance_item`](./api-reference.md#advance_item) for the full cascade contract.
 
-**Terminal cascade (all children → TERMINAL):** When a child item reaches TERMINAL, if all siblings are also terminal, the parent is automatically advanced to TERMINAL. This cascade also continues up the ancestor chain.
+**Terminal cascade (all children → TERMINAL):** When a child item reaches TERMINAL, if all siblings are also terminal, the parent is automatically advanced to TERMINAL. This cascade also continues up the ancestor chain. It is suppressed (`applied: false`, and the climb stops) when the parent is `blocked` (`roleBlocked`), has an unmet blocking dependency (`dependencyBlocked` + `blockers`), or has unfilled required notes (`gateBlocked`); a cancel-originated cascade bypasses only the note gate.
 
 **Reopen cascade (child TERMINAL → QUEUE):** When a child item is reopened under a terminal parent, the parent is automatically reopened to WORK. This only applies to the immediate parent — no recursion.
 

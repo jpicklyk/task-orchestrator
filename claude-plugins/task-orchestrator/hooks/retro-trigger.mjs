@@ -94,7 +94,7 @@ try {
   const marker = readMarker(path);
   const now = Date.now();
 
-  const resp = extractResponseJson(toolResponse);
+  const resp = extractResponseJson(toolResponse?.structuredContent ?? toolResponse);
   if (resp === null) emitEmpty();
 
   // Classify the tool call into PARENT_COMPLETION (dispatch/nudge now), LONE_TERMINAL (record

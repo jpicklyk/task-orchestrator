@@ -107,6 +107,26 @@ interface ResourceLeaseRepository {
     suspend fun releaseAllForItem(holderItemId: UUID): LeaseReleaseResult
 
     /**
+     * Releases every lease row held by any item in [holderItemIds] — the bulk form of
+     * [releaseAllForItem], used by a recursive delete so releasing a subtree's leases is not one
+     * round trip per descendant. Returns [LeaseReleaseResult.Success] with the total number of
+     * lease rows removed; an empty set is a no-op returning `Success(0)`.
+     *
+     * The default implementation loops [releaseAllForItem] (sums the counts, returns the first
+     * [LeaseReleaseResult.DBError]); implementations with a set-based statement should override it.
+     */
+    suspend fun releaseAllForItems(holderItemIds: Set<UUID>): LeaseReleaseResult {
+        var total = 0
+        for (holderItemId in holderItemIds) {
+            when (val result = releaseAllForItem(holderItemId)) {
+                is LeaseReleaseResult.Success -> total += result.releasedCount
+                is LeaseReleaseResult.DBError -> return result
+            }
+        }
+        return LeaseReleaseResult.Success(total)
+    }
+
+    /**
      * Force-releases every row (any holder) for [resourceKey] — an administrative override for
      * unsticking a resource without waiting out its TTL. Not used by normal acquire/release flow.
      *

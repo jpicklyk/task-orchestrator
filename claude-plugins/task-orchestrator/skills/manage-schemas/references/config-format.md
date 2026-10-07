@@ -835,25 +835,27 @@ Items with `type: feature-task` use the `work_item_schemas` entry. Items with ta
 
 ## Actor authentication
 
-The `actor_authentication` section is a top-level key alongside `work_item_schemas` and `traits`. It controls whether actor attribution is enforced on write operations.
+The `actor_authentication` section is a top-level key alongside `work_item_schemas` and `traits`. It carries two kinds of setting that different readers consume: the client-side `enabled` flag (read only by the plugin hook) and the server-side `verifier` and `degraded_mode_policy` (read only by the server, from the global file).
 
 ```yaml
 actor_authentication:
-  enabled: true
+  enabled: true   # read by the plugin hook, not the server
 
 work_item_schemas:
   # ...
 ```
 
-Default: `false` when absent — actor authentication is opt-in.
+Default (hook): `false` when absent — actor attribution enforcement is opt-in.
 
 ### Fields
 
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
-| `enabled` | yes | boolean | `true` = block write calls missing actor claims. `false` = no enforcement |
+| `enabled` | no (hook-only) | boolean | Read only by the plugin hook, never by the server (the server ignores it). `true` = the hook blocks write calls missing actor claims. `false` or absent = no enforcement |
 
 ### Behavior
+
+`actor_authentication.enabled` is read by the plugin hook from the client-side config that its config locator finds (in practice the workspace `.taskorchestrator/config.yaml` or the user-level `~/.taskorchestrator/config.yaml`), re-read on every call. The server never reads it, so setting it in the server's mounted global file (for example `/project` in Docker) has no effect; put it, or `actor_attribution.required`, in the workspace or user config.
 
 When `actor_authentication.enabled` is `true`, the plugin's PreToolUse hook blocks `advance_item` and `manage_notes(upsert)` calls that are missing an `actor` object on any element. The agent must retry with actor attribution included.
 
@@ -871,8 +873,8 @@ The optional `verifier` sub-key enables server-side JWT validation of actor clai
 | `oidc_discovery` | no | string | — | OIDC discovery URL; auto-populates `jwks_uri` and `issuer` |
 | `jwks_uri` | no | string | — | Direct JWKS endpoint URL (overrides OIDC-discovered value) |
 | `jwks_path` | no | string | — | Local JWKS file path (relative to `AGENT_CONFIG_DIR`) |
-| `issuer` | no | string | — | Expected `iss` claim (overrides OIDC-discovered value) |
-| `audience` | no | string | — | Expected `aud` claim |
+| `issuer` | no (strongly recommended in `jwks_uri`/`jwks_path` mode) | string | — | Expected `iss` claim (overrides OIDC-discovered value) |
+| `audience` | no (strongly recommended in static-JWKS mode) | string | — | Expected `aud` claim |
 | `algorithms` | yes (under `type: jwks`) | list | n/a | Allowed signing algorithms; required and must be non-empty — an empty list fails startup |
 | `cache_ttl_seconds` | no | number | `300` | JWKS cache TTL in seconds |
 | `require_sub_match` | no | boolean | `true` | JWT `sub` must match `actor.id` |
@@ -887,6 +889,8 @@ The optional `verifier` sub-key enables server-side JWT validation of actor clai
 
 When `type: jwks`, at least one of `oidc_discovery`, `jwks_uri`, or `jwks_path` is required for static-JWKS mode. Explicit `jwks_uri` and `issuer` values override OIDC-discovered values when both are present.
 
+**Issuer/audience binding.** Static-JWKS mode strongly recommends `audience`, and `issuer` unless `oidc_discovery` supplies one; a startup WARN is logged when they are missing, because any token signed by a key in the JWKS is then accepted. Behaviour is unchanged (a missing value is not an error). An `oidc_discovery` config whose discovery document has no `issuer` (and no explicit `issuer`) logs a one-time WARN and skips the `iss` check. DID-trust mode is exempt.
+
 **HTTPS rule.** Unless `allow_insecure_url: true`, `oidc_discovery` and `jwks_uri` (including a `jwks_uri` discovered via `oidc_discovery`) must use `https`; any other scheme, or `http` without `allow_insecure_url` AND a literal loopback host, fails startup. `jwks_path` (a local file) and DID-trust mode are exempt from this rule.
 
 > **DID trust fields** apply only to `type: jwks`. Either `did_allowlist` (non-empty) or `did_pattern` (non-null) activates DID-trust mode — either or both may be set (not mutually exclusive with each other). In DID-trust mode, `oidc_discovery`, `jwks_uri`, and `jwks_path` must all be null. The two trust modes are validated at startup.
@@ -899,6 +903,8 @@ actor_authentication:
   verifier:
     type: jwks
     oidc_discovery: "https://agentlair.dev/.well-known/openid-configuration"
+    audience: "task-orchestrator"
+    algorithms: ["EdDSA", "RS256"]
 ```
 
 **Example — File-based (air-gapped):**
@@ -909,6 +915,9 @@ actor_authentication:
   verifier:
     type: jwks
     jwks_path: ".agentlair/jwks.json"
+    issuer: "https://agentlair.dev"
+    audience: "task-orchestrator"
+    algorithms: ["EdDSA", "RS256"]
 ```
 
 **Example — Full config (all options):**
@@ -1233,8 +1242,11 @@ in an additive `ignoredSections` field.
 > "Resources (Trait Dimension)" above.
 
 **Global-only settings.** `actor_authentication` is **not** part of the per-root layer — the
-resolver reads it only from the global file. A per-root document may carry it, but it is ignored
-(and reported in `ignoredSections`); keep it in the global config.
+server reads `actor_authentication.verifier` and `degraded_mode_policy` only from the global
+file. A per-root document may carry the section, but the server ignores it (and reports it in
+`ignoredSections`); keep those two keys in the global config. `actor_authentication.enabled` is
+different: it is read only by the plugin hook from the client-side workspace or user config, and
+the server ignores it wherever it appears.
 
 `actor_attribution` is not a server concept at all — it is read only by the plugin's
 `enforce-actor-attribution` hook directly from the workspace's `.taskorchestrator/config.yaml`. If

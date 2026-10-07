@@ -1,6 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
+import io.github.jpicklyk.mcptask.current.application.service.PlacedWriteOutcome
+import io.github.jpicklyk.mcptask.current.application.service.ReparentCheck
+import io.github.jpicklyk.mcptask.current.application.service.WorkItemPlacementService
 import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -224,15 +227,24 @@ class UpdateItemHandler(
                 else -> existing.parentId
             }
 
-        if (parentIdStr != null) {
-            // Guard checks only (self-parent, ancestor cycle) — the returned depth is
-            // NOT used to stamp; placement is resolved fresh inside the write transaction.
-            hierarchyValidator.validateAndComputeDepth(
-                itemId = id,
-                parentId = newParentId,
-                repo = repo,
-                errorPrefix = "Item '$itemId'"
-            )
+        if (parentIdStr != null && newParentId != null) {
+            // Guard checks only (existence, self-parent, descendant cycle); fails CLOSED when the
+            // ancestor lookup errors. Placement is resolved inside the write transaction.
+            when (val check = WorkItemPlacementService(repo, hierarchyValidator).checkReparent(id, newParentId)) {
+                ReparentCheck.Ok -> {}
+                ReparentCheck.SelfParent ->
+                    throw ToolValidationException("Item '$itemId': cannot be its own parent")
+                ReparentCheck.DescendantCycle ->
+                    throw ToolValidationException(
+                        "Item '$itemId': reparenting to '$newParentId' would create a circular hierarchy"
+                    )
+                is ReparentCheck.ParentNotFound ->
+                    throw ToolValidationException("Item '$itemId': parent '$newParentId' not found")
+                is ReparentCheck.LookupFailed ->
+                    throw ToolValidationException(
+                        "Item '$itemId': failed to verify hierarchy for parent '$newParentId': ${check.message}"
+                    )
+            }
         }
 
         return ParsedUpdateSpec(
@@ -253,13 +265,9 @@ class UpdateItemHandler(
     }
 
     /**
-     * When the parent actually changes, resolves the new placement, writes the item's own
-     * row, and cascades descendant depth/rootId all inside ONE transaction: resolving
-     * placement inside the same transaction as the write protects against a concurrent
-     * reparent/delete of the new parent (AR-19), and the cascade must roll back together
-     * with the parent's own write on failure (a thrown [DepthCascadeException] aborts the
-     * transaction and propagates to the per-item catch in [execute]). Mirrors the
-     * pre-refactor inline logic byte-for-byte.
+     * Writes the update via [WorkItemPlacementService.update]: when the parent actually changes,
+     * placement resolution, the item's own row and the descendant depth/rootId cascade all run
+     * inside ONE transaction (AR-19), and a cascade failure rolls back the item's own write too.
      */
     private suspend fun persistWithPlacement(
         id: UUID,
@@ -295,62 +303,20 @@ class UpdateItemHandler(
                 )
             }
 
-        var updateResult: Result<WorkItem>? = null
-        var placementNotFoundMessage: String? = null
-        if (spec.parentChanged) {
-            repo.inTransaction {
-                val newDepth: Int
-                val newRootId: UUID?
-                if (spec.newParentId != null) {
-                    when (val placementResult = repo.resolveChildPlacement(spec.newParentId)) {
-                        is Result.Success -> {
-                            newDepth = placementResult.data.depth
-                            newRootId = placementResult.data.rootId
-                        }
-                        is Result.Error -> {
-                            placementNotFoundMessage = "Item '$itemId': parent '${spec.newParentId}' not found"
-                            return@inTransaction
-                        }
+        return when (
+            val outcome =
+                WorkItemPlacementService(repo, hierarchyValidator)
+                    .update(existing, spec.newParentId, spec.parentChanged) { depth, rootId ->
+                        buildUpdatedItem(depth, rootId)
                     }
-                } else {
-                    // Explicit move-to-root — no parent to read.
-                    newDepth = 0
-                    newRootId = id
-                }
-
-                val updatedItem = buildUpdatedItem(newDepth, newRootId)
-                val depthDelta = newDepth - existing.depth
-                val txResult = repo.update(updatedItem)
-                updateResult = txResult
-                if (txResult is Result.Success) {
-                    when (
-                        val cascadeResult =
-                            hierarchyValidator.recomputeDescendantDepths(id, depthDelta, newRootId ?: id, repo)
-                    ) {
-                        is Result.Success -> {}
-                        is Result.Error -> throw DepthCascadeException(
-                            "Item '$itemId': failed to update descendant depths: ${cascadeResult.error.message}"
-                        )
-                    }
-                }
-            }
-            if (placementNotFoundMessage != null) {
-                throw ToolValidationException(placementNotFoundMessage!!)
-            }
-        } else {
-            val updatedItem = buildUpdatedItem(existing.depth, existing.rootId)
-            updateResult = repo.update(updatedItem)
+        ) {
+            is PlacedWriteOutcome.Written -> Result.Success(outcome.item)
+            is PlacedWriteOutcome.ParentNotFound ->
+                throw ToolValidationException("Item '$itemId': parent '${outcome.parentId}' not found")
+            is PlacedWriteOutcome.BuildFailed -> throw ToolValidationException(outcome.message)
+            is PlacedWriteOutcome.CascadeFailed ->
+                throw ToolValidationException("Item '$itemId': failed to update descendant depths: ${outcome.message}")
+            is PlacedWriteOutcome.WriteFailed -> Result.Error(outcome.error)
         }
-        return updateResult!!
     }
-
-    /**
-     * Internal marker exception used to abort the shared [io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository.inTransaction]
-     * block when the descendant-depth cascade fails after the parent's own depth write succeeded.
-     * Caught by the per-item `catch (e: Exception)` block above and converted into a failure entry;
-     * never surfaced past [execute].
-     */
-    private class DepthCascadeException(
-        message: String
-    ) : Exception(message)
 }

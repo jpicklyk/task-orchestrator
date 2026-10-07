@@ -22,6 +22,10 @@ import {
     MIN_CONTINUATION_BUDGET_USD,
     buildIterationEnv,
     HEADLESS_ITERATION_MODE,
+    worktreeNameForOutcome,
+    resumeCwd,
+    renameWorktree,
+    maybeCleanupWorktree,
 } from "../ralph-lib.mjs";
 
 // ── parseOutcome / marker parsing ──────────────────────────────────────────
@@ -345,4 +349,143 @@ test("S3: buildIterationEnv overrides a pre-existing TASK_ORCHESTRATOR_MODE on t
     const input = { TASK_ORCHESTRATOR_MODE: "something-else" };
     const result = buildIterationEnv(input);
     assert.equal(result.TASK_ORCHESTRATOR_MODE, HEADLESS_ITERATION_MODE);
+});
+
+// ─── Worktree naming / rename / cleanup (F-020, F-045) ───────────────────────
+
+const GOOD_ID = "943f729d-0490-4baa-97d7-5b06ab9890f4";
+const WT = path.posix.join(".claude", "worktrees", "ralph-x");
+
+// Recording fake io.git: `script` maps an argv prefix key (leading `-C <path>` dropped) to a stdout
+// string, or to an Error / {stderr,message} object to reject with.
+function fakeIo(script) {
+    const calls = [];
+    return {
+        calls,
+        git: async (args) => {
+            assert.ok(Array.isArray(args), "io.git must receive an argv array");
+            calls.push(args);
+            const key = args.slice(args[0] === "-C" ? 2 : 0).join(" ");
+            const hit = Object.entries(script).find(([k]) => key.startsWith(k));
+            const v = hit ? hit[1] : "";
+            if (v && typeof v === "object") throw v;
+            return { stdout: v };
+        },
+    };
+}
+
+test("worktreeNameForOutcome: valid UUID gives ralph-<8>-<iter>", () => {
+    assert.equal(worktreeNameForOutcome(GOOD_ID, 3, "tmp"), "ralph-943f729d-3");
+});
+
+test("worktreeNameForOutcome: non-string itemId keeps tempName without throwing", () => {
+    for (const bad of [12345678, {}, null, undefined, ["a"]]) {
+        assert.equal(worktreeNameForOutcome(bad, 1, "tmp"), "tmp");
+    }
+});
+
+test("worktreeNameForOutcome: hostile strings keep tempName", () => {
+    for (const bad of ['";id;#', '"&calc', GOOD_ID + "x", GOOD_ID + '";id', "", "943f729d"]) {
+        assert.equal(worktreeNameForOutcome(bad, 1, "tmp"), "tmp");
+    }
+});
+
+test("resumeCwd: absolute path under .claude/worktrees", () => {
+    assert.equal(resumeCwd("tmp-1"), path.resolve(".claude", "worktrees", "tmp-1"));
+});
+
+test("renameWorktree: same name is ok with no git call", async () => {
+    const io = fakeIo({});
+    assert.deepEqual(await renameWorktree(io, "a", "a"), { ok: true });
+    assert.equal(io.calls.length, 0);
+});
+
+test("renameWorktree: success issues one worktree-move argv array", async () => {
+    const io = fakeIo({});
+    assert.deepEqual(await renameWorktree(io, "a", "b"), { ok: true });
+    assert.deepEqual(io.calls, [["worktree", "move", ".claude/worktrees/a", ".claude/worktrees/b"]]);
+});
+
+test("renameWorktree: failure surfaces first non-blank stderr line, else 'unknown error'", async () => {
+    const io = fakeIo({ "worktree move": { stderr: "\n  fatal: destination exists\nmore\n", message: "m" } });
+    assert.deepEqual(await renameWorktree(io, "a", "b"), { ok: false, reason: "fatal: destination exists" });
+    const io2 = fakeIo({ "worktree move": { stderr: "", message: "" } });
+    assert.deepEqual(await renameWorktree(io2, "a", "b"), { ok: false, reason: "unknown error" });
+});
+
+test("maybeCleanupWorktree: absent when list lacks the path; posix and native separator forms both count as present", async () => {
+    assert.deepEqual(
+        await maybeCleanupWorktree(fakeIo({ "worktree list": "worktree /r/other\n" }), "ralph-x", "origin/main"),
+        { action: "absent" },
+    );
+    const native = WT.split("/").join(path.sep);
+    for (const form of [WT, native]) {
+        const io = fakeIo({ "worktree list": `worktree /r/${form}\n`, "rev-list": "0\n" });
+        assert.deepEqual(await maybeCleanupWorktree(io, "ralph-x", "origin/main"), { action: "removed" });
+    }
+});
+
+test("maybeCleanupWorktree: list failure gives failed", async () => {
+    const io = fakeIo({ "worktree list": new Error("boom") });
+    const r = await maybeCleanupWorktree(io, "ralph-x", "origin/main");
+    assert.equal(r.action, "failed");
+    assert.match(r.reason, /git worktree list failed: boom/);
+});
+
+test("maybeCleanupWorktree: dirty status is preserved", async () => {
+    const io = fakeIo({ "worktree list": WT, "status": " M file\n" });
+    assert.deepEqual(await maybeCleanupWorktree(io, "ralph-x", "origin/main"), {
+        action: "preserved",
+        reason: "uncommitted changes present",
+    });
+});
+
+test("maybeCleanupWorktree: status failure gives failed", async () => {
+    const io = fakeIo({ "worktree list": WT, "status": new Error("nope") });
+    const r = await maybeCleanupWorktree(io, "ralph-x", "origin/main");
+    assert.equal(r.action, "failed");
+    assert.match(r.reason, /git status failed: nope/);
+});
+
+test("maybeCleanupWorktree: commits ahead are preserved", async () => {
+    const io = fakeIo({ "worktree list": WT, "rev-list": "2\n" });
+    assert.deepEqual(await maybeCleanupWorktree(io, "ralph-x", "origin/main"), {
+        action: "preserved",
+        reason: "2 commit(s) ahead of origin/main",
+    });
+});
+
+test("maybeCleanupWorktree: unresolvable baseRef is preserved, never removed", async () => {
+    const io = fakeIo({ "worktree list": WT, "rev-list": new Error("bad ref") });
+    assert.deepEqual(await maybeCleanupWorktree(io, "ralph-x", "origin/nope"), {
+        action: "preserved",
+        reason: "could not compare against origin/nope",
+    });
+    assert.ok(!io.calls.some((c) => c[1] === "remove"));
+});
+
+test("maybeCleanupWorktree: clean worktree is removed via argv arrays", async () => {
+    const io = fakeIo({ "worktree list": WT, "rev-list": "0\n" });
+    assert.deepEqual(await maybeCleanupWorktree(io, "ralph-x", "origin/main"), { action: "removed" });
+    assert.deepEqual(io.calls, [
+        ["worktree", "list", "--porcelain"],
+        ["-C", WT, "status", "--porcelain"],
+        ["-C", WT, "rev-list", "--count", "origin/main..HEAD"],
+        ["worktree", "remove", WT],
+    ]);
+});
+
+test("maybeCleanupWorktree: remove failure gives failed", async () => {
+    const io = fakeIo({ "worktree list": WT, "rev-list": "0\n", "worktree remove": new Error("busy") });
+    const r = await maybeCleanupWorktree(io, "ralph-x", "origin/main");
+    assert.equal(r.action, "failed");
+    assert.match(r.reason, /git worktree remove failed: busy/);
+});
+
+test("maybeCleanupWorktree: shell metacharacters in baseRef stay a single argv element", async () => {
+    const evil = 'main"; echo pwned #';
+    const io = fakeIo({ "worktree list": WT, "rev-list": "0\n" });
+    await maybeCleanupWorktree(io, "ralph-x", evil);
+    const rl = io.calls.find((c) => c.includes("rev-list"));
+    assert.deepEqual(rl, ["-C", WT, "rev-list", "--count", `${evil}..HEAD`]);
 });

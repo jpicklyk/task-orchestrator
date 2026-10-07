@@ -289,6 +289,8 @@ class GlobalConfigFileTest {
                   enabled: true
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
                     algorithms:
                       - RS256
@@ -402,6 +404,7 @@ class GlobalConfigFileTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
                     issuer: "https://accounts.example.com"
                 """.trimIndent(),
             )

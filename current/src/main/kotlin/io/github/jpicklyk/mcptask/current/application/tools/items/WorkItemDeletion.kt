@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -56,8 +57,8 @@ class WorkItemDeletion(
      * @param id The item to delete.
      * @param recursive When `false` and [id] has one or more direct children, returns
      *   [WorkItemDeleteOutcome.HasChildren] without deleting anything. When `true`, deletes [id]
-     *   and every descendant leaves-first (deepest depth first, to satisfy FK constraints) inside
-     *   ONE transaction — all-or-nothing: a failure anywhere in the subtree rolls back every row
+     *   and every descendant in traversal-level batches (deepest level first, so a parent is
+     *   never deleted before its children) inside ONE transaction — all-or-nothing: a failure anywhere in the subtree rolls back every row
      *   deleted so far for this call.
      */
     suspend fun delete(
@@ -130,24 +131,25 @@ class WorkItemDeletion(
 
         try {
             repo.inTransaction {
-                // Find all descendants, delete leaves-first, then the root.
+                // Find all descendants, release their leases in bulk, delete them level by level
+                // (deepest level first), then the root.
                 val descendantsResult = repo.findDescendants(id)
                 if (descendantsResult is Result.Error) {
                     throw DeleteFailureException("Failed to find descendants: ${descendantsResult.error.message}")
                 }
                 val descendants = (descendantsResult as Result.Success).data
                 if (descendants.isNotEmpty()) {
-                    // Sort leaves-first (deepest depth first) so FK constraints are satisfied.
-                    // Delete individually to ensure each row is removed before referencing
-                    // parents are removed (batch DELETE can trigger FK violations mid-statement).
-                    val sortedDescendants = descendants.sortedByDescending { it.depth }
-                    for (descendant in sortedDescendants) {
-                        releaseLeasesOrThrow(leaseRepo, descendant.id)
-                        when (val delResult = repo.delete(descendant.id)) {
-                            is Result.Success -> if (delResult.data) localDescendantsDeleted++
+                    releaseLeasesBulkOrThrow(leaseRepo, descendants.map { it.id }.toSet())
+                    // Group by traversal level computed from the parentId links, NOT the stored
+                    // `depth` column (which can be stale). Within one level no row is the parent
+                    // of another, so each batch DELETE is FK-safe regardless of chunk boundaries
+                    // or whether FK checks run per row or at statement end.
+                    for (levelIds in descendantLevelsDeepestFirst(id, descendants)) {
+                        when (val delResult = repo.deleteAll(levelIds)) {
+                            is Result.Success -> localDescendantsDeleted += delResult.data
                             is Result.Error ->
                                 throw DeleteFailureException(
-                                    "Failed to delete descendant ${descendant.id}: ${delResult.error.message}"
+                                    "Failed to delete descendants: ${delResult.error.message}"
                                 )
                         }
                     }
@@ -177,6 +179,67 @@ class WorkItemDeletion(
         }
 
         return WorkItemDeleteOutcome.Deleted(id, localDescendantsDeleted)
+    }
+
+    /**
+     * Groups [descendants] of [rootId] by traversal level (direct children of [rootId] are level 1,
+     * any other descendant is its parent's level + 1) and returns the id sets deepest level first.
+     * Levels derive from parentId links so a stale stored `depth` cannot misorder deletes.
+     */
+    private fun descendantLevelsDeepestFirst(
+        rootId: UUID,
+        descendants: List<WorkItem>
+    ): List<Set<UUID>> {
+        val parentOf = descendants.associate { it.id to it.parentId }
+        val levelCache = HashMap<UUID, Int>(descendants.size)
+
+        fun levelOf(itemId: UUID): Int {
+            levelCache[itemId]?.let { return it }
+            // Iterative walk up the parent chain (subtrees can be deep) until a known level or the root.
+            val chain = ArrayList<UUID>()
+            var current: UUID? = itemId
+            var base = 0
+            while (current != null && current != rootId) {
+                val known = levelCache[current]
+                if (known != null) {
+                    base = known
+                    break
+                }
+                chain.add(current)
+                current = parentOf[current]
+            }
+            // current == rootId (base 0), a cached ancestor, or null (orphan; treated as level 1 root-attached).
+            var level = base
+            for (node in chain.asReversed()) {
+                level += 1
+                levelCache[node] = level
+            }
+            return levelCache.getValue(itemId)
+        }
+
+        return descendants
+            .groupBy({ levelOf(it.id) }, { it.id })
+            .toSortedMap(compareByDescending { it })
+            .values
+            .map { it.toSet() }
+    }
+
+    /**
+     * Releases every resource lease held by any item in [itemIds] in one bulk call, throwing
+     * [DeleteFailureException] on [LeaseReleaseResult.DBError] (same fail-closed contract as
+     * [releaseLeasesOrThrow]).
+     */
+    private suspend fun releaseLeasesBulkOrThrow(
+        leaseRepo: ResourceLeaseRepository,
+        itemIds: Set<UUID>
+    ) {
+        when (val release = leaseRepo.releaseAllForItems(itemIds)) {
+            is LeaseReleaseResult.Success -> Unit
+            is LeaseReleaseResult.DBError ->
+                throw DeleteFailureException(
+                    "Failed to release resource leases for ${itemIds.size} descendants: ${release.cause.message}"
+                )
+        }
     }
 
     /**

@@ -9,7 +9,8 @@ interface RoleTransitionRepository {
 
     suspend fun findByItemId(
         itemId: UUID,
-        limit: Int = 50
+        limit: Int = 50,
+        offset: Int = 0
     ): Result<List<RoleTransition>>
 
     suspend fun findByTimeRange(

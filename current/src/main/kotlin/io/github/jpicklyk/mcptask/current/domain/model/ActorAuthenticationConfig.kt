@@ -79,13 +79,14 @@ enum class DegradedModePolicy {
  * Top-level actor authentication configuration parsed from `.taskorchestrator/config.yaml`
  * under the `actor_authentication:` key.
  *
- * @param enabled Whether actor authentication is active (default true).
+ * There is deliberately no `enabled` field: `actor_authentication.enabled` is read only by the
+ * client-side plugin hook (`enforce-actor-attribution.mjs`), never by the server, and is ignored here.
+ *
  * @param verifier The actor-claim verifier strategy to use.
  * @param degradedModePolicy Controls what happens when actor verification is not fully successful.
  *   See [DegradedModePolicy] for the three values and their security trade-offs.
  */
 data class ActorAuthenticationConfig(
-    val enabled: Boolean = true,
     val verifier: VerifierConfig = VerifierConfig.Noop,
     val degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED
 )
@@ -118,8 +119,13 @@ sealed class VerifierConfig {
      *   The JWKS URI is fetched from the `jwks_uri` field of the discovery document.
      * @param jwksUri Direct HTTPS URL of a JWKS endpoint.
      * @param jwksPath File-system path to a local JWKS JSON file (resolution done by the provider).
-     * @param issuer Expected `iss` claim value; null means "any issuer accepted".
-     * @param audience Expected `aud` claim value; null means "any audience accepted".
+     * @param issuer Expected `iss` claim value; null means the issuer is not checked (any accepted).
+     *   The YAML loader logs a startup WARN in static JWKS mode when it is missing (and no
+     *   `oidc_discovery` supplies one), and the verifier logs a one-time WARN when OIDC discovery
+     *   yields none. Always setting it is recommended.
+     * @param audience Expected `aud` claim value; null means the audience is not checked (any
+     *   accepted). The YAML loader logs a startup WARN in static JWKS mode when it is missing.
+     *   Always setting it is recommended.
      * @param algorithms Allowed signing algorithms (e.g. `["RS256", "ES256"]`).
      *   An empty list means "accept any algorithm supported by the JWKS".
      * @param cacheTtlSeconds How long (in seconds) to cache the fetched JWKS (default 300).
