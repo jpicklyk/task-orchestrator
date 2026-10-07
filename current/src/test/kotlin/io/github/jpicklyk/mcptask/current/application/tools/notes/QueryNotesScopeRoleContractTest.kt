@@ -6,10 +6,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchResult
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.slot
@@ -25,8 +23,8 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -50,12 +48,15 @@ import kotlin.test.assertTrue
  * description ("All fields are optional and combined with AND.").
  *
  * S1-S4 and S6 use [MockRepositoryProvider] against the `NoteRepository` interface directly (no
- * FTS5/H2 dependency — mirrors [QueryNotesToolFtsDecoratorDispatchTest]'s harness). S5 exercises
- * the untouched top-level `list` `role` filter against a real H2-backed repository, matching
+ * FTS5 dependency — mirrors [QueryNotesToolFtsDecoratorDispatchTest]'s harness). S5 exercises
+ * the untouched top-level `list` `role` filter against a real SQLite-backed repository, matching
  * [QueryNotesToolTest]'s convention, to guard against an over-broad deletion that also removes the
  * unrelated top-level `role` filter.
  */
 class QueryNotesScopeRoleContractTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private fun params(vararg pairs: Pair<String, JsonElement>) = JsonObject(mapOf(*pairs))
 
     private fun emptySentinel() = SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
@@ -233,17 +234,14 @@ class QueryNotesScopeRoleContractTest {
 
     // ──────────────────────────────────────────────
     // S5 — regression guard: the TOP-LEVEL list `role` filter is untouched by the scope.role
-    // removal. Real H2-backed repository, matching QueryNotesToolTest's convention, so this
+    // removal. Real SQLite-backed repository, matching QueryNotesToolTest's convention, so this
     // exercises the actual findByItemId(itemId, role) path rather than a mocked signature.
     // ──────────────────────────────────────────────
 
     @Test
     fun `S5 - top-level list role filter is untouched by the scope role removal`(): Unit =
         runBlocking {
-            val dbName = "test_${System.nanoTime()}"
-            val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            DirectDatabaseSchemaManager().updateSchema()
-            val context = ToolExecutionContext(DefaultRepositoryProvider(DatabaseManager(database)))
+            val context = ToolExecutionContext(db.repositoryProvider())
             val queryTool = QueryNotesTool()
             val manageTool = ManageNotesTool()
 

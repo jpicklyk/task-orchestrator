@@ -4,29 +4,26 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.*
 
 class QueryNotesToolTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var context: ToolExecutionContext
     private lateinit var tool: QueryNotesTool
     private lateinit var manageTool: ManageNotesTool
 
     @BeforeEach
     fun setUp() {
-        val dbName = "test_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
-        val repositoryProvider = DefaultRepositoryProvider(databaseManager)
+        val repositoryProvider = db.repositoryProvider()
         context = ToolExecutionContext(repositoryProvider)
         tool = QueryNotesTool()
         manageTool = ManageNotesTool()
@@ -309,6 +306,62 @@ class QueryNotesToolTest {
             val data = result["data"] as JsonObject
             assertEquals(0, data["total"]!!.jsonPrimitive.int)
             assertEquals(0, data["notes"]!!.jsonArray.size)
+        }
+
+    // ──────────────────────────────────────────────
+    // FTS search (real SQLite fixture)
+    // ──────────────────────────────────────────────
+
+    private suspend fun searchNotes(
+        query: String,
+        scopeItemId: String? = null
+    ): JsonObject {
+        val result =
+            tool.execute(
+                JsonObject(
+                    buildMap<String, JsonElement> {
+                        put("operation", JsonPrimitive("search"))
+                        put("query", JsonPrimitive(query))
+                        scopeItemId?.let { put("scope", buildJsonObject { put("itemId", JsonPrimitive(it)) }) }
+                    }
+                ),
+                context
+            ) as JsonObject
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        return result["data"] as JsonObject
+    }
+
+    @Test
+    fun `S5 search hits a seeded note body and scope itemId excludes another item's note`(): Unit =
+        runBlocking {
+            val itemA = createTestItem("Item A")
+            val itemB = createTestItem("Item B")
+            createNote(itemA, "approach", "work", "Migrate the quokkaflux pipeline carefully")
+            createNote(itemB, "approach", "work", "Also touches the quokkaflux pipeline")
+
+            val unscoped = searchNotes("quokkaflux")
+            assertEquals(2, unscoped["totalHits"]!!.jsonPrimitive.int)
+
+            val scoped = searchNotes("quokkaflux", scopeItemId = itemA)
+            assertEquals(1, scoped["totalHits"]!!.jsonPrimitive.int)
+            assertEquals(
+                itemA,
+                scoped["hits"]!!
+                    .jsonArray[0]
+                    .jsonObject["itemId"]!!
+                    .jsonPrimitive.content
+            )
+        }
+
+    @Test
+    fun `S6 search with a non-matching query succeeds with zero hits`(): Unit =
+        runBlocking {
+            val itemId = createTestItem()
+            createNote(itemId, "approach", "work", "Migrate the quokkaflux pipeline carefully")
+
+            val data = searchNotes("nonexistentterm")
+            assertEquals(0, data["totalHits"]!!.jsonPrimitive.int)
+            assertEquals(0, data["hits"]!!.jsonArray.size)
         }
 
     // ──────────────────────────────────────────────

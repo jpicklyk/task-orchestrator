@@ -6,10 +6,9 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ChildPlacement
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -20,9 +19,9 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -44,7 +43,7 @@ import kotlin.test.assertTrue
  * must be one of `high`/`medium`/`low`, `complexity` 1-10, `role` enum
  * `queue`/`work`/`review`/`blocked`/`terminal`).
  *
- * SEAMS (own file, H2 — same technique as `ManageItemsParentPlacementInTxnTest`, whose
+ * SEAMS (own file, real SQLite — same technique as `ManageItemsParentPlacementInTxnTest`, whose
  * `MutateOnFirstTransactionRepository` / `WorkItemRepoOverrideProvider` pattern this file mirrors
  * for its own seams):
  * - [MutateOnFirstTransactionRepository] deletes a parent as the first thing inside the real write
@@ -59,17 +58,16 @@ import kotlin.test.assertTrue
  * No `src/main` file, diff, or commit was read.
  */
 class ManageItemsWritePathFailureTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var repositoryProvider: DefaultRepositoryProvider
     private lateinit var context: ToolExecutionContext
     private val tool = ManageItemsTool()
 
     @BeforeEach
     fun setUp() {
-        val dbName = "manage_items_write_failure_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
-        repositoryProvider = DefaultRepositoryProvider(databaseManager)
+        repositoryProvider = db.repositoryProvider()
         context = ToolExecutionContext(repositoryProvider)
     }
 

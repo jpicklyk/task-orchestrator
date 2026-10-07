@@ -3,15 +3,13 @@ package io.github.jpicklyk.mcptask.current.application.tools.items
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.*
@@ -19,9 +17,9 @@ import kotlin.test.*
 /**
  * Tests for [QueryItemsTool] claim-status filter and tiered claim disclosure.
  *
- * Uses a real H2 in-memory database for SQL condition testing. Claim fields are populated
- * via direct WorkItem.create() to bypass SQLite-specific claim SQL (which uses HEX() and
- * datetime('now') — H2-incompatible). The filter logic under test (buildFilteredQuery)
+ * Uses a real SQLite database for SQL condition testing. Claim fields are populated
+ * via direct WorkItem.create() to bypass the claim SQL (which uses HEX() and
+ * datetime('now')). The filter logic under test (buildFilteredQuery)
  * uses Exposed DSL which is dialect-agnostic.
  *
  * Tiered disclosure contract under test:
@@ -30,6 +28,9 @@ import kotlin.test.*
  * - `claimSummary` counts appear in overview results (no identity)
  */
 class QueryItemsToolClaimStatusTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var context: ToolExecutionContext
     private lateinit var tool: QueryItemsTool
     private lateinit var manageTool: ManageItemsTool
@@ -37,11 +38,7 @@ class QueryItemsToolClaimStatusTest {
 
     @BeforeEach
     fun setUp() {
-        val dbName = "test_claim_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
-        val repositoryProvider = DefaultRepositoryProvider(databaseManager)
+        val repositoryProvider = db.repositoryProvider()
         workItemRepo = repositoryProvider.workItemRepository() as SQLiteWorkItemRepository
         context = ToolExecutionContext(repositoryProvider)
         tool = QueryItemsTool()
@@ -78,7 +75,7 @@ class QueryItemsToolClaimStatusTest {
 
     /**
      * Set an item as actively claimed (non-expired) by directly updating via repository.
-     * Bypasses SQLite-specific claim SQL to keep tests H2-compatible.
+     * Bypasses the claim SQL; the filter logic under test does not depend on it.
      */
     private suspend fun setActiveClaim(
         itemId: UUID,
