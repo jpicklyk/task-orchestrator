@@ -304,7 +304,7 @@ TO publishes the following as the integration seam — the surface fleet impleme
 
 - **MCP tools** — `claim_item` (acquire/heartbeat/release), `advance_item` (with ownership enforcement on claimed items), `get_context(itemId)` (operator diagnostic with full claim detail), `query_items(claimStatus=...)` (filtered discovery, identity-redacted), `get_next_item(includeClaimed=...)` (work discovery)
 - **Configuration** — `.taskorchestrator/config.yaml` `actor_authentication` block (server policy)
-- **Audit log** — actor claims persisted on every write when `actor_authentication.enabled: true`, queryable via `query_notes`
+- **Audit log** — actor claims persisted on every write regardless of any flag, queryable via `query_notes`
 
 Anything else (specific skill instructions, hook behavior, orchestration-context conventions) is implementation detail of the bundled plugin and not part of the fleet contract.
 
@@ -596,14 +596,14 @@ The four stages below correspond to increasing identity-enforcement strictness. 
 
 | Stage | Config | Server behavior |
 |---|---|---|
-| **0 — Default orchestration** | `actor_authentication.enabled: false` (or absent) | `claim_item` works but is optional. `advance_item` does not enforce ownership. No actor required. |
-| **1 — Actor authentication on, self-reported identity** | `actor_authentication.enabled: true`, `degraded_mode_policy: accept-self-reported`, no `verifier` | Actor required on writes (when paired with an actor-attribution enforcement layer). `claim_item` enforces ownership on subsequent `advance_item` calls. Identity is self-reported — caller-supplied `actor.id` is trusted unconditionally. |
+| **0 — Default orchestration** | `degraded_mode_policy` default, hook-side `enabled` false or absent | `claim_item` works but is optional. `advance_item` does not enforce ownership of unclaimed items. No actor required. |
+| **1 — Actor authentication on, self-reported identity** | Hook-side `actor_authentication.enabled: true` (client config, not read by the server), `degraded_mode_policy: accept-self-reported`, no `verifier` | The plugin hook requires an actor on writes. Claim ownership is not gated by `enabled`: the server enforces it on claimed items whenever an actor identity is supplied. Identity is self-reported — caller-supplied `actor.id` is trusted unconditionally. |
 | **2 — Verifier configured, fallback permitted** | + `verifier: { type: jwks, ... }`, `degraded_mode_policy: accept-cached` | When `actor.proof` is present and JWKS is reachable, the JWT `sub` becomes the trusted identity. When JWKS is briefly unreachable, the stale-cache fallback serves. A `REJECTED` verification (bad signature, wrong issuer/audience, etc.) or an unreachable JWKS with no usable cache both fall back to self-reported `actor.id` with a WARN log; `ABSENT`/`UNCHECKED` fall back silently. |
 | **3 — Verification required** | + `degraded_mode_policy: reject` | Operations requiring verified identity are rejected if verification status is not `VERIFIED`. Unclaimed items remain accessible to unverified actors so existing default-mode clients are not broken — only claim and advance-on-claimed flows are gated. |
 
 ### Recommended Sequence
 
-1. **Stage 0 → Stage 1.** Enable actor authentication in the config. Roll out `actor` plumbing on clients first, then flip `actor_authentication.enabled: true`. Clients that don't pass `actor` will fail writes once attribution enforcement is active.
+1. **Stage 0 → Stage 1.** Enable actor authentication in the config. Roll out `actor` plumbing on clients first, then flip `actor_authentication.enabled: true` in the clients' workspace or user config (the plugin hook reads it; the server does not). Clients that don't pass `actor` will fail writes once attribution enforcement is active.
 2. **Stage 1 → Stage 2.** Configure the JWKS source and have clients begin attaching `actor.proof` JWTs. Stage 2 is forgiving — clients without `actor.proof` continue to work via self-reported fallback. Use this stage to confirm verification metadata in responses (`verification.status: VERIFIED` for upgraded clients).
 3. **Stage 2 → Stage 3.** Once telemetry confirms all client traffic is producing `VERIFIED` outcomes, flip `degraded_mode_policy: reject`. Any remaining unverified clients will start receiving `rejected_by_policy` on `claim_item` and on `advance_item` for claimed items.
 
@@ -930,7 +930,7 @@ The identity resolution chain:
 | Surface | What gets persisted |
 |---|---|
 | `work_items.claimed_by` | Current claim holder identity |
-| Audit notes (when `actor_authentication.enabled`) | Actor claim object on every write — `id`, `kind`, `parent`, verification metadata |
+| Audit notes (every write) | Actor claim object on every write — `id`, `kind`, `parent`, verification metadata |
 | `query_notes` body content | Audit notes are readable via standard note queries |
 | `notes.actor_proof_claims` / `role_transitions.actor_proof_claims` (V17) | Verified JWT claims JSON on a `VERIFIED` proof — can hold `sub`/`iss`, so the same PII sensitivity as `claimedBy` applies here too |
 
@@ -1063,9 +1063,9 @@ Fleet operators should treat this as a known gap when planning production rollou
 | Per-root claim breakdown | `query_items(operation="overview")` → `claimSummary` per root item |
 | Stalled items (missing required notes) | `get_context()` → `stalledItems` |
 | Recent role transitions | `get_context(since="<timestamp>")` → `recentTransitions` |
-| Audit log | `actor_authentication.enabled: true` in config — actor claims persisted on write operations; queryable via `query_notes` and `get_context` session-resume mode |
+| Audit log | Actor claims are persisted on write operations regardless of any flag; queryable via `query_notes` and `get_context` session-resume mode |
 
-The audit log via `actor_authentication.enabled` is the only structured per-operation signal available today. Actor claims (including verification status and `parent` chain) are persisted with each write, enabling post-mortem analysis.
+The audit log of persisted actor claims is the only structured per-operation signal available today. Actor claims (including verification status and `parent` chain) are persisted with each write, enabling post-mortem analysis.
 
 ### Known Gaps — Plan Accordingly
 

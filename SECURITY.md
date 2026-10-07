@@ -99,12 +99,12 @@ Actor attribution has two layers — **presence enforcement** (is an actor claim
 
 | Concern | Mechanism | Where | Enforcement |
 |---------|-----------|-------|-------------|
-| **Presence** | `actor_authentication.enabled: true` in config | Claude Code plugin hook (client-side) | Blocks tool calls missing `actor` objects |
+| **Presence** | `actor_authentication.enabled: true` in the client-side workspace or user config (the server ignores it) | Claude Code plugin hook (client-side) | Blocks tool calls missing `actor` objects |
 | **Authenticity** | `actor_authentication.verifier.type: jwks` in config | MCP server (server-side) | Advisory — recorded in audit trail, does not block operations |
 
 #### Layer 1: Presence enforcement (plugin hook)
 
-When `actor_authentication.enabled: true` is set in `.taskorchestrator/config.yaml`, the Claude Code plugin hook (`enforce-actor-attribution.mjs`) intercepts `advance_item` and `manage_notes(upsert)` calls **before they reach the server**. If any transition or note element is missing an `actor` object, the call is blocked with an error message.
+When `actor_authentication.enabled: true` is set in the client-side `.taskorchestrator/config.yaml` (workspace or user level, as found by the hook; the server never reads this key, so setting it only in a server-mounted global file has no effect), the Claude Code plugin hook (`enforce-actor-attribution.mjs`) intercepts `advance_item` and `manage_notes(upsert)` calls **before they reach the server**. If any transition or note element is missing an `actor` object, the call is blocked with an error message.
 
 **Important:** This enforcement only applies to Claude Code clients with the task-orchestrator plugin installed. Raw MCP clients connecting directly to the HTTP endpoint bypass the hook entirely. The server itself does not enforce actor presence — tools accept calls without `actor` claims and proceed with `actorClaim = null`.
 
@@ -137,7 +137,7 @@ Configure JWKS when you need a cryptographically verifiable audit trail — e.g.
 
 ```yaml
 actor_authentication:
-  enabled: true        # Plugin hook enforces actor presence on write operations
+  enabled: true        # Plugin hook enforces actor presence (client-side config; server ignores)
   verifier:
     type: noop         # Default: no JWT verification. Claims accepted at face value.
 ```

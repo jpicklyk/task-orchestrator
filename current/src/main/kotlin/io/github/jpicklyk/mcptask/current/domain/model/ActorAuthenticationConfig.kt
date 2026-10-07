@@ -79,13 +79,14 @@ enum class DegradedModePolicy {
  * Top-level actor authentication configuration parsed from `.taskorchestrator/config.yaml`
  * under the `actor_authentication:` key.
  *
- * @param enabled Whether actor authentication is active (default true).
+ * There is deliberately no `enabled` field: `actor_authentication.enabled` is read only by the
+ * client-side plugin hook (`enforce-actor-attribution.mjs`), never by the server, and is ignored here.
+ *
  * @param verifier The actor-claim verifier strategy to use.
  * @param degradedModePolicy Controls what happens when actor verification is not fully successful.
  *   See [DegradedModePolicy] for the three values and their security trade-offs.
  */
 data class ActorAuthenticationConfig(
-    val enabled: Boolean = true,
     val verifier: VerifierConfig = VerifierConfig.Noop,
     val degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED
 )

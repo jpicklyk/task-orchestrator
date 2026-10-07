@@ -24,7 +24,6 @@ class YamlActorAuthenticationConfigServiceTest {
 
         val config = service.getConfig()
         assertEquals(ActorAuthenticationConfig(), config)
-        assertTrue(config.enabled)
         assertEquals(VerifierConfig.Noop, config.verifier)
         assertTrue(service.getWarnings().isEmpty())
     }
@@ -41,7 +40,6 @@ class YamlActorAuthenticationConfigServiceTest {
         val service = YamlActorAuthenticationConfigService(configFile)
 
         val config = service.getConfig()
-        assertTrue(config.enabled)
         assertEquals(VerifierConfig.Noop, config.verifier)
         assertTrue(service.getWarnings().isEmpty())
     }
@@ -485,19 +483,24 @@ class YamlActorAuthenticationConfigServiceTest {
     }
 
     @Test
-    fun `actor_authentication enabled flag false is respected`() {
-        val configFile =
-            createConfigFile(
-                """
-                actor_authentication:
-                  enabled: false
-                  verifier:
-                    type: noop
-                """.trimIndent()
-            )
-        val service = YamlActorAuthenticationConfigService(configFile)
+    fun `actor_authentication enabled key is ignored by the server`() {
+        fun load(flag: Boolean) =
+            YamlActorAuthenticationConfigService(
+                createConfigFile(
+                    """
+                    actor_authentication:
+                      enabled: $flag
+                      verifier:
+                        type: noop
+                    """.trimIndent()
+                )
+            ).getConfig()
 
-        assertFalse(service.getConfig().enabled)
+        val off = load(false)
+        val on = load(true)
+
+        assertEquals(off, on)
+        assertEquals(ActorAuthenticationConfig(), off)
     }
 
     // -------------------------------------------------------------------------

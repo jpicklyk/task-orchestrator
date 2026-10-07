@@ -29,7 +29,6 @@ import java.nio.file.Path
  * Expected YAML structure:
  * ```yaml
  * actor_authentication:
- *   enabled: true
  *   degraded_mode_policy: accept-cached   # accept-cached (default) | accept-self-reported | reject
  *   verifier:
  *     type: jwks          # "jwks" or "noop" (default: noop)
@@ -51,7 +50,7 @@ import java.nio.file.Path
  *
  * If the config file is missing, empty, or comment-only, or the `actor_authentication:` section is
  * absent (or explicitly `null`), [ActorAuthenticationConfig] defaults are returned
- * (`enabled=true`, [VerifierConfig.Noop]).
+ * ([VerifierConfig.Noop], default degraded-mode policy).
  *
  * **FAILS CLOSED**: if the file exists but cannot be read or parsed (YAML syntax error, non-mapping
  * root document), or a present, non-null field fails to parse (an unrecognized
@@ -175,7 +174,7 @@ class YamlActorAuthenticationConfigService private constructor(
      *
      * An absent file, an empty/comment-only file (parses to `null`), an absent
      * `actor_authentication:` key, or an explicit `actor_authentication: null` all keep the coded
-     * defaults (`enabled=true`, [VerifierConfig.Noop]) — these are legitimate "nothing configured"
+     * defaults ([VerifierConfig.Noop], default degraded-mode policy) — these are legitimate "nothing configured"
      * states, not errors. Everything else that prevents a well-formed [ActorAuthenticationConfig]
      * from being produced — a YAML syntax error, a root document that is not a mapping, or a
      * present-and-non-null field that fails to parse — throws [IllegalArgumentException] naming
@@ -247,8 +246,6 @@ class YamlActorAuthenticationConfigService private constructor(
                     )
             }
 
-        val enabled = (actorAuthSection["enabled"] as? Boolean) ?: true
-
         val verifierRaw = actorAuthSection["verifier"]
         val verifier: VerifierConfig =
             when (verifierRaw) {
@@ -263,7 +260,6 @@ class YamlActorAuthenticationConfigService private constructor(
         val degradedModePolicy = parseDegradedModePolicy(actorAuthSection)
 
         return ActorAuthenticationConfig(
-            enabled = enabled,
             verifier = verifier,
             degradedModePolicy = degradedModePolicy
         )

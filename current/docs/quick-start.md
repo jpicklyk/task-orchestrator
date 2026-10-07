@@ -135,7 +135,7 @@ Hooks run automatically — no invocation required:
 - **Plan mode** — after plan approval, prompts Claude to create MCP items so persistent tracking stays in sync with the conversation
 - **Subagent start** — passes task context into spawned subagents so they start with full awareness of the current item
 
-**Optional:** Enable actor authentication to require agents to identify themselves on every write operation — add an `actor_authentication` section with `enabled: true` to `.taskorchestrator/config.yaml`. See [Enforcing Actor Attribution](./api-reference.md#enforcing-actor-attribution) in the API reference.
+**Optional:** Enable actor authentication to require agents to identify themselves on every write operation — add an `actor_authentication` section with `enabled: true` to the workspace (or user-level) `.taskorchestrator/config.yaml`; the plugin hook reads it, the server does not. See [Enforcing Actor Attribution](./api-reference.md#enforcing-actor-attribution) in the API reference.
 
 ### Orchestration context
 

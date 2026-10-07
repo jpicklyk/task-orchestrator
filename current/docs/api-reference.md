@@ -2778,14 +2778,14 @@ Actor claims are **optional by default** — users who don't need actor authenti
 
 ```yaml
 actor_authentication:
-  enabled: true
+  enabled: true   # read by the plugin hook, not the server
 ```
 
 When enabled, the plugin's `PreToolUse` hook blocks any `advance_item` or `manage_notes(upsert)` call where one or more elements are missing an `actor` object. The call never reaches the server — the agent must retry with actor claims included.
 
 When `enabled` is `false` or the `actor_authentication` section is absent, calls pass through with no enforcement. Actor claims can still be provided voluntarily.
 
-> **Note:** Config changes require an MCP reconnect (`/mcp`) or session restart to take effect.
+> **Note:** The hook re-reads the config file on every call, so a change to `enabled` takes effect on the next write without an MCP reconnect. `enabled` is read only by the hook, from the client-side workspace or user config, not by the server.
 
 #### Subagent Behavior
 
@@ -2808,11 +2808,11 @@ Include an "actor" object on every advance_item and manage_notes call:
 
 ### Verifier Configuration
 
-The `actor_authentication` section in `.taskorchestrator/config.yaml` controls actor attribution enforcement and verification. The `enabled` flag and the `verifier` block are independent — enforcement checks actor presence, while the verifier checks proof validity.
+The `actor_authentication` section in `.taskorchestrator/config.yaml` controls actor attribution enforcement and verification. The `enabled` flag (read only by the plugin hook, from the client-side workspace or user config; the server ignores it) and the `verifier` block (read by the server from the global file) are independent — enforcement checks actor presence, while the verifier checks proof validity.
 
 ```yaml
 actor_authentication:
-  enabled: true          # Enforce actor claims on write operations
+  enabled: true          # Plugin hook only (client-side config); the server ignores this key
   degraded_mode_policy: accept-cached   # accept-cached (default) | accept-self-reported | reject
   verifier:
     type: jwks           # "noop" (default) | "jwks"
