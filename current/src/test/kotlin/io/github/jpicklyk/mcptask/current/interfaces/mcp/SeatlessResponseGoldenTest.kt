@@ -73,13 +73,15 @@ import kotlin.test.fail
  *   `composition.toolContext` / `composition.noteSchemaService` / repository provider the MCP
  *   captures use, so both surfaces observe one identical backing state.
  *
- * FIXTURES: the global layer is a verbatim copy of `deploy/global-config/.taskorchestrator/config.yaml`
- * (the process-schema floor) and the per-root layer is a verbatim copy of this repo's own tracked
- * `.taskorchestrator/config.yaml` (has `default_traits`, a `delegated` dispatch profile, `skill`,
- * `maxLength`, and a `default` schema — the task-scope-addendum's stated S1 fixture), both committed
- * under `golden/a1-seatless/fixtures/` and loaded from the test classpath (never read from their
- * live repo paths, so this test does not depend on the working directory a future `gradlew`
- * invocation happens to use). Four items with FIXED UUIDs ([FEATURE_TASK_ID], [BUG_FIX_ID],
+ * FIXTURES: the global layer is a deliberately pinned, seat-less snapshot of
+ * `deploy/global-config/.taskorchestrator/config.yaml` (the process-schema floor) and the per-root layer is a
+ * deliberately pinned, seat-less snapshot of this repo's own tracked `.taskorchestrator/config.yaml` (has
+ * `default_traits`, a `delegated` dispatch profile, `skill`, `maxLength`, and a `default` schema - the
+ * task-scope-addendum's stated S1 fixture), both taken at base f9d71a69 and committed under
+ * `golden/a1-seatless/fixtures/`. They are intentionally NOT kept in sync with the live files (re-copying
+ * would bring in seats and change the goldens); live-file validity is guarded by `LiveConfigFilesParseTest`.
+ * They are loaded from the test classpath (never read from their live repo paths, so this test does not
+ * depend on the working directory a future `gradlew` invocation happens to use). Four items with FIXED UUIDs ([FEATURE_TASK_ID], [BUG_FIX_ID],
  * [SCHEMA_FREE_ID], [TERMINAL_ID]) are created under one fixed root ([ROOT_ID]):
  * - `feature-task` in QUEUE, no notes filled -> missing `task-scope` (queue-phase gate).
  * - `bug-fix` in WORK, no notes filled -> missing `implementation-notes`/`session-tracking`/
