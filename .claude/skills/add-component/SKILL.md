@@ -54,6 +54,7 @@ The `api-reference.md` surface is not machine-checked — update it manually alo
 
 ### New Database Migration
 Create `current/src/main/resources/db/migration/sqlite/V{N}__{Description}.sql`. SQLite has no `ALTER COLUMN` — schema changes require table recreation (see the migration-review skill's table-recreation template). The migration is the only schema definition: Direct mode no longer exists.
+Every migration also needs one new file `current/src/test/kotlin/.../infrastructure/database/upgrade/seeds/SeedV{N}.kt` (`object SeedV{N} : MigrationSeed({N})`); `UpgradeHarnessTest` fails when a migration of version 18 or later has none. Declare any `table.column` the migration rewrites in `rewrites`, add the rows it transforms in `seed`, and assert the transformation in `verify`. After an intentional schema change, regenerate `current/src/test/resources/schema/sqlite-schema-snapshot.txt` from `current/build/schema-snapshot.actual.txt` (written by `SchemaParityTest` on a mismatch).
 
 ### New Gradle Dependency
 Add to `gradle/libs.versions.toml` (`[versions]` + `[libraries]`), then reference as `libs.{name}` in `build.gradle.kts`. Check Maven Central for the latest version.

@@ -1,0 +1,126 @@
+package io.github.jpicklyk.mcptask.current.infrastructure.database.upgrade
+
+import org.flywaydb.core.Flyway
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable
+import java.io.File
+import java.nio.file.Files
+import java.security.MessageDigest
+import java.sql.DriverManager
+
+/**
+ * Regenerates the checked-in golden V17 (3.16-format) database and its manifest. DISABLED unless the
+ * environment variable `REGENERATE_GOLDEN_V17=true` is set (environment variables reach the forked test JVM,
+ * `-D` flags do not):
+ *
+ * ```
+ * REGENERATE_GOLDEN_V17=true ./gradlew :current:test --tests "*GoldenV17Generator*"
+ * ```
+ *
+ * The database is NEVER a copy or sanitization of a real user database. It is built from nothing: a fresh file
+ * migrated by Flyway to target 17 (the 3.16 schema; migration bytes are identical, see
+ * `MigrationLocationContinuityTest`), then synthetic rows written with raw JDBC from [BaselineDataset]'s literals,
+ * which use both timestamp shapes the 3.16 server wrote. Flyway's own history rows are normalized (installed_by,
+ * installed_on, execution_time) so the file carries no machine or user detail. The result is flattened with
+ * `VACUUM INTO` in journal_mode=DELETE so it is a single file.
+ */
+@EnabledIfEnvironmentVariable(named = "REGENERATE_GOLDEN_V17", matches = "true")
+class GoldenV17Generator {
+    @Test
+    fun regenerate() {
+        val work = Files.createTempDirectory("golden-v17-gen-").toFile()
+        try {
+            val url = UpgradeHarness.urlFor(File(work, "v17.db"))
+            UpgradeHarness.migrate(url, target = 17)
+            DriverManager.getConnection(url).use { conn ->
+                BaselineDataset.seed(conn)
+                conn.createStatement().use { st ->
+                    st.execute(
+                        "UPDATE flyway_schema_history SET installed_by = 'golden-generator', " +
+                            "installed_on = '2026-01-01 00:00:00', execution_time = 1"
+                    )
+                    st.execute("PRAGMA journal_mode = DELETE")
+                }
+            }
+            val outDir = File(System.getProperty("user.dir"), "src/test/resources/upgrade").also { it.mkdirs() }
+            val golden = File(outDir, GoldenV17.DB_NAME)
+            golden.delete()
+            DriverManager.getConnection(url).use { conn ->
+                conn.createStatement().use { it.execute("VACUUM INTO '" + golden.absolutePath.replace(File.separatorChar, '/') + "'") }
+            }
+
+            val counts =
+                DriverManager.getConnection(UpgradeHarness.urlFor(golden)).use { conn ->
+                    UpgradeHarness.userTables(conn).sorted().associateWith { t ->
+                        conn.createStatement().use { st ->
+                            st.executeQuery("SELECT count(*) FROM $t").use { rs ->
+                                rs.next()
+                                rs.getInt(1)
+                            }
+                        }
+                    }
+                }
+            val sqliteVersion =
+                DriverManager.getConnection(url).use { c ->
+                    c.createStatement().use { st ->
+                        st.executeQuery("SELECT sqlite_version()").use { rs ->
+                            rs.next()
+                            rs.getString(1)
+                        }
+                    }
+                }
+            val sha = MessageDigest.getInstance("SHA-256").digest(golden.readBytes()).joinToString("") { "%02x".format(it) }
+            val manifest =
+                buildString {
+                    appendLine("# Golden V17 (3.16-format) database. Regenerate with GoldenV17Generator; never edit by hand.")
+                    appendLine("# Synthetic rows only (BaselineDataset literals); never derived from a real database.")
+                    appendLine("file=${GoldenV17.DB_NAME}")
+                    appendLine("sha256=$sha")
+                    appendLine("size_bytes=${golden.length()}")
+                    appendLine("schema_version=17")
+                    appendLine("flyway=${java.io.File(Flyway::class.java.protectionDomain.codeSource.location.path).name}")
+                    appendLine("sqlite_jdbc=${org.sqlite.SQLiteJDBCLoader.getVersion()}")
+                    appendLine("sqlite=$sqliteVersion")
+                    appendLine("generator_base_commit=${gitHead()}")
+                    counts.forEach { (t, n) -> appendLine("count.$t=$n") }
+                }
+            File(outDir, GoldenV17.MANIFEST_NAME).writeText(manifest, Charsets.UTF_8)
+        } finally {
+            work.deleteRecursively()
+        }
+    }
+
+    private fun gitHead(): String =
+        runCatching {
+            val p = ProcessBuilder("git", "rev-parse", "HEAD").redirectErrorStream(true).start()
+            val out =
+                p.inputStream
+                    .bufferedReader()
+                    .readText()
+                    .trim()
+            p.waitFor()
+            out
+        }.getOrDefault("unknown")
+}
+
+/** Names and loader for the golden V17 resources. */
+object GoldenV17 {
+    const val DB_NAME = "golden-v17-3.16.sqlite"
+    const val MANIFEST_NAME = "golden-v17-3.16.manifest.txt"
+
+    fun manifest(): Map<String, String> {
+        val stream = GoldenV17::class.java.getResourceAsStream("/upgrade/$MANIFEST_NAME") ?: error("missing /upgrade/$MANIFEST_NAME")
+        return stream
+            .bufferedReader(Charsets.UTF_8)
+            .readLines()
+            .filter { it.isNotBlank() && !it.startsWith("#") }
+            .associate { it.substringBefore('=') to it.substringAfter('=') }
+    }
+
+    /** Copies the golden database to [target] (a fresh file) and returns it. */
+    fun copyTo(target: File): File {
+        val stream = GoldenV17::class.java.getResourceAsStream("/upgrade/$DB_NAME") ?: error("missing /upgrade/$DB_NAME")
+        stream.use { input -> target.outputStream().use { input.copyTo(it) } }
+        return target
+    }
+}
