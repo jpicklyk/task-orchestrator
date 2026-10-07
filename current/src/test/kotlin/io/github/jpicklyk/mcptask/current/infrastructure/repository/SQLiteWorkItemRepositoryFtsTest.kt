@@ -5,9 +5,10 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
-import io.github.jpicklyk.mcptask.current.test.BaseFts5RepositoryTest
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -19,7 +20,7 @@ import kotlin.test.assertTrue
  * FTS5 full-text search integration tests for [SQLiteWorkItemRepository].
  *
  * All tests require a real SQLite connection with FTS5 virtual tables. Extends
- * [BaseFts5RepositoryTest] which creates an in-memory SQLite DB with the base schema
+ * a migrated SQLite database (SqliteTestDatabase) with the base schema
  * + FTS5 tables. If FTS5 setup fails the test run aborts with a loud error (not a skip).
  *
  * **Production compatibility note:** The V7 migration uses plain `tokenize='trigram'` (the
@@ -30,7 +31,13 @@ import kotlin.test.assertTrue
  *
  * Test names follow plan §16.5 — communicating agent-visible behaviour.
  */
-class SQLiteWorkItemRepositoryFtsTest : BaseFts5RepositoryTest() {
+class SQLiteWorkItemRepositoryFtsTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
+    private val repositoryProvider get() = sqliteDb.repositoryProvider()
+
     // ────────────────────────────────────────────────────────────────────────
     // Helpers
     // ────────────────────────────────────────────────────────────────────────

@@ -5,9 +5,10 @@ import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchHit
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
-import io.github.jpicklyk.mcptask.current.test.BaseFts5RepositoryTest
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.test.assertEquals
@@ -39,10 +40,16 @@ import kotlin.test.assertTrue
  * 1/(60+rank)`, with `rank` the 1-indexed position of the doc within that table's own match
  * ordering — independently computed here, never read back from the implementation.
  *
- * Extends [BaseFts5RepositoryTest]: FTS5 is SQLite-only and `ftsSearch` returns an empty
+ * Runs on a migrated SQLite database (SqliteTestDatabase): FTS5 is SQLite-only and `ftsSearch` returns an empty
  * [SearchResult] on H2, so an H2-backed harness would make every scenario below vacuously green.
  */
-class SQLiteWorkItemRepositoryFtsPaginationTest : BaseFts5RepositoryTest() {
+class SQLiteWorkItemRepositoryFtsPaginationTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
+    private val repositoryProvider get() = sqliteDb.repositoryProvider()
+
     // ────────────────────────────────────────────────────────────────────────
     // Helpers
     // ────────────────────────────────────────────────────────────────────────

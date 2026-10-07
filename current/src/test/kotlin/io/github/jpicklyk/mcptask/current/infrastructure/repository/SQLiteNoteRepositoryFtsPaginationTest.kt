@@ -5,9 +5,10 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchHit
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
-import io.github.jpicklyk.mcptask.current.test.BaseFts5RepositoryTest
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.test.assertEquals
@@ -28,10 +29,16 @@ import kotlin.test.assertTrue
  * declaration) into a local `itemId -> noteId` map, which is how the tie-break-by-noteId
  * assertion below is verified without ever reading `src/main`.
  *
- * Extends [BaseFts5RepositoryTest] — see [SQLiteWorkItemRepositoryFtsPaginationTest]'s class doc
- * for why an H2-backed harness would make this suite vacuously green.
+ * Runs on a migrated SQLite database (SqliteTestDatabase) — see [SQLiteWorkItemRepositoryFtsPaginationTest]'s class doc
+ * for why an H2-backed harness would have made this suite vacuously green.
  */
-class SQLiteNoteRepositoryFtsPaginationTest : BaseFts5RepositoryTest() {
+class SQLiteNoteRepositoryFtsPaginationTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
+    private val repositoryProvider get() = sqliteDb.repositoryProvider()
+
     // ────────────────────────────────────────────────────────────────────────
     // Helpers
     // ────────────────────────────────────────────────────────────────────────

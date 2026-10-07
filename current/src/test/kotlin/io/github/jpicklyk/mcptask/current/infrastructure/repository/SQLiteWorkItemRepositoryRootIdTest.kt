@@ -5,15 +5,12 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
-import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
-import org.jetbrains.exposed.v1.jdbc.transactions.transaction
-import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import java.sql.Connection
-import java.sql.DriverManager
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -30,120 +27,21 @@ import kotlin.test.assertIs
  * so each test drives the repository the same way those handlers do.
  */
 class SQLiteWorkItemRepositoryRootIdTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
     private lateinit var database: Database
     private lateinit var databaseManager: DatabaseManager
     private lateinit var repository: SQLiteWorkItemRepository
     private lateinit var validator: ItemHierarchyValidator
-    private lateinit var keepAliveConnection: Connection
 
     @BeforeEach
     fun setUp() {
-        val dbName = "root_id_repo_${System.nanoTime()}"
-        val jdbcUrl = "jdbc:sqlite:file:$dbName?mode=memory&cache=shared"
-        keepAliveConnection = DriverManager.getConnection(jdbcUrl)
-        database = Database.connect(url = jdbcUrl, driver = "org.sqlite.JDBC")
-        TransactionManager.manager.defaultIsolationLevel = Connection.TRANSACTION_SERIALIZABLE
-        databaseManager = DatabaseManager(database)
-        createSchema()
+        database = sqliteDb.database
+        databaseManager = sqliteDb.databaseManager
         repository = SQLiteWorkItemRepository(databaseManager)
         validator = ItemHierarchyValidator()
-    }
-
-    @AfterEach
-    fun tearDown() {
-        try {
-            TransactionManager.closeAndUnregister(database)
-        } catch (_: Exception) {
-        }
-        try {
-            keepAliveConnection.close()
-        } catch (_: Exception) {
-        }
-    }
-
-    private fun createSchema() {
-        transaction(db = database) {
-            exec(
-                """
-                CREATE TABLE work_items (
-                    id BLOB PRIMARY KEY DEFAULT (randomblob(16)),
-                    parent_id BLOB REFERENCES work_items(id),
-                    root_id BLOB,
-                    title TEXT NOT NULL,
-                    description TEXT,
-                    summary TEXT NOT NULL DEFAULT '',
-                    role TEXT NOT NULL DEFAULT 'queue',
-                    status_label TEXT,
-                    previous_role TEXT,
-                    priority TEXT NOT NULL DEFAULT 'medium',
-                    complexity INTEGER,
-                    requires_verification INTEGER NOT NULL DEFAULT 0,
-                    depth INTEGER NOT NULL DEFAULT 0,
-                    metadata TEXT,
-                    tags TEXT,
-                    type TEXT,
-                    properties TEXT,
-                    created_at TIMESTAMP NOT NULL,
-                    modified_at TIMESTAMP NOT NULL,
-                    role_changed_at TIMESTAMP NOT NULL,
-                    version INTEGER NOT NULL DEFAULT 1,
-                    claimed_by TEXT DEFAULT NULL,
-                    claimed_at TEXT DEFAULT NULL,
-                    claim_expires_at TEXT DEFAULT NULL,
-                    original_claimed_at TEXT DEFAULT NULL
-                )
-                """.trimIndent()
-            )
-            exec("CREATE INDEX idx_work_items_parent ON work_items(parent_id)")
-            exec("CREATE INDEX idx_work_items_root_id ON work_items(root_id)")
-            exec("CREATE INDEX idx_work_items_role ON work_items(role)")
-            exec("CREATE INDEX idx_work_items_depth ON work_items(depth)")
-
-            // Minimal sibling tables (repository provider / findDescendants don't need these,
-            // but keep parity with the other SQLite repository test fixtures in this package).
-            exec(
-                """
-                CREATE TABLE IF NOT EXISTS notes (
-                    id BLOB PRIMARY KEY DEFAULT (randomblob(16)),
-                    work_item_id BLOB NOT NULL REFERENCES work_items(id),
-                    key TEXT NOT NULL,
-                    role TEXT NOT NULL DEFAULT 'queue',
-                    body TEXT NOT NULL DEFAULT '',
-                    created_at TIMESTAMP NOT NULL,
-                    modified_at TIMESTAMP NOT NULL,
-                    actor_id TEXT, actor_kind TEXT, actor_parent TEXT, actor_proof TEXT,
-                    verification_status TEXT, verification_verifier TEXT, verification_reason TEXT
-                )
-                """.trimIndent()
-            )
-            exec(
-                """
-                CREATE TABLE IF NOT EXISTS dependencies (
-                    id BLOB PRIMARY KEY DEFAULT (randomblob(16)),
-                    from_item_id BLOB NOT NULL REFERENCES work_items(id),
-                    to_item_id BLOB NOT NULL REFERENCES work_items(id),
-                    type TEXT NOT NULL,
-                    unblock_at TEXT,
-                    created_at TIMESTAMP NOT NULL
-                )
-                """.trimIndent()
-            )
-            exec(
-                """
-                CREATE TABLE IF NOT EXISTS role_transitions (
-                    id BLOB PRIMARY KEY DEFAULT (randomblob(16)),
-                    item_id BLOB NOT NULL REFERENCES work_items(id),
-                    from_role TEXT,
-                    to_role TEXT NOT NULL,
-                    trigger TEXT NOT NULL,
-                    summary TEXT,
-                    transition_at TIMESTAMP NOT NULL,
-                    actor_id TEXT, actor_kind TEXT, actor_parent TEXT, actor_proof TEXT,
-                    verification_status TEXT, verification_verifier TEXT, verification_reason TEXT
-                )
-                """.trimIndent()
-            )
-        }
     }
 
     private fun create(item: WorkItem): WorkItem =
