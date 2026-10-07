@@ -3,10 +3,11 @@ package io.github.jpicklyk.mcptask.current.infrastructure.repository
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.sqlite.SQLiteConnection
 import org.sqlite.SQLiteLimits
 import java.sql.Connection
@@ -23,7 +24,14 @@ import kotlin.test.assertTrue
  * [SQL_IN_CHUNK_SIZE], and run the repository calls inside that same transaction (nested
  * repository transactions join the outer one, so they reuse the limited connection).
  */
-class SQLiteWorkItemRepositorySubtreeBindLimitTest : SQLiteRepositoryTestBase() {
+class SQLiteWorkItemRepositorySubtreeBindLimitTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
+    private val database get() = sqliteDb.database
+    private val repositoryProvider get() = sqliteDb.repositoryProvider()
+
     private val limit = 600
     private val childCount = 24
     private val grandchildrenPerChild = 49

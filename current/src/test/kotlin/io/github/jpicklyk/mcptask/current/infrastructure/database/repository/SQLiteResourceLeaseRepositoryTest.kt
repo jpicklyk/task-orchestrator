@@ -5,11 +5,12 @@ import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -17,11 +18,18 @@ import kotlin.test.assertTrue
 
 /**
  * Integration tests for [ResourceLeaseRepository] (SQLite implementation), using a real SQLite
- * in-memory database (via [SQLiteRepositoryTestBase]) since the acquire path uses SQLite-specific
+ * file-backed database (via SqliteTestDatabase) since the acquire path uses SQLite-specific
  * `datetime('now', '+N seconds')` / `ON CONFLICT ... DO UPDATE` / `julianday()` syntax that H2
  * does not support.
  */
-class SQLiteResourceLeaseRepositoryTest : SQLiteRepositoryTestBase() {
+class SQLiteResourceLeaseRepositoryTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
+    private val database get() = sqliteDb.database
+    private val repositoryProvider get() = sqliteDb.repositoryProvider()
+
     private lateinit var repository: ResourceLeaseRepository
 
     @BeforeEach

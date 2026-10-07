@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
@@ -18,7 +19,6 @@ import kotlin.concurrent.thread
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
-import kotlin.test.assertTrue
 
 /**
  * Guarded compare-and-set upsert tests for item `fab1b3ea` ("Move the project-config fingerprint
@@ -27,7 +27,7 @@ import kotlin.test.assertTrue
  * Test-plan scenarios covered: S1, S2, S3, S4, S8 (see the item's `test-plan` note, queue phase).
  *
  * S3, S4 and S8 use a REAL file-backed SQLite database in WAL mode, per the test-plan's Harness
- * section — NOT H2, NOT the in-memory shared-cache `SQLiteRepositoryTestBase` pattern — because
+ * section — NOT H2, NOT an in-memory shared-cache database — because
  * they force a genuine two-connection race via [SQLiteProjectConfigRepository]'s
  * `beforeGuardedWrite` test hook, which starts a competing write on a second real JVM thread
  * during X's transaction (after the guard read, before the conditional write). Production uses
@@ -50,22 +50,20 @@ import kotlin.test.assertTrue
  * actually won).
  */
 class SQLiteProjectConfigRepositoryGuardedUpsertTest {
-    private val managers = mutableListOf<DatabaseManager>()
+    private val databases = mutableListOf<SqliteTestDatabase>()
 
     @AfterEach
     fun tearDown() {
-        managers.forEach { it.shutdown() }
-        managers.clear()
+        databases.forEach { it.close() }
+        databases.clear()
     }
 
-    /** Real file-backed SQLite (WAL) DatabaseManager per the test-plan's Harness section. */
+    /** Real file-backed SQLite (WAL, production DatabaseManager) per the test-plan's Harness section. */
+    @Suppress("UNUSED_PARAMETER")
     private fun buildFileBackedManager(tempDir: Path): DatabaseManager {
-        val dbPath = tempDir.resolve("cfg-${System.nanoTime()}.db").toString()
-        val manager = DatabaseManager()
-        assertTrue(manager.initialize(dbPath), "DatabaseManager.initialize() should succeed for a fresh temp file")
-        assertTrue(manager.updateSchema(), "DatabaseManager.updateSchema() should succeed")
-        managers += manager
-        return manager
+        val db = SqliteTestDatabase.open()
+        databases += db
+        return db.databaseManager
     }
 
     private suspend fun createRoot(workItemRepository: SQLiteWorkItemRepository): UUID {

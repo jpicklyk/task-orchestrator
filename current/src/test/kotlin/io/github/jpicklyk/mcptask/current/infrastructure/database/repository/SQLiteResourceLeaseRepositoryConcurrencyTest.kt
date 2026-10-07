@@ -6,9 +6,10 @@ import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -28,7 +29,14 @@ import kotlin.test.assertNull
  * lease must never disturb an existing claim, and refreshing a claim must never disturb existing
  * leases (see the "Isolation from claims" section of [ResourceLeaseRepository]'s KDoc).
  */
-class SQLiteResourceLeaseRepositoryConcurrencyTest : SQLiteRepositoryTestBase() {
+class SQLiteResourceLeaseRepositoryConcurrencyTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
+    private val database get() = sqliteDb.database
+    private val repositoryProvider get() = sqliteDb.repositoryProvider()
+
     private fun leaseRepository(): ResourceLeaseRepository = repositoryProvider.resourceLeaseRepository()
 
     private fun workItemRepository(): WorkItemRepository = repositoryProvider.workItemRepository()
