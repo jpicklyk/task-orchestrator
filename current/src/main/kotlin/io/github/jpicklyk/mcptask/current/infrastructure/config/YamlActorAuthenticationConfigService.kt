@@ -404,8 +404,9 @@ class YamlActorAuthenticationConfigService private constructor(
                     }
                 }
 
-                val issuer = verifierMap.optString("issuer")
-                val audience = verifierMap.optString("audience")
+                // A blank (empty or whitespace) issuer/audience is treated exactly like a missing one.
+                val issuer = verifierMap.optString("issuer")?.takeIf { it.isNotBlank() }
+                val audience = verifierMap.optString("audience")?.takeIf { it.isNotBlank() }
 
                 val algorithms = verifierMap.optStringList("algorithms")
 

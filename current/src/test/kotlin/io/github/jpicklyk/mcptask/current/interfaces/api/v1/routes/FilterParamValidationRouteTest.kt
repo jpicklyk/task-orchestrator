@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.ktor.client.HttpClient
@@ -14,6 +15,8 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -75,14 +78,30 @@ class FilterParamValidationRouteTest {
             runBlocking {
                 repo.workItemRepository().create(WorkItem(title = "Queued", depth = 0))
                 repo.workItemRepository().create(WorkItem(title = "Working", depth = 0, role = Role.WORK))
+                repo.workItemRepository().create(WorkItem(title = "Urgent", depth = 0, priority = Priority.HIGH))
+                val now = Instant.now()
+                repo.workItemRepository().create(
+                    WorkItem(
+                        title = "Claimed",
+                        depth = 0,
+                        claimedBy = "agent-1",
+                        claimedAt = now,
+                        claimExpiresAt = now.plus(1, ChronoUnit.HOURS),
+                        originalClaimedAt = now
+                    )
+                )
             }
             application { configureTestApp { itemRoutes(repo) } }
 
             val work = client.getAs("/api/v1/items?role=WORK")
             assertEquals(HttpStatusCode.OK, work.status)
             assertEquals(listOf("Working"), titles(work.bodyAsText()))
-            assertEquals(HttpStatusCode.OK, client.getAs("/api/v1/items?priority=High").status)
-            assertEquals(HttpStatusCode.OK, client.getAs("/api/v1/items?claimStatus=CLAIMED").status)
+            val high = client.getAs("/api/v1/items?priority=High")
+            assertEquals(HttpStatusCode.OK, high.status)
+            assertEquals(listOf("Urgent"), titles(high.bodyAsText()))
+            val claimed = client.getAs("/api/v1/items?claimStatus=CLAIMED")
+            assertEquals(HttpStatusCode.OK, claimed.status)
+            assertEquals(listOf("Claimed"), titles(claimed.bodyAsText()))
         }
 
     @Test

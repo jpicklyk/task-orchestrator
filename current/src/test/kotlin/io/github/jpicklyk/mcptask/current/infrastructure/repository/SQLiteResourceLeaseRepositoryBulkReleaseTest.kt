@@ -8,8 +8,12 @@ import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.VarCharColumnType
 import org.jetbrains.exposed.v1.core.java.UUIDColumnType
+import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.Test
+import org.sqlite.SQLiteConnection
+import org.sqlite.SQLiteLimits
+import java.sql.Connection
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -63,6 +67,48 @@ class SQLiteResourceLeaseRepositoryBulkReleaseTest : SQLiteRepositoryTestBase() 
         }
     }
 
+    /**
+     * Runs [block] inside one transaction whose own connection has SQLITE_LIMIT_VARIABLE_NUMBER
+     * lowered to [limit] (the limit dies with that connection). The nested lease-repository
+     * transaction joins this outer one, so a statement binding more than [limit] variables fails.
+     */
+    private suspend fun <T> withVariableLimit(
+        limit: Int,
+        block: suspend () -> T,
+    ): T {
+        var out: T? = null
+        repositoryProvider.workItemRepository().inTransaction {
+            val conn = TransactionManager.current().connection.connection as Connection
+            val sqlite = conn.unwrap(SQLiteConnection::class.java)
+            sqlite.setLimit(SQLiteLimits.SQLITE_LIMIT_VARIABLE_NUMBER, limit)
+            out = block()
+        }
+        @Suppress("UNCHECKED_CAST")
+        return out as T
+    }
+
+    private fun releaseExactly(n: Int): Unit =
+        runBlocking {
+            val hs = holders(n)
+            hs.forEachIndexed { i, h -> assertIs<LeaseAcquireResult.Success>(leases.acquireAll(h, "a", listOf("res-$i" to 900))) }
+
+            // Limit == chunk size: only chunked statements (<= SQL_IN_CHUNK_SIZE variables) can succeed.
+            val result = withVariableLimit(SQL_IN_CHUNK_SIZE) { leases.releaseAllForItems(hs.toSet()) }
+
+            assertEquals(LeaseReleaseResult.Success(n), result)
+            assertTrue(hs.all { openIntervals(it) == 0 })
+            assertTrue(hs.all { leases.findActiveForItem(it).isEmpty() })
+        }
+
+    @Test
+    fun `T3 chunk boundary one below the chunk size`() = releaseExactly(SQL_IN_CHUNK_SIZE - 1)
+
+    @Test
+    fun `T3 chunk boundary exactly the chunk size`() = releaseExactly(SQL_IN_CHUNK_SIZE)
+
+    @Test
+    fun `T3 chunk boundary one above the chunk size`() = releaseExactly(SQL_IN_CHUNK_SIZE + 1)
+
     @Test
     fun `T3 empty set is a no-op returning zero`(): Unit =
         runBlocking {
@@ -81,7 +127,8 @@ class SQLiteResourceLeaseRepositoryBulkReleaseTest : SQLiteRepositoryTestBase() 
             // One expired hold: must close as expired exactly as releaseAllForItem would.
             expireLease("res-0", hs[0])
 
-            val result = leases.releaseAllForItems(hs.toSet())
+            // Lower the variable limit below n so an unchunked IN list would fail.
+            val result = withVariableLimit(SQL_IN_CHUNK_SIZE + 50) { leases.releaseAllForItems(hs.toSet()) }
 
             assertEquals(LeaseReleaseResult.Success(n), result)
             assertTrue(hs.all { openIntervals(it) == 0 }, "every open interval of every holder must be closed")

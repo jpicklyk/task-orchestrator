@@ -1207,6 +1207,90 @@ class YamlActorAuthenticationConfigServiceTest {
     }
 
     @Test
+    fun `jwks static mode with empty audience throws like a missing one`() {
+        val msg =
+            loadMessage(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://idp.example/jwks.json"
+                    issuer: "https://idp.example"
+                    audience: ""
+                    algorithms: [RS256]
+                """
+            )
+        assertTrue(msg!!.contains("requires audience;"), msg)
+    }
+
+    @Test
+    fun `jwks static mode with whitespace audience throws like a missing one`() {
+        val msg =
+            loadMessage(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://idp.example/jwks.json"
+                    issuer: "https://idp.example"
+                    audience: "  "
+                    algorithms: [RS256]
+                """
+            )
+        assertTrue(msg!!.contains("requires audience;"), msg)
+    }
+
+    @Test
+    fun `jwks static mode with empty issuer throws like a missing one`() {
+        val msg =
+            loadMessage(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_path: "/etc/keys/jwks.json"
+                    audience: "aud"
+                    issuer: ""
+                    algorithms: [RS256]
+                """
+            )
+        assertTrue(msg!!.contains("requires issuer;"), msg)
+    }
+
+    @Test
+    fun `jwks static mode with whitespace issuer throws like a missing one`() {
+        val msg =
+            loadMessage(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_path: "/etc/keys/jwks.json"
+                    audience: "aud"
+                    issuer: "  "
+                    algorithms: [RS256]
+                """
+            )
+        assertTrue(msg!!.contains("requires issuer;"), msg)
+    }
+
+    @Test
+    fun `oidc_discovery with blank audience throws`() {
+        val msg =
+            loadMessage(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    oidc_discovery: "https://idp.example/.well-known/openid-configuration"
+                    audience: "  "
+                    algorithms: [RS256]
+                """
+            )
+        assertTrue(msg!!.contains("requires audience;"), msg)
+    }
+
+    @Test
     fun `DID mode without audience or issuer still parses`() {
         val service =
             YamlActorAuthenticationConfigService(

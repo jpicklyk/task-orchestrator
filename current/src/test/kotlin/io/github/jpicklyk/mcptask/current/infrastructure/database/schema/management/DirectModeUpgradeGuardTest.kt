@@ -1,10 +1,15 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management
 
+import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import org.slf4j.LoggerFactory
 import java.nio.file.Path
 import java.sql.Connection
 import java.sql.DriverManager
@@ -84,10 +89,35 @@ class DirectModeUpgradeGuardTest {
             }
         }
 
+    /** Captures ERROR-level records from [FlywayDatabaseSchemaManager] during [block]. */
+    private fun captureErrorLogs(block: () -> Unit): List<String> {
+        val logbackLogger = LoggerFactory.getLogger(FlywayDatabaseSchemaManager::class.java) as Logger
+        val appender =
+            ListAppender<ILoggingEvent>().also {
+                it.start()
+                logbackLogger.addAppender(it)
+            }
+        try {
+            block()
+            return appender.list.filter { it.level == Level.ERROR }.map { it.formattedMessage }
+        } finally {
+            logbackLogger.detachAppender(appender)
+        }
+    }
+
+    /** The custom guard's actionable message, not Flyway's own default refusal. */
+    private fun assertActionableDirectModeError(errors: List<String>) {
+        assertTrue(
+            errors.any { it.contains("created in Direct mode") && it.contains("Point DATABASE_PATH at a new file") },
+            "expected the Direct-mode guard's actionable error naming the remedy, got: $errors"
+        )
+    }
+
     @Test
     fun `T1 flyway refuses a Direct-created database and leaves it untouched`() {
         val url = directDb()
-        assertFalse(FlywayDatabaseSchemaManager(url, repair = false).updateSchema())
+        val errors = captureErrorLogs { assertFalse(FlywayDatabaseSchemaManager(url, repair = false).updateSchema()) }
+        assertActionableDirectModeError(errors)
         assertFalse(tableExists(url, "flyway_schema_history"))
         assertTrue(tableExists(url, "work_items"))
         assertEquals(1, workItemCount(url))
@@ -96,7 +126,8 @@ class DirectModeUpgradeGuardTest {
     @Test
     fun `T2 flyway repair also refuses a Direct-created database`() {
         val url = directDb()
-        assertFalse(FlywayDatabaseSchemaManager(url, repair = true).updateSchema())
+        val errors = captureErrorLogs { assertFalse(FlywayDatabaseSchemaManager(url, repair = true).updateSchema()) }
+        assertActionableDirectModeError(errors)
         assertFalse(tableExists(url, "flyway_schema_history"))
         assertEquals(1, workItemCount(url))
     }
