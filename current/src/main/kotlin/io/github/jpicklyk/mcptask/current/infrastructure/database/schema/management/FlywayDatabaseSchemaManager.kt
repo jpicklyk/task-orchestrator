@@ -85,8 +85,10 @@ class FlywayDatabaseSchemaManager(
      *   `work_items`); with foreign keys ON the DROP would cascade-delete child rows. The application
      *   connection keeps `foreign_keys = ON`; only Flyway's connection runs with it off.
      *
-     * Note on the V9 header comment: it cannot be edited (checksum), so the correction about how
-     * root_id and foreign keys are handled lives here and in the migration-review skill.
+     * Note on the V9 header comment: lines 12-14 say FK enforcement is off by default in this project.
+     * In fact the application connection runs foreign_keys=ON (DatabaseManager) and only Flyway's own
+     * connection runs with it OFF. V9 stays byte-identical because Flyway checksums comment lines, so
+     * the correction lives here and in the migration-review skill.
      */
     private fun flywayDataSource(url: String): SQLiteDataSource =
         SQLiteDataSource(
@@ -128,9 +130,25 @@ class FlywayDatabaseSchemaManager(
 
         val result = migrateWithBusyRetry()
         logger.info("Successfully applied ${result.migrationsExecuted} migration(s)")
-        logger.info("Current schema version: ${result.targetSchemaVersion ?: "unknown"}")
+        logger.info(
+            "Current schema version: ${result.targetSchemaVersion ?: currentVersionOrNull() ?: "unknown"}",
+        )
         return true
     }
+
+    /** The applied schema version per Flyway's history, or null when it cannot be read. */
+    private fun currentVersionOrNull(): String? =
+        try {
+            flywayConfiguration()
+                .load()
+                .info()
+                .current()
+                ?.version
+                ?.toString()
+        } catch (e: Exception) {
+            logger.debug("Could not read current schema version: ${e.message}")
+            null
+        }
 
     private fun migrateWithBusyRetry(): MigrateResult {
         var attempt = 1

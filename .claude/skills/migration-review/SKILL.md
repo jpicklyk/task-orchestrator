@@ -44,7 +44,7 @@ For migrations that modify existing data:
 - [ ] Migration file follows naming: `V{N}__{Description}.sql`
 - [ ] Version number is sequential (no gaps, no conflicts with existing migrations)
 - [ ] Migration is idempotent where possible
-- [ ] Migration files stay byte-identical once released: Flyway's checksum covers every line including comments, so never edit one (the V9 header comment's description of root_id and foreign keys is corrected here, not in the file)
+- [ ] Migration files stay byte-identical once released: Flyway's checksum covers every line including comments, so never edit one (V9's header comment, lines 12-14, says FK enforcement is off by default in this project; in fact the application connection runs `foreign_keys=ON` (DatabaseManager) and only Flyway's own connection runs with it OFF. That correction lives here, not in the file, because Flyway checksums comment lines)
 - [ ] Expand/contract: ship additive changes first and remove the old shape in a later release; flag any table-recreating migration in the release notes
 
 ### Table-recreation template
@@ -52,9 +52,9 @@ For migrations that modify existing data:
 Migrations live in `current/src/main/resources/db/migration/sqlite/`. A migration that recreates a table
 (SQLite has no `ALTER COLUMN`) must:
 1. Run on Flyway's connection, which has `foreign_keys = OFF` and `busy_timeout` set (do not rely on cascades; re-check child rows after).
-2. Create the new table, then `INSERT INTO new SELECT rowid, ... FROM old` to PRESERVE rowids: the external-content FTS5 tables key on `rowid`.
+2. Create the new table, then `INSERT INTO new_t(rowid, c1, ...) SELECT rowid, c1, ... FROM t` to PRESERVE rowids (without the explicit column list the rowid lands in the first declared column): external-content FTS5 tables join on `rowid`.
 3. Drop the old table, rename the new one, recreate its indexes.
-4. Recreate all 8 FTS update triggers in their V8 form (the `_au` triggers restricted to the indexed columns) plus the `_ai`/`_ad` triggers and the 2 parent-cycle triggers (`work_items_cycle_check`, `work_items_cycle_check_update`) if the dropped table owned them: dropping a table drops its triggers.
+4. Recreate every trigger the dropped table owned, since dropping a table drops its triggers: for `work_items`, 6 FTS sync triggers (`work_items_fts_trigram_ai/_ad/_au`, `work_items_fts_text_ai/_ad/_au`) plus 2 cycle triggers (`work_items_cycle_check`, `work_items_cycle_check_update`); for `notes`, 6 FTS sync triggers (`notes_fts_trigram_ai/_ad/_au`, `notes_fts_text_ai/_ad/_au`). The `_au` triggers use their V8 form (restricted to the indexed columns).
 5. `INSERT INTO <fts>(<fts>) VALUES('rebuild')` for all 4 FTS tables.
 Startup then verifies the trigger/FTS inventory and runs the FTS `integrity-check`, so a missed trigger fails startup. Never use `VACUUM` in a migration: it can renumber rowids.
 

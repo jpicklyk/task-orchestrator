@@ -82,7 +82,7 @@ status with:
 docker inspect --format '{{.State.Health.Status}}' <container>
 ```
 
-**First boot after upgrading is slower — startup compaction.** The first Flyway-mode start after
+**First boot after upgrading is slower — startup compaction.** The first start after
 upgrading to a build carrying the V17 actor-proof scrub runs a one-time startup compaction
 (`VACUUM` + FTS5 rebuild — see "Proof handling" → Remediation below) before the readiness marker
 is written. Measured throughput is roughly ~2 minutes per GB of database file. On a multi-GB
@@ -749,7 +749,7 @@ out of scope; this is a known, accepted forensic gap for anything written before
 
 1. **Rotate first.** Rotate actor signing keys and reissue long-lived tokens. The only remedy
    reaching every copy; then purge pre-upgrade backups.
-2. **Compaction now runs automatically.** The first Flyway-mode start after upgrading to a build
+2. **Compaction now runs automatically.** The first start after upgrading to a build
    with this remediation runs a one-time startup compaction — `VACUUM`, a rebuild + `integrity-check`
    of all four FTS5 shadow tables, and a WAL checkpoint — gated on `PRAGMA user_version` so
    it runs exactly once per database file (a repeat boot is a no-op; a failed attempt is WARN-logged
@@ -798,9 +798,9 @@ V17 only when its schema matches the V17 shape exactly; otherwise it is refused 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SCHEMA_MODE` | `migrate` | `migrate` applies pending migrations. `validate` runs no migrate and no baseline: a pending or future version, or an empty database, fails startup. Any other value fails startup. `FLYWAY_REPAIR` takes precedence. |
+| `SCHEMA_MODE` | `migrate` | `migrate` applies pending migrations. `validate` runs no migrate and no baseline: a pending or future version, or an empty database, fails startup. Any other value fails startup. `FLYWAY_REPAIR` takes precedence, but only over a valid value: an invalid `SCHEMA_MODE` fails startup even with `FLYWAY_REPAIR=true`. `validate` is not read-only: it takes the `<db>.migrate.lock` file, may create an empty database file when `DATABASE_PATH` points at a missing path, and still runs the FTS integrity check, which may rebuild an index. |
 
-- **Future versions fail closed.** A database whose history is ahead of the binary refuses to start.
+- **Future versions fail closed.** A database whose history is ahead of the binary refuses to start. The remedy is to upgrade the binary to the release that wrote the schema; `FLYWAY_REPAIR` is not a way past it.
 - **Migration lock.** The whole schema phase runs under an OS file lock `<dbfile>.migrate.lock` next to
   the database file, so concurrent boots serialize. A second boot waits (INFO log every 10 s) and gives
   up after 300 s, naming the lock file. The lock file is never deleted; leaving it in place is normal.
@@ -810,7 +810,7 @@ V17 only when its schema matches the V17 shape exactly; otherwise it is refused 
   `integrity-check` on each FTS table and rebuilds one that is desynced. It also logs WARN-only reports
   (never failing, never writing) for placement drift (depth or `root_id` inconsistent with the parent,
   orphans) and mutually blocking dependency pairs, each with a count and the first 10 ids.
-- **Backups.** Do not use `VACUUM` or a dump/restore: they can renumber `rowid`s and desync the
+- **Backups.** Do not `VACUUM` or dump/restore without rebuilding the FTS indexes (the startup compaction and the offline runbook do both): they can renumber `rowid`s and desync the
   external-content FTS indexes. Use the sqlite3 `.backup` command, or copy the
   file with the server stopped (include the `-wal`/`-shm` files or checkpoint first).
 - **Topology.** One HTTP server hub is the recommended shape; one stdio process per session against the
