@@ -46,7 +46,7 @@ errors, per-root-config-unavailable failures, and internal errors.
 ### manage_items
 
 **Purpose.** Write operations for WorkItems: batch-create, partial-update, or batch-delete. Depth
-is computed automatically from the parent; nesting depth is unbounded at creation time (cycle protection is enforced at the database level). `delete` walks descendants via a traversal bounded to 1000 levels — a cycle or a subtree at/beyond the bound fails the delete with a data error instead of hanging or silently truncating.
+is computed automatically from the parent; nesting depth is unbounded at creation time (cycle protection is enforced at the database level). `update` additionally rejects a reparent to itself or to one of its own descendants in the application layer, and fails closed: if the ancestor lookup errors, that item fails with a `failed to verify hierarchy` error and nothing is written. `delete` walks descendants via a traversal bounded to 1000 levels — a cycle or a subtree at/beyond the bound fails the delete with a data error instead of hanging or silently truncating.
 
 **Operations.** `create`, `update`, `delete`
 
