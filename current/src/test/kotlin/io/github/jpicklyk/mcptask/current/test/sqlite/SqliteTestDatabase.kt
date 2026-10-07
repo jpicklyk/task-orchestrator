@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import org.jetbrains.exposed.v1.jdbc.Database
+import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.extension.BeforeAllCallback
 import org.junit.jupiter.api.extension.BeforeEachCallback
 import org.junit.jupiter.api.extension.ExtensionContext
@@ -146,6 +147,15 @@ class SqliteTestDatabaseExtension internal constructor(
         if (perMethod) {
             start(context)
         } else if (current == null) {
+            // beforeAll never ran: a perClass extension registered on an INSTANCE field under PER_METHOD would silently
+            // become per-test with every database held open until the class ends. Fail fast instead.
+            val lifecycle = context.testInstanceLifecycle.orElse(null)
+            check(lifecycle == TestInstance.Lifecycle.PER_CLASS) {
+                "SqliteTestDatabase.perClass() must be registered on a static field " +
+                    "(companion object { @JvmField @RegisterExtension val db = SqliteTestDatabase.perClass() }); " +
+                    "on an instance field under PER_METHOD it never gets beforeAll and would hold one database per test. " +
+                    "Use perMethod() for an instance field."
+            }
             start(context.parent.orElse(context))
         }
     }

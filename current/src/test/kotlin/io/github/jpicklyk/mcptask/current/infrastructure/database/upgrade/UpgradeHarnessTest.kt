@@ -18,6 +18,26 @@ class UpgradeHarnessTest {
 
     private val seeds = MigrationSeed.discover()
 
+    private fun maxVersion(url: String): Int =
+        DriverManager.getConnection(url).use { c ->
+            c.createStatement().use { st ->
+                st.executeQuery("SELECT max(CAST(version AS INTEGER)) FROM flyway_schema_history WHERE success = 1").use { rs ->
+                    rs.next()
+                    rs.getInt(1)
+                }
+            }
+        }
+
+    @Test
+    fun `S4 copyAt yields exactly version N and migrate to N+1 applies only N+1`() {
+        val url = UpgradeHarness.copyAt(9, File(dir, "copy-at-9.db"))
+        assertEquals(9, maxVersion(url))
+        UpgradeHarness.migrate(url, target = 10)
+        assertEquals(10, maxVersion(url))
+        val second = UpgradeHarness.copyAt(9, File(dir, "copy-at-9-again.db"))
+        assertEquals(9, maxVersion(second), "a second copy must be a pristine version-9 database")
+    }
+
     @Test
     fun `S10 the harness passes for every migration step from 2 to latest`() {
         val versions = UpgradeHarness.migrationVersions(dir)
