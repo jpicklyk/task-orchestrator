@@ -41,6 +41,26 @@ function writeConfig(dir, content) {
   writeFileSync(join(cfgDir, 'config.yaml'), content, 'utf-8');
 }
 
+// Status line of an emitted hook output: SessionStart carries it in hookSpecificOutput.additionalContext,
+// FileChanged (which has no documented additionalContext channel) in a top-level systemMessage.
+function statusLine(out) {
+  return out.systemMessage ?? out.hookSpecificOutput?.additionalContext;
+}
+
+// Invariant for every emitted stdout JSON: hookSpecificOutput is absent or names the firing event.
+// Returns the parsed output so callers can keep asserting on the status line.
+function assertEventContract(res, hookEventName) {
+  const out = JSON.parse(res.stdout);
+  if (out.hookSpecificOutput !== undefined) {
+    assert.equal(out.hookSpecificOutput.hookEventName, hookEventName, res.stdout);
+  }
+  assert.equal(typeof statusLine(out), 'string', res.stdout);
+  if (hookEventName === 'FileChanged') {
+    assert.equal(out.hookSpecificOutput, undefined, res.stdout);
+  }
+  return out;
+}
+
 function tmpConfigDir() {
   return mkdtempSync(join(tmpdir(), 'to-config-sync-'));
 }
@@ -258,7 +278,7 @@ test('T1: steady state — every local rule already matches the server, zero PUT
     const { port } = server.address();
     const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
     assert.equal(res.status, 0);
-    const out = JSON.parse(res.stdout);
+    const out = assertEventContract(res, 'SessionStart');
     const line = out.hookSpecificOutput.additionalContext;
     assert.ok(line.includes('already in sync for root root-t1'));
     assert.ok(line.includes('Rules: 7 in sync.')); // 2 workspace + 5 bundled
@@ -490,8 +510,8 @@ test('FileChanged for the real config.yaml (forward-slash path) proceeds through
     const filePath = join(dir, '.taskorchestrator', 'config.yaml').replace(/\\/g, '/');
     const res = spawnHook(dir, { hookEventName: 'FileChanged', filePath });
     assert.equal(res.status, 0);
-    const out = JSON.parse(res.stdout);
-    assert.ok(out.hookSpecificOutput.additionalContext.includes('API unreachable'));
+    const out = assertEventContract(res, 'FileChanged');
+    assert.ok(statusLine(out).includes('API unreachable'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -504,8 +524,8 @@ test('FileChanged for the real config.yaml (backslash path) proceeds through syn
     const filePath = join(dir, '.taskorchestrator', 'config.yaml').replace(/\//g, '\\');
     const res = spawnHook(dir, { hookEventName: 'FileChanged', filePath });
     assert.equal(res.status, 0);
-    const out = JSON.parse(res.stdout);
-    assert.ok(out.hookSpecificOutput.additionalContext.includes('API unreachable'));
+    const out = assertEventContract(res, 'FileChanged');
+    assert.ok(statusLine(out).includes('API unreachable'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -517,7 +537,8 @@ test('SessionStart invocations proceed through sync logic unchanged', () => {
     writeConfig(dir, 'project:\n  rootId: "root-sessionstart-unchanged"\n');
     const res = spawnHook(dir, { hookEventName: 'SessionStart' });
     assert.equal(res.status, 0);
-    const out = JSON.parse(res.stdout);
+    const out = assertEventContract(res, 'SessionStart');
+    assert.equal(out.hookSpecificOutput.hookEventName, 'SessionStart');
     assert.ok(out.hookSpecificOutput.additionalContext.includes('API unreachable'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -853,7 +874,7 @@ test('S9: SessionStart shared deadline — protocol keys first, wall time bounde
       new Set(PROTOCOL_BUNDLED_KEYS.map((k) => `rule/${k}`)),
       'first three PUTs are the protocol.* keys',
     );
-    const line = JSON.parse(res.stdout).hookSpecificOutput.additionalContext;
+    const line = statusLine(assertEventContract(res, 'SessionStart'));
     const m = line.match(/(\d+) deferred to next session/);
     assert.ok(m, `deferral clause missing: ${line}`);
     const n = Number(m[1]);
@@ -880,7 +901,7 @@ test('S10: FileChanged deadline (3500ms) — bounded wall time, deferrals report
     assert.ok(wall < 5000, `wall time ${wall}ms must stay under the 3500ms budget plus margin`);
     const putKeys = requests.filter((r) => r.method === 'PUT').map((p) => putKey(p.url));
     for (const k of BUNDLED_KEYS) assert.ok(!putKeys.includes(`rule/${k}`), `no bundled PUT on FileChanged: ${k}`);
-    const line = JSON.parse(res.stdout).hookSpecificOutput.additionalContext;
+    const line = statusLine(assertEventContract(res, 'FileChanged'));
     const m = line.match(/(\d+) deferred to next session/);
     assert.ok(m, `deferral clause missing: ${line}`);
     assert.ok(Number(m[1]) >= 1);
@@ -1149,7 +1170,7 @@ function makeCustomHandler({
 }
 
 const planPuts = (requests) => requests.filter((r) => r.method === 'PUT' && r.url.includes('/plans/'));
-const lineOf = (res) => JSON.parse(res.stdout).hookSpecificOutput.additionalContext;
+const lineOf = (res) => statusLine(JSON.parse(res.stdout));
 const UNUSABLE_CLAUSE = 'bundled rules skipped (unusable rules listing)';
 
 test('75f0e354 S1: unparseable 200 rules listing — workspace rule still pushed, no bundled PUT, clause present', async () => {

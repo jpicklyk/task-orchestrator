@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.service.search.FtsQuerySanitizer
-import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -17,7 +16,6 @@ import io.ktor.server.application.call
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
-import java.util.UUID
 
 /**
  * Registers the FTS5 item search route under the `/api/v1` route prefix.
@@ -60,13 +58,9 @@ fun Route.searchRoutes(repositoryProvider: RepositoryProvider) {
                     return@get
                 }
 
-            val ancestorIdRaw = call.request.queryParameters["ancestorId"]
-            val requestedAncestorId = ancestorIdRaw?.let { runCatching { UUID.fromString(it) }.getOrNull() }
-
-            val role =
-                call.request.queryParameters["role"]?.let { r ->
-                    Role.entries.find { it.name.equals(r, ignoreCase = true) }
-                }
+            // Validate before any scope check: an unparsable filter is a 400, never widened.
+            val requestedAncestorId = (call.uuidParamOrRespond("ancestorId") ?: return@get).value
+            val role = (call.roleParamOrRespond("role") ?: return@get).value
 
             val tags =
                 call.request.queryParameters["tag"]

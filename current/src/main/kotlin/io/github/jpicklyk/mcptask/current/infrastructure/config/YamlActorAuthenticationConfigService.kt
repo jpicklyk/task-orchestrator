@@ -29,7 +29,6 @@ import java.nio.file.Path
  * Expected YAML structure:
  * ```yaml
  * actor_authentication:
- *   enabled: true
  *   degraded_mode_policy: accept-cached   # accept-cached (default) | accept-self-reported | reject
  *   verifier:
  *     type: jwks          # "jwks" or "noop" (default: noop)
@@ -51,7 +50,7 @@ import java.nio.file.Path
  *
  * If the config file is missing, empty, or comment-only, or the `actor_authentication:` section is
  * absent (or explicitly `null`), [ActorAuthenticationConfig] defaults are returned
- * (`enabled=true`, [VerifierConfig.Noop]).
+ * ([VerifierConfig.Noop], default degraded-mode policy).
  *
  * **FAILS CLOSED**: if the file exists but cannot be read or parsed (YAML syntax error, non-mapping
  * root document), or a present, non-null field fails to parse (an unrecognized
@@ -175,7 +174,7 @@ class YamlActorAuthenticationConfigService private constructor(
      *
      * An absent file, an empty/comment-only file (parses to `null`), an absent
      * `actor_authentication:` key, or an explicit `actor_authentication: null` all keep the coded
-     * defaults (`enabled=true`, [VerifierConfig.Noop]) — these are legitimate "nothing configured"
+     * defaults ([VerifierConfig.Noop], default degraded-mode policy) — these are legitimate "nothing configured"
      * states, not errors. Everything else that prevents a well-formed [ActorAuthenticationConfig]
      * from being produced — a YAML syntax error, a root document that is not a mapping, or a
      * present-and-non-null field that fails to parse — throws [IllegalArgumentException] naming
@@ -247,8 +246,6 @@ class YamlActorAuthenticationConfigService private constructor(
                     )
             }
 
-        val enabled = (actorAuthSection["enabled"] as? Boolean) ?: true
-
         val verifierRaw = actorAuthSection["verifier"]
         val verifier: VerifierConfig =
             when (verifierRaw) {
@@ -263,7 +260,6 @@ class YamlActorAuthenticationConfigService private constructor(
         val degradedModePolicy = parseDegradedModePolicy(actorAuthSection)
 
         return ActorAuthenticationConfig(
-            enabled = enabled,
             verifier = verifier,
             degradedModePolicy = degradedModePolicy
         )
@@ -419,6 +415,30 @@ class YamlActorAuthenticationConfigService private constructor(
                         "actor_authentication.verifier type 'jwks' requires a non-empty 'algorithms' allowlist; " +
                             "supported values include EdDSA, ES256, ES384, ES512, RS256, RS384, RS512"
                     )
+                }
+
+                // Static JWKS mode should bind tokens to an audience, and to an issuer (explicit, or
+                // supplied by oidc_discovery). Without them any token signed by a key in the JWKS is
+                // accepted, including tokens minted for an unrelated service. This is only a warning:
+                // existing configs (e.g. a bare jwks_path) must keep parsing and verifying unchanged.
+                // DID mode is exempt: the issuer is bound by did_allowlist/did_pattern plus the
+                // sub==iss check.
+                if (isStaticJwks) {
+                    val missing =
+                        buildList {
+                            if (audience.isNullOrBlank()) add("audience")
+                            if (issuer.isNullOrBlank() && oidcDiscovery == null) add("issuer")
+                        }
+                    if (missing.isNotEmpty()) {
+                        logger.warn(
+                            "actor_authentication.verifier type 'jwks' in '{}' (static JWKS mode) has no {}; " +
+                                "tokens signed by any key in the JWKS are accepted without {} binding. " +
+                                "Set verifier.audience (and verifier.issuer unless oidc_discovery supplies one).",
+                            configPath,
+                            missing.joinToString(" and "),
+                            missing.joinToString("/")
+                        )
+                    }
                 }
 
                 val cacheTtlSeconds =

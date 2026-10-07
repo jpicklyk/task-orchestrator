@@ -10,6 +10,12 @@
 // end-of-section, silently truncating block parsing when a comment happens to sit unindented
 // above (or inside) the value line it documents. Correct section exit is a line that is
 // column-0, non-blank, AND not a comment — blank lines and column-0 comments stay inside.
+//
+// Depth rules (F-012): a section header is matched on the RAW line and must start at column 0
+// (an indented `name:` is a nested key, never a section; only a leading BOM and trailing
+// whitespace/CR are ignored). `scalar` only matches keys at the block's first-level indent
+// (the minimum indent of its content lines) and `inlineScalar` only matches keys at brace depth
+// 0 of the inline interior, at a token boundary — nested keys can never shadow siblings.
 
 /**
  * Locate a top-level `name:` block or inline `name: { ... }` form.
@@ -30,7 +36,7 @@ export function readSection(content, name, opts = {}) {
   if (!content) return null;
   const blockOnly = !!opts.blockOnly;
 
-  const blockHeaderRe = new RegExp(`^${name}\\s*:\\s*$`);
+  const blockHeaderRe = new RegExp(`^${name}\\s*:\\s*(#.*)?$`);
   // Deliberately unanchored at the end (no trailing `\s*$`) — the six original per-hook
   // parsers this module replaced were unanchored too, so an inline `{ ... }` form followed by
   // a trailing `# comment` (or any other trailing content) still matches; only the leading
@@ -40,7 +46,9 @@ export function readSection(content, name, opts = {}) {
 
   const lines = content.split('\n');
   for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
+    // Raw line: column-0 only. Strip a leading BOM (first line) and trailing whitespace/CR.
+    let trimmed = lines[i].trimEnd();
+    if (i === 0 && trimmed.charCodeAt(0) === 0xfeff) trimmed = trimmed.slice(1);
     if (!anyHeaderRe.test(trimmed)) continue;
 
     if (!blockOnly) {
@@ -82,9 +90,17 @@ function collectBlockLines(lines, startIdx) {
 // as a candidate match. Returns null if the key isn't present in the block.
 export function scalar(lines, key) {
   const re = new RegExp(`^${key}\\s*:\\s*["']?([^"'#]+?)["']?\\s*(#.*)?$`);
+  const indentOf = (l) => l.length - l.trimStart().length;
+  let firstLevel = Infinity;
+  for (const line of lines) {
+    const t = line.trim();
+    if (t === '' || t.startsWith('#')) continue;
+    firstLevel = Math.min(firstLevel, indentOf(line));
+  }
+  if (firstLevel === Infinity) return null;
   for (const line of lines) {
     const trimmed = line.trim();
-    if (trimmed.startsWith('#')) continue;
+    if (trimmed.startsWith('#') || indentOf(line) !== firstLevel) continue;
     const m = trimmed.match(re);
     if (m) return m[1].trim();
   }
@@ -92,10 +108,27 @@ export function scalar(lines, key) {
 }
 
 // Same extraction as `scalar`, but for the interior text of an inline `{ key: value, ... }`
-// form. The value is bounded by the next comma or closing brace (or end of string).
+// form. Only top-level (brace depth 0) comma-separated entries are considered; the value is
+// bounded by the entry's end (next top-level comma, or end of string).
 export function inlineScalar(inline, key) {
   if (inline == null) return null;
-  const re = new RegExp(`${key}\\s*:\\s*["']?([^"',}#]+?)["']?\\s*(#[^,}]*)?\\s*(?=[,}]|$)`);
-  const m = inline.match(re);
-  return m ? m[1].trim() : null;
+  const segments = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < inline.length; i++) {
+    const c = inline[i];
+    if (c === '{') depth++;
+    else if (c === '}') depth = Math.max(0, depth - 1);
+    else if (c === ',' && depth === 0) {
+      segments.push(inline.slice(start, i));
+      start = i + 1;
+    }
+  }
+  segments.push(inline.slice(start));
+  const re = new RegExp(`^${key}\\s*:\\s*["']?([^"',{}#]+?)["']?\\s*(#.*)?$`);
+  for (const seg of segments) {
+    const m = seg.trim().match(re);
+    if (m) return m[1].trim();
+  }
+  return null;
 }

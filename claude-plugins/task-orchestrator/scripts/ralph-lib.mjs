@@ -375,3 +375,89 @@ export const HEADLESS_ITERATION_MODE = 'headless-iteration';
 export function buildIterationEnv(base) {
     return { ...base, TASK_ORCHESTRATOR_MODE: HEADLESS_ITERATION_MODE };
 }
+
+// ---------------------------------------------------------------------------
+// Worktree naming / rename / cleanup. Git access is injected as `io.git(args)`, which takes an
+// argv array (never a shell string) and resolves `{ stdout }` or rejects with `{ stderr, message }`.
+// ralph-loop.mjs supplies a promisified `execFile('git', args)`; tests supply a recording fake.
+// ---------------------------------------------------------------------------
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * `ralph-<first 8 of itemId>-<iter>` only when `itemId` is a string shaped like a UUID; any
+ * other value (non-string, model-emitted junk) keeps `tempName`.
+ */
+export function worktreeNameForOutcome(itemId, iterIndex, tempName) {
+    if (typeof itemId !== "string" || !UUID_RE.test(itemId)) return tempName;
+    return `ralph-${itemId.slice(0, 8)}-${iterIndex}`;
+}
+
+/** Absolute cwd for resuming an iteration that ran in the worktree named `tempName`. */
+export function resumeCwd(tempName) {
+    return path.resolve(".claude", "worktrees", tempName);
+}
+
+/**
+ * Rename a worktree via `git worktree move`. Returns { ok: true } or { ok: false, reason }
+ * where reason is the first non-blank line of git's stderr (or 'unknown error').
+ */
+export async function renameWorktree(io, oldName, newName) {
+    if (oldName === newName) return { ok: true };
+    const oldPath = path.posix.join(".claude", "worktrees", oldName);
+    const newPath = path.posix.join(".claude", "worktrees", newName);
+    try {
+        await io.git(["worktree", "move", oldPath, newPath]);
+        return { ok: true };
+    } catch (err) {
+        const reason = (err?.stderr || err?.message || "")
+            .split("\n")
+            .map((s) => s.trim())
+            .filter(Boolean)[0] || "unknown error";
+        return { ok: false, reason };
+    }
+}
+
+/**
+ * Smart-cleanup decision for a finished iteration's worktree: removed | preserved | absent |
+ * failed. Preserves on uncommitted changes, commits ahead of `baseRef`, or an unresolvable
+ * `baseRef` (safer than removing a worktree with real commits).
+ */
+export async function maybeCleanupWorktree(io, worktreeName, baseRef) {
+    const worktreePath = path.posix.join(".claude", "worktrees", worktreeName);
+
+    try {
+        const { stdout: listOut } = await io.git(["worktree", "list", "--porcelain"]);
+        if (!listOut.includes(worktreePath) && !listOut.includes(worktreePath.replace(/\//g, path.sep))) {
+            return { action: "absent" };
+        }
+    } catch (err) {
+        return { action: "failed", reason: `git worktree list failed: ${err.message}` };
+    }
+
+    try {
+        const { stdout: statusOut } = await io.git(["-C", worktreePath, "status", "--porcelain"]);
+        if (statusOut.trim().length > 0) {
+            return { action: "preserved", reason: "uncommitted changes present" };
+        }
+    } catch (err) {
+        return { action: "failed", reason: `git status failed: ${err.message}` };
+    }
+
+    try {
+        const { stdout: aheadOut } = await io.git(["-C", worktreePath, "rev-list", "--count", `${baseRef}..HEAD`]);
+        const ahead = parseInt(aheadOut.trim(), 10);
+        if (Number.isFinite(ahead) && ahead > 0) {
+            return { action: "preserved", reason: `${ahead} commit(s) ahead of ${baseRef}` };
+        }
+    } catch {
+        return { action: "preserved", reason: `could not compare against ${baseRef}` };
+    }
+
+    try {
+        await io.git(["worktree", "remove", worktreePath]);
+        return { action: "removed" };
+    } catch (err) {
+        return { action: "failed", reason: `git worktree remove failed: ${err.message}` };
+    }
+}

@@ -50,6 +50,8 @@ class ActorAuthTokenLifetimeConfigTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_path: "/etc/keys/jwks.json"
                     algorithms:
                       - EdDSA
@@ -77,6 +79,8 @@ class ActorAuthTokenLifetimeConfigTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_path: "/etc/keys/jwks.json"
                     algorithms:
                       - EdDSA
@@ -97,6 +101,8 @@ class ActorAuthTokenLifetimeConfigTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_path: "/etc/keys/jwks.json"
                     algorithms:
                       - EdDSA
@@ -121,6 +127,8 @@ class ActorAuthTokenLifetimeConfigTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_path: "/etc/keys/jwks.json"
                     algorithms:
                       - EdDSA
@@ -140,6 +148,8 @@ class ActorAuthTokenLifetimeConfigTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_path: "/etc/keys/jwks.json"
                     algorithms:
                       - EdDSA
@@ -159,6 +169,8 @@ class ActorAuthTokenLifetimeConfigTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_path: "/etc/keys/jwks.json"
                     algorithms:
                       - EdDSA
@@ -182,6 +194,8 @@ class ActorAuthTokenLifetimeConfigTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_path: "/etc/keys/jwks.json"
                     algorithms:
                       - EdDSA
@@ -205,6 +219,8 @@ class ActorAuthTokenLifetimeConfigTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_path: "/etc/keys/jwks.json"
                     algorithms:
                       - EdDSA
@@ -231,6 +247,8 @@ class ActorAuthTokenLifetimeConfigTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_path: "/etc/keys/jwks.json"
                     algorithms:
                       - EdDSA
@@ -254,6 +272,8 @@ class ActorAuthTokenLifetimeConfigTest {
                 actor_authentication:
                   verifier:
                     type: jwks
+                    audience: "test-audience"
+                    issuer: "https://issuer.example.com"
                     jwks_path: "/etc/keys/jwks.json"
                     algorithms:
                       - EdDSA

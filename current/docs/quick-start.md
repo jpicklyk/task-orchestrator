@@ -135,7 +135,7 @@ Hooks run automatically — no invocation required:
 - **Plan mode** — after plan approval, prompts Claude to create MCP items so persistent tracking stays in sync with the conversation
 - **Subagent start** — passes task context into spawned subagents so they start with full awareness of the current item
 
-**Optional:** Enable actor authentication to require agents to identify themselves on every write operation — add an `actor_authentication` section with `enabled: true` to `.taskorchestrator/config.yaml`. See [Enforcing Actor Attribution](./api-reference.md#enforcing-actor-attribution) in the API reference.
+**Optional:** Enable actor authentication to require agents to identify themselves on every write operation — add an `actor_authentication` section with `enabled: true` to the workspace (or user-level) `.taskorchestrator/config.yaml`; the plugin hook reads it, the server does not. See [Enforcing Actor Attribution](./api-reference.md#enforcing-actor-attribution) in the API reference.
 
 ### Orchestration context
 
@@ -405,7 +405,7 @@ After adding or editing this file, reconnect the MCP server:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_PATH` | `data/current-tasks.db` | SQLite file path inside the container |
-| `USE_FLYWAY` | `true` | Apply database migrations on startup |
+| `USE_FLYWAY` | `true` | Apply database migrations on startup. `false` selects Direct mode for disposable dev/test databases only: it has no upgrade path, and Flyway mode refuses a Direct-created database. |
 | `FLYWAY_REPAIR` | `false` | Run Flyway repair (fix migration checksums) instead of migrate, then exit 0 without serving — the process never starts a transport or reports healthy. Ignored (with a WARN) if `USE_FLYWAY=false`. |
 | `AGENT_CONFIG_DIR` | _(unset)_ | Parent directory of `.taskorchestrator/`; set when mounting a config folder into the container |
 | `LOG_LEVEL` | `INFO` | Verbosity: `DEBUG`, `INFO`, `WARN`, `ERROR` |

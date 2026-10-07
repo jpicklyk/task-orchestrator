@@ -497,4 +497,58 @@ class SQLiteRoleTransitionRepositoryTest {
             assertIs<Result.Success<List<RoleTransition>>>(result)
             assertEquals(listOf("vault:prod-db-password"), result.data[0].consumedCredentials)
         }
+
+    @Test
+    fun `findByItemId respects offset`() =
+        runBlocking {
+            val base = Instant.parse("2026-01-01T00:00:00Z")
+            repeat(5) { idx ->
+                transitionRepository.create(
+                    RoleTransition(
+                        itemId = testItemId,
+                        fromRole = "queue",
+                        toRole = "work",
+                        trigger = "start",
+                        summary = "t$idx",
+                        transitionedAt = base.plusSeconds(idx.toLong())
+                    )
+                )
+            }
+
+            val page = transitionRepository.findByItemId(testItemId, limit = 2, offset = 2)
+            assertIs<Result.Success<List<RoleTransition>>>(page)
+            assertEquals(listOf("t2", "t1"), page.data.map { it.summary })
+
+            val beyond = transitionRepository.findByItemId(testItemId, limit = 2, offset = 10)
+            assertIs<Result.Success<List<RoleTransition>>>(beyond)
+            assertTrue(beyond.data.isEmpty())
+        }
+
+    @Test
+    fun `findByItemId pages rows with identical timestamps exactly once`() =
+        runBlocking {
+            val ts = Instant.parse("2026-01-01T00:00:00Z")
+            val created =
+                (0 until 4).map { idx ->
+                    val t =
+                        RoleTransition(
+                            itemId = testItemId,
+                            fromRole = "queue",
+                            toRole = "work",
+                            trigger = "start",
+                            summary = "same$idx",
+                            transitionedAt = ts
+                        )
+                    transitionRepository.create(t)
+                    t.id
+                }
+            val seen =
+                (0 until 4).flatMap { off ->
+                    val r = transitionRepository.findByItemId(testItemId, limit = 1, offset = off)
+                    assertIs<Result.Success<List<RoleTransition>>>(r)
+                    r.data.map { it.id }
+                }
+            assertEquals(created.toSet(), seen.toSet())
+            assertEquals(4, seen.size)
+        }
 }

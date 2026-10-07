@@ -670,12 +670,16 @@ class SQLiteWorkItemRepository(
                         return@suspendTransaction Result.Success(emptyList())
                     }
 
-                    val entityIds = descendantIds.map { EntityID(it, WorkItemsTable) }
+                    // Chunked: the id set scales with the subtree, so a single IN list could exceed
+                    // SQLite's bound-variable limit. All chunks run in this same transaction.
                     Result.Success(
-                        WorkItemsTable
-                            .selectAll()
-                            .where { WorkItemsTable.id inList entityIds }
-                            .mapNotNull { toWorkItemOrNull(it) },
+                        descendantIds.chunked(SQL_IN_CHUNK_SIZE).flatMap { chunk ->
+                            val entityIds = chunk.map { EntityID(it, WorkItemsTable) }
+                            WorkItemsTable
+                                .selectAll()
+                                .where { WorkItemsTable.id inList entityIds }
+                                .mapNotNull { toWorkItemOrNull(it) }
+                        },
                     )
                 }
             }
@@ -1024,12 +1028,14 @@ class SQLiteWorkItemRepository(
     override suspend fun findByIds(ids: Set<UUID>): Result<List<WorkItem>> {
         if (ids.isEmpty()) return Result.Success(emptyList())
         return databaseManager.suspendedTransaction("Failed to find items by IDs") {
-            val entityIds = ids.map { EntityID(it, WorkItemsTable) }
             Result.Success(
-                WorkItemsTable
-                    .selectAll()
-                    .where { WorkItemsTable.id inList entityIds }
-                    .mapNotNull { toWorkItemOrNull(it) }
+                ids.chunked(SQL_IN_CHUNK_SIZE).flatMap { chunk ->
+                    val entityIds = chunk.map { EntityID(it, WorkItemsTable) }
+                    WorkItemsTable
+                        .selectAll()
+                        .where { WorkItemsTable.id inList entityIds }
+                        .mapNotNull { toWorkItemOrNull(it) }
+                }
             )
         }
     }
@@ -1037,8 +1043,11 @@ class SQLiteWorkItemRepository(
     override suspend fun deleteAll(ids: Set<UUID>): Result<Int> {
         if (ids.isEmpty()) return Result.Success(0)
         return databaseManager.suspendedTransaction("Failed to bulk-delete WorkItems") {
-            val entityIds = ids.map { EntityID(it, WorkItemsTable) }
-            val count = WorkItemsTable.deleteWhere { WorkItemsTable.id inList entityIds }
+            val count =
+                ids.chunked(SQL_IN_CHUNK_SIZE).sumOf { chunk ->
+                    val entityIds = chunk.map { EntityID(it, WorkItemsTable) }
+                    WorkItemsTable.deleteWhere { WorkItemsTable.id inList entityIds }
+                }
             Result.Success(count)
         }
     }
@@ -1768,7 +1777,7 @@ class SQLiteWorkItemRepository(
      * [ByRoot] is the fast path: it binds ONE parameter per requested root and lets SQLite use
      * `idx_work_items_root_id`. [ByIds] is the historical path: the recursive CTE (or the H2 BFS)
      * expands the scope to every descendant id and binds them all, which is O(subtree) bound
-     * variables and fails outright above SQLite's SQLITE_MAX_VARIABLE_NUMBER (~32,766).
+     * variables and fails outright above SQLite's SQLITE_MAX_VARIABLE_NUMBER (250,000 in the bundled xerial build).
      */
     private sealed interface ResolvedScope {
         /** The condition this scope contributes to a WHERE clause. */

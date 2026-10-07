@@ -132,6 +132,25 @@ class CurrentMcpServer(
         runBlocking {
             logger.info("Initializing Current (v3) MCP server...")
 
+            // Readiness marker: written only once the server is actually serving (inside the
+            // transport runners below, after the transport confirms it started), and cleared on
+            // every shutdown path. This is the Docker HEALTHCHECK's readiness signal -- see
+            // ReadinessMarker's kdoc for why a marker file, not an HTTP probe.
+            //
+            // Cleared FIRST, before DB init: after SIGKILL/OOM the previous process never ran its
+            // shutdown clear, and the container's writable layer keeps the stale file across a
+            // restart, so the HEALTHCHECK would report healthy during DB init/migration or after a
+            // failed start. Fail closed if the stale marker cannot be removed -- swallowing the
+            // error would leave exactly that false-healthy signal in place.
+            val readinessMarker = ReadinessMarker(Paths.get(appConfig.readinessFile))
+            try {
+                readinessMarker.clear()
+            } catch (e: Exception) {
+                val detail = "Failed to clear stale readiness marker at ${readinessMarker.path}: ${e.message}"
+                logger.error(detail, e)
+                return@runBlocking Failed(Reason.READINESS_MARKER, detail)
+            }
+
             // Initialize database (DatabaseManager already holds the AppConfig snapshot)
             val dbPath = appConfig.databasePath
             if (!databaseManager.initialize(dbPath)) {
@@ -181,12 +200,6 @@ class CurrentMcpServer(
             logger.info("Registered ${tools.size} MCP tools")
 
             val toolCount = tools.size
-
-            // Readiness marker: written only once the server is actually serving (inside the
-            // transport runners below, after the transport confirms it started), and cleared on
-            // every shutdown path. This is the Docker HEALTHCHECK's readiness signal — see
-            // ReadinessMarker's kdoc for why a marker file, not an HTTP probe.
-            val readinessMarker = ReadinessMarker(Paths.get(appConfig.readinessFile))
 
             // Transport dispatch
             val transportType = appConfig.mcpTransport
