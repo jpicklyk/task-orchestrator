@@ -1,0 +1,33 @@
+name: PR base guard
+
+# Fails any pull request that would merge 4.0 work into main.
+# 4.0 development lives on release/4.0 and feature branches named 4.0/* or v4/*.
+# Required status check on main so the merge button stays disabled when it fails.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: [main, release/4.0]
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject 4.0 branches targeting main
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          echo "base=$BASE head=$HEAD"
+          case "$HEAD" in
+            release/4.0|4.0/*|v4/*)
+              if [ "$BASE" = "main" ]; then
+                echo "::error::'$HEAD' is 4.0 work and must target release/4.0, not main."
+                exit 1
+              fi
+              ;;
+          esac
+          echo "ok"
