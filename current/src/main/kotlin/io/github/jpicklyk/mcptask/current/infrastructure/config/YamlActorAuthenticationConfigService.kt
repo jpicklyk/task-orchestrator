@@ -404,9 +404,8 @@ class YamlActorAuthenticationConfigService private constructor(
                     }
                 }
 
-                // A blank (empty or whitespace) issuer/audience is treated exactly like a missing one.
-                val issuer = verifierMap.optString("issuer")?.takeIf { it.isNotBlank() }
-                val audience = verifierMap.optString("audience")?.takeIf { it.isNotBlank() }
+                val issuer = verifierMap.optString("issuer")
+                val audience = verifierMap.optString("audience")
 
                 val algorithms = verifierMap.optStringList("algorithms")
 
@@ -418,21 +417,26 @@ class YamlActorAuthenticationConfigService private constructor(
                     )
                 }
 
-                // Static JWKS mode must bind tokens to an audience, and to an issuer (explicit, or
+                // Static JWKS mode should bind tokens to an audience, and to an issuer (explicit, or
                 // supplied by oidc_discovery). Without them any token signed by a key in the JWKS is
-                // accepted, including tokens minted for an unrelated service. DID mode is exempt: the
-                // issuer is bound by did_allowlist/did_pattern plus the sub==iss check.
+                // accepted, including tokens minted for an unrelated service. This is only a warning:
+                // existing configs (e.g. a bare jwks_path) must keep parsing and verifying unchanged.
+                // DID mode is exempt: the issuer is bound by did_allowlist/did_pattern plus the
+                // sub==iss check.
                 if (isStaticJwks) {
                     val missing =
                         buildList {
-                            if (audience == null) add("audience")
-                            if (issuer == null && oidcDiscovery == null) add("issuer")
+                            if (audience.isNullOrBlank()) add("audience")
+                            if (issuer.isNullOrBlank() && oidcDiscovery == null) add("issuer")
                         }
                     if (missing.isNotEmpty()) {
-                        throw IllegalArgumentException(
-                            "actor_authentication.verifier type 'jwks' in '$configPath' (static JWKS mode) " +
-                                "requires ${missing.joinToString(" and ")}; without them any token signed by a " +
-                                "key in the JWKS is accepted"
+                        logger.warn(
+                            "actor_authentication.verifier type 'jwks' in '{}' (static JWKS mode) has no {}; " +
+                                "tokens signed by any key in the JWKS are accepted without {} binding. " +
+                                "Set verifier.audience (and verifier.issuer unless oidc_discovery supplies one).",
+                            configPath,
+                            missing.joinToString(" and "),
+                            missing.joinToString("/")
                         )
                     }
                 }

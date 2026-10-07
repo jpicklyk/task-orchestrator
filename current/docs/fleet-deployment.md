@@ -51,7 +51,7 @@ propagates out of `ServerComposition.build()` and `CurrentMcpServer.run()`, so t
 non-zero **before** the readiness marker is ever written and before any transport binds. The same
 applies to a present, non-null field that fails to parse under `actor_authentication:` (an
 unrecognized `degraded_mode_policy`, an unrecognized `verifier.type`, a non-mapping `verifier` or
-`actor_authentication` value, `type: jwks` with no configured key source, `type: jwks` in static mode without `audience` (or without `issuer` when not using `oidc_discovery`), or any `verifier` field of
+`actor_authentication` value, `type: jwks` with no configured key source, or any `verifier` field of
 the wrong type — e.g. a list-valued `audience`, which would otherwise silently disable the audience
 check) — see "Policy Values"
 and "JWKS Sources" below. An absent file, or one that is empty or comment-only, is not an error: it
@@ -623,8 +623,8 @@ When `verifier.type: jwks` is configured, TO reads a narrow subset of claims fro
 
 | Claim | Required | Used for |
 |---|---|---|
-| `iss` | Always enforced in static mode (`issuer` is required, or supplied by OIDC discovery; an OIDC discovery document with no `issuer` rejects every proof); **always read under DID trust** (`did_allowlist`/`did_pattern`) to resolve the DID and to bind against `sub` | Must match the configured/discovered issuer; mismatch → rejected with `failureKind: claims`. Under DID trust, also see the `sub`/`iss` binding below. |
-| `aud` | Always enforced in static mode (`audience` is required); optional only under DID trust | Must contain the configured audience; mismatch → rejected with `failureKind: claims` |
+| `iss` | Only if `issuer` is configured (explicitly or via OIDC discovery; strongly recommended in static mode, where a startup WARN is logged when missing); **always read under DID trust** (`did_allowlist`/`did_pattern`) to resolve the DID and to bind against `sub` | Must match the configured/discovered issuer; mismatch → rejected with `failureKind: claims`. Under DID trust, also see the `sub`/`iss` binding below. |
+| `aud` | Only if `audience` is configured (strongly recommended in static mode, where a startup WARN is logged when missing) | Must contain the configured audience; mismatch → rejected with `failureKind: claims` |
 | `sub` | Only when `require_sub_match: true`; **always read under DID trust**, regardless of `require_sub_match` | Verified against the caller's self-reported `actor.id`; mismatch → rejected with `failureKind: claims`. When `require_sub_match: false` and DID trust is not configured, `sub` is not read. Under DID trust, `sub` must equal `iss` exactly (see below) even when `require_sub_match: false`. |
 | `exp` | Required | Enforced with a **60-second clock-skew allowance**; past-expiry → rejected with `failureKind: claims`. A missing `exp` claim is rejected with `reason: "missing exp claim"`, `failureKind: claims`. Also bounds the lifetime cap below (both TO's actor verifier and `JwksApiVerifier` now enforce the same cap; see `max_token_lifetime_seconds` / `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS`). |
 | `nbf` | Optional | If present, enforced with a **60-second clock-skew allowance**; not-yet-valid → rejected with `failureKind: claims` |

@@ -873,8 +873,8 @@ The optional `verifier` sub-key enables server-side JWT validation of actor clai
 | `oidc_discovery` | no | string | — | OIDC discovery URL; auto-populates `jwks_uri` and `issuer` |
 | `jwks_uri` | no | string | — | Direct JWKS endpoint URL (overrides OIDC-discovered value) |
 | `jwks_path` | no | string | — | Local JWKS file path (relative to `AGENT_CONFIG_DIR`) |
-| `issuer` | yes in `jwks_uri`/`jwks_path` mode; optional with `oidc_discovery` | string | — | Expected `iss` claim (overrides OIDC-discovered value) |
-| `audience` | yes in static-JWKS mode | string | — | Expected `aud` claim |
+| `issuer` | no (strongly recommended in `jwks_uri`/`jwks_path` mode) | string | — | Expected `iss` claim (overrides OIDC-discovered value) |
+| `audience` | no (strongly recommended in static-JWKS mode) | string | — | Expected `aud` claim |
 | `algorithms` | yes (under `type: jwks`) | list | n/a | Allowed signing algorithms; required and must be non-empty — an empty list fails startup |
 | `cache_ttl_seconds` | no | number | `300` | JWKS cache TTL in seconds |
 | `require_sub_match` | no | boolean | `true` | JWT `sub` must match `actor.id` |
@@ -889,7 +889,7 @@ The optional `verifier` sub-key enables server-side JWT validation of actor clai
 
 When `type: jwks`, at least one of `oidc_discovery`, `jwks_uri`, or `jwks_path` is required for static-JWKS mode. Explicit `jwks_uri` and `issuer` values override OIDC-discovered values when both are present.
 
-**Issuer/audience binding.** Static-JWKS mode requires `audience`, and requires `issuer` unless `oidc_discovery` supplies one; a missing value fails startup (otherwise any token signed by a key in the JWKS would be accepted). At runtime an `oidc_discovery` config whose discovery document has no `issuer` (and no explicit `issuer`) rejects every proof (`failureKind: claims`). DID-trust mode is exempt.
+**Issuer/audience binding.** Static-JWKS mode strongly recommends `audience`, and `issuer` unless `oidc_discovery` supplies one; a startup WARN is logged when they are missing, because any token signed by a key in the JWKS is then accepted. Behaviour is unchanged (a missing value is not an error). An `oidc_discovery` config whose discovery document has no `issuer` (and no explicit `issuer`) logs a one-time WARN and skips the `iss` check. DID-trust mode is exempt.
 
 **HTTPS rule.** Unless `allow_insecure_url: true`, `oidc_discovery` and `jwks_uri` (including a `jwks_uri` discovered via `oidc_discovery`) must use `https`; any other scheme, or `http` without `allow_insecure_url` AND a literal loopback host, fails startup. `jwks_path` (a local file) and DID-trust mode are exempt from this rule.
 

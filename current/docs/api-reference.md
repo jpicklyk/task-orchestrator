@@ -2820,8 +2820,8 @@ actor_authentication:
     jwks_uri: "https://provider.example/.well-known/jwks.json"
     # jwks_path: ".agentlair/jwks.json"
     # oidc_discovery: "https://provider.example/.well-known/openid-configuration"
-    issuer: "https://provider.example"   # required for jwks_uri/jwks_path; optional with oidc_discovery
-    audience: "task-orchestrator"            # required
+    issuer: "https://provider.example"   # strongly recommended (startup WARN when missing)
+    audience: "task-orchestrator"            # strongly recommended
     algorithms: ["EdDSA", "RS256"]          # required
     cache_ttl_seconds: 300
     require_sub_match: true
@@ -2868,8 +2868,8 @@ Configure exactly one of `oidc_discovery`, `jwks_uri`, or `jwks_path`; more than
 | `oidc_discovery` | URL to an OpenID Connect discovery document. The server fetches `jwks_uri` and `issuer` from the document. |
 | `jwks_uri` | Direct URL to a JWKS endpoint. Overrides the URI discovered via `oidc_discovery`. |
 | `jwks_path` | Path to a local JWKS JSON file, relative to `AGENT_CONFIG_DIR`. Useful for local dev and air-gapped environments. |
-| `issuer` | Expected `iss` claim in the JWT. Overrides the issuer discovered via `oidc_discovery`. Required in `jwks_uri`/`jwks_path` mode (optional with `oidc_discovery`); startup fails without it. |
-| `audience` | Expected `aud` claim in the JWT. Required in static-JWKS mode; startup fails without it. |
+| `issuer` | Expected `iss` claim in the JWT. Overrides the issuer discovered via `oidc_discovery`. Strongly recommended in `jwks_uri`/`jwks_path` mode; a startup WARN is logged when missing (and `oidc_discovery` is not set). |
+| `audience` | Expected `aud` claim in the JWT. Strongly recommended in static-JWKS mode; a startup WARN is logged when missing. |
 | `algorithms` | List of accepted signing algorithms (e.g., `["EdDSA", "RS256"]`). |
 | `cache_ttl_seconds` | How long to cache fetched JWKS keys (default: 300). |
 | `stale_on_error` | When true (default), a stale cached key set is used if a JWKS refresh fails. The result is `verified` with `metadata.verifiedFromCache="true"` and `metadata.cacheAgeSeconds` set. When false, fetch failures always return `unavailable`. |

@@ -7,10 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Security
-
-- **Breaking: static JWKS actor verifier requires `audience` and `issuer`.** `actor_authentication.verifier` with `type: jwks` (`jwks_uri`/`jwks_path`/`oidc_discovery`) now fails startup when `audience` is missing or blank, or when `issuer` is missing or blank and `oidc_discovery` is not set; previously any token signed by a key in the JWKS was accepted. An `oidc_discovery` config whose discovery document has no `issuer` now rejects every proof. DID-trust mode is unchanged. To upgrade, add `audience:` (and `issuer:` for `jwks_uri`/`jwks_path`) to the verifier block.
-
 ### Plugin
 
 - **Fixed: retro-analysis and session-retrospective follow-ups.** `retro-analysis` accepts the `plan-to-execution` dimension, validates `maxAgents`, `staleDays` and `maxAdjudicate`, keeps a key-collision match's evidence and observation links (including in audit mode), and returns `stats.unmatchedShards` as a `[{label, kind, targetIds}]` array instead of a count (a result-v1 shape change). Match prompts now define strong vs weak and the deep-mode clusters. `/session-retrospective` documents `--deep` in its argument hint, matches unmatched shards inline, and gains an audit-sweep paragraph; `create-item` materializes an audit proposal under one user-confirmed category container and honours each row's own `type`.
@@ -55,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Static JWKS actor verifier warns when `audience`/`issuer` are missing.** A `type: jwks` verifier in static mode (`jwks_uri`/`jwks_path`/`oidc_discovery`) with no `audience`, or no `issuer` when `oidc_discovery` is not set, logs a startup WARN; an `oidc_discovery` config whose discovery document supplies no `issuer` logs a one-time WARN. Behaviour is unchanged: such configs still parse and verify tokens exactly as before. Set `audience` (and `issuer` for `jwks_uri`/`jwks_path`) to bind tokens to this server.
 - **Unparsable list filter values now return `400 validation_error`.** An unrecognized `role`, `priority` or `claimStatus` filter value on the REST list and search routes is rejected instead of being silently ignored; matching stays case-insensitive.
 
 ## [3.16.0] - 2026-10-02

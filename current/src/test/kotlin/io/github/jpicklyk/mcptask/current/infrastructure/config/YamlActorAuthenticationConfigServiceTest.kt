@@ -1,11 +1,16 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
+import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import io.github.jpicklyk.mcptask.current.domain.model.ActorAuthenticationConfig
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import org.slf4j.LoggerFactory
 import java.io.File
 import java.nio.file.Path
 
@@ -1116,18 +1121,42 @@ class YamlActorAuthenticationConfigServiceTest {
     }
 
     // -------------------------------------------------------------------------
-    // F-011: static JWKS mode requires audience (and issuer unless oidc_discovery)
+    // F-011: static JWKS mode warns (never fails) when audience/issuer are missing
     // -------------------------------------------------------------------------
 
-    private fun loadMessage(yaml: String): String? {
-        val service = YamlActorAuthenticationConfigService(createConfigFile(yaml.trimIndent()))
-        return assertThrows(IllegalArgumentException::class.java) { service.getConfig() }.message
+    private class WarnCapture : AutoCloseable {
+        private val logbackLogger =
+            LoggerFactory.getLogger(YamlActorAuthenticationConfigService::class.java) as Logger
+        private val appender =
+            ListAppender<ILoggingEvent>().also {
+                it.start()
+                logbackLogger.addAppender(it)
+            }
+        private val savedLevel = logbackLogger.level
+
+        init {
+            logbackLogger.level = Level.WARN
+        }
+
+        fun warnings(): List<String> = appender.list.filter { it.level == Level.WARN }.map { it.formattedMessage }
+
+        override fun close() {
+            logbackLogger.detachAppender(appender)
+            logbackLogger.level = savedLevel
+        }
     }
 
+    private fun loadWithWarnings(yaml: String): Pair<VerifierConfig.Jwks, List<String>> =
+        WarnCapture().use { capture ->
+            val service = YamlActorAuthenticationConfigService(createConfigFile(yaml.trimIndent()))
+            val v = service.getConfig().verifier as VerifierConfig.Jwks
+            v to capture.warnings()
+        }
+
     @Test
-    fun `jwks_uri without audience or issuer throws naming both`() {
-        val msg =
-            loadMessage(
+    fun `jwks_uri without audience or issuer parses and warns naming both`() {
+        val (v, warns) =
+            loadWithWarnings(
                 """
                 actor_authentication:
                   verifier:
@@ -1136,13 +1165,16 @@ class YamlActorAuthenticationConfigServiceTest {
                     algorithms: [RS256]
                 """
             )
-        assertTrue(msg!!.contains("audience and issuer"), msg)
+        assertNull(v.audience)
+        assertNull(v.issuer)
+        assertEquals(1, warns.size, warns.toString())
+        assertTrue(warns[0].contains("audience and issuer"), warns[0])
     }
 
     @Test
-    fun `jwks_uri with issuer but no audience throws naming audience`() {
-        val msg =
-            loadMessage(
+    fun `jwks_uri with issuer but no audience parses and warns naming audience`() {
+        val (v, warns) =
+            loadWithWarnings(
                 """
                 actor_authentication:
                   verifier:
@@ -1152,13 +1184,16 @@ class YamlActorAuthenticationConfigServiceTest {
                     algorithms: [RS256]
                 """
             )
-        assertTrue(msg!!.contains("requires audience;"), msg)
+        assertNull(v.audience)
+        assertEquals("https://idp.example", v.issuer)
+        assertEquals(1, warns.size, warns.toString())
+        assertTrue(warns[0].contains("has no audience;"), warns[0])
     }
 
     @Test
-    fun `jwks_path with audience but no issuer throws naming issuer`() {
-        val msg =
-            loadMessage(
+    fun `jwks_path with audience but no issuer parses and warns naming issuer`() {
+        val (v, warns) =
+            loadWithWarnings(
                 """
                 actor_authentication:
                   verifier:
@@ -1168,33 +1203,34 @@ class YamlActorAuthenticationConfigServiceTest {
                     algorithms: [RS256]
                 """
             )
-        assertTrue(msg!!.contains("requires issuer;"), msg)
+        assertEquals("aud", v.audience)
+        assertNull(v.issuer)
+        assertEquals(1, warns.size, warns.toString())
+        assertTrue(warns[0].contains("has no issuer;"), warns[0])
     }
 
     @Test
-    fun `oidc_discovery with audience and no issuer parses`() {
-        val service =
-            YamlActorAuthenticationConfigService(
-                createConfigFile(
-                    """
-                    actor_authentication:
-                      verifier:
-                        type: jwks
-                        oidc_discovery: "https://idp.example/.well-known/openid-configuration"
-                        audience: "aud"
-                        algorithms: [RS256]
-                    """.trimIndent()
-                )
+    fun `oidc_discovery with audience and no issuer parses without an issuer warning`() {
+        val (v, warns) =
+            loadWithWarnings(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    oidc_discovery: "https://idp.example/.well-known/openid-configuration"
+                    audience: "aud"
+                    algorithms: [RS256]
+                """
             )
-        val v = service.getConfig().verifier as VerifierConfig.Jwks
         assertNull(v.issuer)
         assertEquals("aud", v.audience)
+        assertTrue(warns.isEmpty(), warns.toString())
     }
 
     @Test
-    fun `oidc_discovery without audience throws`() {
-        val msg =
-            loadMessage(
+    fun `oidc_discovery without audience parses and warns naming audience only`() {
+        val (v, warns) =
+            loadWithWarnings(
                 """
                 actor_authentication:
                   verifier:
@@ -1203,13 +1239,15 @@ class YamlActorAuthenticationConfigServiceTest {
                     algorithms: [RS256]
                 """
             )
-        assertTrue(msg!!.contains("requires audience;"), msg)
+        assertNull(v.audience)
+        assertEquals(1, warns.size, warns.toString())
+        assertTrue(warns[0].contains("has no audience;"), warns[0])
     }
 
     @Test
-    fun `jwks static mode with empty audience throws like a missing one`() {
-        val msg =
-            loadMessage(
+    fun `jwks static mode with empty audience parses as written and warns`() {
+        val (v, warns) =
+            loadWithWarnings(
                 """
                 actor_authentication:
                   verifier:
@@ -1220,13 +1258,15 @@ class YamlActorAuthenticationConfigServiceTest {
                     algorithms: [RS256]
                 """
             )
-        assertTrue(msg!!.contains("requires audience;"), msg)
+        assertEquals("", v.audience)
+        assertEquals(1, warns.size, warns.toString())
+        assertTrue(warns[0].contains("has no audience;"), warns[0])
     }
 
     @Test
-    fun `jwks static mode with whitespace audience throws like a missing one`() {
-        val msg =
-            loadMessage(
+    fun `jwks static mode with whitespace audience parses as written and warns`() {
+        val (v, warns) =
+            loadWithWarnings(
                 """
                 actor_authentication:
                   verifier:
@@ -1237,13 +1277,15 @@ class YamlActorAuthenticationConfigServiceTest {
                     algorithms: [RS256]
                 """
             )
-        assertTrue(msg!!.contains("requires audience;"), msg)
+        assertEquals("  ", v.audience)
+        assertEquals(1, warns.size, warns.toString())
+        assertTrue(warns[0].contains("has no audience;"), warns[0])
     }
 
     @Test
-    fun `jwks static mode with empty issuer throws like a missing one`() {
-        val msg =
-            loadMessage(
+    fun `jwks static mode with empty issuer parses as written and warns`() {
+        val (v, warns) =
+            loadWithWarnings(
                 """
                 actor_authentication:
                   verifier:
@@ -1254,13 +1296,15 @@ class YamlActorAuthenticationConfigServiceTest {
                     algorithms: [RS256]
                 """
             )
-        assertTrue(msg!!.contains("requires issuer;"), msg)
+        assertEquals("", v.issuer)
+        assertEquals(1, warns.size, warns.toString())
+        assertTrue(warns[0].contains("has no issuer;"), warns[0])
     }
 
     @Test
-    fun `jwks static mode with whitespace issuer throws like a missing one`() {
-        val msg =
-            loadMessage(
+    fun `jwks static mode with whitespace issuer parses as written and warns`() {
+        val (v, warns) =
+            loadWithWarnings(
                 """
                 actor_authentication:
                   verifier:
@@ -1271,13 +1315,15 @@ class YamlActorAuthenticationConfigServiceTest {
                     algorithms: [RS256]
                 """
             )
-        assertTrue(msg!!.contains("requires issuer;"), msg)
+        assertEquals("  ", v.issuer)
+        assertEquals(1, warns.size, warns.toString())
+        assertTrue(warns[0].contains("has no issuer;"), warns[0])
     }
 
     @Test
-    fun `oidc_discovery with blank audience throws`() {
-        val msg =
-            loadMessage(
+    fun `oidc_discovery with blank audience parses as written and warns`() {
+        val (v, warns) =
+            loadWithWarnings(
                 """
                 actor_authentication:
                   verifier:
@@ -1287,11 +1333,71 @@ class YamlActorAuthenticationConfigServiceTest {
                     algorithms: [RS256]
                 """
             )
-        assertTrue(msg!!.contains("requires audience;"), msg)
+        assertEquals("  ", v.audience)
+        assertEquals(1, warns.size, warns.toString())
+        assertTrue(warns[0].contains("has no audience;"), warns[0])
     }
 
     @Test
-    fun `DID mode without audience or issuer still parses`() {
+    fun `audience and issuer both set logs no warning`() {
+        val (v, warns) =
+            loadWithWarnings(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://idp.example/jwks.json"
+                    issuer: "https://idp.example"
+                    audience: "aud"
+                    algorithms: [RS256]
+                """
+            )
+        assertEquals("aud", v.audience)
+        assertTrue(warns.isEmpty(), warns.toString())
+    }
+
+    @Test
+    fun `DID mode without audience or issuer parses without a warning`() {
+        val (v, warns) =
+            loadWithWarnings(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    did_allowlist:
+                      - "did:web:agent.example"
+                    algorithms: [EdDSA]
+                """
+            )
+        assertNull(v.issuer)
+        assertNull(v.audience)
+        assertTrue(warns.isEmpty(), warns.toString())
+    }
+
+    @Test
+    fun `AgentLair-shaped config with jwks_path and no issuer or audience parses and warns`() {
+        val jwksFile = File(tempDir.toFile(), "jwks.json")
+        jwksFile.writeText("""{"keys":[]}""")
+        val jwksPathYaml = jwksFile.absolutePath.replace(File.separatorChar, '/')
+        val (v, warns) =
+            loadWithWarnings(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_path: "$jwksPathYaml"
+                    algorithms: [EdDSA]
+                """
+            )
+        assertEquals(jwksPathYaml, v.jwksPath)
+        assertNull(v.issuer)
+        assertNull(v.audience)
+        assertEquals(1, warns.size, warns.toString())
+        assertTrue(warns[0].contains("audience and issuer"), warns[0])
+    }
+
+    @Test
+    fun `empty algorithms error still wins over missing audience`() {
         val service =
             YamlActorAuthenticationConfigService(
                 createConfigFile(
@@ -1299,28 +1405,11 @@ class YamlActorAuthenticationConfigServiceTest {
                     actor_authentication:
                       verifier:
                         type: jwks
-                        did_allowlist:
-                          - "did:web:agent.example"
-                        algorithms: [EdDSA]
+                        jwks_uri: "https://idp.example/jwks.json"
                     """.trimIndent()
                 )
             )
-        val v = service.getConfig().verifier as VerifierConfig.Jwks
-        assertNull(v.issuer)
-        assertNull(v.audience)
-    }
-
-    @Test
-    fun `empty algorithms error still wins over missing audience`() {
-        val msg =
-            loadMessage(
-                """
-                actor_authentication:
-                  verifier:
-                    type: jwks
-                    jwks_uri: "https://idp.example/jwks.json"
-                """
-            )
+        val msg = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }.message
         assertTrue(msg!!.contains("algorithms"), msg)
     }
 

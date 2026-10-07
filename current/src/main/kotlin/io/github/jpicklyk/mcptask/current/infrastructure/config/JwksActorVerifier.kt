@@ -20,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus.VERIFI
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import org.slf4j.LoggerFactory
 import java.time.Clock
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * [ActorVerifier] implementation that validates JWT bearer tokens against a JWKS key set.
@@ -48,6 +49,7 @@ class JwksActorVerifier(
     private val replayCache: JtiReplayCache = JtiReplayCache(clock = clock)
 ) : ActorVerifier {
     private val logger = LoggerFactory.getLogger(JwksActorVerifier::class.java)
+    private val noIssuerWarned = AtomicBoolean(false)
 
     override suspend fun verify(actor: ActorClaim): VerificationResult =
         try {
@@ -206,10 +208,13 @@ class JwksActorVerifier(
 
         // iss — explicit config overrides OIDC-discovered issuer
         val effectiveIssuer = config.issuer ?: keySetProvider.getResolvedIssuer()
-        // Fail closed: oidc_discovery with no explicit issuer relies on the discovery document's
-        // `issuer`; if it had none, the iss check would silently be off.
-        if (effectiveIssuer == null && config.oidcDiscovery != null) {
-            return rejected("no issuer configured and OIDC discovery document supplied none", "claims")
+        // oidc_discovery with no explicit issuer relies on the discovery document's `issuer`; if it
+        // had none, the iss check is off. Behaviour is unchanged; warn once per verifier instance.
+        if (effectiveIssuer == null && config.oidcDiscovery != null && noIssuerWarned.compareAndSet(false, true)) {
+            logger.warn(
+                "OIDC discovery document supplied no issuer and none is configured; the iss claim is not checked. " +
+                    "Set verifier.issuer."
+            )
         }
         if (effectiveIssuer != null && claims.issuer != effectiveIssuer) {
             return rejected("issuer mismatch: expected=$effectiveIssuer, got=${claims.issuer}", "claims")

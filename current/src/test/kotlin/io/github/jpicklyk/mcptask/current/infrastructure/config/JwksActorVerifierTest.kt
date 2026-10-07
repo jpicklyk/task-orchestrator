@@ -1,5 +1,9 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
+import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSHeader
 import com.nimbusds.jose.crypto.ECDSASigner
@@ -33,6 +37,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import org.slf4j.LoggerFactory
 import java.security.SecureRandom
 import java.security.Security
 import java.time.Clock
@@ -348,16 +353,34 @@ class JwksActorVerifierTest {
         }
 
     // F-011: oidc_discovery with no explicit issuer and a discovery document that supplied none
-    // must fail closed instead of silently skipping the iss check.
+    // keeps the pre-existing behaviour (iss unchecked) and logs a one-time WARN.
     @Test
-    fun `oidc_discovery with no resolved issuer rejects a validly signed token`() =
+    fun `oidc_discovery with no resolved issuer accepts a validly signed token and warns once`() =
         runTest {
             val config =
                 baseConfig(issuer = null).copy(jwksPath = null, oidcDiscovery = "https://idp.example/.well-known/openid-configuration")
             val provider = rsaMockProvider(resolvedIssuer = null)
-            val result = verifier(config = config, provider = provider).verify(actor(proof = signRsa()))
-            assertEquals(VerificationStatus.REJECTED, result.status)
-            assertEquals("claims", result.metadata["failureKind"])
+            val v = verifier(config = config, provider = provider)
+
+            val logbackLogger = LoggerFactory.getLogger(JwksActorVerifier::class.java) as Logger
+            val appender =
+                ListAppender<ILoggingEvent>().also {
+                    it.start()
+                    logbackLogger.addAppender(it)
+                }
+            val savedLevel = logbackLogger.level
+            logbackLogger.level = Level.WARN
+            try {
+                val first = v.verify(actor(proof = signRsa()))
+                val second = v.verify(actor(proof = signRsa()))
+                assertEquals(VerificationStatus.VERIFIED, first.status)
+                assertEquals(VerificationStatus.VERIFIED, second.status)
+                val warns = appender.list.filter { it.level == Level.WARN && it.formattedMessage.contains("supplied no issuer") }
+                assertEquals(1, warns.size, warns.map { it.formattedMessage }.toString())
+            } finally {
+                logbackLogger.detachAppender(appender)
+                logbackLogger.level = savedLevel
+            }
         }
 
     @Test
