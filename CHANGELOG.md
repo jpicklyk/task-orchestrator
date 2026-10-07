@@ -51,14 +51,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A Direct-mode database opened under Flyway fails fast.** A database created with `USE_FLYWAY=false` is refused with an actionable error instead of being migrated, and Flyway `clean` is disabled.
 - **Stale readiness marker cleared at startup.** The `READINESS_FILE` marker left by a crashed run is removed before DB init, so the Docker health check cannot report ready before startup succeeds.
 - **The server ignores `actor_authentication.enabled`.** The key is read only by the plugin hook (client-side config); claim ownership is enforced by the server whenever an item is claimed, and a call with no actor on a claimed item is rejected.
+- **stdio transport shuts down on stdin EOF.** In `stdio` mode the server only exited on a signal, so a host that just closed stdin (`docker run -i` pipelines, CI harnesses) left a running process with an open database and a healthy readiness marker. The transport's close callback now completes the run and triggers the normal shutdown sequence (marker cleared, database closed).
 
 ### Changed
 
 - **Unparsable list filter values now return `400 validation_error`.** An unrecognized `role`, `priority` or `claimStatus` filter value on the REST list and search routes is rejected instead of being silently ignored; matching stays case-insensitive.
-
-### Fixed
-
-- **stdio transport shuts down on stdin EOF.** In `stdio` mode the server only exited on a signal, so a host that just closed stdin (`docker run -i` pipelines, CI harnesses) left a running process with an open database and a healthy readiness marker. The transport's close callback now completes the run and triggers the normal shutdown sequence (marker cleared, database closed).
 
 ## [3.16.0] - 2026-10-02
 
