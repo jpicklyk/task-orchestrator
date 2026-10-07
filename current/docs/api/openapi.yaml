@@ -1524,13 +1524,13 @@ paths:
         - $ref: "#/components/parameters/pageSize"
         - name: role
           in: query
-          description: Case-insensitive. An unrecognized value returns 400 validation_error.
+          description: Matching is case-insensitive (the enum lists the canonical lower-case values). An unrecognized value returns 400 validation_error.
           schema:
             type: string
             enum: [queue, work, review, blocked, terminal]
         - name: priority
           in: query
-          description: Case-insensitive. An unrecognized value returns 400 validation_error.
+          description: Matching is case-insensitive (the enum lists the canonical lower-case values). An unrecognized value returns 400 validation_error.
           schema:
             type: string
             enum: [high, medium, low]
@@ -1580,6 +1580,7 @@ paths:
             format: date-time
         - name: claimStatus
           in: query
+          description: Matching is case-insensitive (the enum lists the canonical lower-case values). An unrecognized value returns 400 validation_error.
           schema:
             type: string
             enum: [claimed, unclaimed, expired]
@@ -2650,7 +2651,7 @@ paths:
             format: uuid
         - name: role
           in: query
-          description: Case-insensitive. An unrecognized value returns 400 validation_error.
+          description: Matching is case-insensitive (the enum lists the canonical lower-case values). An unrecognized value returns 400 validation_error.
           schema:
             type: string
             enum: [queue, work, review, blocked, terminal]

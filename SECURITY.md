@@ -199,6 +199,11 @@ actor_authentication:
   fleet explicitly in `did_allowlist`, or restructure the DID hierarchy so the distinguishing
   segment is the last one. No `**` double-wildcard is available in v1.
 
+- **Static-JWKS mode requires `audience` and `issuer`.** A static-JWKS verifier (`jwks_uri` or
+  `jwks_path`) without a non-blank `audience` and `issuer` fails startup; with `oidc_discovery`, only
+  `audience` is required (the issuer comes from the discovery document). Without them any token signed
+  by a key in the JWKS would be accepted. DID-trust mode is exempt.
+
 - **Exactly one static JWKS source.** Providing more than one of `oidc_discovery`, `jwks_uri`, and
   `jwks_path` causes a startup error (`IllegalArgumentException`). This matches the existing
   mutual-exclusion rule for DID-trust + static-JWKS combinations.

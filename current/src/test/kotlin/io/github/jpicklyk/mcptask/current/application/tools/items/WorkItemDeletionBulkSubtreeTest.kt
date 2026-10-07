@@ -89,7 +89,8 @@ class WorkItemDeletionBulkSubtreeTest : SQLiteRepositoryTestBase() {
             val c = create("c", b.id, 3)
             val sibling = create("sibling", root.id, 1)
             // Stale stored depth: a parent carries a LARGER depth than its descendants, so a
-            // depth-descending per-row delete would remove a before b (FK violation). Depths stay > 0 so\n            // the rows still map to valid WorkItems.
+            // depth-descending per-row delete would remove a before b (FK violation). Depths stay > 0 so
+            // the rows still map to valid WorkItems.
             transaction(db = database) {
                 WorkItemsTable.update({ WorkItemsTable.id eq a.id }) { it[depth] = 5 }
                 WorkItemsTable.update({ WorkItemsTable.id eq b.id }) { it[depth] = 2 }
