@@ -1598,7 +1598,7 @@ Recent transitions across all items. Default window: last 24 hours.
 - `since` — ISO-8601 timestamp; default: 24 hours ago when absent or blank; an unparsable value returns `400 validation_error`
 - Standard pagination params
 
-Scope-filtered: scoped tokens only see transitions for items within their scope (ancestor-chain check).
+Scope-filtered: scoped tokens only see transitions for items within their scope (ancestor-chain check). If the scope lookup fails, the affected rows are dropped (fail closed) rather than returned unfiltered.
 
 **Scan cap:** the underlying fetch is bounded at 1000 rows (`minOf(offset + pageSize + 1, 1000)`)
 regardless of how many transitions actually occurred since `since`. If more than 1000 transitions
