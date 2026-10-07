@@ -833,16 +833,29 @@ The V7 migration fails at startup if the trigram FTS5 table cannot be created.
 
 ---
 
-## SQLite Tuning — `DATABASE_BUSY_TIMEOUT_MS`
+## SQLite Tuning — connection pools, `DATABASE_MAX_CONNECTIONS`, `DATABASE_BUSY_TIMEOUT_MS`
 
-SQLite is a single-writer database. Under concurrent fleet load, write operations may queue and return `SQLITE_BUSY` if the writer lock is held too long. The `DATABASE_BUSY_TIMEOUT_MS` environment variable controls how long SQLite waits for the lock before returning an error. Every transaction the server opens begins `IMMEDIATE` (writer lock taken at `BEGIN`), so concurrent writers queue on this timeout instead of failing immediately with `SQLITE_BUSY_SNAPSHOT` at the read-then-write upgrade. Because every transaction takes the writer lock, read-only transactions queue behind writers too (WAL reader/writer concurrency is not used); with one server process and millisecond-length transactions this is not measurable, but a long-running transaction delays every other request until it commits or the timeout elapses.
+SQLite is a single-writer database. The server keeps two HikariCP connection pools over the one database file:
+
+| Pool | Size | Begins | Purpose |
+|---|---|---|---|
+| `to-writer` | 1 connection | `IMMEDIATE` (writer lock taken at `BEGIN`) | every write unit |
+| `to-reader` | `DATABASE_MAX_CONNECTIONS` (default 10, clamped to 1-64) | `DEFERRED`, `PRAGMA query_only = 1` | reads outside a write unit |
+
+Both pools use WAL, `foreign_keys = ON` and a fixed 1 s `busy_timeout`. Reads no longer take the writer lock, so a long write unit does not delay reads (they see the last committed snapshot).
+
+Writes inside this process are serialized by an in-process lock, so concurrent callers queue fairly (and can be cancelled) instead of colliding in SQLite. Only OTHER processes touching the same file contend for the SQLite lock, which is why the pool `busy_timeout` is short. A unit that hits `SQLITE_BUSY` or `SQLITE_LOCKED` is retried as a whole with jittered backoff for up to 10 s, then fails with the `unavailable` error (`retryAfterMs` 1000). If no pool connection becomes available within 2 s the call fails at once with `unavailable` (`retryAfterMs` 2000). In-memory databases (`mode=memory`, `:memory:`) are refused at startup: two pools would open two different databases.
+
+`DATABASE_BUSY_TIMEOUT_MS` (default 5000 ms) now governs only the startup paths: the Flyway migration connection and the one-time startup compaction. It no longer sets the request-path timeout.
 
 ```bash
-# Set a longer timeout for a fleet with 30+ agents
+# A longer startup wait when several server processes may migrate the same file
 DATABASE_BUSY_TIMEOUT_MS=15000
+# A smaller reader pool for a constrained host
+DATABASE_MAX_CONNECTIONS=4
 ```
 
-### Recommended Values
+### Recommended Values (`DATABASE_BUSY_TIMEOUT_MS`, startup paths only)
 
 | Fleet size | Recommended timeout |
 |---|---|

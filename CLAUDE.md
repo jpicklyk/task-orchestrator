@@ -120,7 +120,8 @@ default, and an unrecognized non-empty value either falls back to the default wi
 (`EnvBoolean.require`, used by `API_ENABLED`/`API_ALLOW_UNAUTHENTICATED`).
 
 **Key environment variables:**
-- `DATABASE_PATH` — SQLite file path (default: `data/current-tasks.db`)
+- `DATABASE_PATH` — SQLite file path (default: `data/current-tasks.db`; in-memory URLs are refused)
+- `DATABASE_MAX_CONNECTIONS` — reader pool size (default: `10`, clamped 1-64); the writer pool is always 1 connection
 - `SCHEMA_MODE` — `migrate` (default) or `validate` (no migrate/baseline; a pending or future version fails startup); any other value fails startup. `USE_FLYWAY` is removed and ignored with a WARN (Flyway is the only schema path)
 - `AGENT_CONFIG_DIR` — directory containing `.taskorchestrator/` (default: working dir)
 - `MCP_TRANSPORT` — `stdio` (default) or `http`
