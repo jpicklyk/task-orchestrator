@@ -68,7 +68,7 @@ class DirectModeUpgradeGuardTest {
     private fun directDb(): String {
         val url = newUrl()
         connectExposed(url)
-        assertTrue(DirectDatabaseSchemaManager().updateSchema())
+        assertTrue(DirectDatabaseSchemaManager(registered.last()).updateSchema())
         withConn(url) { c ->
             c.createStatement().use {
                 it.executeUpdate(

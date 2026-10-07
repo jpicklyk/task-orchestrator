@@ -24,7 +24,7 @@ import kotlin.test.assertNull
 /**
  * Independently authored against the frozen `test-plan` note on item `df7d579a` (scenarios S6,
  * S11). Exercises [PerRootConfigService]'s new [PerRootConfigService.layer] port method — the
- * DB-backed harness style mirrors [PerRootConfigServiceTest]'s existing H2 setup. S11's
+ * DB-backed harness style mirrors [PerRootConfigServiceTest]'s existing database setup. S11's
  * cold-read-error / warm-LKG cases reuse the `FailableProjectConfigRepository` wrapper technique
  * from `AdvanceItemToolConfigUnavailableTest` (a `ProjectConfigRepository` delegate whose
  * `getFingerprint` can be switched to fail), authored fresh here since that fixture is file-private

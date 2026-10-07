@@ -6,8 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
@@ -16,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -29,9 +28,9 @@ import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.security.MessageDigest
 
 /**
@@ -45,6 +44,9 @@ import java.security.MessageDigest
  * ([installMcpStreamableHttp] + [installRestApiRoutes]) with the REST API enabled in bearer mode.
  */
 class McpRestAuthBypassTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private val token = "rest-bearer-token-for-test"
 
     private fun sha256(s: String): ByteArray = MessageDigest.getInstance("SHA-256").digest(s.toByteArray(Charsets.UTF_8))
@@ -71,15 +73,7 @@ class McpRestAuthBypassTest {
                 ),
         )
 
-    private fun inMemoryProvider(): DefaultRepositoryProvider =
-        DefaultRepositoryProvider(
-            DatabaseManager(
-                Database.connect(
-                    "jdbc:h2:mem:authbypass_${System.nanoTime()};DB_CLOSE_DELAY=-1",
-                    driver = "org.h2.Driver",
-                ),
-            ).also { DirectDatabaseSchemaManager().updateSchema() },
-        )
+    private fun inMemoryProvider(): DefaultRepositoryProvider = db.repositoryProvider()
 
     @Test
     fun `REST API enabled gates api routes but leaves the mcp endpoint open`() =

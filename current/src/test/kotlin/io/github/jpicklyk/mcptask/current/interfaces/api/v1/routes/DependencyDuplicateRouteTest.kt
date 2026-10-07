@@ -22,7 +22,7 @@ import kotlin.test.assertTrue
  * Independent test authorship for item fc8f3748 (needs-test-author) -- REST
  * `POST /api/v1/dependencies` duplicate-edge parity fix.
  *
- * Uses H2 (SqliteTestDatabase.repositoryProvider) + configureWriteTestApp, per the test-plan note's Harness
+ * Uses the SQLite fixture (SqliteTestDatabase.repositoryProvider) + configureWriteTestApp, per the test-plan note's Harness
  * section ("Dependency tests: SqliteTestDatabase.repositoryProvider()").
  *
  * Oracles (frozen in test-plan note 826560f2 / diagnosis note 5237085a, before this file was

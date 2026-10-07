@@ -511,7 +511,11 @@ class RootPlacementScopeTest {
             assertEquals(1, persistedX.data.depth, "X's depth must be unchanged")
             assertEquals(root.id, persistedX.data.rootId, "X's rootId must be unchanged")
             assertEquals("S10 X", persistedX.data.title, "X's title must be unchanged (rejected patch touches nothing)")
-            assertEquals(x.modifiedAt.toEpochMilli(), persistedX.data.modifiedAt.toEpochMilli(), "A rejected PATCH must not touch modifiedAt")
+            assertEquals(
+                x.modifiedAt.toEpochMilli(),
+                persistedX.data.modifiedAt.toEpochMilli(),
+                "A rejected PATCH must not touch modifiedAt"
+            )
 
             val persistedD = runBlocking { repo.workItemRepository().getById(d.id) }
             assertIs<Result.Success<WorkItem>>(persistedD)

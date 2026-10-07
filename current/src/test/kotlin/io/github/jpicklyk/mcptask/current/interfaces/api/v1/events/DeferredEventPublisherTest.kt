@@ -23,7 +23,7 @@ import java.util.UUID
  *  O3 WorkItemRepository.kt:100-111 KDoc: "if [block] throws, all writes are rolled back
  *     atomically" (supplied verbatim in this item's DECLARATIONS block).
  *
- * These tests exercise [DeferredEventPublisher] directly against a real Exposed/H2 transaction
+ * These tests exercise [DeferredEventPublisher] directly against a real Exposed/SQLite transaction
  * obtained via [io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository.inTransaction]
  * (the transaction seam named in the DECLARATIONS block) — no [EventPublishingRepositoryProvider]
  * involved here; the decorator's own routing is covered separately by

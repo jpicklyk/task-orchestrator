@@ -20,9 +20,8 @@ import kotlin.test.assertTrue
  *
  * Uses an in-memory SQLite database with the base schema (no FTS5 virtual tables).
  *
- * SQLite is used rather than H2 so the recursive CTE path is exercised — the H2 BFS fallback
- * in [SQLiteWorkItemRepository.resolveScopeIds] is a safety net for tests that explicitly
- * need H2, but scope tests should exercise the SQLite CTE path.
+ * SQLite is used so the recursive CTE path of [SQLiteWorkItemRepository.resolveScopeIds] is
+ * exercised.
  *
  * Test coverage per task-scope acceptance criteria (Phase 0):
  * 1. Roots included — findInScope({R1}) includes R1 itself (not just descendants)

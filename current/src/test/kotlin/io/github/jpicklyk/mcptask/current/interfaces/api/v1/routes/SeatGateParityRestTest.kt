@@ -5,13 +5,12 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextT
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -37,8 +36,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -53,7 +52,7 @@ import kotlin.test.assertTrue
  * half (`features` on `GET /api/v1/info` and the well-known document; the MCP-tool half of S13 --
  * `query_items(schema)` type and item paths -- is already covered by `SeatServingMcpTest`, A1b).
  *
- * Harness (task-scope-addendum "Harness rule"): a single REAL [ServerComposition.build] over an H2
+ * Harness (task-scope-addendum "Harness rule"): a single REAL [ServerComposition.build] over a SQLite
  * in-memory DB supplies the [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext]
  * used for BOTH the MCP tool calls ([GetContextTool], [AdvanceItemTool]) and the REST surface, which
  * is wired through the REAL [installRestApiRoutes] (mirrors `ItemGateRouteTest` S15 /
@@ -61,6 +60,9 @@ import kotlin.test.assertTrue
  * never two independently constructed contexts that could drift.
  */
 class SeatGateParityRestTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     companion object {
         private val ROOT_ID: UUID = UUID.fromString("a1c00000-0000-4000-8000-000000000000")
         private val QUEUE_ITEM_ID: UUID = UUID.fromString("a1c00000-0000-4000-8000-000000000001")
@@ -114,13 +116,6 @@ work_item_schemas:
         private val WORK_ITEM_ID: UUID = UUID.fromString("a1c00000-0000-4000-8000-000000000002")
     }
 
-    private fun buildDatabaseManager(): DatabaseManager {
-        val dbName = "a1c_seat_parity_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DatabaseManager(database)
-    }
-
     private fun materializeGlobalConfig(
         tempDir: Path,
         content: String,
@@ -138,7 +133,7 @@ work_item_schemas:
         val appConfig = AppConfig.fromEnv { key -> if (key == "AGENT_CONFIG_DIR") tempDir.toString() else null }
         return ServerComposition(
             appConfig = appConfig,
-            databaseManager = buildDatabaseManager(),
+            databaseManager = db.databaseManager,
             shutdownCoordinator = ShutdownCoordinator()
         ).build()
     }

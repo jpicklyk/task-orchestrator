@@ -7,8 +7,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.WRITE_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureProjectConfigTestApp
@@ -28,7 +26,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
@@ -48,7 +45,7 @@ import kotlin.test.assertTrue
  * Harness: the GLOBAL half mirrors [GlobalConfigStartupFailClosedTest] (a real
  * `.taskorchestrator/config.yaml` under a temp `AGENT_CONFIG_DIR`, loaded via a real
  * [ServerComposition.build]). The PUSH half mirrors [ManageProjectConfigToolSchemaWarningsTest]
- * (MCP `manage_project_config` push via a real H2-backed [ToolExecutionContext]) and
+ * (MCP `manage_project_config` push via a real SQLite-backed [ToolExecutionContext]) and
  * `ProjectConfigRoutesTest` (REST `PUT /api/v1/roots/{rootId}/config` via the real
  * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureProjectConfigTestApp] /
  * `projectConfigRoutes`) -- never a hand-built replica of either surface.
@@ -58,13 +55,6 @@ class SeatConfigLoadFailClosedTest {
     val db = SqliteTestDatabase.perMethod()
 
     // ─── Shared fixtures ───────────────────────────────────────────────────
-
-    private fun buildDatabaseManager(): DatabaseManager {
-        val dbName = "seat_config_fail_closed_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DatabaseManager(database)
-    }
 
     private fun writeGlobalConfig(
         dir: Path,
@@ -178,7 +168,7 @@ class SeatConfigLoadFailClosedTest {
 
         val ex =
             assertFailsWith<IllegalArgumentException> {
-                ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator()).build()
+                ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator()).build()
             }
         assertTrue(ex.message?.contains(configPath.toString()) == true, "message must name the config path: ${ex.message}")
         assertTrue(ex.message?.contains("work") == true, "message must name phase 'work': ${ex.message}")
@@ -192,7 +182,7 @@ class SeatConfigLoadFailClosedTest {
 
         val ex =
             assertFailsWith<IllegalArgumentException> {
-                ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator()).build()
+                ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator()).build()
             }
         assertTrue(ex.message?.contains(configPath.toString()) == true, "message must name the config path: ${ex.message}")
         assertTrue(ex.message?.contains("work") == true, "message must name phase 'work': ${ex.message}")
@@ -289,7 +279,7 @@ class SeatConfigLoadFailClosedTest {
 
         val ex =
             assertFailsWith<IllegalArgumentException> {
-                ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator()).build()
+                ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator()).build()
             }
         assertTrue(ex.message?.contains(configPath.toString()) == true, "message must name the config path: ${ex.message}")
     }
@@ -328,7 +318,7 @@ class SeatConfigLoadFailClosedTest {
 
         val ex =
             assertFailsWith<IllegalArgumentException> {
-                ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator()).build()
+                ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator()).build()
             }
         assertTrue(ex.message?.contains(configPath.toString()) == true, "message must name the config path: ${ex.message}")
         assertTrue(ex.message?.contains("unowned") == true, "message must name the reserved seat name: ${ex.message}")
@@ -368,7 +358,7 @@ class SeatConfigLoadFailClosedTest {
 
         val ex =
             assertFailsWith<IllegalArgumentException> {
-                ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator()).build()
+                ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator()).build()
             }
         assertTrue(ex.message?.contains(configPath.toString()) == true, "message must name the config path: ${ex.message}")
     }
@@ -439,7 +429,7 @@ class SeatConfigLoadFailClosedTest {
         writeGlobalConfig(tempDir, warningsYaml)
 
         // Must NOT throw -- warnings are non-fatal.
-        val composition = ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator()).build()
+        val composition = ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator()).build()
         assertTrue(composition.noteSchemaService.getConfigFingerprint() != null, "the (warning-laden but valid) config must still load")
     }
 

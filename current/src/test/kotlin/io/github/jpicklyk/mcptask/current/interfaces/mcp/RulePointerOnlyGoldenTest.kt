@@ -6,14 +6,13 @@ import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeTestAuthConfig
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -32,8 +31,8 @@ import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.nio.file.Files
@@ -58,11 +57,14 @@ import kotlin.test.fail
  * pointer-only schema responses this item's acceptance criterion requires.
  *
  * Harness: mirrors `SeatlessResponseGoldenTest`'s own fixture builder (own copy; no shared
- * harness file per this item's file-ownership rule) -- REAL `ServerComposition.build` over H2 for
+ * harness file per this item's file-ownership rule) -- REAL `ServerComposition.build` over SQLite for
  * MCP, REAL `installRestApiRoutes` with `ContentNegotiation` installed first for REST (per the
  * contract's Harness rule), reusing the SAME `composition.toolContext` for both surfaces.
  */
 class RulePointerOnlyGoldenTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     companion object {
         private val ROOT_ID: UUID = UUID.fromString("a1000000-0000-4000-8000-000000000000")
         private val FEATURE_TASK_ID: UUID = UUID.fromString("a1000000-0000-4000-8000-000000000001")
@@ -86,13 +88,6 @@ class RulePointerOnlyGoldenTest {
         }
     }
 
-    private fun buildDatabaseManager(): DatabaseManager {
-        val dbName = "a3_pointer_only_golden_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DatabaseManager(database)
-    }
-
     private fun materializeGlobalConfig(tempDir: Path) {
         val configDir = tempDir.resolve(".taskorchestrator")
         Files.createDirectories(configDir)
@@ -114,7 +109,7 @@ class RulePointerOnlyGoldenTest {
         val composition =
             ServerComposition(
                 appConfig = appConfig,
-                databaseManager = buildDatabaseManager(),
+                databaseManager = db.databaseManager,
                 shutdownCoordinator = ShutdownCoordinator(),
             ).build()
 

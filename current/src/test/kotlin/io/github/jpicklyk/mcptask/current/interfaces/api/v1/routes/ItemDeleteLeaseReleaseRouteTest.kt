@@ -14,7 +14,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigSer
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.delete
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -33,6 +33,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -120,13 +121,18 @@ private fun Application.configureDeleteLeaseTestApp(provider: RepositoryProvider
  *       DBError takes the existing 500 `db_error` path and the row is kept — no other change to
  *       the route's status codes or body shape from this item.
  *
- * Runs on real SQLite ([SQLiteRepositoryTestBase]) because the lease repository's SQL uses
- * `datetime()`, which the H2 database the other route tests in this package use does not support —
+ * Runs on real SQLite (the SQLite test fixture) because the lease repository's SQL uses
+ * `datetime()`, which the SQLite database the other route tests in this package use does not support —
  * the harness the test-plan names for these scenarios (mirroring why
  * [AdvanceRouteResourceLeaseTest] uses an in-memory fake instead: here real lease-close semantics
  * ARE what is under test, so a fake would not do).
  */
-class ItemDeleteLeaseReleaseRouteTest : SQLiteRepositoryTestBase() {
+class ItemDeleteLeaseReleaseRouteTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
+    private val repositoryProvider get() = db.repositoryProvider()
+
     @Test
     fun `S6 REST DELETE of a leased leaf returns 204 and closes its lease interval as released`(): Unit =
         testApplication {

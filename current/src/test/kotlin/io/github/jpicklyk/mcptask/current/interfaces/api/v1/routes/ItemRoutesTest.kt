@@ -34,7 +34,7 @@ import kotlin.test.assertTrue
 /**
  * Integration tests for item-read routes.
  *
- * Uses an H2-backed [io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider].
+ * Uses a SQLite-backed [io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider].
  *
  * Test coverage:
  * - Happy path for each item endpoint

@@ -37,8 +37,8 @@ import kotlin.test.assertNull
  * [WriteRoutesTest]'s `POST advance on item CLAIMED by another MCP agent` test, which stays green
  * here because that test advances QUEUE->WORK (non-terminal) and this one advances WORK->TERMINAL.
  *
- * Fixture note: claim fields are set directly via `create()` (H2 supports persisting them; only
- * `claim()`'s SQLite-dialect SQL does not run on H2 — see [SQLiteWorkItemClaimFieldsTest] /
+ * Fixture note: claim fields are set directly via `create()` (persisting them needs no claim SQL;
+ * `claim()`'s SQLite-dialect SQL is covered separately — see [SQLiteWorkItemClaimFieldsTest] /
  * [WriteRoutesTest]'s identical fixture technique), truncated to millisecond precision so the
  * persisted round-trip equality check is exact.
  */

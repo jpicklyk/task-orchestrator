@@ -16,7 +16,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Independent regression coverage for the `tags_include` scope gap on H2-backed REST read
+ * Independent regression coverage for the `tags_include` scope gap on SQLite-backed REST read
  * routes: `GET /items`, `GET /items/roots`, and `GET /transitions`.
  *
  * Authored per the item `ffa12a2f-8028-4a46-8882-3f84fa629ee9` `test-plan` note (oracles

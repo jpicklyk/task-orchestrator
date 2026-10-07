@@ -3,24 +3,29 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
-import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 
 /**
  * Claim/release SSE event coverage for [EventPublishingRepositoryProvider] — item 646b12a6.
  *
- * Uses [SQLiteRepositoryTestBase] because the canonical claim SQL pattern (auto-release of an
- * agent's other held claims, TTL-based eviction) uses SQLite-specific date functions H2 does not
- * support. Oracles: [R] = current/docs/api-rest.md §21 "Claim/release note"; [D] = the item's
+ * Uses the SQLite test fixture because the canonical claim SQL pattern (auto-release of an
+ * agent's other held claims, TTL-based eviction) uses SQLite-specific date functions. Oracles: [R] = current/docs/api-rest.md §21 "Claim/release note"; [D] = the item's
  * `diagnosis` note's Fix mapping.
  *
  * Every scenario subscribes, performs the write under test, then drains via [drainDelivered] —
  * see that helper's KDoc for why no fixed wait is needed (O5, item 646b12a6).
  */
-class EventPublishingClaimEventsTest : SQLiteRepositoryTestBase() {
+class EventPublishingClaimEventsTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
+    private val repositoryProvider get() = db.repositoryProvider()
+
     /** S5: claim(Y, agent) success → item.updated itemId=Y. [R "field updated"][D] */
     @Test
     fun `S5 successful claim emits item updated for the claimed item`(): Unit =

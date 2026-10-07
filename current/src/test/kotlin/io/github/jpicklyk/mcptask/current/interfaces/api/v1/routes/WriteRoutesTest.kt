@@ -972,8 +972,8 @@ class AdvanceRouteTest {
             val repo = db.repositoryProvider()
             // Create the item ALREADY claimed by a fleet MCP agent (different identity than the API).
             // Construct the claim fields directly instead of calling repo.claim() — claim() uses
-            // SQLite-specific SQL that does not run on the H2 test fixture, whereas create() persists
-            // claim fields on H2 (see SQLiteWorkItemClaimFieldsTest). Capture `now` ONCE so the
+            // SQLite-specific SQL with its own coverage, whereas create() persists
+            // claim fields on SQLite (see SQLiteWorkItemClaimFieldsTest). Capture `now` ONCE so the
             // WorkItem.validate() invariant originalClaimedAt <= claimedAt holds.
             val item =
                 runBlocking {

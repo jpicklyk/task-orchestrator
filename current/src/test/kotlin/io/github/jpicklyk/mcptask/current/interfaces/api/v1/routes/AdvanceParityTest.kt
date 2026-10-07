@@ -43,7 +43,7 @@ import kotlin.test.assertTrue
  * unblock sets. This is the regression guard against the two paths diverging again — the whole
  * reason [io.github.jpicklyk.mcptask.current.application.service.AdvanceService] exists.
  *
- * Both paths run over real H2-backed repositories. Equivalent (mirrored) subtrees are constructed
+ * Both paths run over real SQLite-backed repositories. Equivalent (mirrored) subtrees are constructed
  * so the MCP tool can act on one and the REST route on the other within the same DB.
  */
 class AdvanceParityTest {

@@ -7,6 +7,7 @@ import ch.qos.logback.core.read.ListAppender
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -17,6 +18,7 @@ import kotlinx.serialization.json.*
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.slf4j.LoggerFactory
 import java.util.UUID
 import kotlin.test.assertEquals
@@ -30,6 +32,9 @@ import kotlin.test.assertTrue
  * Uses the SDK 0.9.0 kotlin-sdk-testing module with in-process channel transport.
  */
 class McpToolAdapterIntegrationTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var server: Server
     private lateinit var client: Client
     private lateinit var adapter: McpToolAdapter
@@ -155,23 +160,7 @@ class McpToolAdapterIntegrationTest {
             ): JsonElement = throw RuntimeException("Intentional test failure")
         }
 
-    private val dummyContext =
-        ToolExecutionContext(
-            repositoryProvider =
-                io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider(
-                    io.github.jpicklyk.mcptask.current.infrastructure.database
-                        .DatabaseManager(
-                            org.jetbrains.exposed.v1.jdbc.Database.connect(
-                                "jdbc:h2:mem:integration_${System.nanoTime()};DB_CLOSE_DELAY=-1",
-                                driver = "org.h2.Driver"
-                            )
-                        ).also {
-                            io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management
-                                .DirectDatabaseSchemaManager()
-                                .updateSchema()
-                        }
-                )
-        )
+    private val dummyContext by lazy { ToolExecutionContext(repositoryProvider = db.repositoryProvider()) }
 
     // ──────────────────────────────────────────────
     // Tool listing through MCP protocol

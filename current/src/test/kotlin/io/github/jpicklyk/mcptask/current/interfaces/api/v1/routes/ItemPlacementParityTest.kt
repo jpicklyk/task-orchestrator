@@ -60,7 +60,7 @@ import kotlin.test.assertTrue
  * regression guard against the hierarchy rules drifting between the two again (the MCP cycle guard
  * used to fail OPEN on an ancestor-lookup error while REST failed closed).
  *
- * Each scenario builds two mirrored trees in one H2 database (one acted on per surface) and
+ * Each scenario builds two mirrored trees in one SQLite database (one acted on per surface) and
  * compares a normalized snapshot (depth / parent / root, by role-name) after the write.
  *
  *   R -> A(1) -> B(2) -> D(3)      X (own root) -> XC(1)      R2 (own root)

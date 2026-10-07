@@ -202,7 +202,7 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
             assertIs<RepositoryError.DatabaseError>(result.error)
         }
 
-    // ── S10: ftsSearch subtree-scope CTE on a cycle (SQLite only — H2 has no FTS5) ──
+    // ── S10: ftsSearch subtree-scope CTE on a cycle (SQLite only) ──
 
     @Test
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
@@ -259,7 +259,7 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
             assertIs<RepositoryError.DatabaseError>(result.error)
         }
 
-    // ── Ported from WorkItemRepositoryH2CycleGuardTest (dialect-neutral scenarios, now on SQLite) ──
+    // ── Ported from the retired in-memory cycle-guard suite (dialect-neutral scenarios, now on SQLite) ──
 
     /** Bypass [WorkItem.validate] title-blank rejection to make an existing row domain-invalid. */
     private fun corruptTitleBlank(itemId: UUID) {
@@ -276,7 +276,7 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
     fun `findAncestorChainsDetailed on a mutual cycle reports truncated with reason cycle`(): Unit =
         runBlocking {
-            // Both items are created at depth 1 (the H2 original set depth = 1 in its update): a depth-0 row
+            // Both items are created at depth 1 (the retired in-memory original set depth = 1 in its update): a depth-0 row
             // with a parent would fail domain validation on read and be reported as a missing ancestor.
             val root = createItem("S6 root")
             val a = createItem("S6 A", parentId = root.id, depth = 1)

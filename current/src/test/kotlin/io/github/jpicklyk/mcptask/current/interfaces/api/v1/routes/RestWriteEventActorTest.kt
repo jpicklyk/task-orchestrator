@@ -44,7 +44,7 @@ import kotlin.test.assertTrue
  * `api:<tokenId>`, kind `external`, parent absent. The WRITE token's id is [WRITE_TOKEN_ID].
  *
  * Wiring: the REAL write route functions under the production-style bearer plugin, over an
- * [EventPublishingRepositoryProvider]-decorated H2 provider. Fixtures are seeded through the
+ * [EventPublishingRepositoryProvider]-decorated SQLite provider. Fixtures are seeded through the
  * UNDECORATED provider so the only events on the bus are those the REST write under test produced.
  * A bus subscriber is registered before each write, because the decorator skips root resolution
  * while nobody is subscribed (a rootId assertion needs a subscriber).

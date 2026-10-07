@@ -22,7 +22,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
-import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -42,6 +42,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 
 /**
@@ -69,7 +70,12 @@ import java.util.UUID
  * CurrentMcpServer uses when the API is enabled). An UNRESTRICTED subscriber is connected before
  * every write so roots are resolved; the zero-subscriber scenarios deliberately connect none.
  */
-class EventActorRootIdTest : SQLiteRepositoryTestBase() {
+class EventActorRootIdTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
+    private val repositoryProvider get() = db.repositoryProvider()
+
     private val agentA = ActorClaim(id = "agent-a", kind = ActorKind.SUBAGENT, parent = "orch-1")
     private val agentB = ActorClaim(id = "agent-b", kind = ActorKind.ORCHESTRATOR)
 

@@ -53,7 +53,7 @@ import kotlin.test.assertTrue
  * REST enforcement-matrix tests for the resource-lease gate on `POST /items/{id}/advance`.
  *
  * Storage for leases is an in-memory fake, for the same reason [ResourceLeaseRoutesTest] uses one:
- * the SQLite-dialect repository (`datetime('now')`) does not run on the H2 database these route
+ * the SQLite-dialect repository (`datetime('now')`) does not run on the SQLite database these route
  * tests use, and what is under test here is the route's enforcement/serialization behavior, not
  * lease storage semantics.
  */
@@ -183,7 +183,7 @@ private class LeaseGateFakeRepository : ResourceLeaseRepository {
             .take(limit)
 }
 
-/** H2-backed provider with only [resourceLeaseRepository] swapped for the in-memory fake. */
+/** SQLite-backed provider with only [resourceLeaseRepository] swapped for the in-memory fake. */
 private class LeaseOverridingProvider(
     private val delegate: RepositoryProvider,
     private val fake: ResourceLeaseRepository,
@@ -252,9 +252,9 @@ class AdvanceRouteResourceLeaseTest {
     @Test
     fun `contended resource returns 409 with Retry-After and the contended keys`(): Unit =
         testApplication {
-            val h2 = db.repositoryProvider()
+            val sqlite = db.repositoryProvider()
             val fake = LeaseGateFakeRepository()
-            val item = h2.createTracedItem("Needs staging DB")
+            val item = sqlite.createTracedItem("Needs staging DB")
             fake.forceContended = listOf("staging-db-credential")
             // Distinctive seeds so their absence in the serialized 409 body is unambiguous — mirrors
             // AdvanceItemToolLeaseBlockedTest's disclosure assertion for the MCP surface.
@@ -270,7 +270,7 @@ class AdvanceRouteResourceLeaseTest {
                     expiresAt = now.plusSeconds(600),
                     originalAcquiredAt = now,
                 )
-            application { configureLeaseTestApp(LeaseOverridingProvider(h2, fake)) }
+            application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake)) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -289,17 +289,17 @@ class AdvanceRouteResourceLeaseTest {
             assertFalse(body.contains(holderActorId), "holder actor id must never appear in a 409 body: $body")
 
             // Hard negative: the item did NOT advance.
-            val persisted = runBlocking { h2.workItemRepository().getById(item.id) }
+            val persisted = runBlocking { sqlite.workItemRepository().getById(item.id) }
             assertEquals(Role.QUEUE, (persisted as Result.Success).data.role)
         }
 
     @Test
     fun `an uncontended advance acquires the lease and succeeds`(): Unit =
         testApplication {
-            val h2 = db.repositoryProvider()
+            val sqlite = db.repositoryProvider()
             val fake = LeaseGateFakeRepository()
-            val item = h2.createTracedItem("Needs staging DB")
-            application { configureLeaseTestApp(LeaseOverridingProvider(h2, fake)) }
+            val item = sqlite.createTracedItem("Needs staging DB")
+            application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake)) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -317,10 +317,10 @@ class AdvanceRouteResourceLeaseTest {
     @Test
     fun `leaving the work phase releases the lease`(): Unit =
         testApplication {
-            val h2 = db.repositoryProvider()
+            val sqlite = db.repositoryProvider()
             val fake = LeaseGateFakeRepository()
-            val item = h2.createTracedItem("Needs staging DB")
-            application { configureLeaseTestApp(LeaseOverridingProvider(h2, fake)) }
+            val item = sqlite.createTracedItem("Needs staging DB")
+            application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake)) }
 
             val started =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -348,11 +348,11 @@ class AdvanceRouteResourceLeaseTest {
     @Test
     fun `overrideResourceLeases from a non-admin principal is rejected with 403`(): Unit =
         testApplication {
-            val h2 = db.repositoryProvider()
+            val sqlite = db.repositoryProvider()
             val fake = LeaseGateFakeRepository()
-            val item = h2.createTracedItem("Needs staging DB")
+            val item = sqlite.createTracedItem("Needs staging DB")
             fake.forceContended = listOf("staging-db-credential")
-            application { configureLeaseTestApp(LeaseOverridingProvider(h2, fake)) }
+            application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake)) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -366,18 +366,18 @@ class AdvanceRouteResourceLeaseTest {
             assertTrue(response.bodyAsText().contains("insufficient_capability"), response.bodyAsText())
 
             // The flag must never be silently ignored — the item stays put.
-            val persisted = runBlocking { h2.workItemRepository().getById(item.id) }
+            val persisted = runBlocking { sqlite.workItemRepository().getById(item.id) }
             assertEquals(Role.QUEUE, (persisted as Result.Success).data.role)
         }
 
     @Test
     fun `overrideResourceLeases from an ADMIN principal proceeds past contention and is audited`(): Unit =
         testApplication {
-            val h2 = db.repositoryProvider()
+            val sqlite = db.repositoryProvider()
             val fake = LeaseGateFakeRepository()
-            val item = h2.createTracedItem("Needs staging DB")
+            val item = sqlite.createTracedItem("Needs staging DB")
             fake.forceContended = listOf("staging-db-credential")
-            application { configureLeaseTestApp(LeaseOverridingProvider(h2, fake)) }
+            application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake)) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -387,14 +387,14 @@ class AdvanceRouteResourceLeaseTest {
                 }
 
             assertEquals(HttpStatusCode.OK, response.status)
-            val persisted = runBlocking { h2.workItemRepository().getById(item.id) }
+            val persisted = runBlocking { sqlite.workItemRepository().getById(item.id) }
             assertEquals(Role.WORK, (persisted as Result.Success).data.role)
             // No lease was taken — the gate was skipped, not satisfied.
             assertTrue(fake.leases.isEmpty())
 
             // The durable audit row records the override alongside the WARN log line.
             val transitions =
-                runBlocking { h2.roleTransitionRepository().findByItemId(item.id) }
+                runBlocking { sqlite.roleTransitionRepository().findByItemId(item.id) }
                     .let { (it as Result.Success).data }
             val summary = transitions.firstNotNullOfOrNull { it.summary }
             assertNotNull(summary, "the override must be recorded on the transition audit row")
@@ -404,11 +404,11 @@ class AdvanceRouteResourceLeaseTest {
     @Test
     fun `omitting overrideResourceLeases keeps the gate enforced for an ADMIN principal`(): Unit =
         testApplication {
-            val h2 = db.repositoryProvider()
+            val sqlite = db.repositoryProvider()
             val fake = LeaseGateFakeRepository()
-            val item = h2.createTracedItem("Needs staging DB")
+            val item = sqlite.createTracedItem("Needs staging DB")
             fake.forceContended = listOf("staging-db-credential")
-            application { configureLeaseTestApp(LeaseOverridingProvider(h2, fake)) }
+            application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake)) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -424,14 +424,14 @@ class AdvanceRouteResourceLeaseTest {
     @Test
     fun `an item declaring no resources is unaffected by the gate`(): Unit =
         testApplication {
-            val h2 = db.repositoryProvider()
+            val sqlite = db.repositoryProvider()
             val fake = LeaseGateFakeRepository()
             val item =
                 runBlocking {
-                    h2.workItemRepository().create(WorkItem(title = "Plain", depth = 0)).getOrNull()!!
+                    sqlite.workItemRepository().create(WorkItem(title = "Plain", depth = 0)).getOrNull()!!
                 }
             fake.forceContended = listOf("staging-db-credential")
-            application { configureLeaseTestApp(LeaseOverridingProvider(h2, fake)) }
+            application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake)) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {

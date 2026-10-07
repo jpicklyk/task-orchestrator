@@ -465,7 +465,11 @@ class PatchReparentScopeTest {
 
             val persistedX = runBlocking { repo.workItemRepository().getById(x.id) }
             assertIs<Result.Success<WorkItem>>(persistedX)
-            assertEquals(x.modifiedAt.toEpochMilli(), persistedX.data.modifiedAt.toEpochMilli(), "A 403-rejected PATCH must not touch X's modifiedAt")
+            assertEquals(
+                x.modifiedAt.toEpochMilli(),
+                persistedX.data.modifiedAt.toEpochMilli(),
+                "A 403-rejected PATCH must not touch X's modifiedAt"
+            )
 
             val persistedDescendant = runBlocking { repo.workItemRepository().getById(descendant.id) }
             assertIs<Result.Success<WorkItem>>(persistedDescendant)

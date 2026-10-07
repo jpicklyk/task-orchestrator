@@ -62,21 +62,21 @@ class ConfigUnavailableRoutesTest {
     @Test
     fun `S10 - POST items id advance returns 503 config_unavailable when the per-root config read fails cold`() =
         testApplication {
-            val h2 = db.repositoryProvider()
+            val sqlite = db.repositoryProvider()
             val (root, item) =
                 runBlocking {
-                    val r = h2.workItemRepository().create(WorkItem(title = "Root S10", depth = 0)).getOrNull()!!
+                    val r = sqlite.workItemRepository().create(WorkItem(title = "Root S10", depth = 0)).getOrNull()!!
                     val i =
-                        h2
+                        sqlite
                             .workItemRepository()
                             .create(
                                 WorkItem(title = "Child S10", role = Role.QUEUE, parentId = r.id, rootId = r.id, depth = 1)
                             ).getOrNull()!!
                     r to i
                 }
-            val failable = FailableProjectConfigRepository(h2.projectConfigRepository())
+            val failable = FailableProjectConfigRepository(sqlite.projectConfigRepository())
             failable.failFingerprint = true
-            val provider = FailableRepositoryProvider(h2, failable)
+            val provider = FailableRepositoryProvider(sqlite, failable)
             application { configureAdvanceApp(provider, NoSchemaWorkItemSchemaService) }
 
             val response =
@@ -90,7 +90,7 @@ class ConfigUnavailableRoutesTest {
             val body = response.bodyAsText()
             assertTrue(body.contains("config_unavailable"), "body: $body")
 
-            val persisted = runBlocking { h2.workItemRepository().getById(item.id).getOrNull()!! }
+            val persisted = runBlocking { sqlite.workItemRepository().getById(item.id).getOrNull()!! }
             assertEquals(Role.QUEUE, persisted.role, "role must be unchanged when the advance is rejected for config_unavailable")
             assertEquals(
                 null,
@@ -102,24 +102,24 @@ class ConfigUnavailableRoutesTest {
     @Test
     fun `S11 - GET items id gate returns 503 config_unavailable when the per-root config read fails cold`() =
         testApplication {
-            val h2 = db.repositoryProvider()
+            val sqlite = db.repositoryProvider()
             val item =
                 runBlocking {
-                    val r = h2.workItemRepository().create(WorkItem(title = "Root S11", depth = 0)).getOrNull()!!
+                    val r = sqlite.workItemRepository().create(WorkItem(title = "Root S11", depth = 0)).getOrNull()!!
                     // A real row must exist so getFingerprint succeeds with a non-null value first —
                     // resolve() only reaches the .get() read (the one failFingerprint=false/failGet=true
                     // is meant to intercept) once the fingerprint check itself has NOT short-circuited
                     // on Success(null)/absence.
-                    h2.projectConfigRepository().upsert(r.id, "work_item_schemas:\n  T:\n    notes: []\n")
-                    h2
+                    sqlite.projectConfigRepository().upsert(r.id, "work_item_schemas:\n  T:\n    notes: []\n")
+                    sqlite
                         .workItemRepository()
                         .create(
                             WorkItem(title = "Child S11", role = Role.WORK, parentId = r.id, rootId = r.id, depth = 1)
                         ).getOrNull()!!
                 }
-            val failable = FailableProjectConfigRepository(h2.projectConfigRepository())
+            val failable = FailableProjectConfigRepository(sqlite.projectConfigRepository())
             failable.failGet = true
-            val provider = FailableRepositoryProvider(h2, failable)
+            val provider = FailableRepositoryProvider(sqlite, failable)
             application {
                 configureTestApp(makeTestAuthConfig()) {
                     itemGateRoutes(
@@ -165,7 +165,7 @@ private class FailableProjectConfigRepository(
     override suspend fun get(rootItemId: UUID) = if (failGet) Result.Error(RepositoryError.DatabaseError("x")) else delegate.get(rootItemId)
 }
 
-/** An H2-backed provider with only [projectConfigRepository] swapped, mirroring `LeaseOverridingProvider`. */
+/** An SQLite-backed provider with only [projectConfigRepository] swapped, mirroring `LeaseOverridingProvider`. */
 private class FailableRepositoryProvider(
     private val delegate: RepositoryProvider,
     private val failable: FailableProjectConfigRepository

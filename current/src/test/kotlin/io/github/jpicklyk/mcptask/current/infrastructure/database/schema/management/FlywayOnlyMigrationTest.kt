@@ -64,7 +64,7 @@ class FlywayOnlyMigrationTest {
         val url = newUrl(dir)
         registered += Database.connect(url = url, driver = "org.sqlite.JDBC")
         TransactionManager.manager.defaultIsolationLevel = Connection.TRANSACTION_SERIALIZABLE
-        assertTrue(DirectDatabaseSchemaManager().updateSchema(), "fixture: test bridge must build the schema")
+        assertTrue(DirectDatabaseSchemaManager(registered.last()).updateSchema(), "fixture: test bridge must build the schema")
         insertItem(url, UUID.randomUUID(), title = "direct-row")
         return url
     }

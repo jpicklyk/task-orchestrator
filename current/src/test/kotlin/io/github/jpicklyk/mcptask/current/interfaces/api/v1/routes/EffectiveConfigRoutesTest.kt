@@ -67,7 +67,7 @@ import kotlin.test.assertTrue
 // enumeration param, so global-layer drift between the two params — R1 in the test-plan's
 // red-proof table — cannot occur by construction), mirroring
 // EffectiveConfigResolverTest/AvailableTraitsOrderTest's proven pattern. Per-root layers use
-// PerRootConfigService over a real H2-backed ProjectConfigRepository (mirroring
+// PerRootConfigService over a real SQLite-backed ProjectConfigRepository (mirroring
 // ProjectConfigRoutesTest/ConfigUnavailableRoutesTest), except where a scenario needs a fixed
 // or instrumented PerRootConfigSource fake, per that scenario's own note.
 

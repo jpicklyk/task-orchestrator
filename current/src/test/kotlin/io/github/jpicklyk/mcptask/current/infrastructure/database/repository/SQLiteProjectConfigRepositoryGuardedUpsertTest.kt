@@ -27,12 +27,12 @@ import kotlin.test.assertNotEquals
  * Test-plan scenarios covered: S1, S2, S3, S4, S8 (see the item's `test-plan` note, queue phase).
  *
  * S3, S4 and S8 use a REAL file-backed SQLite database in WAL mode, per the test-plan's Harness
- * section — NOT H2, NOT an in-memory shared-cache database — because
+ * section — NOT an in-memory shared-cache database — because
  * they force a genuine two-connection race via [SQLiteProjectConfigRepository]'s
  * `beforeGuardedWrite` test hook, which starts a competing write on a second real JVM thread
  * during X's transaction (after the guard read, before the conditional write). Production uses
  * WAL-mode file-backed SQLite (see `SQLiteWorkItemRepositoryClaimTest`'s KDoc for the same
- * distinction on the claim path); an in-memory or H2 harness would not reproduce this race.
+ * distinction on the claim path); an in-memory harness would not reproduce this race.
  *
  * Since transactions begin IMMEDIATE (item `1a400d81`), X — the writer whose `upsertGuarded` call
  * this test drives directly — always acquires the write lock at BEGIN and so always wins: X's own

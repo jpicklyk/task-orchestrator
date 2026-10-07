@@ -30,7 +30,7 @@ import kotlin.test.assertTrue
  * assertion below is verified without ever reading `src/main`.
  *
  * Runs on a migrated SQLite database (SqliteTestDatabase) — see [SQLiteWorkItemRepositoryFtsPaginationTest]'s class doc
- * for why an H2-backed harness would have made this suite vacuously green.
+ * for why a SQLite-backed harness would have made this suite vacuously green.
  */
 class SQLiteNoteRepositoryFtsPaginationTest {
     @RegisterExtension

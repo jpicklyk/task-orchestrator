@@ -31,7 +31,7 @@ import kotlin.test.assertTrue
  * pre-check only runs when `blockerId() != null`; [Df] decision (f) — toDto().unblockAt always
  * uses effectiveUnblockRole(), not a BLOCKS-only ternary.
  *
- * H2 + `SqliteTestDatabase.repositoryProvider()` / [configureWriteTestApp] (from [ApiTestHelper] /
+ * the SQLite fixture + `SqliteTestDatabase.repositoryProvider()` / [configureWriteTestApp] (from [ApiTestHelper] /
  * `WriteRoutesTest`), not a hand-rolled Ktor `testApplication`.
  */
 class DependencyDirectionRestTest {

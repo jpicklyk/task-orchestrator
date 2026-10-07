@@ -68,7 +68,7 @@ import kotlin.test.assertTrue
  * `error` code together to rule that out.
  *
  * Test seam (named in `test-plan`, not invented here): [ScriptedWorkItemRepository] wraps a real
- * H2-backed [WorkItemRepository] and, when scripted, deterministically returns a
+ * SQLite-backed [WorkItemRepository] and, when scripted, deterministically returns a
  * [RepositoryError.ConflictError] (or another scripted [RepositoryError]) from `update()`/`delete()`
  * instead of ever touching row-version data — this is what makes the ConflictError reachable
  * without racing concurrent requests.

@@ -27,8 +27,8 @@ import kotlin.test.assertTrue
  * [ApiTestHelper] — same conventions as [PlanDocumentRoutesTest] / [ProjectConfigRoutesTest].
  *
  * Storage is an in-memory [FakeResourceLeaseRepository] rather than the SQLite-backed
- * implementation: the real repository's raw SQL is SQLite-dialect (`datetime('now')`) and does not
- * run on the H2 database these route tests use, and route tests assert auth/serialization
+ * implementation:
+ * route tests assert auth/serialization
  * behavior, not storage semantics (those are covered by `SQLiteResourceLeaseRepositoryTest`).
  */
 private class FakeResourceLeaseRepository : ResourceLeaseRepository {

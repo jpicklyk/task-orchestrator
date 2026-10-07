@@ -1,18 +1,23 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management
 
-import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * S7/S8 — FK enforcement on [SQLiteRepositoryTestBase] after this item's declared edit
- * (`PRAGMA foreign_keys=ON` immediately before the base's `SchemaUtils.create`, ~:57). Uses the
- * base's own `database` directly — no second in-memory database needed for this pair.
+ * S7/S8 — FK enforcement on the production-opened SQLite fixture (`PRAGMA foreign_keys=ON` comes from
+ * `DatabaseManager`). Uses the fixture's own `database` directly — no second database needed for this pair.
  */
-class WorkItemsForeignKeyEnforcementTest : SQLiteRepositoryTestBase() {
+class WorkItemsForeignKeyEnforcementTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
+    private val database get() = db.database
+
     private fun countNotesWithKey(key: String): Int {
         var count = 0
         transaction(db = database) {

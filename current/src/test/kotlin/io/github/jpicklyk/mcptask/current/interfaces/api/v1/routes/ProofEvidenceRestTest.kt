@@ -377,7 +377,7 @@ class ProofEvidenceRestTest {
             }
             // Bypass the repository entirely (the fix always nulls actor_proof on write) to
             // simulate a row that somehow still carries a raw value in that column -- e.g. written
-            // before this fix. This is the only role_transitions row in this fresh, isolated H2
+            // before this fix. This is the only role_transitions row in this fresh, isolated SQLite
             // database, so no WHERE clause / id-type assumption is needed.
             transaction(db = database) {
                 exec("UPDATE role_transitions SET actor_proof = 'raw-sql-secret-proof'")

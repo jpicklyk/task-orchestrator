@@ -45,7 +45,7 @@ import kotlin.test.assertTrue
  * scenario, confirming the fix does not disturb valid overview input.
  *
  * Harness mirrors `QueryItemsLimitContractTest.kt` — [MockRepositoryProvider] + MockK
- * `coEvery`/`coVerify`, no FTS5/H2 dependency.
+ * `coEvery`/`coVerify`, no FTS5 or database dependency.
  */
 class QueryItemsOverviewLimitContractTest {
     private fun params(vararg pairs: Pair<String, kotlinx.serialization.json.JsonElement>) = JsonObject(mapOf(*pairs))

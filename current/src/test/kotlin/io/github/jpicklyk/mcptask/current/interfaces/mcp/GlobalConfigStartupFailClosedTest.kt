@@ -2,13 +2,12 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.mockk
 import io.mockk.verify
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
 import org.slf4j.Logger
 import java.nio.file.Files
@@ -35,15 +34,11 @@ import kotlin.test.assertTrue
  * via a plain revert of the fix, which therefore yields behavioral red directly.
  */
 class GlobalConfigStartupFailClosedTest {
-    /** Builds an H2-backed DatabaseManager with schema created (no live env reads). Mirrors
-     * `ServerCompositionTest.buildDatabaseManager`. */
-    private fun buildDatabaseManager(): DatabaseManager {
-        val dbName = "global_config_startup_test_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DatabaseManager(database)
-    }
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
 
+    /** Builds a SQLite-backed DatabaseManager with schema created (no live env reads). Mirrors
+     * `ServerCompositionTest.buildDatabaseManager`. */
     private fun writeGlobalConfig(
         dir: Path,
         content: String
@@ -90,7 +85,7 @@ class GlobalConfigStartupFailClosedTest {
         val composition =
             ServerComposition(
                 appConfig = agentConfigDirAppConfig(tempDir),
-                databaseManager = buildDatabaseManager(),
+                databaseManager = db.databaseManager,
                 shutdownCoordinator = ShutdownCoordinator(),
             ).build()
 
@@ -123,7 +118,7 @@ class GlobalConfigStartupFailClosedTest {
         )
         val logger = mockk<Logger>(relaxed = true)
 
-        ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator(), logger).build()
+        ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator(), logger).build()
 
         verify(exactly = 1) { logger.warn(match<String> { it.contains("accept-cached") }) }
     }
@@ -146,7 +141,7 @@ class GlobalConfigStartupFailClosedTest {
         )
         val logger = mockk<Logger>(relaxed = true)
 
-        ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator(), logger).build()
+        ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator(), logger).build()
 
         verify(exactly = 1) { logger.warn(match<String> { it.contains("accept-cached") }) }
     }
@@ -223,7 +218,7 @@ class GlobalConfigStartupFailClosedTest {
 
         val ex =
             assertFailsWith<IllegalArgumentException> {
-                ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator()).build()
+                ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator()).build()
             }
         assertTrue(ex.message?.contains("banana") == true, "Expected 'banana' in: ${ex.message}")
     }
@@ -240,7 +235,7 @@ class GlobalConfigStartupFailClosedTest {
         writeGlobalConfig(tempDir, jwksConfig(policy = "reject"))
         val logger = mockk<Logger>(relaxed = true)
 
-        ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator(), logger).build()
+        ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator(), logger).build()
 
         verify(exactly = 0) { logger.warn(match<String> { it.contains("accept-cached") }) }
     }
@@ -252,7 +247,7 @@ class GlobalConfigStartupFailClosedTest {
         writeGlobalConfig(tempDir, jwksConfig(policy = "accept-self-reported"))
         val logger = mockk<Logger>(relaxed = true)
 
-        ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator(), logger).build()
+        ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator(), logger).build()
 
         verify(exactly = 0) { logger.warn(match<String> { it.contains("accept-cached") }) }
     }
@@ -271,7 +266,7 @@ class GlobalConfigStartupFailClosedTest {
         )
         val logger = mockk<Logger>(relaxed = true)
 
-        ServerComposition(agentConfigDirAppConfig(tempDir), buildDatabaseManager(), ShutdownCoordinator(), logger).build()
+        ServerComposition(agentConfigDirAppConfig(tempDir), db.databaseManager, ShutdownCoordinator(), logger).build()
 
         verify(exactly = 0) { logger.warn(match<String> { it.contains("accept-cached") }) }
     }
@@ -284,7 +279,7 @@ class GlobalConfigStartupFailClosedTest {
         val appConfig = agentConfigDirAppConfig(tempDir, extraEnv = mapOf("DEGRADED_MODE_POLICY" to "reject"))
         val logger = mockk<Logger>(relaxed = true)
 
-        ServerComposition(appConfig, buildDatabaseManager(), ShutdownCoordinator(), logger).build()
+        ServerComposition(appConfig, db.databaseManager, ShutdownCoordinator(), logger).build()
 
         verify(exactly = 0) { logger.warn(match<String> { it.contains("accept-cached") }) }
     }
@@ -297,7 +292,7 @@ class GlobalConfigStartupFailClosedTest {
         val appConfig = agentConfigDirAppConfig(tempDir, extraEnv = mapOf("DEGRADED_MODE_POLICY" to "accept-cached"))
         val logger = mockk<Logger>(relaxed = true)
 
-        ServerComposition(appConfig, buildDatabaseManager(), ShutdownCoordinator(), logger).build()
+        ServerComposition(appConfig, db.databaseManager, ShutdownCoordinator(), logger).build()
 
         verify(exactly = 1) { logger.warn(match<String> { it.contains("accept-cached") }) }
     }

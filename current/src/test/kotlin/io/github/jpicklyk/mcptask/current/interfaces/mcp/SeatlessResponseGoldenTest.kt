@@ -7,8 +7,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextT
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
@@ -17,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.WRITE_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeTestAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeWriteAuthConfig
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -38,8 +37,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.nio.file.Files
@@ -64,7 +63,7 @@ import kotlin.test.fail
  * `seat`/`missingBySeat` keys, and every capture below goes red against its recorded golden.
  *
  * HARNESS (task-scope-addendum "Harness rule" — never a hand-built replica):
- * - MCP captures run through the REAL [ServerComposition.build] over H2 (LayerBackedGlobalLookup +
+ * - MCP captures run through the REAL [ServerComposition.build] over SQLite (LayerBackedGlobalLookup +
  *   PerRootConfigService, exactly as production wires it — pattern:
  *   [ServerCompositionResolverWiringTest]) and execute the REAL tool classes
  *   ([GetContextTool], [QueryItemsTool], [AdvanceItemTool]) against the resulting
@@ -149,6 +148,9 @@ import kotlin.test.fail
  * verification are orchestrator-run.
  */
 class SeatlessResponseGoldenTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     companion object {
         private val ROOT_ID: UUID = UUID.fromString("a1000000-0000-4000-8000-000000000000")
         private val FEATURE_TASK_ID: UUID = UUID.fromString("a1000000-0000-4000-8000-000000000001")
@@ -181,15 +183,8 @@ class SeatlessResponseGoldenTest {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Fixture wiring — REAL ServerComposition.build over H2, REAL per-root push
+    // Fixture wiring — REAL ServerComposition.build over SQLite, REAL per-root push
     // ─────────────────────────────────────────────────────────────────────────
-
-    private fun buildDatabaseManager(): DatabaseManager {
-        val dbName = "a1_seatless_golden_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DatabaseManager(database)
-    }
 
     /**
      * Writes the classpath global-config fixture to a real file under [tempDir], as
@@ -214,7 +209,7 @@ class SeatlessResponseGoldenTest {
     )
 
     /**
-     * Builds the REAL production composition (global file layer + per-root pushed layer over H2)
+     * Builds the REAL production composition (global file layer + per-root pushed layer over SQLite)
      * and materializes the four fixed-id fixture items described in the class KDoc, under one
      * fixed root with the repo's own per-root config pushed to it.
      */
@@ -225,7 +220,7 @@ class SeatlessResponseGoldenTest {
         val composition =
             ServerComposition(
                 appConfig = appConfig,
-                databaseManager = buildDatabaseManager(),
+                databaseManager = db.databaseManager,
                 shutdownCoordinator = ShutdownCoordinator(),
             ).build()
 

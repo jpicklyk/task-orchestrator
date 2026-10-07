@@ -19,7 +19,7 @@ import java.util.UUID
  *
  * Oracles: [R] = current/docs/api-rest.md §21 Event Types table; [D] = the item's `diagnosis`
  * note's Fix mapping; [T] = [DeferredEventPublisher] KDoc invariants (rollback publishes nothing).
- * Harness: a decorated provider over a real (H2) `SqliteTestDatabase.repositoryProvider()`, with an unrestricted
+ * Harness: a decorated provider over a real SQLite-backed `SqliteTestDatabase.repositoryProvider()`, with an unrestricted
  * subscriber (`rootIds = emptySet()`, matches every event regardless of root resolution) connected
  * BEFORE the write under test, per the item's frozen `test-plan`.
  *

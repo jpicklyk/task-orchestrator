@@ -34,7 +34,7 @@ import kotlin.test.assertTrue
  * ConfigDocumentParseTest's SafeConstructor-based style and note_limits precedent), plus per-root
  * wholesale layering (S12) via EffectiveConfigResolver (mirrors EffectiveConfigResolverTest's
  * FakePerRootConfigSource style) and the push-validation ignoredSections contract (mirrors
- * ProjectConfigPushServiceTest's real-H2 style).
+ * ProjectConfigPushServiceTest's real-SQLite style).
  *
  * NEW-SURFACE: the independence: top-level section, ConfigDocument.independence,
  * GlobalConfigLookup.independencePolicy(), LayeredConfig.independencePolicy(), and

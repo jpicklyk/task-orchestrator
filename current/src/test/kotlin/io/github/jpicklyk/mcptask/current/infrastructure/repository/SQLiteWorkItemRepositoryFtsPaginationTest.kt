@@ -41,7 +41,7 @@ import kotlin.test.assertTrue
  * ordering — independently computed here, never read back from the implementation.
  *
  * Runs on a migrated SQLite database (SqliteTestDatabase): FTS5 is SQLite-only and `ftsSearch` returns an empty
- * [SearchResult] on H2, so an H2-backed harness would make every scenario below vacuously green.
+ * [SearchResult] on SQLite, so a SQLite-backed harness would make every scenario below vacuously green.
  */
 class SQLiteWorkItemRepositoryFtsPaginationTest {
     @RegisterExtension

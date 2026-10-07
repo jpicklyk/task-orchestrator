@@ -13,8 +13,6 @@ import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
@@ -41,7 +39,6 @@ import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
@@ -80,13 +77,6 @@ class ItemSchemaRouteTest {
 
     // ─── Shared composition wiring ─────────────────────────────────────────
 
-    private fun buildDatabaseManager(): DatabaseManager {
-        val dbName = "item_schema_route_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DatabaseManager(database)
-    }
-
     private fun materializeEmptyGlobalConfig(tempDir: Path) {
         val configDir = tempDir.resolve(".taskorchestrator")
         Files.createDirectories(configDir)
@@ -98,7 +88,7 @@ class ItemSchemaRouteTest {
         val appConfig = AppConfig.fromEnv { key -> if (key == "AGENT_CONFIG_DIR") tempDir.toString() else null }
         return ServerComposition(
             appConfig = appConfig,
-            databaseManager = buildDatabaseManager(),
+            databaseManager = db.databaseManager,
             shutdownCoordinator = ShutdownCoordinator()
         ).build()
     }
@@ -340,16 +330,16 @@ class ItemSchemaRouteTest {
     @Test
     fun `S11b GET items id schema returns 503 config_unavailable on a cold per-root config read failure`() =
         testApplication {
-            val h2 = db.repositoryProvider()
+            val sqlite = db.repositoryProvider()
             val item =
                 runBlocking {
-                    val r = h2.workItemRepository().create(WorkItem(title = "Schema S11b 503 root", depth = 0)).getOrNull()!!
+                    val r = sqlite.workItemRepository().create(WorkItem(title = "Schema S11b 503 root", depth = 0)).getOrNull()!!
                     // A real row must exist so getFingerprint succeeds first -- resolve() only
                     // reaches the .get() read (which failGet intercepts) once the fingerprint check
                     // has NOT short-circuited on Success(null)/absence. Mirrors
                     // ConfigUnavailableRoutesTest's S11 fixture for GET /items/{id}/gate.
-                    h2.projectConfigRepository().upsert(r.id, "work_item_schemas:\n  t:\n    notes: []\n")
-                    h2
+                    sqlite.projectConfigRepository().upsert(r.id, "work_item_schemas:\n  t:\n    notes: []\n")
+                    sqlite
                         .workItemRepository()
                         .create(
                             WorkItem(
@@ -362,9 +352,9 @@ class ItemSchemaRouteTest {
                             ),
                         ).getOrNull()!!
                 }
-            val failable = SchemaRouteFailableProjectConfigRepository(h2.projectConfigRepository())
+            val failable = SchemaRouteFailableProjectConfigRepository(sqlite.projectConfigRepository())
             failable.failGet = true
-            val provider = SchemaRouteFailableRepositoryProvider(h2, failable)
+            val provider = SchemaRouteFailableRepositoryProvider(sqlite, failable)
             // ServerComposition's public constructor takes only a DatabaseManager, with no seam to
             // inject a failing RepositoryProvider (see class KDoc) -- so this leg builds the
             // ToolExecutionContext directly over the failing provider, but still exercises it through

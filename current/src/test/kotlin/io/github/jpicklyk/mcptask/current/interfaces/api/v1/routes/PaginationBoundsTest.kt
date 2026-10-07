@@ -59,7 +59,7 @@ class PaginationBoundsTest {
      * Wraps a real [RoleTransitionRepository], substituting a scripted result for `findSince`
      * that captures the `limit` argument it was called with instead of delegating — this keeps
      * S15 fast and independent of how many rows actually exist, and observable even if a
-     * pre-fix unbounded limit would otherwise ask H2 for hundreds of millions of rows. Mirrors
+     * pre-fix unbounded limit would otherwise ask the database for hundreds of millions of rows. Mirrors
      * [PatchReparentCycleGuardTest]'s `ScriptedWorkItemRepository` / `*OverrideProvider` pattern.
      */
     private class ScriptedRoleTransitionRepository(

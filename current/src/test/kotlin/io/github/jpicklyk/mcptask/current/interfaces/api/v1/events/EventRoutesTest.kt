@@ -244,7 +244,7 @@ class EventRoutesTest {
     @Test
     fun `MCP-path write via repository decorator produces event on bus subscriber`(): Unit =
         runBlocking {
-            // Build a real H2-backed repository provider and wrap it with the decorator
+            // Build a real SQLite-backed repository provider and wrap it with the decorator
             val baseRepo = db.repositoryProvider()
             val bus = ApiEventBus()
             val decorated = EventPublishingRepositoryProvider(baseRepo, bus)

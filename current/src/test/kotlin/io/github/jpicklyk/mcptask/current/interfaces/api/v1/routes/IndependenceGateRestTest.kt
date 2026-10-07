@@ -6,13 +6,12 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextT
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -38,8 +37,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -70,7 +69,7 @@ import kotlin.test.assertTrue
  * mapping/route source.
  *
  * HARNESS (task-scope-addendum "Harness rule", pattern SeatGateParityRestTest / IndependenceGateMcpTest):
- * a single REAL [ServerComposition.build] over an H2 in-memory DB supplies the
+ * a single REAL [ServerComposition.build] over a SQLite test DB supplies the
  * [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext] used for BOTH the MCP
  * tool calls ([GetContextTool], [AdvanceItemTool]) and the REST surface, wired through the REAL
  * [installRestApiRoutes] -- never a hand-built replica, and never two independently constructed
@@ -86,6 +85,9 @@ import kotlin.test.assertTrue
  * ownership (NEW files only).
  */
 class IndependenceGateRestTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private companion object {
         const val SCHEMA_YAML = """
 work_item_schemas:
@@ -121,16 +123,9 @@ work_item_schemas:
     private fun globalConfig(mode: String): String = "independence:\n  mode: \"$mode\"\n$SCHEMA_YAML"
 
     // ─────────────────────────────────────────────────────────────────────
-    // Fixture wiring -- REAL ServerComposition.build over H2, global-file-only config, REAL
+    // Fixture wiring -- REAL ServerComposition.build over SQLite, global-file-only config, REAL
     // installRestApiRoutes with ContentNegotiation installed first (task-scope-addendum harness rule).
     // ─────────────────────────────────────────────────────────────────────
-
-    private fun buildDatabaseManager(): DatabaseManager {
-        val dbName = "a2b_indep_rest_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DatabaseManager(database)
-    }
 
     private fun materializeGlobalConfig(
         tempDir: Path,
@@ -149,7 +144,7 @@ work_item_schemas:
         val appConfig = AppConfig.fromEnv { key -> if (key == "AGENT_CONFIG_DIR") tempDir.toString() else null }
         return ServerComposition(
             appConfig = appConfig,
-            databaseManager = buildDatabaseManager(),
+            databaseManager = db.databaseManager,
             shutdownCoordinator = ShutdownCoordinator()
         ).build()
     }

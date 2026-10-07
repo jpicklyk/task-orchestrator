@@ -1,9 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -22,11 +20,11 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 
 /**
  * End-to-end tests for the MCP **Streamable HTTP** transport mounted at `/mcp`.
@@ -43,19 +41,15 @@ import org.junit.jupiter.api.Test
  * cannot reach.
  */
 class McpStreamableHttpTransportTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private val rpc = Json { ignoreUnknownKeys = true }
 
     /** Builds a real MCP [Server] with all production tools registered against an in-memory DB. */
     private fun serverWithAllTools(): Server {
         val provider =
-            DefaultRepositoryProvider(
-                DatabaseManager(
-                    Database.connect(
-                        "jdbc:h2:mem:httptransport_${System.nanoTime()};DB_CLOSE_DELAY=-1",
-                        driver = "org.h2.Driver",
-                    ),
-                ).also { DirectDatabaseSchemaManager().updateSchema() },
-            )
+            db.repositoryProvider()
         val server =
             Server(
                 serverInfo = Implementation(name = "http-transport-test", version = "1.0.0"),
