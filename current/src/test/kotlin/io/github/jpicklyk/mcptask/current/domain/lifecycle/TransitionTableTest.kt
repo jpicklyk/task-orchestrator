@@ -300,9 +300,23 @@ class TransitionTableTest {
     }
 
     @Test
-    fun `SCHEMA_FREE is a usable SchemaFacts`() {
-        // schema-free items still resolve the user matrix; WORK start with SCHEMA_FREE is either REVIEW or TERMINAL per its hasReviewPhase.
+    fun `SCHEMA_FREE resolves the queue start to work`() {
         val r = TransitionTable.resolve(QUEUE, start, SchemaFacts.SCHEMA_FREE, null)
         assertEquals(Resolution.To(WORK), r)
+    }
+
+    // Oracle: SchemaFacts.SCHEMA_FREE documented as no review phase, AUTO lifecycle (dispatch O3).
+    @Test
+    fun `SCHEMA_FREE has no review phase and an AUTO lifecycle`() {
+        assertEquals(false, SchemaFacts.SCHEMA_FREE.hasReviewPhase)
+        assertEquals(LifecycleMode.AUTO, SchemaFacts.SCHEMA_FREE.lifecycle)
+        assertEquals(SchemaFacts(false, LifecycleMode.AUTO), SchemaFacts.SCHEMA_FREE)
+    }
+
+    // Behavioural consequence: no review phase means WORK + user start goes straight to TERMINAL.
+    @Test
+    fun `SCHEMA_FREE work start resolves to terminal not review`() {
+        assertEquals(Resolution.To(TERMINAL), TransitionTable.resolve(WORK, start, SchemaFacts.SCHEMA_FREE, null))
+        assertEquals(Cell.To(TERMINAL), TransitionTable.cell(WORK, start, SchemaFacts.SCHEMA_FREE))
     }
 }

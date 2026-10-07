@@ -350,7 +350,52 @@ class TransitionPolicyTest {
         for (role in listOf(QUEUE, WORK, REVIEW, BLOCKED)) {
             val parent = ParentFacts(parentId, role, LifecycleMode.AUTO)
             assertTrue(eval(snap(QUEUE), Trigger.Structural.Reparent(parent)) is Decision.Allow, "reparent under $role")
+            val created = allowed(TransitionSnapshot.forCreate(id, parent), Trigger.Structural.Create(parent))
+            assertEquals(QUEUE, created.target, "create under $role")
         }
+    }
+
+    // O1: plan 3.3 "dependency gate on every entry into TERMINAL including cascades"; only a USER cancel is exempt.
+    @Test
+    fun `S8 O1 complete cascade is dependency gated for both cancelOrigin values`() {
+        for (cancelOrigin in listOf(false, true)) {
+            val s = snap(QUEUE, blockers = listOf(unmet), children = ChildFacts(2, 2))
+            val r = rejected(s, Trigger.Cascade.Complete(cancelOrigin))
+            assertEquals(GateId.DEPENDENCY, r.gate, "cancelOrigin=$cancelOrigin")
+            assertEquals(ErrorCode.DEPENDENCY_UNMET, r.error.code, "cancelOrigin=$cancelOrigin")
+            assertEquals(ErrorDetail.DependencyUnmet(id, listOf(Blocker(blockerId, "work"))), r.error.detail)
+        }
+    }
+
+    @Test
+    fun `S8 O1 complete cascade with satisfied blockers passes the dependency gate for both cancelOrigin values`() {
+        val satisfied = BlockerState(BlockingEdge(blockerId, id), TERMINAL)
+        for (cancelOrigin in listOf(false, true)) {
+            val s = snap(QUEUE, blockers = listOf(satisfied), children = ChildFacts(2, 2))
+            assertEquals(TERMINAL, allowed(s, Trigger.Cascade.Complete(cancelOrigin)).target, "cancelOrigin=$cancelOrigin")
+        }
+    }
+
+    // O2: plan 3.3 gate 5 "Lease: entry into WORK" applies to Cascade.Start and Cascade.Reopen.
+    @Test
+    fun `S11 O2 start cascade is lease gated`() {
+        val r = rejected(snap(QUEUE, lease = contended), Trigger.Cascade.Start)
+        assertEquals(GateId.LEASE, r.gate)
+        assertEquals(ErrorCode.RESOURCE_UNAVAILABLE, r.error.code)
+        assertEquals(ErrorDetail.ResourceUnavailable(id, listOf(ResourceRef("gradle", "exclusive")), 5000L), r.error.detail)
+        assertEquals(RejectContext.Lease(listOf("gradle"), 5000L), r.context)
+        val free = LeaseFacts(true, listOf("gradle", "db"), emptyList(), null)
+        assertEquals(listOf("gradle", "db"), allowed(snap(QUEUE, lease = free), Trigger.Cascade.Start).acquireLeases)
+    }
+
+    @Test
+    fun `S11 O2 reopen cascade is lease gated`() {
+        val r = rejected(snap(TERMINAL, lease = contended), Trigger.Cascade.Reopen)
+        assertEquals(GateId.LEASE, r.gate)
+        assertEquals(ErrorCode.RESOURCE_UNAVAILABLE, r.error.code)
+        assertEquals(RejectContext.Lease(listOf("gradle"), 5000L), r.context)
+        val free = LeaseFacts(true, listOf("gradle"), emptyList(), null)
+        assertEquals(listOf("gradle"), allowed(snap(TERMINAL, lease = free), Trigger.Cascade.Reopen).acquireLeases)
     }
 
     @Test
@@ -399,6 +444,19 @@ class TransitionPolicyTest {
             eval(snap(QUEUE, children = ChildFacts(3, 2)), Trigger.Cascade.Complete(false))
         )
         assertEquals(WORK, allowed(snap(QUEUE), Trigger.Cascade.Start).target)
+    }
+
+    // O5: gate order WARRANT before HOLD (task-scope order: TABLE -> cascade warrant -> HOLD).
+    @Test
+    fun `S9 O5 warrant is evaluated before hold for a blocked auto parent with active children`() {
+        assertEquals(
+            Decision.NotApplicable(NotApplicableReason.CHILDREN_ACTIVE),
+            eval(snap(BLOCKED, previousRole = QUEUE, children = ChildFacts(3, 2)), Trigger.Cascade.Complete(false))
+        )
+        assertEquals(
+            Decision.NotApplicable(NotApplicableReason.NO_CHILDREN),
+            eval(snap(BLOCKED, previousRole = QUEUE, children = ChildFacts.NONE), Trigger.Cascade.Complete(false))
+        )
     }
 
     @Test
