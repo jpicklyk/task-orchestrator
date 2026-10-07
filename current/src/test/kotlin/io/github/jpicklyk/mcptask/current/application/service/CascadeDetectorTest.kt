@@ -105,6 +105,24 @@ class CascadeDetectorTest {
             }
 
         @Test
+        fun `detection stays policy-free - BLOCKED parent still yields a cascade event`() =
+            runBlocking {
+                val parentId = UUID.randomUUID()
+                val parent = workItem(id = parentId, role = Role.BLOCKED)
+                val child = workItem(parentId = parentId, role = Role.TERMINAL)
+
+                coEvery { workItemRepository.countChildrenByRole(parentId) } returns
+                    Result.Success(mapOf(Role.TERMINAL to 1))
+                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+
+                val result = detector.detectCascades(child, workItemRepository)
+                assertEquals(1, result.size)
+                assertEquals(parentId, result[0].itemId)
+                assertEquals(Role.BLOCKED, result[0].currentRole)
+                assertEquals(Role.TERMINAL, result[0].targetRole)
+            }
+
+        @Test
         fun `no cascade when parent is already terminal`() =
             runBlocking {
                 val parentId = UUID.randomUUID()

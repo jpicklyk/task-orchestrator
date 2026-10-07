@@ -654,6 +654,92 @@ class AdvanceItemToolTest {
             )
         }
 
+    @Test
+    fun `role-blocked cascade event serializes roleBlocked and omits dependency fields`(): Unit =
+        runBlocking {
+            val parentId = UUID.randomUUID()
+            val childId = UUID.randomUUID()
+            val parentItem = makeItem(id = parentId, role = Role.BLOCKED, previousRole = Role.WORK, title = "Held Parent")
+            val childItem = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
+
+            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
+            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(any()) } returns emptyList()
+            every { depRepo.findByFromItemId(any()) } returns emptyList()
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
+
+            val result = tool.execute(buildParams(transitionObj(childId, "complete")), context)
+
+            val r = extractResults(result)[0].jsonObject
+            val cascade = r["cascadeEvents"]!!.jsonArray.single().jsonObject
+            assertFalse(cascade["applied"]!!.jsonPrimitive.boolean)
+            assertTrue(cascade["roleBlocked"]!!.jsonPrimitive.boolean)
+            assertNull(cascade["dependencyBlocked"], "dependencyBlocked must be omitted on a role-suppressed event")
+            assertNull(cascade["blockers"], "blockers must be omitted on a role-suppressed event")
+        }
+
+    @Test
+    fun `dependency-blocked cascade event serializes dependencyBlocked and blockers`(): Unit =
+        runBlocking {
+            val parentId = UUID.randomUUID()
+            val childId = UUID.randomUUID()
+            val blockerId = UUID.randomUUID()
+            val parentItem = makeItem(id = parentId, role = Role.WORK, title = "Parent")
+            val childItem = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
+            val blockerItem = makeItem(id = blockerId, role = Role.QUEUE, title = "Blocker")
+
+            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
+            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
+            coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(any()) } returns emptyList()
+            every { depRepo.findByFromItemId(any()) } returns emptyList()
+            every { depRepo.findByToItemId(parentId) } returns
+                listOf(Dependency(fromItemId = blockerId, toItemId = parentId, type = DependencyType.BLOCKS))
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
+
+            val result = tool.execute(buildParams(transitionObj(childId, "complete")), context)
+
+            val r = extractResults(result)[0].jsonObject
+            val cascade = r["cascadeEvents"]!!.jsonArray.single().jsonObject
+            assertFalse(cascade["applied"]!!.jsonPrimitive.boolean)
+            assertTrue(cascade["dependencyBlocked"]!!.jsonPrimitive.boolean)
+            assertNull(cascade["roleBlocked"], "roleBlocked must be omitted on a dependency-suppressed event")
+            val blocker = cascade["blockers"]!!.jsonArray.single().jsonObject
+            assertEquals(blockerId.toString(), blocker["fromItemId"]!!.jsonPrimitive.content)
+            assertEquals("queue", blocker["currentRole"]!!.jsonPrimitive.content)
+            assertEquals("terminal", blocker["requiredRole"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `applied cascade event omits roleBlocked dependencyBlocked and blockers`(): Unit =
+        runBlocking {
+            val parentId = UUID.randomUUID()
+            val childId = UUID.randomUUID()
+            val parentItem = makeItem(id = parentId, role = Role.WORK, title = "Parent")
+            val childItem = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
+
+            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
+            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(any()) } returns emptyList()
+            every { depRepo.findByFromItemId(any()) } returns emptyList()
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
+
+            val result = tool.execute(buildParams(transitionObj(childId, "complete")), context)
+
+            val r = extractResults(result)[0].jsonObject
+            val cascade = r["cascadeEvents"]!!.jsonArray.single().jsonObject
+            assertTrue(cascade["applied"]!!.jsonPrimitive.boolean)
+            assertNull(cascade["roleBlocked"])
+            assertNull(cascade["dependencyBlocked"])
+            assertNull(cascade["blockers"])
+        }
+
     // ──────────────────────────────────────────────
     // 11. Start cascade fires when first child starts
     // ──────────────────────────────────────────────
