@@ -1285,7 +1285,14 @@ way).
 
 `CascadeEventDto` DOES carry `error` (string, optional, omitted when null): populated when a
 cascade's own apply step fails outright (a persistence conflict) — as opposed to being suppressed
-by `gateBlocked`, or by the not-yet-parity-mapped resource block above — naming the failure reason.
+by `gateBlocked`, `roleBlocked`, `dependencyBlocked`, or the not-yet-parity-mapped resource block
+above — naming the failure reason.
+
+`CascadeEventDto` also carries `roleBlocked` (boolean, default `false`) — a terminal cascade
+suppressed because the parent is `blocked` — and `dependencyBlocked` (boolean, default `false`)
+plus `blockers` (array of `{fromItemId, currentRole, requiredRole}`, non-null only when
+`dependencyBlocked`) — a terminal cascade suppressed by an unmet blocking dependency on the parent.
+Both apply to cancel-originated cascades too.
 Any resource lease that cascade itself acquired for entering `work` is released in the same call.
 
 **Response `200 OK`:** `AdvanceResponseDto`
@@ -1321,7 +1328,7 @@ Any resource lease that cascade itself acquired for entering `work` is released 
 }
 ```
 
-The `cascadeEvents`, `unblockedItems`, and `expectedNotes` fields are **additive** — they were added when the REST and MCP advance paths were unified. A gate-blocked cascade carries `"applied": false`, `"gateBlocked": true`, and a `missingNotes` array.
+The `cascadeEvents`, `unblockedItems`, and `expectedNotes` fields are **additive** — they were added when the REST and MCP advance paths were unified. A gate-blocked cascade carries `"applied": false`, `"gateBlocked": true`, and a `missingNotes` array; a role-suppressed one carries `"roleBlocked": true`, and a dependency-suppressed one `"dependencyBlocked": true` plus a `blockers` array.
 
 `violations` (array, optional, A2) — on the top-level response and on each `cascadeEvents` entry — reports independence-attestation findings for that transition's target schema, `IndependenceViolationDto` objects mirroring `GateStatusDto.violations` above, but under a stricter presence rule: present ONLY when the list is non-empty. It is omitted (not `[]`) both when independence checking applies but finds nothing, and when independence mode is `off` or the target schema declares no `independent_of`. Populated in `warn` mode too, whenever there is something to report (a `warn`-mode transition still applies and still reports what it found).
 

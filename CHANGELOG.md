@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **stdio transport shuts down on stdin EOF.** In `stdio` mode the server only exited on a signal, so a host that just closed stdin (`docker run -i` pipelines, CI harnesses) left a running process with an open database and a healthy readiness marker. The transport's close callback now completes the run and triggers the normal shutdown sequence (marker cleared, database closed).
+- **Terminal cascades honour the BLOCKED hold and blocking dependencies.** A terminal cascade previously applied the parent's TERMINAL transition without validation, so a held (`blocked`) parent or one with an unmet blocking dependency was silently completed when its last child finished. `AdvanceService` now suppresses it (`applied: false`, climb stops) before the note gate, for cancel-originated cascades too, and reports `roleBlocked` or `dependencyBlocked` + `blockers` on the `cascadeEvents` entry (MCP `advance_item`/`complete_tree` and REST `CascadeEventDto`).
 
 ## [3.16.0] - 2026-10-02
 

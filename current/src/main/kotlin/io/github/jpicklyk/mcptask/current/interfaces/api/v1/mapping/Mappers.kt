@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.AdvanceResponseDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.CascadeBlockerDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.CascadeEventDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependenciesDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependencyEdgeDto
@@ -326,6 +327,20 @@ fun AdvanceResult.toDto(existingNoteKeys: Set<String>): AdvanceResponseDto {
                     missingNotes =
                         if (event.gateBlocked) {
                             event.gateMissingNotes.map { it.toMissingNoteDto() }
+                        } else {
+                            null
+                        },
+                    roleBlocked = event.roleBlocked,
+                    dependencyBlocked = event.dependencyBlocked,
+                    blockers =
+                        if (event.dependencyBlocked) {
+                            event.blockers.map {
+                                CascadeBlockerDto(
+                                    fromItemId = it.fromItemId.toString(),
+                                    currentRole = it.currentRole.name.lowercase(),
+                                    requiredRole = it.requiredRole,
+                                )
+                            }
                         } else {
                             null
                         },

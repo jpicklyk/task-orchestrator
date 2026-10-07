@@ -650,6 +650,11 @@ Call to move an item between phases once its work is done — never edit status 
                             JsonArray(event.contendedResources.map { JsonPrimitive(it) })
                         )
                     }
+                    if (event.roleBlocked) put("roleBlocked", JsonPrimitive(true))
+                    if (event.dependencyBlocked) {
+                        put("dependencyBlocked", JsonPrimitive(true))
+                        put("blockers", NoteSchemaJsonHelpers.buildBlockersArray(event.blockers))
+                    }
                     event.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
                     event.error?.let { put("error", JsonPrimitive(it)) }
                     NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty(event.violations)?.let { put("violations", it) }
@@ -813,15 +818,7 @@ Call to move an item between phases once its work is done — never edit status 
             is AdvanceFailure.ValidationFailed -> {
                 val blockersJson =
                     if (failure.blockers.isNotEmpty()) {
-                        JsonArray(
-                            failure.blockers.map { blocker ->
-                                buildJsonObject {
-                                    put("fromItemId", JsonPrimitive(blocker.fromItemId.toString()))
-                                    put("currentRole", JsonPrimitive(blocker.currentRole.toJsonString()))
-                                    put("requiredRole", JsonPrimitive(blocker.requiredRole))
-                                }
-                            }
-                        )
+                        NoteSchemaJsonHelpers.buildBlockersArray(failure.blockers)
                     } else {
                         null
                     }
