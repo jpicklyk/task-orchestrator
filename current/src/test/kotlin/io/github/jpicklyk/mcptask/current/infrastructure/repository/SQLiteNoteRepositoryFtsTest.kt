@@ -5,9 +5,10 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
-import io.github.jpicklyk.mcptask.current.test.BaseFts5RepositoryTest
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
@@ -15,14 +16,20 @@ import kotlin.test.assertTrue
 /**
  * FTS5 full-text search integration tests for [SQLiteNoteRepository].
  *
- * FTS5 is SQLite-only. Extends [BaseFts5RepositoryTest] which creates an in-memory SQLite DB
+ * FTS5 is SQLite-only. Runs on a migrated SQLite database (SqliteTestDatabase)
  * with the base schema + FTS5 tables. If FTS5 setup fails the test run aborts with a loud
  * error (not a skip). Repositories use `WHERE <table_name> MATCH ?` (not `WHERE alias MATCH ?`)
  * to avoid the "no such column: ft" error on Linux/Docker.
  *
  * Test names follow plan §16.5 — communicating agent-visible behaviour.
  */
-class SQLiteNoteRepositoryFtsTest : BaseFts5RepositoryTest() {
+class SQLiteNoteRepositoryFtsTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
+    private val repositoryProvider get() = sqliteDb.repositoryProvider()
+
     // ────────────────────────────────────────────────────────────────────────
     // Helpers
     // ────────────────────────────────────────────────────────────────────────

@@ -4,13 +4,14 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.VarCharColumnType
 import org.jetbrains.exposed.v1.core.java.UUIDColumnType
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.sqlite.SQLiteConnection
 import org.sqlite.SQLiteLimits
 import java.sql.Connection
@@ -20,7 +21,14 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 /** F-016: `ResourceLeaseRepository.releaseAllForItems`. */
-class SQLiteResourceLeaseRepositoryBulkReleaseTest : SQLiteRepositoryTestBase() {
+class SQLiteResourceLeaseRepositoryBulkReleaseTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
+    private val database get() = sqliteDb.database
+    private val repositoryProvider get() = sqliteDb.repositoryProvider()
+
     private val leases get() = repositoryProvider.resourceLeaseRepository()
 
     private suspend fun holders(n: Int): List<UUID> =

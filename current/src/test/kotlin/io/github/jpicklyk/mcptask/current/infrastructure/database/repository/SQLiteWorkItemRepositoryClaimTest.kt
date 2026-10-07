@@ -9,13 +9,14 @@ import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
-import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.java.UUIDColumnType
 import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -30,12 +31,19 @@ import kotlin.test.assertTrue
 /**
  * Integration tests for the claim/release operations on [WorkItemRepository].
  *
- * Uses a real SQLite in-memory database (via [SQLiteRepositoryTestBase]) to verify the
+ * Uses a real file-backed SQLite database (via SqliteTestDatabase) to verify the
  * canonical SQL claim pattern, auto-release, re-claim, expiry filtering, and release
  * semantics. SQLite is required because the claim SQL uses SQLite-specific
  * `datetime('now', '+N seconds')` syntax that H2 does not support.
  */
-class SQLiteWorkItemRepositoryClaimTest : SQLiteRepositoryTestBase() {
+class SQLiteWorkItemRepositoryClaimTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
+    private val database get() = sqliteDb.database
+    private val repositoryProvider get() = sqliteDb.repositoryProvider()
+
     private lateinit var repository: WorkItemRepository
 
     @BeforeEach
@@ -1239,16 +1247,7 @@ class SQLiteWorkItemRepositoryClaimTest : SQLiteRepositoryTestBase() {
     @Test
     fun `idx_work_items_claim_expires non-partial index is used by findForNextItem expiry filter`(): Unit =
         runBlocking {
-            // Step 1: Create the non-partial claim_expires_at index (V6 migration).
-            // SchemaUtils.create() only creates indexes declared in WorkItemsTable.init;
-            // the claim-expiry index is managed by Flyway migrations, so it must be
-            // created explicitly here.
-            transaction(db = database) {
-                exec(
-                    "CREATE INDEX IF NOT EXISTS idx_work_items_claim_expires " +
-                        "ON work_items(claim_expires_at)"
-                )
-            }
+            // Step 1: the index comes from the migrated V6 schema (SqliteTestDatabase); nothing is created here.
 
             // Step 2: Insert 100 rows to push SQLite's cost model toward index usage.
             // Without enough rows, the planner may choose a full scan regardless.

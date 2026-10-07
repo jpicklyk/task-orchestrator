@@ -1,12 +1,17 @@
 package io.github.jpicklyk.mcptask.current.test.sqlite
 
+import io.mockk.every
+import io.mockk.mockk
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.MethodOrderer
 import org.junit.jupiter.api.Order
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.TestMethodOrder
+import org.junit.jupiter.api.extension.ExtensionContext
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.io.File
+import java.util.Optional
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import kotlin.test.assertEquals
@@ -164,6 +169,27 @@ class SqliteTestDatabaseTest {
         } finally {
             pool.shutdownNow()
         }
+    }
+
+    @Test
+    fun `S2 perClass on an instance field under PER_METHOD fails fast naming the companion field`() {
+        val ext = SqliteTestDatabase.perClass()
+        val ctx = mockk<ExtensionContext>(relaxed = true)
+        every { ctx.testInstanceLifecycle } returns Optional.of(TestInstance.Lifecycle.PER_METHOD)
+        val e = assertFailsWith<IllegalStateException> { ext.beforeEach(ctx) }
+        assertTrue("@JvmField @RegisterExtension" in e.message.orEmpty(), "message must name the companion field: ${e.message}")
+    }
+
+    @Test
+    fun `S3 perClass on an instance field under PER_CLASS lifecycle still starts a database`() {
+        val ext = SqliteTestDatabase.perClass()
+        val store = mockk<ExtensionContext.Store>(relaxed = true)
+        val ctx = mockk<ExtensionContext>(relaxed = true)
+        every { ctx.testInstanceLifecycle } returns Optional.of(TestInstance.Lifecycle.PER_CLASS)
+        every { ctx.getStore(any()) } returns store
+        every { ctx.parent } returns Optional.empty()
+        ext.beforeEach(ctx)
+        ext.db.close()
     }
 
     companion object {

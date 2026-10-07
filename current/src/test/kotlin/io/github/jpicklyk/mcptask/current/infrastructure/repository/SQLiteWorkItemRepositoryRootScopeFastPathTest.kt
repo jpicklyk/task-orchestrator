@@ -7,13 +7,15 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
-import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
+import io.github.jpicklyk.mcptask.current.test.sqlite.CycleTriggers
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.jetbrains.exposed.v1.jdbc.update
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.nio.ByteBuffer
 import java.sql.Timestamp
 import java.time.Instant
@@ -36,9 +38,8 @@ import kotlin.test.assertTrue
  * (`parent_id IS NULL AND root_id == id`), the query filters `root_id = ?` directly (O(1) binds
  * per root, not O(subtree)); otherwise it falls back to the existing recursive CTE, unchanged.
  *
- * Extends [SQLiteRepositoryTestBase] so the real Exposed `WorkItemsTable` (with the `root_id`
- * column and its index) backs every test via [SQLiteRepositoryTestBase.repositoryProvider] --
- * not a hand-rolled schema copy. A fixture must pass `rootId` explicitly on construction; the
+ * Uses a migrated SQLite database (`SqliteTestDatabase`) so the real `work_items` table (with the
+ * `root_id` column and its index) backs every test -- not a hand-rolled schema copy. A fixture must pass `rootId` explicitly on construction; the
  * `WorkItem` default (`rootId = null`) never reaches the fast path (item's diagnosis note, part D).
  *
  * S1 is the headline: a stamped root with 32,767 children, bulk-inserted by ONE raw
@@ -47,7 +48,14 @@ import kotlin.test.assertTrue
  * "too many SQL variables" (`SQLITE_MAX_VARIABLE_NUMBER` = 32,766) as `Result.Error`; post-fix
  * they succeed because the fast path binds exactly one parameter regardless of subtree size.
  */
-class SQLiteWorkItemRepositoryRootScopeFastPathTest : SQLiteRepositoryTestBase() {
+class SQLiteWorkItemRepositoryRootScopeFastPathTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
+    private val database get() = sqliteDb.database
+    private val repositoryProvider get() = sqliteDb.repositoryProvider()
+
     private val repository: WorkItemRepository by lazy { repositoryProvider.workItemRepository() }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -90,6 +98,8 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest : SQLiteRepositoryTestBase()
         itemId: UUID,
         newParentId: UUID,
     ) {
+        // The V7 cycle triggers abort cycle writes on real SQLite; drop them to simulate pre-guard data.
+        CycleTriggers.drop(database)
         transaction(db = database) {
             WorkItemsTable.update({ WorkItemsTable.id eq itemId }) {
                 it[WorkItemsTable.parentId] = newParentId

@@ -7,15 +7,15 @@ import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
-import org.jetbrains.exposed.v1.jdbc.Database
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.constructor.SafeConstructor
@@ -47,6 +47,10 @@ import kotlin.test.assertTrue
  * the wholesale-per-root-wins precedent this file exercises.)
  */
 class IndependenceConfigParseTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
     // ──────────────────────────────────────────────
     // Parse-level: YamlSchemaParser.parseRoot direct
     // ──────────────────────────────────────────────
@@ -146,12 +150,7 @@ class IndependenceConfigParseTest {
     // hand-built replica).
     // ──────────────────────────────────────────────
 
-    private fun buildDatabaseManager(): DatabaseManager {
-        val dbName = "indep_layering_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DatabaseManager(database)
-    }
+    private fun buildDatabaseManager(): DatabaseManager = sqliteDb.databaseManager
 
     private fun materializeGlobalConfig(
         tempDir: java.nio.file.Path,
@@ -266,10 +265,7 @@ class IndependenceConfigParseTest {
     @Test
     fun `S12c pushing a per-root independence block is honored, never listed in ignoredSections`(): Unit =
         runBlocking {
-            val dbName = "indep_config_push_${System.nanoTime()}"
-            val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            DirectDatabaseSchemaManager().updateSchema()
-            val databaseManager = DatabaseManager(database)
+            val databaseManager = sqliteDb.databaseManager
             val workItemRepository = SQLiteWorkItemRepository(databaseManager)
             val projectConfigRepository = SQLiteProjectConfigRepository(databaseManager)
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
@@ -292,10 +288,7 @@ class IndependenceConfigParseTest {
     @Test
     fun `S12d a pushed independence block with an unknown sub-key still warns, naming the key`(): Unit =
         runBlocking {
-            val dbName = "indep_config_push_warn_${System.nanoTime()}"
-            val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            DirectDatabaseSchemaManager().updateSchema()
-            val databaseManager = DatabaseManager(database)
+            val databaseManager = sqliteDb.databaseManager
             val workItemRepository = SQLiteWorkItemRepository(databaseManager)
             val projectConfigRepository = SQLiteProjectConfigRepository(databaseManager)
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)

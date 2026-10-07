@@ -1,12 +1,14 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database
 
+import io.github.jpicklyk.mcptask.current.infrastructure.database.upgrade.UpgradeHarness
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
-import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
 import java.nio.ByteBuffer
 import java.sql.Connection
 import java.sql.DriverManager
@@ -24,17 +26,20 @@ import kotlin.test.assertNull
  * straight off the classpath, then assert the UPDATE's effect via raw JDBC.
  */
 class V13StatusLabelRepairMigrationTest {
+    @TempDir
+    lateinit var tempDir: File
+
+    private lateinit var jdbcUrl: String
     private lateinit var database: Database
     private lateinit var keepAliveConnection: Connection
 
     @BeforeEach
     fun setUp() {
-        val dbName = "v13_status_label_repair_${System.nanoTime()}"
-        val jdbcUrl = "jdbc:sqlite:file:$dbName?mode=memory&cache=shared"
+        // The real V12 schema (what a pre-V13 user has), not a hand-built copy.
+        jdbcUrl = UpgradeHarness.copyAt(12, File(tempDir, "v13.db"))
         keepAliveConnection = DriverManager.getConnection(jdbcUrl)
         database = Database.connect(url = jdbcUrl, driver = "org.sqlite.JDBC")
         TransactionManager.manager.defaultIsolationLevel = Connection.TRANSACTION_SERIALIZABLE
-        createMinimalWorkItemsTable()
     }
 
     @AfterEach
@@ -49,49 +54,9 @@ class V13StatusLabelRepairMigrationTest {
         }
     }
 
-    private fun createMinimalWorkItemsTable() {
-        transaction(db = database) {
-            exec(
-                """
-                CREATE TABLE work_items (
-                    id           BLOB PRIMARY KEY DEFAULT (randomblob(16)),
-                    title        TEXT NOT NULL,
-                    role         TEXT NOT NULL DEFAULT 'queue',
-                    status_label TEXT
-                )
-                """.trimIndent()
-            )
-        }
-    }
-
-    /**
-     * Reads the real `V13__Repair_Terminal_Status_Labels.sql` off the classpath and executes each
-     * statement. Strips full-line `--` comments, then splits on `;` (mirrors
-     * [V12PlanDocumentsMigrationTest.applyV12Migration]) — safe here since the migration's single
-     * UPDATE statement contains no embedded semicolon.
-     */
+    /** Applies the real V13 migration through Flyway (target 13) on the V12 database. */
     private fun applyV13Migration() {
-        val resourceStream =
-            requireNotNull(
-                Thread.currentThread().contextClassLoader.getResourceAsStream(
-                    "db/migration/sqlite/V13__Repair_Terminal_Status_Labels.sql"
-                )
-            ) { "V13__Repair_Terminal_Status_Labels.sql not found on the test classpath" }
-        val sqlText = resourceStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-        val withoutComments =
-            sqlText
-                .lineSequence()
-                .filterNot { it.trimStart().startsWith("--") }
-                .joinToString("\n")
-        val statements =
-            withoutComments
-                .split(";")
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-
-        transaction(db = database) {
-            statements.forEach { statement -> exec(statement) }
-        }
+        UpgradeHarness.migrate(jdbcUrl, target = 13)
     }
 
     private fun insertWorkItem(
@@ -101,8 +66,10 @@ class V13StatusLabelRepairMigrationTest {
         statusLabel: String?
     ) {
         keepAliveConnection
-            .prepareStatement("INSERT INTO work_items (id, title, role, status_label) VALUES (?, ?, ?, ?)")
-            .use { stmt ->
+            .prepareStatement(
+                "INSERT INTO work_items (id, title, role, status_label, created_at, modified_at, role_changed_at) " +
+                    "VALUES (?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'))"
+            ).use { stmt ->
                 stmt.setBytes(1, uuidToBytes(id))
                 stmt.setString(2, title)
                 stmt.setString(3, role)

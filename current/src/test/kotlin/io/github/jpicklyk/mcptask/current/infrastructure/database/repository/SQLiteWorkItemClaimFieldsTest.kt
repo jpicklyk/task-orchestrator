@@ -3,10 +3,11 @@ package io.github.jpicklyk.mcptask.current.infrastructure.database.repository
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.test.BaseRepositoryTest
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -17,7 +18,13 @@ import kotlin.test.assertNull
  * Tests that the four claim fields (claimedBy, claimedAt, claimExpiresAt, originalClaimedAt)
  * round-trip correctly through create and update operations, and default to null on new items.
  */
-class SQLiteWorkItemClaimFieldsTest : BaseRepositoryTest() {
+class SQLiteWorkItemClaimFieldsTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
+    private val repositoryProvider get() = sqliteDb.repositoryProvider()
+
     private lateinit var repository: WorkItemRepository
 
     @BeforeEach

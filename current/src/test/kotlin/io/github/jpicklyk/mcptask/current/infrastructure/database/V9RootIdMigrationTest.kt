@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database
 
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.infrastructure.database.upgrade.UpgradeHarness
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
@@ -9,6 +10,8 @@ import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
 import java.sql.Connection
 import java.sql.DriverManager
 import java.util.UUID
@@ -29,19 +32,22 @@ import kotlin.test.assertTrue
  * assert the backfilled values.
  */
 class V9RootIdMigrationTest {
+    @TempDir
+    lateinit var tempDir: File
+
+    private lateinit var jdbcUrl: String
     private lateinit var database: Database
     private lateinit var databaseManager: DatabaseManager
     private lateinit var keepAliveConnection: Connection
 
     @BeforeEach
     fun setUp() {
-        val dbName = "v9_root_id_${System.nanoTime()}"
-        val jdbcUrl = "jdbc:sqlite:file:$dbName?mode=memory&cache=shared"
+        // The real V8 schema (what a pre-V9 user has), not a hand-built copy.
+        jdbcUrl = UpgradeHarness.copyAt(8, File(tempDir, "v9.db"))
         keepAliveConnection = DriverManager.getConnection(jdbcUrl)
         database = Database.connect(url = jdbcUrl, driver = "org.sqlite.JDBC")
         TransactionManager.manager.defaultIsolationLevel = Connection.TRANSACTION_SERIALIZABLE
         databaseManager = DatabaseManager(database)
-        createPreV9Schema()
     }
 
     @AfterEach
@@ -56,73 +62,9 @@ class V9RootIdMigrationTest {
         }
     }
 
-    // ────────────────────────────────────────────────────────────────────────
-    // Pre-migration (V7/V8-final) schema — deliberately WITHOUT root_id
-    // ────────────────────────────────────────────────────────────────────────
-
-    private fun createPreV9Schema() {
-        transaction(db = database) {
-            exec(
-                """
-                CREATE TABLE work_items (
-                    id                   BLOB PRIMARY KEY DEFAULT (randomblob(16)),
-                    parent_id            BLOB REFERENCES work_items(id),
-                    title                TEXT NOT NULL,
-                    description          TEXT,
-                    summary              TEXT NOT NULL DEFAULT '',
-                    role                 TEXT NOT NULL DEFAULT 'queue',
-                    status_label         TEXT,
-                    previous_role        TEXT,
-                    priority             TEXT NOT NULL DEFAULT 'medium',
-                    complexity           INTEGER,
-                    requires_verification INTEGER NOT NULL DEFAULT 0,
-                    depth                INTEGER NOT NULL DEFAULT 0,
-                    metadata             TEXT,
-                    tags                 TEXT,
-                    type                 TEXT,
-                    properties           TEXT,
-                    created_at           TIMESTAMP NOT NULL,
-                    modified_at          TIMESTAMP NOT NULL,
-                    role_changed_at      TIMESTAMP NOT NULL,
-                    version              INTEGER NOT NULL DEFAULT 1,
-                    claimed_by           TEXT DEFAULT NULL,
-                    claimed_at           TEXT DEFAULT NULL,
-                    claim_expires_at     TEXT DEFAULT NULL,
-                    original_claimed_at  TEXT DEFAULT NULL
-                )
-                """.trimIndent()
-            )
-            exec("CREATE INDEX idx_work_items_parent ON work_items(parent_id)")
-            exec("CREATE INDEX idx_work_items_role ON work_items(role)")
-            exec("CREATE INDEX idx_work_items_depth ON work_items(depth)")
-        }
-    }
-
-    /**
-     * Reads the real `V9__Add_Root_Id.sql` off the classpath and executes each statement.
-     * Strips full-line `--` comments, then splits on `;` — safe here because none of the
-     * migration's statements contain an embedded semicolon.
-     */
+    /** Applies the real V9 migration through Flyway (target 9) on the V8 database. */
     private fun applyV9Migration() {
-        val resourceStream =
-            requireNotNull(Thread.currentThread().contextClassLoader.getResourceAsStream("db/migration/sqlite/V9__Add_Root_Id.sql")) {
-                "V9__Add_Root_Id.sql not found on the test classpath"
-            }
-        val sqlText = resourceStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-        val withoutComments =
-            sqlText
-                .lineSequence()
-                .filterNot { it.trimStart().startsWith("--") }
-                .joinToString("\n")
-        val statements =
-            withoutComments
-                .split(";")
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-
-        transaction(db = database) {
-            statements.forEach { statement -> exec(statement) }
-        }
+        UpgradeHarness.migrate(jdbcUrl, target = 9)
     }
 
     // ────────────────────────────────────────────────────────────────────────

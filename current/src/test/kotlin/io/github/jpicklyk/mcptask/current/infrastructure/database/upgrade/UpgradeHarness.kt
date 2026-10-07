@@ -57,6 +57,39 @@ object UpgradeHarness {
 
     fun urlFor(file: File): String = "jdbc:sqlite:" + file.absolutePath.replace(File.separatorChar, '/')
 
+    private val templates = java.util.concurrent.ConcurrentHashMap<Int, File>()
+
+    /**
+     * Copies a database migrated to exactly [version] (plain Flyway, no seed) to [dest]. The per-version
+     * template is built once per JVM (migrate then `VACUUM INTO`, like SqliteTemplate) and copied per call,
+     * so a test pays Flyway once per version, not once per test. Returns the JDBC URL of [dest].
+     */
+    fun copyAt(
+        version: Int,
+        dest: File
+    ): String {
+        val template =
+            templates.computeIfAbsent(version) {
+                val dir =
+                    java.nio.file.Files
+                        .createTempDirectory("to-upgrade-template-$version-")
+                        .toFile()
+                dir.deleteOnExit()
+                val migrated = File(dir, "migrated.db")
+                migrate(urlFor(migrated), target = version)
+                val flat = File(dir, "template.db")
+                val target = flat.absolutePath.replace(File.separatorChar, '/').replace("'", "''")
+                DriverManager.getConnection(urlFor(migrated)).use { c -> c.createStatement().use { it.execute("VACUUM INTO '$target'") } }
+                migrated.delete()
+                flat.deleteOnExit()
+                flat
+            }
+        dest.parentFile?.mkdirs()
+        java.nio.file.Files
+            .copy(template.toPath(), dest.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        return urlFor(dest)
+    }
+
     /** Plain Flyway through the production configuration (never a startup path): migrate to [target] or latest. */
     fun migrate(
         url: String,

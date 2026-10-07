@@ -5,14 +5,15 @@ import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteDependencyRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -21,6 +22,10 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SQLiteDependencyRepositoryTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
     private lateinit var database: Database
     private lateinit var databaseManager: DatabaseManager
     private lateinit var depRepository: SQLiteDependencyRepository
@@ -35,10 +40,8 @@ class SQLiteDependencyRepositoryTest {
     @BeforeEach
     fun setUp() =
         runBlocking {
-            val dbName = "test_${System.nanoTime()}"
-            database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            databaseManager = DatabaseManager(database)
-            DirectDatabaseSchemaManager().updateSchema()
+            database = sqliteDb.database
+            databaseManager = sqliteDb.databaseManager
             depRepository = SQLiteDependencyRepository(databaseManager)
             workItemRepository = SQLiteWorkItemRepository(databaseManager)
 

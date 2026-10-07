@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
+import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
+import io.github.jpicklyk.mcptask.current.domain.model.AncestorChain
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
@@ -7,17 +9,21 @@ import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
-import io.github.jpicklyk.mcptask.current.test.BaseFts5RepositoryTest
+import io.github.jpicklyk.mcptask.current.test.sqlite.CycleTriggers
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.jetbrains.exposed.v1.jdbc.update
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -26,8 +32,7 @@ import kotlin.test.assertTrue
  * [WorkItemRepository.findDescendants], [WorkItemRepository.findInScope],
  * [WorkItemRepository.countInScope] and [WorkItemRepository.ftsSearch].
  *
- * Item 71bc3d09 test-plan (S1, S3a, S4, S5, S10, S11a). Extends [BaseFts5RepositoryTest],
- * whose hand-rolled schema already omits the V7 `work_items_cycle_check*` triggers — exactly
+ * Item 71bc3d09 test-plan (S1, S3a, S4, S5, S10, S11a). Runs on a migrated SQLite database (SqliteTestDatabase); CycleTriggers drops the V7 `work_items_cycle_check*` triggers — exactly
  * the "harness omits work_items_cycle_check*" seam the test-plan calls for — while still
  * providing the real FTS5 virtual tables S10 needs. [forceParentId] then writes a corrupt
  * `parent_id` directly (bypassing [WorkItem.validate], which never rejects `parentId == id`
@@ -48,7 +53,14 @@ import kotlin.test.assertTrue
  * mutual-cycle) and oracle (bounded `Result.Error` naming the bound) exactly; only the literal
  * call-target identifier was resolved this way, out of necessity.
  */
-class SQLiteWorkItemRepositoryCycleGuardTest : BaseFts5RepositoryTest() {
+class SQLiteWorkItemRepositoryCycleGuardTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
+    private val repositoryProvider get() = sqliteDb.repositoryProvider()
+    private val database get() = sqliteDb.database
+
     private val repository: WorkItemRepository by lazy { repositoryProvider.workItemRepository() }
 
     private suspend fun createItem(
@@ -66,6 +78,8 @@ class SQLiteWorkItemRepositoryCycleGuardTest : BaseFts5RepositoryTest() {
         itemId: UUID,
         newParentId: UUID
     ) {
+        // The V7 cycle triggers abort cycle writes on real SQLite; drop them to simulate pre-guard data.
+        CycleTriggers.drop(database)
         transaction(db = database) {
             WorkItemsTable.update({ WorkItemsTable.id eq itemId }) {
                 it[WorkItemsTable.parentId] = newParentId
@@ -243,5 +257,140 @@ class SQLiteWorkItemRepositoryCycleGuardTest : BaseFts5RepositoryTest() {
             val result = repository.countInScope(rootIds = setOf(a.id))
             assertIs<Result.Error>(result, "expected the cyclic scope to be reported, not hang or silently succeed")
             assertIs<RepositoryError.DatabaseError>(result.error)
+        }
+
+    // ── Ported from WorkItemRepositoryH2CycleGuardTest (dialect-neutral scenarios, now on SQLite) ──
+
+    /** Bypass [WorkItem.validate] title-blank rejection to make an existing row domain-invalid. */
+    private fun corruptTitleBlank(itemId: UUID) {
+        transaction(db = database) {
+            WorkItemsTable.update({ WorkItemsTable.id eq itemId }) {
+                it[WorkItemsTable.title] = ""
+            }
+        }
+    }
+
+    // ── S6: findAncestorChainsDetailed on a cycle reports truncated/"cycle" ─
+
+    @Test
+    @Timeout(value = 10, unit = TimeUnit.SECONDS)
+    fun `findAncestorChainsDetailed on a mutual cycle reports truncated with reason cycle`(): Unit =
+        runBlocking {
+            // Both items are created at depth 1 (the H2 original set depth = 1 in its update): a depth-0 row
+            // with a parent would fail domain validation on read and be reported as a missing ancestor.
+            val root = createItem("S6 root")
+            val a = createItem("S6 A", parentId = root.id, depth = 1)
+            val b = createItem("S6 B", parentId = root.id, depth = 1)
+
+            forceParentId(a.id, b.id)
+            forceParentId(b.id, a.id)
+
+            val detailed = repository.findAncestorChainsDetailed(setOf(a.id))
+            assertIs<Result.Success<Map<UUID, AncestorChain>>>(detailed)
+            val chain = detailed.data[a.id]
+            assertTrue(chain != null, "chain entry must exist for the requested item")
+            assertTrue(chain.truncated, "a cyclic ancestor walk must report truncated=true")
+            assertEquals(AncestorChain.REASON_CYCLE, chain.truncationReason)
+
+            // Legacy findAncestorChains is defined as findAncestorChainsDetailed with the flag
+            // dropped - same ancestors, same order, for the same (still cyclic) fixture.
+            val legacy = repository.findAncestorChains(setOf(a.id))
+            assertIs<Result.Success<Map<UUID, List<WorkItem>>>>(legacy)
+            assertEquals(chain.ancestors.map { it.id }, legacy.data[a.id]?.map { it.id })
+        }
+
+    // ── S7: missing / domain-invalid ancestor ───────────────────────────────
+
+    @Test
+    @Timeout(value = 10, unit = TimeUnit.SECONDS)
+    fun `findAncestorChainsDetailed on a domain-invalid ancestor reports truncated with reason missing-ancestor`(): Unit =
+        runBlocking {
+            val root = createItem("S7 root")
+            val p = createItem("S7 P", parentId = root.id, depth = 1)
+            val c = createItem("S7 C", parentId = p.id, depth = 2)
+
+            // Corrupt P's row in place so it fails WorkItem.validate() on read - the row mapper
+            // must drop it, making it indistinguishable from a genuinely absent ancestor.
+            corruptTitleBlank(p.id)
+
+            val detailed = repository.findAncestorChainsDetailed(setOf(c.id))
+            assertIs<Result.Success<Map<UUID, AncestorChain>>>(detailed)
+            val chain = detailed.data[c.id]
+            assertTrue(chain != null, "chain entry must exist for the requested item")
+            assertTrue(chain.truncated, "a missing/invalid ancestor must report truncated=true")
+            assertEquals(AncestorChain.REASON_MISSING_ANCESTOR, chain.truncationReason)
+            assertTrue(chain.ancestors.none { it.id == p.id }, "the domain-invalid ancestor must not appear in the chain")
+        }
+
+    // ── S8: control - valid 3-level chain reports truncated=false ──────────
+
+    @Test
+    fun `findAncestorChainsDetailed on a valid 3-level chain reports untruncated root-first ancestors`(): Unit =
+        runBlocking {
+            val root = createItem("S8 root")
+            val middle = createItem("S8 middle", parentId = root.id, depth = 1)
+            val leaf = createItem("S8 leaf", parentId = middle.id, depth = 2)
+
+            val detailed = repository.findAncestorChainsDetailed(setOf(leaf.id))
+            assertIs<Result.Success<Map<UUID, AncestorChain>>>(detailed)
+            val chain = detailed.data[leaf.id]
+            assertTrue(chain != null, "chain entry must exist for the requested item")
+            assertFalse(chain.truncated, "a genuinely shallow chain must report truncated=false")
+            assertNull(chain.truncationReason)
+            assertEquals(2, chain.ancestors.size)
+            assertEquals(root.id, chain.ancestors[0].id, "ancestors must be root-first")
+            assertEquals(middle.id, chain.ancestors[1].id)
+        }
+
+    // ── S9: recomputeDescendantDepths does not spin on a cyclic fixture ────
+
+    @Test
+    @Timeout(value = 10, unit = TimeUnit.SECONDS)
+    fun `recomputeDescendantDepths on a self-parent cycle terminates with Error and writes nothing`(): Unit =
+        runBlocking {
+            val root = createItem("S9 root")
+            val a = createItem("S9 child", parentId = root.id, depth = 1)
+            forceParentId(a.id, a.id)
+
+            val sibling = createItem("S9 sibling")
+            val siblingBefore = repository.getById(sibling.id)
+            assertIs<Result.Success<WorkItem>>(siblingBefore)
+            val versionBefore = siblingBefore.data.version
+
+            val result =
+                ItemHierarchyValidator().recomputeDescendantDepths(
+                    itemId = a.id,
+                    delta = 1,
+                    newRootId = UUID.randomUUID(),
+                    repo = repository,
+                )
+            assertIs<Result.Error>(result, "the descendant fetch inside recompute must surface the cycle, not hang")
+
+            val siblingAfter = repository.getById(sibling.id)
+            assertIs<Result.Success<WorkItem>>(siblingAfter)
+            assertEquals(versionBefore, siblingAfter.data.version, "an unrelated item must be untouched by the aborted cascade")
+        }
+
+    // ── S11b: control - findInScope / countInScope visit each node once ──
+
+    @Test
+    fun `findInScope and countInScope on a branching non-cyclic tree visit each node exactly once`(): Unit =
+        runBlocking {
+            val root = createItem("S11b root")
+            val childA = createItem("S11b A", parentId = root.id, depth = 1)
+            val childB = createItem("S11b B", parentId = root.id, depth = 1)
+            val grandA1 = createItem("S11b A1", parentId = childA.id, depth = 2)
+            val grandA2 = createItem("S11b A2", parentId = childA.id, depth = 2)
+
+            val expectedIds = setOf(root.id, childA.id, childB.id, grandA1.id, grandA2.id)
+
+            val scoped = repository.findInScope(rootIds = setOf(root.id))
+            assertIs<Result.Success<List<WorkItem>>>(scoped)
+            assertEquals(expectedIds.size, scoped.data.size, "no node should be visited more than once")
+            assertEquals(expectedIds, scoped.data.map { it.id }.toSet())
+
+            val count = repository.countInScope(rootIds = setOf(root.id))
+            assertIs<Result.Success<Int>>(count)
+            assertEquals(expectedIds.size, count.data)
         }
 }

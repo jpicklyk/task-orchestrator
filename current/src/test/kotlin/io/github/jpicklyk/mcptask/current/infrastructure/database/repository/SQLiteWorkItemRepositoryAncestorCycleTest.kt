@@ -4,8 +4,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.sqlite.CycleTriggers
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.Database
@@ -13,6 +14,7 @@ import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.jetbrains.exposed.v1.jdbc.update
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -27,16 +29,18 @@ import kotlin.test.assertTrue
  * guards, simulating data that may exist in pre-guard databases.
  */
 class SQLiteWorkItemRepositoryAncestorCycleTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
     private lateinit var database: Database
     private lateinit var databaseManager: DatabaseManager
     private lateinit var repository: SQLiteWorkItemRepository
 
     @BeforeEach
     fun setUp() {
-        val dbName = "cycle_test_${System.nanoTime()}"
-        database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
+        database = sqliteDb.database
+        databaseManager = sqliteDb.databaseManager
         repository = SQLiteWorkItemRepository(databaseManager)
     }
 
@@ -63,6 +67,8 @@ class SQLiteWorkItemRepositoryAncestorCycleTest {
         itemId: UUID,
         newParentId: UUID
     ) {
+        // The V7 cycle triggers abort cycle writes on real SQLite; drop them to simulate pre-guard data.
+        CycleTriggers.drop(database)
         transaction(db = database) {
             WorkItemsTable.update({ WorkItemsTable.id eq itemId }) {
                 it[WorkItemsTable.parentId] = newParentId

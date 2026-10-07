@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database
 
+import io.github.jpicklyk.mcptask.current.infrastructure.database.upgrade.UpgradeHarness
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
@@ -7,8 +8,9 @@ import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
 import java.nio.ByteBuffer
-import java.nio.file.Files
 import java.sql.Connection
 import java.sql.DriverManager
 import java.sql.Timestamp
@@ -22,7 +24,7 @@ import kotlin.test.assertTrue
  * Integration tests for the V17 migration (`V17__Store_Actor_Proof_Evidence.sql`) — item
  * 983615e7 "Stop persisting raw actor proof JWTs; scrub existing rows".
  *
- * Test-plan scenarios covered: S4 (schema + scrub on a hand-built pre-V17 schema, in-memory), S4b
+ * Test-plan scenarios covered: S4 (schema + scrub on the real V16 schema copy), S4b
  * (a single-row `secure_delete` zero-occurrence check on a FILE-backed database), and S4c (a
  * 200-row, explicit-WAL fixture bounding — not eliminating — residual proof-prefix survivors).
  * `secure_delete` is a **partial** scrub at real, multi-row scale: it zeroes the cell/overflow
@@ -43,17 +45,20 @@ import kotlin.test.assertTrue
  * precedes the scrub so freed content is zeroed rather than left in a free page.
  */
 class V17ActorProofScrubMigrationTest {
+    @TempDir
+    lateinit var tempDir: File
+
+    private lateinit var jdbcUrl: String
     private lateinit var database: Database
     private lateinit var keepAliveConnection: Connection
 
     @BeforeEach
     fun setUp() {
-        val dbName = "v17_actor_proof_scrub_${System.nanoTime()}"
-        val jdbcUrl = "jdbc:sqlite:file:$dbName?mode=memory&cache=shared"
+        // The real V16 schema (what a pre-V17 user has), not a hand-built copy.
+        jdbcUrl = UpgradeHarness.copyAt(16, File(tempDir, "v17.db"))
         keepAliveConnection = DriverManager.getConnection(jdbcUrl)
         database = Database.connect(url = jdbcUrl, driver = "org.sqlite.JDBC")
         TransactionManager.manager.defaultIsolationLevel = Connection.TRANSACTION_SERIALIZABLE
-        createPreV17Schema(database)
     }
 
     @AfterEach
@@ -68,100 +73,9 @@ class V17ActorProofScrubMigrationTest {
         }
     }
 
-    /**
-     * Pre-V17 schema: V1's `work_items`/`notes`/`role_transitions` base tables plus the V4
-     * actor-attribution columns (`actor_id`, `actor_kind`, `actor_parent`, `actor_proof`,
-     * `verification_status`, `verification_verifier`, `verification_reason`) on `notes` and
-     * `role_transitions` — deliberately WITHOUT the V17 `actor_proof_sha256`/`actor_proof_claims`
-     * columns, matching `V1__Current_Initial_Schema.sql` + `V4__Add_Actor_Attribution.sql` exactly.
-     */
-    private fun createPreV17Schema(db: Database) {
-        transaction(db = db) {
-            exec(
-                """
-                CREATE TABLE work_items (
-                    id    BLOB PRIMARY KEY DEFAULT (randomblob(16)),
-                    title TEXT NOT NULL
-                )
-                """.trimIndent()
-            )
-            exec(
-                """
-                CREATE TABLE notes (
-                    id              BLOB PRIMARY KEY DEFAULT (randomblob(16)),
-                    work_item_id    BLOB NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
-                    key             VARCHAR(200) NOT NULL,
-                    role            VARCHAR(20) NOT NULL,
-                    body            TEXT NOT NULL DEFAULT '',
-                    created_at      TIMESTAMP NOT NULL,
-                    modified_at     TIMESTAMP NOT NULL,
-                    actor_id                TEXT,
-                    actor_kind               TEXT,
-                    actor_parent             TEXT,
-                    actor_proof              TEXT,
-                    verification_status      TEXT,
-                    verification_verifier    TEXT,
-                    verification_reason      TEXT
-                )
-                """.trimIndent()
-            )
-            exec("CREATE UNIQUE INDEX idx_notes_item_key ON notes(work_item_id, key)")
-            exec(
-                """
-                CREATE TABLE role_transitions (
-                    id                  BLOB PRIMARY KEY DEFAULT (randomblob(16)),
-                    item_id             BLOB NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
-                    from_role           VARCHAR(20) NOT NULL,
-                    to_role             VARCHAR(20) NOT NULL,
-                    from_status_label   TEXT,
-                    to_status_label     TEXT,
-                    trigger             VARCHAR(50) NOT NULL,
-                    summary             TEXT,
-                    transitioned_at     TIMESTAMP NOT NULL,
-                    actor_id                TEXT,
-                    actor_kind               TEXT,
-                    actor_parent             TEXT,
-                    actor_proof              TEXT,
-                    verification_status      TEXT,
-                    verification_verifier    TEXT,
-                    verification_reason      TEXT
-                )
-                """.trimIndent()
-            )
-        }
-    }
-
-    /**
-     * Reads the real `V17__Store_Actor_Proof_Evidence.sql` off the classpath and executes each
-     * statement, against the given [db] (which may differ from the in-memory [database] field —
-     * S4b runs against a separate FILE-backed database).
-     *
-     * Strips full-line `--` comments, then splits on `;`. Safe here: no migration statement
-     * contains an embedded semicolon (verified by reading the file for this exception only, per
-     * the test-author protocol's migration-file allowance).
-     */
-    private fun applyV17Migration(db: Database) {
-        val resourceStream =
-            requireNotNull(
-                Thread.currentThread().contextClassLoader.getResourceAsStream(
-                    "db/migration/sqlite/V17__Store_Actor_Proof_Evidence.sql"
-                )
-            ) { "V17__Store_Actor_Proof_Evidence.sql not found on the test classpath" }
-        val sqlText = resourceStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-        val withoutComments =
-            sqlText
-                .lineSequence()
-                .filterNot { it.trimStart().startsWith("--") }
-                .joinToString("\n")
-        val statements =
-            withoutComments
-                .split(";")
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-
-        transaction(db = db) {
-            statements.forEach { statement -> exec(statement) }
-        }
+    /** Applies the real V17 migration through Flyway (target 17) on the V16 database at [url]. */
+    private fun applyV17Migration(url: String) {
+        UpgradeHarness.migrate(url, target = 17)
     }
 
     private fun uuidToBytes(id: UUID): ByteArray {
@@ -176,11 +90,15 @@ class V17ActorProofScrubMigrationTest {
         id: UUID,
         title: String
     ) {
-        connection.prepareStatement("INSERT INTO work_items (id, title) VALUES (?, ?)").use { stmt ->
-            stmt.setBytes(1, uuidToBytes(id))
-            stmt.setString(2, title)
-            stmt.executeUpdate()
-        }
+        connection
+            .prepareStatement(
+                "INSERT INTO work_items (id, title, created_at, modified_at, role_changed_at) " +
+                    "VALUES (?, ?, datetime('now'), datetime('now'), datetime('now'))"
+            ).use { stmt ->
+                stmt.setBytes(1, uuidToBytes(id))
+                stmt.setString(2, title)
+                stmt.executeUpdate()
+            }
     }
 
     private fun insertPreV17Note(
@@ -234,7 +152,7 @@ class V17ActorProofScrubMigrationTest {
     }
 
     // ────────────────────────────────────────────────────────────────────────
-    // S4 — schema + scrub, hand-built pre-V17 schema, in-memory DB
+    // S4 — schema + scrub, the real V16 schema copy (UpgradeHarness.copyAt)
     // ────────────────────────────────────────────────────────────────────────
 
     @Test
@@ -258,7 +176,7 @@ class V17ActorProofScrubMigrationTest {
             )
             insertPreV17Transition(keepAliveConnection, transitionId, itemId, actorProof = "seed-raw-jwt-transitions")
 
-            applyV17Migration(database)
+            applyV17Migration(jdbcUrl)
 
             // --- Column existence: both new columns on both tables ---
             val notesColumns = mutableSetOf<String>()
@@ -327,7 +245,7 @@ class V17ActorProofScrubMigrationTest {
                     stmt.executeUpdate()
                 }
 
-            applyV17Migration(database)
+            applyV17Migration(jdbcUrl)
 
             keepAliveConnection
                 .prepareStatement("SELECT actor_proof, actor_proof_sha256, actor_proof_claims FROM notes WHERE id = ?")
@@ -367,17 +285,14 @@ class V17ActorProofScrubMigrationTest {
             // signal (not a coincidental byte sequence from other row data or page headers).
             val seededToken = "SEEDED-PROOF-TOKEN-${UUID.randomUUID()}-MUST-NOT-SURVIVE-SCRUB"
 
-            val tempDir = Files.createTempDirectory("v17-secure-delete-test")
-            val dbFile = tempDir.resolve("v17_test.db").toFile()
-            val jdbcUrl = "jdbc:sqlite:${dbFile.absolutePath}"
+            val dbFile = File(tempDir, "v17_test.db")
+            val jdbcUrl = UpgradeHarness.copyAt(16, dbFile)
 
             var fileDatabase: Database? = null
             var fileConnection: Connection? = null
             try {
                 fileConnection = DriverManager.getConnection(jdbcUrl)
                 fileDatabase = Database.connect(url = jdbcUrl, driver = "org.sqlite.JDBC")
-
-                createPreV17Schema(fileDatabase)
 
                 val itemId = UUID.randomUUID()
                 val noteId = UUID.randomUUID()
@@ -403,7 +318,7 @@ class V17ActorProofScrubMigrationTest {
                     }
                 }
 
-                applyV17Migration(fileDatabase)
+                applyV17Migration(jdbcUrl)
 
                 // Force any WAL content to be written back into the main database file and
                 // truncate the WAL, so what we read from the raw file bytes reflects the
@@ -429,10 +344,6 @@ class V17ActorProofScrubMigrationTest {
                 "seeded proof token must not survive anywhere in the raw database file bytes after the " +
                     "secure_delete scrub (migration-assessment ## 3); file size=${rawBytes.size}"
             )
-
-            // Cleanup
-            dbFile.delete()
-            tempDir.toFile().deleteRecursively()
         }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -456,9 +367,8 @@ class V17ActorProofScrubMigrationTest {
             val replacementTokens = (0 until reupsertCount).map { i -> "REPL$i-" + "Q".repeat(970) + "-${UUID.randomUUID()}" }
             val allTokens = seedTokens + replacementTokens
 
-            val tempDir = Files.createTempDirectory("v17-multi-row-secure-delete-test")
-            val dbFile = tempDir.resolve("v17_multi_test.db").toFile()
-            val jdbcUrl = "jdbc:sqlite:${dbFile.absolutePath}"
+            val dbFile = File(tempDir, "v17_multi_test.db")
+            val jdbcUrl = UpgradeHarness.copyAt(16, dbFile)
 
             var fileDatabase: Database? = null
             var fileConnection: Connection? = null
@@ -469,8 +379,6 @@ class V17ActorProofScrubMigrationTest {
                 // from within an active transaction.
                 fileConnection.createStatement().use { it.execute("PRAGMA journal_mode=WAL") }
                 fileDatabase = Database.connect(url = jdbcUrl, driver = "org.sqlite.JDBC")
-
-                createPreV17Schema(fileDatabase)
 
                 val itemId = UUID.randomUUID()
                 insertWorkItem(fileConnection, itemId, "Multi-row item")
@@ -509,7 +417,7 @@ class V17ActorProofScrubMigrationTest {
                         "missing ${missingBeforeMigration.size} of ${allTokens.size}"
                 )
 
-                applyV17Migration(fileDatabase)
+                applyV17Migration(jdbcUrl)
 
                 transaction(db = fileDatabase) {
                     exec("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -560,8 +468,5 @@ class V17ActorProofScrubMigrationTest {
                 "expected fewer than ${rowCount / 2} (N/2) distinct token-prefix survivors after the " +
                     "secure_delete scrub + WAL checkpoint; got $survivingPrefixCount"
             )
-
-            dbFile.delete()
-            tempDir.toFile().deleteRecursively()
         }
 }
