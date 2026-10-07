@@ -150,7 +150,14 @@ export function isTargetConfigPath(filePath) {
   return filePath.replace(/\\/g, '/').endsWith('.taskorchestrator/config.yaml');
 }
 
-function emit(line) {
+// FileChanged is not documented to accept hookSpecificOutput.additionalContext, and a
+// mismatched hookEventName is invalid, so that event surfaces the status line as a top-level
+// systemMessage. SessionStart output is unchanged.
+function emit(line, isFileChanged = false) {
+  if (isFileChanged) {
+    process.stdout.write(JSON.stringify({ systemMessage: line }));
+    return;
+  }
   process.stdout.write(
     JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: line } }),
   );
@@ -520,11 +527,11 @@ async function main() {
     } else if (res.status === 404) {
       currentEtag = null; // no row yet — first push is a create
     } else {
-      emit(`Task Orchestrator: config sync skipped — GET returned HTTP ${res.status}.`);
+      emit(`Task Orchestrator: config sync skipped — GET returned HTTP ${res.status}.`, isFileChanged);
       return;
     }
   } catch (err) {
-    emit(`Task Orchestrator: config sync skipped — API unreachable (${err?.message ?? err}).`);
+    emit(`Task Orchestrator: config sync skipped — API unreachable (${err?.message ?? err}).`, isFileChanged);
     return;
   }
 
@@ -570,7 +577,7 @@ async function main() {
     rulesSummary = `sync failed — ${err?.message ?? err}`;
   }
 
-  emit(rulesSummary ? `${configLine} Rules: ${rulesSummary}` : configLine);
+  emit(rulesSummary ? `${configLine} Rules: ${rulesSummary}` : configLine, isFileChanged);
 }
 
 // Only auto-run when invoked directly as a hook (`node config-sync.mjs`), not when imported
