@@ -11,9 +11,10 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.test.BaseRepositoryTest
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import kotlin.test.assertEquals
@@ -22,12 +23,12 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 /**
- * Bug `3785f37a`, S12 (integration, H2): the terminal claim-clear performed inside
+ * Bug `3785f37a`, S12 (integration, SQLite): the terminal claim-clear performed inside
  * [AdvanceService.advance] / [io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler.applyTransition]
  * must actually survive the round trip through [io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository.update]
  * — a plain in-memory mock (as used by `AdvanceServiceTerminalClaimClearTest`) cannot prove that;
- * only a real persisted `update()` + re-fetch can. Uses [BaseRepositoryTest]'s real H2-backed
- * repositories (not mocks), which is why this lives in the repository test package rather than
+ * only a real persisted `update()` + re-fetch can. Uses real SQLite-backed
+ * repositories (SqliteTestDatabase) (not mocks), which is why this lives in the repository test package rather than
  * alongside the mocked `AdvanceService` unit tests.
  *
  * EXISTING-SURFACE: no new production signature; a narrowest revert of the
@@ -36,7 +37,13 @@ import kotlin.test.assertNull
  * Oracles: O1 (`api-reference.md:1727`, terminal items cannot be claimed) and O3 (`reopen`
  * TERMINAL->QUEUE) from the frozen test-plan.
  */
-class SQLiteTerminalClaimClearTest : BaseRepositoryTest() {
+class SQLiteTerminalClaimClearTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
+    private val repositoryProvider get() = sqliteDb.repositoryProvider()
+
     private fun advanceService(): AdvanceService =
         AdvanceService(
             workItemRepository = repositoryProvider.workItemRepository(),
@@ -47,7 +54,7 @@ class SQLiteTerminalClaimClearTest : BaseRepositoryTest() {
             schemaResolver = { null },
         )
 
-    /** Persists a WORK-role item already claimed by [claimedBy], via `create()` (H2-safe). */
+    /** Persists a WORK-role item already claimed by [claimedBy], via `create()`. */
     private suspend fun createClaimedItem(
         claimedBy: String,
         role: Role = Role.WORK

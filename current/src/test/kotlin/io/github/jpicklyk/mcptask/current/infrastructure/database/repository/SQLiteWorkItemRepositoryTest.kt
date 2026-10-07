@@ -6,21 +6,28 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.test.BaseRepositoryTest
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
-class SQLiteWorkItemRepositoryTest : BaseRepositoryTest() {
+class SQLiteWorkItemRepositoryTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
+    private val repositoryProvider get() = sqliteDb.repositoryProvider()
+
     private lateinit var repository: WorkItemRepository
 
     @BeforeEach
     fun setUp() {
-        // Base class setUpDatabase() runs first via @BeforeEach ordering
+        // The SqliteTestDatabase extension has started the database before this @BeforeEach
         repository = repositoryProvider.workItemRepository()
     }
 
