@@ -46,6 +46,7 @@ For migrations that modify existing data:
 - [ ] Migration is idempotent where possible
 - [ ] Migration files stay byte-identical once released: Flyway's checksum covers every line including comments, so never edit one (V9's header comment, lines 12-14, says FK enforcement is off by default in this project; in fact the application connection runs `foreign_keys=ON` (DatabaseManager) and only Flyway's own connection runs with it OFF. That correction lives here, not in the file, because Flyway checksums comment lines)
 - [ ] Expand/contract: ship additive changes first and remove the old shape in a later release; flag any table-recreating migration in the release notes
+- [ ] Upgrade harness seed added: `upgrade/seeds/SeedV{N}.kt` extends `MigrationSeed({N})`, declares the exact expected values of any column it rewrites in `expected(table, row)`, seeds rows the migration transforms, and asserts the result in `verify`; any new column also needs a seeded value in `BaselineDataset` (`BaselineColumnCoverageTest`). The harness migrates a populated database from N-1 and checks rows, foreign keys, FTS counts and integrity, the trigger inventory and `foreign_keys = 0` on Flyway's connection; it fails for a V18-or-later migration without a seed
 
 ### Table-recreation template
 

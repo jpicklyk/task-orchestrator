@@ -1,0 +1,1 @@
+table|work_items_fts_text|work_items_fts_text|CREATE VIRTUAL TABLE work_items_fts_text USING fts5( title, summary, content='work_items', content_rowid='rowid', tokenize='porter unicode61 remove_diacritics 2', prefix='2 3' )

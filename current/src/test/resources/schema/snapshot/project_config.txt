@@ -1,0 +1,2 @@
+index|idx_project_config_root_item_id|project_config|CREATE UNIQUE INDEX idx_project_config_root_item_id ON project_config(root_item_id)
+table|project_config|project_config|CREATE TABLE project_config ( id BLOB PRIMARY KEY DEFAULT (randomblob(16)), root_item_id BLOB NOT NULL REFERENCES work_items(id) ON DELETE CASCADE, config_yaml TEXT NOT NULL, fingerprint TEXT NOT NULL, updated_at TIMESTAMP NOT NULL , fingerprint_history TEXT)

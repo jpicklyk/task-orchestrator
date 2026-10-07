@@ -1,0 +1,4 @@
+index|idx_deps_from|dependencies|CREATE INDEX idx_deps_from ON dependencies(from_item_id)
+index|idx_deps_to|dependencies|CREATE INDEX idx_deps_to ON dependencies(to_item_id)
+index|idx_deps_unique|dependencies|CREATE UNIQUE INDEX idx_deps_unique ON dependencies(from_item_id, to_item_id, type)
+table|dependencies|dependencies|CREATE TABLE dependencies ( id BLOB PRIMARY KEY DEFAULT (randomblob(16)), from_item_id BLOB NOT NULL REFERENCES work_items(id) ON DELETE CASCADE, to_item_id BLOB NOT NULL REFERENCES work_items(id) ON DELETE CASCADE, type VARCHAR(20) NOT NULL DEFAULT 'BLOCKS' CHECK (type IN ('BLOCKS', 'IS_BLOCKED_BY', 'RELATES_TO')), unblock_at VARCHAR(20) CHECK (unblock_at IS NULL OR unblock_at IN ('queue', 'work', 'review', 'terminal')), created_at TIMESTAMP NOT NULL )
