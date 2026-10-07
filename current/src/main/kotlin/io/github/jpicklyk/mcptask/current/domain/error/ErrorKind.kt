@@ -1,15 +1,15 @@
 package io.github.jpicklyk.mcptask.current.domain.error
 
 /**
- * Classifies the retry semantics of an error.
+ * Classifies the retry semantics of an error. Decided by the [ErrorCode], never per call site
+ * (envelope design section 2, `kind` row).
  *
- * - [TRANSIENT] - the failure is temporary; the caller should retry with exponential backoff.
- *   Typical causes: lock contention, JWKS unavailable, transient DB busy.
- * - [PERMANENT] - the failure is definitive; retrying will produce the same result.
- *   Typical causes: validation errors, authorization failures, not-found.
- * - [SHEDDING] - the server is temporarily over capacity; the caller should retry after
- *   an explicit delay indicated by the error's retry-after value.
- *   Typical causes: writer queue saturated, circuit-breaker open.
+ * - [TRANSIENT] - retry the same request as-is, after `retryAfterMs` when the server provides it.
+ *   Typical causes: a claim or resource lease held elsewhere, an internal fault.
+ * - [PERMANENT] - do not retry without changing something; the error's `fix` says what.
+ *   Typical causes: validation errors, gate blocks, authorization failures, not-found.
+ * - [SHEDDING] - the server is declining load; retry with backoff.
+ *   Typical causes: database busy or locked past the unit-of-work deadline.
  */
 enum class ErrorKind {
     TRANSIENT,
