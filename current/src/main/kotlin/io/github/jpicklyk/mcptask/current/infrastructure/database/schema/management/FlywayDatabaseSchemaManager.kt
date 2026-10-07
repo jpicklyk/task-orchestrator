@@ -254,7 +254,7 @@ class FlywayDatabaseSchemaManager(
         val rows = linkedMapOf<String, List<String?>>()
         val sql =
             "SELECT type, name, tbl_name, sql FROM sqlite_master " +
-                "WHERE name NOT LIKE 'sqlite_%' AND name != '$HISTORY_TABLE' ORDER BY type, name"
+                "WHERE name NOT LIKE 'sqlite_%' AND tbl_name != '$HISTORY_TABLE' ORDER BY type, name"
         conn.createStatement().use { st ->
             st.executeQuery(sql).use { rs ->
                 while (rs.next()) {
