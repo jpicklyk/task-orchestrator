@@ -16,10 +16,9 @@ import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
@@ -30,8 +29,8 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
@@ -52,7 +51,7 @@ import kotlin.test.assertTrue
  * lease(s) that call itself just acquired are released before the failure is returned — same for
  * a cascade whose own resource acquire succeeded but whose apply then failed").
  *
- * SEAMS (own file, H2 via [DefaultRepositoryProvider] + [DirectDatabaseSchemaManager] — the same
+ * SEAMS (own file, SQLite via [DefaultRepositoryProvider] + [SqliteTestDatabase] — the same
  * technique as `ManageItemsParentPlacementInTxnTest`, chosen over full MockK so the release
  * assertions read the REAL persisted lease/role state rather than a stubbed return value):
  * - [FailingRoleTransitionRepository] wraps the real `roleTransitionRepository()`, failing
@@ -71,6 +70,9 @@ import kotlin.test.assertTrue
  * `ManageItemsParentPlacementInTxnTest.kt`). No `src/main` file, diff, or commit was read.
  */
 class AdvanceItemToolApplyFailureLeaseTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     /** Wraps a real [RoleTransitionRepository]; fails `create()` only for [failFor]'s transitions. */
     private class FailingRoleTransitionRepository(
         private val delegate: RoleTransitionRepository,
@@ -168,12 +170,7 @@ class AdvanceItemToolApplyFailureLeaseTest {
             }
     }
 
-    private fun buildProvider(): DefaultRepositoryProvider {
-        val dbName = "advance_apply_failure_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DefaultRepositoryProvider(DatabaseManager(database))
-    }
+    private fun buildProvider(): DefaultRepositoryProvider = db.repositoryProvider()
 
     private fun startParams(vararg itemIds: UUID): JsonObject =
         buildJsonObject {

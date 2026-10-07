@@ -12,14 +12,12 @@ import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertTrue
 
 /**
@@ -27,7 +25,7 @@ import kotlin.test.assertTrue
  * Token-Efficiency Program" work referenced in [io.github.jpicklyk.mcptask.current.application.tools.ToolTokenBudgetTest]).
  * That test guards the `tools/list` payload (what a client downloads once per session); this
  * test guards the recurring cost — what a client's context window pays on every tool *call* —
- * by driving a full item lifecycle end-to-end against a real H2 database and measuring exactly
+ * by driving a full item lifecycle end-to-end against a real SQLite database and measuring exactly
  * what [io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter] hands back to an MCP
  * client: the `userSummary` text plus the compact-JSON `structuredContent` payload. See
  * [measureCall] — it deliberately mirrors `McpToolAdapter.registerToolWithServer`'s isError /
@@ -53,6 +51,9 @@ import kotlin.test.assertTrue
  * revert of that work fails loudly even if someone also loosened the per-call ceiling table.
  */
 class LifecycleResponseBudgetTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var context: ToolExecutionContext
 
     private val createWorkTreeTool = CreateWorkTreeTool()
@@ -68,11 +69,7 @@ class LifecycleResponseBudgetTest {
 
     @BeforeEach
     fun setUp() {
-        val dbName = "lifecycle_response_budget_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
-        val repositoryProvider = DefaultRepositoryProvider(databaseManager)
+        val repositoryProvider = db.repositoryProvider()
 
         // "feature-task" schema: 1 queue note + 2 work notes + 1 review note, each with guidance
         // text — mirrors a realistic feature-task work item (see drive_workflow.py reference).
