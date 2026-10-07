@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.domain.model
 
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull

@@ -1,31 +1,7 @@
 package io.github.jpicklyk.mcptask.current.domain.model
 
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
 import java.util.UUID
-
-/**
- * Classifies the retry semantics of a [ToolError].
- *
- * - [TRANSIENT] — the failure is temporary; the caller should retry with exponential backoff.
- *   Typical causes: lock contention, JWKS unavailable, transient DB busy.
- * - [PERMANENT] — the failure is definitive; retrying will produce the same result.
- *   Typical causes: validation errors, authorization failures, not-found.
- * - [SHEDDING] — the server is temporarily over capacity; the caller should retry after
- *   an explicit delay indicated by [ToolError.retryAfterMs].
- *   Typical causes: writer queue saturated, circuit-breaker open.
- */
-enum class ErrorKind {
-    TRANSIENT,
-    PERMANENT,
-    SHEDDING;
-
-    fun toJsonString(): String = name.lowercase()
-
-    companion object {
-        fun fromString(value: String): ErrorKind =
-            entries.find { it.name.equals(value, ignoreCase = true) }
-                ?: throw IllegalArgumentException("Unknown ErrorKind: $value")
-    }
-}
 
 /**
  * Structured error envelope returned by all MCP tools on failure.

@@ -12,8 +12,8 @@ import io.github.jpicklyk.mcptask.current.application.service.buildMissingBySeat
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
-import io.github.jpicklyk.mcptask.current.domain.model.ErrorKind
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
