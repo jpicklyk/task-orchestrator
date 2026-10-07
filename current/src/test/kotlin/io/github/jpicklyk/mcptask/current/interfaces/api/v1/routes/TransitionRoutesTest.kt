@@ -172,7 +172,7 @@ class TransitionRoutesTest {
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             assertTrue(body.contains("\"hasMore\":true"), "Expected hasMore true on page 1: $body")
-            assertEquals(2, Regex("\"summary\"").findAll(body).count(), "Expected 2 items on page 1: $body")
+            assertEquals(2, Regex("\"trigger\":\"start\"").findAll(body).count(), "Expected 2 items on page 1: $body")
         }
 
     @Test
@@ -209,16 +209,19 @@ class TransitionRoutesTest {
                     .bodyAsText()
 
             val page1 = fetch(1)
-            assertTrue(page1.contains("transition 2") && page1.contains("transition 1"), "page 1: $page1")
+            assertTrue(page1.contains("2026-01-01T00:00:02Z") && page1.contains("2026-01-01T00:00:01Z"), "page 1: $page1")
             assertTrue(page1.contains("\"hasMore\":true"), "page 1: $page1")
 
             val page2 = fetch(2)
-            assertTrue(page2.contains("transition 0"), "page 2: $page2")
-            assertTrue(!page2.contains("transition 1") && !page2.contains("transition 2"), "page 2 overlaps page 1: $page2")
+            assertTrue(page2.contains("2026-01-01T00:00:00Z"), "page 2: $page2")
+            assertTrue(
+                !page2.contains("2026-01-01T00:00:01Z") && !page2.contains("2026-01-01T00:00:02Z"),
+                "page 2 overlaps page 1: $page2"
+            )
             assertTrue(page2.contains("\"hasMore\":false"), "page 2: $page2")
 
             val page3 = fetch(3)
-            assertTrue(!page3.contains("\"summary\""), "page 3 should be empty: $page3")
+            assertTrue(page3.contains("\"items\":[]"), "page 3 should be empty: $page3")
             assertTrue(page3.contains("\"hasMore\":false"), "page 3: $page3")
         }
 
