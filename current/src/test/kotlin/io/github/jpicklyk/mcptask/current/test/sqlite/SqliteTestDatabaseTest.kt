@@ -10,6 +10,7 @@ import java.io.File
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
@@ -93,18 +94,59 @@ class SqliteTestDatabaseTest {
         }
     }
 
+    /** Writes through the production manager (so the database header is in WAL mode), then holds a raw connection open. */
+    private fun holdWalConnection(db: SqliteTestDatabase): java.sql.Connection {
+        transaction(db = db.database) { exec("SELECT count(*) FROM work_items") { } }
+        val held = java.sql.DriverManager.getConnection(db.jdbcUrl)
+        held.createStatement().use { st -> st.executeQuery("SELECT count(*) FROM work_items").use { it.next() } }
+        return held
+    }
+
     @Test
     fun `S4 close removes the database, its sidecars and its directory`() {
         val db = SqliteTestDatabase.open()
         val dir = db.file.parentFile
-        // Touch the database so WAL sidecars exist while it is open.
-        transaction(db = db.database) { exec("SELECT count(*) FROM work_items") { } }
-        assertTrue(db.file.exists())
+        val wal = File(db.file.path + "-wal")
+        val shm = File(db.file.path + "-shm")
+        // Unpooled Exposed connections remove the sidecars when the last one closes, so hold one connection
+        // open: the sidecars then exist, which makes the post-close absence below a real check.
+        val held = holdWalConnection(db)
+        try {
+            assertTrue(db.file.exists())
+            assertTrue(wal.exists(), "wal sidecar must exist while a connection is held (otherwise this test is vacuous)")
+            assertTrue(shm.exists(), "shm sidecar must exist while a connection is held (otherwise this test is vacuous)")
+        } finally {
+            held.close()
+        }
         db.close()
         assertFalse(db.file.exists(), "database file must be deleted")
-        assertFalse(File(db.file.path + "-wal").exists(), "wal sidecar must be deleted")
-        assertFalse(File(db.file.path + "-shm").exists(), "shm sidecar must be deleted")
+        assertFalse(wal.exists(), "wal sidecar must be deleted")
+        assertFalse(shm.exists(), "shm sidecar must be deleted")
         assertFalse(dir.exists(), "scope directory must be deleted")
+    }
+
+    @Test
+    fun `S4 a leaked connection makes close fail naming the file (Windows) or still cleans up (elsewhere)`() {
+        val db = SqliteTestDatabase.open()
+        val dir = db.file.parentFile
+        val held = holdWalConnection(db)
+        val windows = System.getProperty("os.name").lowercase().contains("windows")
+        try {
+            if (windows) {
+                // An open handle cannot be deleted on Windows: the fixture must fail loudly, not leak silently.
+                val e = assertFailsWith<IllegalStateException> { db.close() }
+                assertTrue("test.db" in e.message.orEmpty(), "failure must name the leaked file: ${e.message}")
+                assertTrue("leaked a connection" in e.message.orEmpty(), "failure must explain the cause: ${e.message}")
+            } else {
+                // POSIX unlinks open files, so a leak cannot be detected by deletion; close must simply succeed.
+                db.close()
+                assertFalse(dir.exists(), "scope directory must be deleted")
+            }
+        } finally {
+            held.close()
+            db.close()
+        }
+        assertFalse(dir.exists(), "scope directory must be deleted once the leaked connection is closed")
     }
 
     @Test
@@ -131,9 +173,26 @@ class SqliteTestDatabaseTest {
     }
 
     @Test
-    fun `perClass extension exposes one live database`() {
-        val first = perClassDb.file
-        assertTrue(first.exists())
-        assertEquals(first, perClassDb.file)
+    @Order(20)
+    fun `perClass database persists across tests (writer)`() {
+        transaction(db = perClassDb.database) {
+            exec(
+                "INSERT INTO work_items (id, title, created_at, modified_at, role_changed_at) " +
+                    "VALUES (randomblob(16), 'per-class-marker', datetime('now'), datetime('now'), datetime('now'))"
+            )
+        }
+    }
+
+    @Test
+    @Order(21)
+    fun `perClass database persists across tests (reader sees the earlier write)`() {
+        val markers =
+            transaction(db = perClassDb.database) {
+                var n = -1
+                exec("SELECT count(*) FROM work_items WHERE title = 'per-class-marker'") { rs -> if (rs.next()) n = rs.getInt(1) }
+                n
+            }
+        assertEquals(1, markers, "a perClass database must be shared by every test of the class")
+        assertTrue(perClassDb.file.exists())
     }
 }

@@ -1,0 +1,1 @@
+table|work_items_fts_trigram|work_items_fts_trigram|CREATE VIRTUAL TABLE work_items_fts_trigram USING fts5( title, summary, content='work_items', content_rowid='rowid', tokenize='trigram', prefix='2 3' )

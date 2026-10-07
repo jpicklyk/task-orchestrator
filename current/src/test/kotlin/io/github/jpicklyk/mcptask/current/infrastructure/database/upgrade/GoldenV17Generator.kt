@@ -28,6 +28,21 @@ import java.sql.DriverManager
 class GoldenV17Generator {
     @Test
     fun regenerate() {
+        GoldenV17.generate(File(System.getProperty("user.dir"), "src/test/resources/upgrade"))
+    }
+}
+
+/** Names and loader for the golden V17 resources. */
+object GoldenV17 {
+    const val DB_NAME = "golden-v17-3.16.sqlite"
+    const val MANIFEST_NAME = "golden-v17-3.16.manifest.txt"
+
+    /**
+     * Builds the golden database and its manifest into [outDir] (deterministic: fixed literals, normalized history).
+     * The checked-in copy is produced with the outDir `src/test/resources/upgrade`; `GoldenV17UpgradeTest` calls this
+     * with a temp directory to prove the committed golden is not stale.
+     */
+    fun generate(outDir: File): File {
         val work = Files.createTempDirectory("golden-v17-gen-").toFile()
         try {
             val url = UpgradeHarness.urlFor(File(work, "v17.db"))
@@ -42,8 +57,8 @@ class GoldenV17Generator {
                     st.execute("PRAGMA journal_mode = DELETE")
                 }
             }
-            val outDir = File(System.getProperty("user.dir"), "src/test/resources/upgrade").also { it.mkdirs() }
-            val golden = File(outDir, GoldenV17.DB_NAME)
+            outDir.mkdirs()
+            val golden = File(outDir, DB_NAME)
             golden.delete()
             DriverManager.getConnection(url).use { conn ->
                 conn.createStatement().use { it.execute("VACUUM INTO '" + golden.absolutePath.replace(File.separatorChar, '/') + "'") }
@@ -74,7 +89,7 @@ class GoldenV17Generator {
                 buildString {
                     appendLine("# Golden V17 (3.16-format) database. Regenerate with GoldenV17Generator; never edit by hand.")
                     appendLine("# Synthetic rows only (BaselineDataset literals); never derived from a real database.")
-                    appendLine("file=${GoldenV17.DB_NAME}")
+                    appendLine("file=${DB_NAME}")
                     appendLine("sha256=$sha")
                     appendLine("size_bytes=${golden.length()}")
                     appendLine("schema_version=17")
@@ -84,7 +99,8 @@ class GoldenV17Generator {
                     appendLine("generator_base_commit=${gitHead()}")
                     counts.forEach { (t, n) -> appendLine("count.$t=$n") }
                 }
-            File(outDir, GoldenV17.MANIFEST_NAME).writeText(manifest, Charsets.UTF_8)
+            File(outDir, MANIFEST_NAME).writeText(manifest, Charsets.UTF_8)
+            return golden
         } finally {
             work.deleteRecursively()
         }
@@ -101,12 +117,6 @@ class GoldenV17Generator {
             p.waitFor()
             out
         }.getOrDefault("unknown")
-}
-
-/** Names and loader for the golden V17 resources. */
-object GoldenV17 {
-    const val DB_NAME = "golden-v17-3.16.sqlite"
-    const val MANIFEST_NAME = "golden-v17-3.16.manifest.txt"
 
     fun manifest(): Map<String, String> {
         val stream = GoldenV17::class.java.getResourceAsStream("/upgrade/$MANIFEST_NAME") ?: error("missing /upgrade/$MANIFEST_NAME")

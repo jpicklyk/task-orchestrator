@@ -7,7 +7,15 @@ import kotlin.test.assertEquals
 
 /** V17 scrubs raw bearer proofs (`actor_proof`) from notes and transitions without touching anything else. */
 object SeedV17 : MigrationSeed(17) {
-    override val rewrites = setOf("notes.actor_proof", "role_transitions.actor_proof")
+    override fun expected(
+        table: String,
+        row: Map<String, Any?>
+    ): Map<String, Any?> =
+        if ((table == "notes" || table == "role_transitions") && row["actor_proof"] != null) {
+            mapOf("actor_proof" to null)
+        } else {
+            emptyMap()
+        }
 
     override fun seed(conn: Connection) {
         BaselineDataset.insert(
@@ -57,6 +65,6 @@ object SeedV17 : MigrationSeed(17) {
                     rs.getInt(1)
                 }
             }
-        assertEquals(2, attributed, "V17 must keep actor attribution on notes (baseline plus seed)")
+        assertEquals(3, attributed, "V17 must keep actor attribution on notes (two baseline notes plus the seed note)")
     }
 }

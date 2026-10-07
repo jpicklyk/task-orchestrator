@@ -1,0 +1,4 @@
+index|idx_resource_leases_expires_at|resource_leases|CREATE INDEX idx_resource_leases_expires_at ON resource_leases(expires_at)
+index|idx_resource_leases_key_holder|resource_leases|CREATE UNIQUE INDEX idx_resource_leases_key_holder ON resource_leases(resource_key, holder_item_id)
+index|idx_resource_leases_resource_key|resource_leases|CREATE INDEX idx_resource_leases_resource_key ON resource_leases(resource_key)
+table|resource_leases|resource_leases|CREATE TABLE resource_leases ( id BLOB PRIMARY KEY DEFAULT (randomblob(16)), resource_key TEXT NOT NULL, holder_item_id BLOB NOT NULL REFERENCES work_items(id) ON DELETE CASCADE, acquired_by_actor_id TEXT NULL, acquired_at TEXT NOT NULL, expires_at TEXT NOT NULL, original_acquired_at TEXT NOT NULL, budget_limit INTEGER DEFAULT NULL, budget_used INTEGER DEFAULT NULL, budget_window_seconds INTEGER DEFAULT NULL, version INTEGER NOT NULL DEFAULT 0 )

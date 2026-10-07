@@ -9,13 +9,16 @@ import java.util.UUID
  * the tables and columns that exist at that version (checked with PRAGMA table_info). The upgrade
  * harness seeds it at version N-1 and then migrates; the golden-V17 generator seeds it at V17.
  *
+ * Every column of every table is given a distinct, non-default value in at least one row (the guard test
+ * `BaselineColumnCoverageTest` enforces it against the latest schema, with a short reasoned exemption list).
+ *
  * Every id is a deterministic `nameUUIDFromBytes`, every timestamp a fixed literal in one of the two
  * shapes the 3.16 server wrote: the Exposed `Instant` shape (`2026-03-01 10:15:30.123`, probed from
  * `WorkItemsTable` inserts) and the DB-side `datetime('now')` shape (`2026-03-01 10:15:30`) that the
  * claim and lease SQL writes. Nothing here is derived from any real database.
  *
  * Contents: a root, a feature under it, six tasks under the feature, notes (one with actor
- * attribution and a raw `actor_proof` that V17 scrubs), dependencies of every type including one
+ * attribution and a raw `actor_proof` below V17, which the V17 scrub removes, and sha256/claims evidence from V17), dependencies of every type including one
  * mutual-block pair, transitions with actor columns, a claim, active and expired leases with lease
  * history (including an interval whose holder was deleted), a `project_config` row and plan documents.
  */
@@ -25,6 +28,12 @@ object BaselineDataset {
 
     /** `datetime('now')` write shape (3.16 claim and lease SQL). */
     const val DB_TS = "2026-03-01 10:15:30"
+
+    /** Hex SHA-256 evidence a 3.16 server stores in `actor_proof_sha256` (synthetic). */
+    const val PROOF_SHA256 = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+
+    /** `actor_proof_claims` JSON a 3.16 server stores (synthetic). */
+    const val PROOF_CLAIMS = "{\"iss\":\"https://issuer.example\",\"sub\":\"actor-one\",\"kid\":\"k1\",\"alg\":\"EdDSA\"}"
 
     /** A token present in one seeded work-item title, used for FTS MATCH checks. */
     const val ITEM_FTS_TOKEN = "zebrafish"
@@ -108,6 +117,10 @@ object BaselineDataset {
 
     @Suppress("LongMethod")
     fun seed(conn: Connection) {
+        // 3.16 (V17) never writes a raw actor_proof: it stores the sha256 and claims instead. Raw proofs are only
+        // seeded below V17, where they are the data the V17 scrub must remove.
+        val rawProofs = "actor_proof_sha256" !in columnsOf(conn, "notes")
+
         fun item(
             name: String,
             parent: String?,
@@ -116,7 +129,10 @@ object BaselineDataset {
             role: String = "queue",
             statusLabel: String? = null,
             previousRole: String? = null,
-            claim: Boolean = false
+            claim: Boolean = false,
+            priority: String = "medium",
+            requiresVerification: Boolean = false,
+            version: Int = 1
         ) = insert(
             conn,
             "work_items",
@@ -125,32 +141,32 @@ object BaselineDataset {
             "root_id" to id("root"),
             "title" to title,
             "description" to "Description of $name",
-            "summary" to "",
+            "summary" to "Summary of $name",
             "role" to role,
             "status_label" to statusLabel,
             "previous_role" to previousRole,
-            "priority" to "medium",
+            "priority" to priority,
             "complexity" to 5,
-            "requires_verification" to 0,
+            "requires_verification" to if (requiresVerification) 1 else 0,
             "depth" to depth,
-            "metadata" to null,
+            "metadata" to "{\"seeded\":\"$name\"}",
             "tags" to "baseline,$name",
-            "type" to null,
-            "properties" to null,
+            "type" to "feature-task",
+            "properties" to "{\"traits\":[\"needs-review\",\"trait-$name\"]}",
             "created_at" to TS,
             "modified_at" to TS,
             "role_changed_at" to TS,
-            "version" to 1,
+            "version" to version,
             "claimed_by" to if (claim) "agent-one" else null,
             "claimed_at" to if (claim) TS else null,
             "claim_expires_at" to if (claim) "2026-03-01 11:15:30" else null,
             "original_claimed_at" to if (claim) DB_TS else null
         )
 
-        item("root", null, 0, "Baseline root alpha", role = "work", statusLabel = "in-progress")
-        item("feature", "root", 1, "Baseline feature beta", role = "work", statusLabel = "in-progress")
+        item("root", null, 0, "Baseline root alpha", role = "work", statusLabel = "in-progress", priority = "high", version = 4)
+        item("feature", "root", 1, "Baseline feature beta", role = "work", statusLabel = "in-progress", priority = "low")
         item("task1", "feature", 2, "Task one $ITEM_FTS_TOKEN", role = "blocked", previousRole = "work")
-        item("task2", "feature", 2, "Task two gamma", role = "terminal", statusLabel = "done")
+        item("task2", "feature", 2, "Task two gamma", role = "terminal", statusLabel = "done", requiresVerification = true, version = 3)
         item("task3", "feature", 2, "Task three delta", role = "terminal", statusLabel = "in-progress")
         item("task4", "feature", 2, "Task four epsilon", role = "work", statusLabel = "in-progress", claim = true)
         item("task5", "feature", 2, "Task five zeta")
@@ -161,7 +177,7 @@ object BaselineDataset {
             key: String,
             role: String,
             body: String,
-            attributed: Boolean = false
+            proofStatus: String? = null
         ) = insert(
             conn,
             "notes",
@@ -172,17 +188,19 @@ object BaselineDataset {
             "body" to body,
             "created_at" to TS,
             "modified_at" to TS,
-            "actor_id" to if (attributed) "actor-one" else null,
-            "actor_kind" to if (attributed) "subagent" else null,
-            "actor_parent" to if (attributed) "orchestrator-one" else null,
-            "actor_proof" to if (attributed) "eyJraWQiOiJrMSJ9.synthetic.baseline-proof" else null,
-            "verification_status" to if (attributed) "VERIFIED" else null,
-            "verification_verifier" to if (attributed) "jwks" else null,
-            "verification_reason" to null
+            "actor_id" to if (proofStatus != null) "actor-one" else null,
+            "actor_kind" to if (proofStatus != null) "subagent" else null,
+            "actor_parent" to if (proofStatus != null) "orchestrator-one" else null,
+            "actor_proof" to if (proofStatus != null && rawProofs) "eyJraWQiOiJrMSJ9.synthetic.baseline-proof" else null,
+            "verification_status" to proofStatus,
+            "verification_verifier" to if (proofStatus != null) "jwks" else null,
+            "verification_reason" to if (proofStatus == "REJECTED") "signature-mismatch" else null,
+            "actor_proof_sha256" to if (proofStatus != null) PROOF_SHA256 else null,
+            "actor_proof_claims" to if (proofStatus != null) PROOF_CLAIMS else null
         )
         note("feature", "feature-summary", "queue", "Summary of the baseline feature")
-        note("feature", "notes-extra", "work", "A second note for the feature")
-        note("task1", "task-scope", "queue", "Scope text mentioning the $NOTE_FTS_TOKEN marker", attributed = true)
+        note("feature", "notes-extra", "work", "A second note for the feature", proofStatus = "REJECTED")
+        note("task1", "task-scope", "queue", "Scope text mentioning the $NOTE_FTS_TOKEN marker", proofStatus = "VERIFIED")
 
         fun dep(
             name: String,
@@ -212,7 +230,9 @@ object BaselineDataset {
             from: String,
             to: String,
             trigger: String,
-            attributed: Boolean
+            proofStatus: String?,
+            fromLabel: String? = null,
+            toLabel: String? = null
         ) = insert(
             conn,
             "role_transitions",
@@ -220,29 +240,32 @@ object BaselineDataset {
             "item_id" to id(item),
             "from_role" to from,
             "to_role" to to,
-            "from_status_label" to null,
-            "to_status_label" to null,
+            "from_status_label" to fromLabel,
+            "to_status_label" to toLabel,
             "trigger" to trigger,
             "summary" to "Baseline transition $name",
             "transitioned_at" to TS,
-            "actor_id" to if (attributed) "actor-one" else null,
-            "actor_kind" to if (attributed) "subagent" else null,
-            "actor_parent" to if (attributed) "orchestrator-one" else null,
-            "actor_proof" to if (attributed) "eyJraWQiOiJrMSJ9.synthetic.transition-proof" else null,
-            "verification_status" to if (attributed) "VERIFIED" else null,
-            "verification_verifier" to if (attributed) "jwks" else null,
-            "verification_reason" to null,
-            "consumed_credentials" to if (attributed) "[\"vault:baseline-secret\"]" else null
+            "actor_id" to if (proofStatus != null) "actor-one" else null,
+            "actor_kind" to if (proofStatus != null) "subagent" else null,
+            "actor_parent" to if (proofStatus != null) "orchestrator-one" else null,
+            "actor_proof" to if (proofStatus != null && rawProofs) "eyJraWQiOiJrMSJ9.synthetic.transition-proof" else null,
+            "verification_status" to proofStatus,
+            "verification_verifier" to if (proofStatus != null) "jwks" else null,
+            "verification_reason" to if (proofStatus == "REJECTED") "audience-mismatch" else null,
+            "consumed_credentials" to if (proofStatus != null) "[\"vault:baseline-secret\"]" else null,
+            "actor_proof_sha256" to if (proofStatus != null) PROOF_SHA256 else null,
+            "actor_proof_claims" to if (proofStatus != null) PROOF_CLAIMS else null
         )
-        transition("t2-start", "task2", "queue", "work", "start", attributed = true)
-        transition("t2-complete", "task2", "work", "terminal", "complete", attributed = false)
-        transition("t4-start", "task4", "queue", "work", "start", attributed = true)
+        transition("t2-start", "task2", "queue", "work", "start", proofStatus = "VERIFIED", fromLabel = "backlog", toLabel = "in-progress")
+        transition("t2-complete", "task2", "work", "terminal", "complete", proofStatus = null, fromLabel = "in-progress", toLabel = "done")
+        transition("t4-start", "task4", "queue", "work", "start", proofStatus = "REJECTED", fromLabel = "backlog", toLabel = "in-progress")
 
         fun lease(
             name: String,
             key: String,
             holder: String,
-            expires: String
+            expires: String,
+            budget: Boolean = false
         ) = insert(
             conn,
             "resource_leases",
@@ -253,12 +276,12 @@ object BaselineDataset {
             "acquired_at" to DB_TS,
             "expires_at" to expires,
             "original_acquired_at" to DB_TS,
-            "budget_limit" to null,
-            "budget_used" to null,
-            "budget_window_seconds" to null,
-            "version" to 0
+            "budget_limit" to if (budget) 10 else null,
+            "budget_used" to if (budget) 3 else null,
+            "budget_window_seconds" to if (budget) 3600 else null,
+            "version" to if (budget) 2 else 0
         )
-        lease("active", "staging-environment", "task4", "2099-01-01 00:00:00")
+        lease("active", "staging-environment", "task4", "2099-01-01 00:00:00", budget = true)
         lease("expired", "shared-database", "task2", "2020-01-01 00:00:00")
 
         fun history(

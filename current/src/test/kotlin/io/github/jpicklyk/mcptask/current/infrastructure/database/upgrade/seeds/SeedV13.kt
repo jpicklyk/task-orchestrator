@@ -10,7 +10,15 @@ import kotlin.test.assertEquals
  * `cancelled` and non-terminal `in-progress` rows alone.
  */
 object SeedV13 : MigrationSeed(13) {
-    override val rewrites = setOf("work_items.status_label")
+    override fun expected(
+        table: String,
+        row: Map<String, Any?>
+    ): Map<String, Any?> =
+        if (table == "work_items" && row["role"] == "terminal" && row["status_label"] == "in-progress") {
+            mapOf("status_label" to "done")
+        } else {
+            emptyMap()
+        }
 
     override fun seed(conn: Connection) {
         BaselineDataset.extraItem(conn, "seed13-wip-terminal", role = "terminal", statusLabel = "in-progress")

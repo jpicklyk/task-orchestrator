@@ -33,7 +33,8 @@ class UpgradeHarnessTest {
     /** Migrates a fresh file to latest, seeds the baseline, snapshots, then applies [scratchSql] as an extra V999 migration. */
     private fun applyScratchMigration(
         name: String,
-        scratchSql: String
+        scratchSql: String,
+        transforms: List<MigrationSeed> = emptyList()
     ): List<String> {
         val file = File(dir, "$name.db")
         val url = UpgradeHarness.urlFor(file)
@@ -49,7 +50,7 @@ class UpgradeHarnessTest {
             .callbacks(probe)
             .load()
             .migrate()
-        return DriverManager.getConnection(url).use { UpgradeHarness.checkUpgrade(it, before, emptySet(), probe) }
+        return DriverManager.getConnection(url).use { UpgradeHarness.checkUpgrade(it, before, transforms, probe) }
     }
 
     @Test
@@ -71,6 +72,32 @@ class UpgradeHarnessTest {
     fun `S11 a migration that rewrites a baseline column fails unless declared`() {
         val failures = applyScratchMigration("rewrites-title", "UPDATE work_items SET title = title || '!';")
         assertTrue(failures.any { "column title changed" in it }, "undeclared rewrite not reported: $failures")
+    }
+
+    /** A stand-in seed for a scratch migration that appends '!' to every title. */
+    private fun titleBangSeed(suffix: String) =
+        object : MigrationSeed(999) {
+            override fun expected(
+                table: String,
+                row: Map<String, Any?>
+            ): Map<String, Any?> = if (table == "work_items") mapOf("title" to row["title"].toString() + suffix) else emptyMap()
+        }
+
+    @Test
+    fun `S11 a declared transform is verified exactly, not skipped`() {
+        val sql = "UPDATE work_items SET title = title || '!';"
+        val ok = applyScratchMigration("declared-ok", sql, listOf(titleBangSeed("!")))
+        assertTrue(ok.isEmpty(), "the exact declared transform must pass: $ok")
+        val wrong = applyScratchMigration("declared-wrong", sql, listOf(titleBangSeed("?")))
+        assertTrue(wrong.any { "column title changed" in it }, "a wrong expected value must fail, not be excluded: $wrong")
+    }
+
+    @Test
+    fun `S11 a seed transform applies only to steps whose chain includes its migration`() {
+        val seed17 = seeds.first { it.version == 17 }
+        assertEquals(listOf(13, 17), UpgradeHarness.applicableSeeds(2, seeds).map { it.version }.filter { it <= 17 })
+        assertEquals(listOf(17), UpgradeHarness.applicableSeeds(14, seeds).map { it.version }.filter { it <= 17 })
+        assertTrue(UpgradeHarness.applicableSeeds(18, seeds).none { it === seed17 }, "step 18 must not carry the V17 transform")
     }
 
     @Test
@@ -112,7 +139,7 @@ class UpgradeHarnessTest {
         val ok = UpgradeHarness.migrate(url)
         assertTrue(ok.observed.isNotEmpty() && ok.violations().isEmpty(), "production chain must record foreign_keys=0, saw ${ok.observed}")
         val vacuous =
-            DriverManager.getConnection(url).use { UpgradeHarness.checkUpgrade(it, emptyMap(), emptySet(), UpgradeHarness.FkProbe()) }
+            DriverManager.getConnection(url).use { UpgradeHarness.checkUpgrade(it, emptyMap(), emptyList(), UpgradeHarness.FkProbe()) }
         assertTrue(vacuous.any { "never fired" in it }, "an unfired probe must fail the check: $vacuous")
     }
 }

@@ -91,7 +91,8 @@ class SqliteTestDatabase private constructor(
                         try {
                             Files.deleteIfExists(p)
                         } catch (e: Exception) {
-                            lastFailure = p to e
+                            // Keep the FIRST failure: files are visited before their directory, so this names the leaked file.
+                            if (lastFailure == null) lastFailure = p to e
                         }
                     }
                 }

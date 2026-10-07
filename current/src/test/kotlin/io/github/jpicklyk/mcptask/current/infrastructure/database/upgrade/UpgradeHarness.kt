@@ -129,11 +129,28 @@ object UpgradeHarness {
             rows
         }
 
-    /** Every failure of the post-migration invariants against [before]; [rewritten] are `table.column` exclusions. */
+    /** The row after the [seeds] transforms (see [MigrationSeed.expected]), applied in ascending version order. */
+    private fun expectedRow(
+        table: String,
+        row: Map<String, Any?>,
+        seeds: List<MigrationSeed>
+    ): Map<String, Any?> {
+        var current = row
+        for (seed in seeds.sortedBy { it.version }) {
+            val overrides = seed.expected(table, current)
+            if (overrides.isNotEmpty()) current = current + overrides
+        }
+        return current
+    }
+
+    /**
+     * Every failure of the post-migration invariants against [before]. [transforms] are the seeds whose migrations
+     * ran in this chain (see [applicableSeeds]); their [MigrationSeed.expected] values are compared exactly.
+     */
     fun checkUpgrade(
         conn: Connection,
         before: Dump,
-        rewritten: Set<String>,
+        transforms: List<MigrationSeed>,
         probe: FkProbe?
     ): List<String> {
         val failures = mutableListOf<String>()
@@ -147,14 +164,15 @@ object UpgradeHarness {
                 failures += "table $table disappeared"
                 continue
             }
-            for ((id, row) in rows) {
+            for ((id, beforeRow) in rows) {
+                val row = expectedRow(table, beforeRow, transforms)
                 val now = afterRows[id]
                 if (now == null) {
                     failures += "$table row $id was lost"
                     continue
                 }
                 for ((col, value) in row) {
-                    if ("$table.$col" in rewritten || col !in now) continue
+                    if (col !in now) continue
                     if (now[col] != value) failures += "$table row $id column $col changed: '$value' to '${now[col]}'"
                 }
             }
@@ -202,6 +220,12 @@ object UpgradeHarness {
             }
         }
 
+    /** Seeds whose migration is applied by the step for [version]: step N migrates N-1 to latest, so seeds with version >= N. */
+    fun applicableSeeds(
+        version: Int,
+        seeds: List<MigrationSeed>
+    ): List<MigrationSeed> = seeds.filter { it.version >= version }
+
     /**
      * Runs the whole step for migration [version]: fresh file at version-1, baseline plus that version's seed,
      * bare migrate to latest, then [checkUpgrade] and the seed's own [MigrationSeed.verify].
@@ -221,10 +245,9 @@ object UpgradeHarness {
         }
         val before = DriverManager.getConnection(url).use { dump(it) }
         val probe = migrate(url)
-        val rewritten = seeds.filter { it.version >= version }.flatMap { it.rewrites }.toSet()
         val failures =
             DriverManager.getConnection(url).use { conn ->
-                val found = checkUpgrade(conn, before, rewritten, probe).toMutableList()
+                val found = checkUpgrade(conn, before, applicableSeeds(version, seeds), probe).toMutableList()
                 if (ownSeed != null) {
                     runCatching { ownSeed.verify(conn) }.onFailure { found += "seed V$version verify: ${it.message}" }
                 }

@@ -16,8 +16,13 @@ import java.sql.Connection
  * - [seed] runs on a raw JDBC connection at version-1, after [BaselineDataset.seed] and before the migration.
  *   Insert only rows the migration is meant to transform, using [BaselineDataset.insert] so columns that do
  *   not exist at version-1 are skipped.
- * - [rewrites] lists `table.column` pairs the migration (or any later one) is DECLARED to change. Every other
- *   column present both before and after must keep its value for every pre-existing row.
+ * - [expected] is the EXPECTED-TRANSFORM contract. For a pre-existing row (a dump taken before the migration chain
+ *   runs) it returns the column values this migration changes, as a column-to-new-value map; an empty map means
+ *   "unchanged". The harness applies it only to steps whose chain includes this migration (steps N <= [version]),
+ *   in version order after the earlier seeds' transforms, and then compares EVERY common column exactly. There is no
+ *   column-wide exclusion: a step below this migration still verifies every column it does not transform, and the
+ *   transformed columns are verified against the exact expected value rather than skipped. Return overrides only
+ *   for columns present in the row (guard with `"col" in row`): earlier steps dump older schemas.
  * - [verify] runs after the whole chain has been migrated to the latest version, on the migration's own step only,
  *   and asserts the transformation took effect.
  */
@@ -26,7 +31,11 @@ abstract class MigrationSeed(
 ) {
     open fun seed(conn: Connection) {}
 
-    open val rewrites: Set<String> = emptySet()
+    /** The expected post-migration values of the columns this migration rewrites for [row] of [table]. */
+    open fun expected(
+        table: String,
+        row: Map<String, Any?>
+    ): Map<String, Any?> = emptyMap()
 
     open fun verify(conn: Connection) {}
 

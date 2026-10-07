@@ -1,0 +1,3 @@
+index|idx_resource_lease_history_key_acquired|resource_lease_history|CREATE INDEX idx_resource_lease_history_key_acquired ON resource_lease_history(resource_key, acquired_at)
+index|idx_resource_lease_history_released_at|resource_lease_history|CREATE INDEX idx_resource_lease_history_released_at ON resource_lease_history(released_at)
+table|resource_lease_history|resource_lease_history|CREATE TABLE resource_lease_history ( id BLOB PRIMARY KEY DEFAULT (randomblob(16)), resource_key TEXT NOT NULL, holder_item_id BLOB NOT NULL, acquired_by_actor_id TEXT NULL, acquired_at TEXT NOT NULL, expires_at TEXT NOT NULL, released_at TEXT NULL, release_reason TEXT NULL, released_by_actor_id TEXT NULL )

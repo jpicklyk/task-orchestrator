@@ -29,9 +29,10 @@ import kotlin.test.assertTrue
  * - P-snap: the normalized `sqlite_master` rows equal the committed snapshot, which is the gate for
  *   indexes, CHECKs, triggers and virtual tables.
  *
- * Regenerating the snapshot after an intentional migration: run this class, then copy
- * `current/build/schema-snapshot.actual.txt` over
- * `current/src/test/resources/schema/sqlite-schema-snapshot.txt` and review the diff.
+ * The snapshot is one file per table, `current/src/test/resources/schema/snapshot/<tbl_name>.txt` (a table's
+ * indexes and triggers live in its file), so migration items that touch different tables never edit the same file
+ * and a new table adds a new file. After an intentional migration, run this class, then copy the differing files
+ * from `current/build/schema-snapshot.actual/` over the ones under `snapshot/` and review the diff.
  */
 class SchemaParityTest {
     companion object {
@@ -39,7 +40,7 @@ class SchemaParityTest {
         @RegisterExtension
         val db = SqliteTestDatabase.perClass()
 
-        private const val SNAPSHOT_RESOURCE = "/schema/sqlite-schema-snapshot.txt"
+        private const val SNAPSHOT_DIR = "/schema/snapshot"
         private val SHADOW_SUFFIXES = listOf("_data", "_idx", "_content", "_docsize", "_config")
 
         fun isFtsOrShadow(name: String): Boolean =
@@ -164,12 +165,20 @@ class SchemaParityTest {
         expected: List<String>
     ): List<String> = (expected - actual.toSet()).map { "- $it" } + (actual - expected.toSet()).map { "+ $it" }
 
-    private fun loadSnapshot(): List<String> {
-        val stream =
-            SchemaParityTest::class.java.getResourceAsStream(SNAPSHOT_RESOURCE)
-                ?: error("missing test resource $SNAPSHOT_RESOURCE")
-        return stream.bufferedReader(Charsets.UTF_8).readLines().filter { it.isNotBlank() }
+    /** The committed snapshot: table name to its normalized sqlite_master lines, one file per table. */
+    private fun loadSnapshotByTable(): Map<String, List<String>> {
+        val dirUrl = SchemaParityTest::class.java.getResource(SNAPSHOT_DIR) ?: error("missing test resource directory $SNAPSHOT_DIR")
+        check(dirUrl.protocol == "file") { "snapshot directory must be a plain directory on the test classpath, got $dirUrl" }
+        val files = File(dirUrl.toURI()).listFiles { f -> f.isFile && f.name.endsWith(".txt") }.orEmpty()
+        return files.associate { f ->
+            f.name.removeSuffix(".txt") to f.readLines(Charsets.UTF_8).filter { it.isNotBlank() }
+        }
     }
+
+    private fun loadSnapshot(): List<String> = loadSnapshotByTable().values.flatten()
+
+    /** Snapshot lines grouped by the table they belong to (the third `|` field), sorted within a table. */
+    private fun byTable(lines: List<String>): Map<String, List<String>> = lines.groupBy { it.split('|')[2] }.mapValues { it.value.sorted() }
 
     @Test
     fun `P-inv user tables equal the Exposed table objects and cover every table`() {
@@ -201,18 +210,20 @@ class SchemaParityTest {
     }
 
     @Test
-    fun `P-snap normalized sqlite_master equals the committed snapshot`() {
-        val actual = withConn { snapshotLines(it) }
-        val expected = loadSnapshot().sorted()
-        val delta = diff(actual, expected)
-        if (delta.isNotEmpty()) {
-            val out = File("build/schema-snapshot.actual.txt")
-            out.parentFile?.mkdirs()
-            out.writeText(actual.joinToString("\n") + "\n", Charsets.UTF_8)
+    fun `P-snap normalized sqlite_master equals the committed per-table snapshot`() {
+        val actual = byTable(withConn { snapshotLines(it) })
+        val expected = loadSnapshotByTable().mapValues { it.value.sorted() }
+        val differing = (actual.keys + expected.keys).filter { actual[it] != expected[it] }.sorted()
+        if (differing.isNotEmpty()) {
+            val outDir = File("build/schema-snapshot.actual")
+            outDir.deleteRecursively()
+            outDir.mkdirs()
+            actual.forEach { (table, lines) -> File(outDir, "$table.txt").writeText(lines.joinToString("\n") + "\n", Charsets.UTF_8) }
+            val delta = differing.flatMap { t -> diff(actual[t].orEmpty(), expected[t].orEmpty()).map { "[$t] $it" } }
             error(
-                "sqlite_master differs from the committed snapshot. If the change is intentional, copy " +
-                    "${out.absolutePath} over current/src/test/resources/schema/sqlite-schema-snapshot.txt and review the diff.\n" +
-                    delta.joinToString("\n")
+                "sqlite_master differs from the committed snapshot for table(s) $differing. If the change is intentional, copy " +
+                    "the matching files from ${outDir.absolutePath} over current/src/test/resources/schema/snapshot/ (a removed " +
+                    "table's file is deleted) and review the diff.\n" + delta.joinToString("\n")
             )
         }
     }
@@ -228,7 +239,12 @@ class SchemaParityTest {
                     }
                 }
             }
-        assertEquals(allowed, triggers, "trigger inventory drifted; extend StartupIntegrity or allowlist the new trigger with a reason")
+        assertEquals(
+            allowed,
+            triggers,
+            "trigger inventory drifted; add the new trigger to StartupIntegrity.FTS_TRIGGERS or CYCLE_TRIGGERS " +
+                "(and to its table's file under schema/snapshot/), or drop the unintended one"
+        )
     }
 
     @Test

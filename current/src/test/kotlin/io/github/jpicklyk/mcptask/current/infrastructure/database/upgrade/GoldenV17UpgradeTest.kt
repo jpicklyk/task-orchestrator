@@ -25,8 +25,11 @@ class GoldenV17UpgradeTest {
 
     private val seeds = MigrationSeed.discover()
 
-    /** Rewrites declared by migrations after V17 (the golden is at V17, so only later seeds apply). */
-    private val laterRewrites get() = seeds.filter { it.version > 17 }.flatMap { it.rewrites }.toSet()
+    /** Seeds of migrations after V17 (the golden is at V17, so only later seeds' transforms apply). */
+    private val laterSeeds get() = seeds.filter { it.version > 17 }
+
+    /** Migration versions the golden still has to apply (none until a V18 exists). */
+    private val pendingVersions get() = UpgradeHarness.migrationVersions(dir).filter { it > 17 }
 
     @Test
     fun `S14 the golden file matches its manifest checksum, size budget and row counts`() {
@@ -58,23 +61,70 @@ class GoldenV17UpgradeTest {
         val url = UpgradeHarness.urlFor(golden)
         val before = DriverManager.getConnection(url).use { UpgradeHarness.dump(it) }
         val probe = UpgradeHarness.migrate(url)
+        val pending = pendingVersions
         val failures =
             DriverManager.getConnection(url).use { conn ->
-                // Nothing may be pending at V17, so the probe only fires once a later migration exists.
-                UpgradeHarness.checkUpgrade(conn, before, laterRewrites, probe.takeIf { it.observed.isNotEmpty() })
+                // At V17 nothing is pending, so the probe cannot fire; the moment a V18+ migration exists the
+                // never-fired guard is switched on (a probe that did not fire then fails the check).
+                UpgradeHarness.checkUpgrade(conn, before, laterSeeds, probe.takeIf { pending.isNotEmpty() })
             }
         assertTrue(failures.isEmpty(), "golden upgrade failures:\n" + failures.joinToString("\n"))
     }
 
+    private fun scalar(
+        conn: java.sql.Connection,
+        sql: String
+    ): Int =
+        conn.createStatement().use { st ->
+            st.executeQuery(sql).use { rs ->
+                rs.next()
+                rs.getInt(1)
+            }
+        }
+
     @Test
-    fun `S15 production startup upgrades the golden database and the repositories read every seeded row`() {
+    fun `S15 real startup (initialize, updateSchema, cycle check, first-start compaction) upgrades the golden database`() {
         val golden = GoldenV17.copyTo(File(dir, "prod.sqlite"))
         val url = UpgradeHarness.urlFor(golden)
-        assertTrue(FlywayDatabaseSchemaManager(url).updateSchema(), "production updateSchema must accept the golden database")
+        val before = DriverManager.getConnection(url).use { UpgradeHarness.dump(it) }
+        assertEquals(0, DriverManager.getConnection(url).use { scalar(it, "PRAGMA user_version") }, "the golden has never been compacted")
 
-        val manager = DatabaseManager(appConfig = AppConfig.fromEnv { null })
+        // The exact startup order of CurrentMain: initialize, then updateSchema (Flyway + cycle check + the one-time
+        // compaction gated by DB_COMPACT_ON_UPGRADE, switched on explicitly here).
+        val manager =
+            DatabaseManager(appConfig = AppConfig.fromEnv { name -> if (name == "DB_COMPACT_ON_UPGRADE") "true" else null })
         try {
-            assertTrue(manager.initialize(url))
+            assertTrue(manager.initialize(url), "initialize must accept the golden database")
+            assertTrue(manager.updateSchema(), "production updateSchema must accept the golden database")
+
+            DriverManager.getConnection(url).use { conn ->
+                assertEquals(
+                    1,
+                    scalar(conn, "PRAGMA user_version"),
+                    "the first start after the upgrade must run StartupCompaction (VACUUM + FTS rebuild) and record it"
+                )
+                val failures = UpgradeHarness.checkUpgrade(conn, before, laterSeeds, null)
+                assertTrue(failures.isEmpty(), "rows, FK or FTS failures after real startup:\n" + failures.joinToString("\n"))
+                // VACUUM can renumber the implicit rowids the external-content FTS tables key on. Prove the rebuilt
+                // indexes still point at the right rows: a MATCH must resolve, through the rowid, to the seeded titles.
+                val itemHits =
+                    scalar(
+                        conn,
+                        "SELECT count(*) FROM work_items WHERE rowid IN " +
+                            "(SELECT rowid FROM work_items_fts_text WHERE work_items_fts_text MATCH '${BaselineDataset.ITEM_FTS_TOKEN}') " +
+                            "AND title LIKE '%${BaselineDataset.ITEM_FTS_TOKEN}%'"
+                    )
+                assertEquals(1, itemHits, "work_items FTS must resolve the seeded token to its row after compaction")
+                val noteHits =
+                    scalar(
+                        conn,
+                        "SELECT count(*) FROM notes WHERE rowid IN " +
+                            "(SELECT rowid FROM notes_fts_trigram WHERE notes_fts_trigram MATCH '${BaselineDataset.NOTE_FTS_TOKEN}') " +
+                            "AND body LIKE '%${BaselineDataset.NOTE_FTS_TOKEN}%'"
+                    )
+                assertEquals(1, noteHits, "notes FTS must resolve the seeded token to its row after compaction")
+            }
+
             val provider = DefaultRepositoryProvider(manager)
             runBlocking {
                 for (name in BaselineDataset.ITEM_NAMES) {
@@ -98,6 +148,20 @@ class GoldenV17UpgradeTest {
     }
 
     @Test
+    fun `S14 regenerating the golden reproduces the committed file (a stale golden fails loudly)`() {
+        val manifest = GoldenV17.manifest()
+        val outDir = File(dir, "regenerated")
+        val regenerated = GoldenV17.generate(outDir)
+        val sha = MessageDigest.getInstance("SHA-256").digest(regenerated.readBytes()).joinToString("") { "%02x".format(it) }
+        assertEquals(
+            manifest.getValue("sha256"),
+            sha,
+            "the committed golden does not match what GoldenV17.generate() now produces from BaselineDataset and the V17 " +
+                "schema; regenerate it (REGENERATE_GOLDEN_V17=true, see GoldenV17Generator) and commit the new golden and manifest"
+        )
+    }
+
+    @Test
     fun `S16 the golden database without flyway_schema_history is baselined at 17 and then migrated`() {
         val golden = GoldenV17.copyTo(File(dir, "direct.sqlite"))
         val url = UpgradeHarness.urlFor(golden)
@@ -114,7 +178,7 @@ class GoldenV17UpgradeTest {
                     }
                 }
             assertEquals("17", baselineVersion, "history must record a baseline at version 17")
-            val failures = UpgradeHarness.checkUpgrade(conn, before, laterRewrites, null)
+            val failures = UpgradeHarness.checkUpgrade(conn, before, laterSeeds, null)
             assertTrue(failures.isEmpty(), "baselined upgrade failures:\n" + failures.joinToString("\n"))
         }
     }

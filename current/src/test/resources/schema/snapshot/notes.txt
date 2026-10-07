@@ -1,0 +1,10 @@
+index|idx_notes_item_key|notes|CREATE UNIQUE INDEX idx_notes_item_key ON notes(work_item_id, key)
+index|idx_notes_item|notes|CREATE INDEX idx_notes_item ON notes(work_item_id)
+index|idx_notes_role|notes|CREATE INDEX idx_notes_role ON notes(role)
+table|notes|notes|CREATE TABLE notes ( id BLOB PRIMARY KEY DEFAULT (randomblob(16)), work_item_id BLOB NOT NULL REFERENCES work_items(id) ON DELETE CASCADE, key VARCHAR(200) NOT NULL, role VARCHAR(20) NOT NULL, body TEXT NOT NULL DEFAULT '', created_at TIMESTAMP NOT NULL, modified_at TIMESTAMP NOT NULL , actor_id TEXT, actor_kind TEXT, actor_parent TEXT, actor_proof TEXT, verification_status TEXT, verification_verifier TEXT, verification_reason TEXT, actor_proof_sha256 TEXT DEFAULT NULL, actor_proof_claims TEXT DEFAULT NULL)
+trigger|notes_fts_text_ad|notes|CREATE TRIGGER notes_fts_text_ad AFTER DELETE ON notes BEGIN INSERT INTO notes_fts_text(notes_fts_text, rowid, body) VALUES ('delete', old.rowid, old.body); END
+trigger|notes_fts_text_ai|notes|CREATE TRIGGER notes_fts_text_ai AFTER INSERT ON notes BEGIN INSERT INTO notes_fts_text(rowid, body) VALUES (new.rowid, new.body); END
+trigger|notes_fts_text_au|notes|CREATE TRIGGER notes_fts_text_au AFTER UPDATE OF body ON notes BEGIN INSERT INTO notes_fts_text(notes_fts_text, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_text(rowid, body) VALUES (new.rowid, new.body); END
+trigger|notes_fts_trigram_ad|notes|CREATE TRIGGER notes_fts_trigram_ad AFTER DELETE ON notes BEGIN INSERT INTO notes_fts_trigram(notes_fts_trigram, rowid, body) VALUES ('delete', old.rowid, old.body); END
+trigger|notes_fts_trigram_ai|notes|CREATE TRIGGER notes_fts_trigram_ai AFTER INSERT ON notes BEGIN INSERT INTO notes_fts_trigram(rowid, body) VALUES (new.rowid, new.body); END
+trigger|notes_fts_trigram_au|notes|CREATE TRIGGER notes_fts_trigram_au AFTER UPDATE OF body ON notes BEGIN INSERT INTO notes_fts_trigram(notes_fts_trigram, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_trigram(rowid, body) VALUES (new.rowid, new.body); END
