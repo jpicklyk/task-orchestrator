@@ -13,10 +13,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
@@ -27,10 +26,14 @@ import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.jetbrains.exposed.v1.jdbc.update
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.*
 
 class QueryItemsToolTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var database: Database
     private lateinit var context: ToolExecutionContext
     private lateinit var repositoryProvider: DefaultRepositoryProvider
@@ -40,11 +43,8 @@ class QueryItemsToolTest {
 
     @BeforeEach
     fun setUp() {
-        val dbName = "test_${System.nanoTime()}"
-        database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
-        repositoryProvider = DefaultRepositoryProvider(databaseManager)
+        database = db.database
+        repositoryProvider = db.repositoryProvider()
         context = ToolExecutionContext(repositoryProvider)
         tool = QueryItemsTool()
         manageTool = ManageItemsTool()
@@ -333,9 +333,64 @@ class QueryItemsToolTest {
             assertEquals(1, data["total"]!!.jsonPrimitive.int)
         }
 
-    // search-by-text-query tests live in T8 integration suite (FTS5 is SQLite-only;
-    // H2 test env returns empty for FTS search by design). The old LIKE-based `query`
+    // search-by-text-query: FTS5 runs on the real SQLite fixture. The old LIKE-based `query`
     // parameter on list-mode search was removed in T4.
+
+    private suspend fun ftsSearch(
+        query: String,
+        matchMode: String? = null
+    ): JsonObject {
+        val result =
+            tool.execute(
+                JsonObject(
+                    buildMap<String, JsonElement> {
+                        put("operation", JsonPrimitive("search"))
+                        put("query", JsonPrimitive(query))
+                        matchMode?.let { put("matchMode", JsonPrimitive(it)) }
+                    }
+                ),
+                context
+            ) as JsonObject
+        assertTrue(result["success"]!!.jsonPrimitive.boolean)
+        return result["data"] as JsonObject
+    }
+
+    @Test
+    fun `S4 text and substring search match a seeded title`(): Unit =
+        runBlocking {
+            val seeded = createItem("Quarterly zebracrossing audit")
+            createItem("Unrelated gardening chores")
+
+            val textData = ftsSearch("zebracrossing", "text")
+            assertEquals(1, textData["totalHits"]!!.jsonPrimitive.int)
+            assertEquals(
+                seeded,
+                textData["hits"]!!
+                    .jsonArray[0]
+                    .jsonObject["itemId"]!!
+                    .jsonPrimitive.content
+            )
+
+            val substringData = ftsSearch("bracross", "substring")
+            assertEquals(1, substringData["totalHits"]!!.jsonPrimitive.int)
+            assertEquals(
+                seeded,
+                substringData["hits"]!!
+                    .jsonArray[0]
+                    .jsonObject["itemId"]!!
+                    .jsonPrimitive.content
+            )
+        }
+
+    @Test
+    fun `S6 search with a non-matching query succeeds with zero hits`(): Unit =
+        runBlocking {
+            createItem("Quarterly zebracrossing audit")
+
+            val data = ftsSearch("nonexistentterm")
+            assertEquals(0, data["totalHits"]!!.jsonPrimitive.int)
+            assertEquals(0, data["hits"]!!.jsonArray.size)
+        }
 
     @Test
     fun `search respects limit`() =

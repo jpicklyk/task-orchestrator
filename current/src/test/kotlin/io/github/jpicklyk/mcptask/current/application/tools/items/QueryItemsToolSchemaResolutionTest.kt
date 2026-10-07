@@ -10,9 +10,8 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -21,9 +20,9 @@ import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -35,20 +34,19 @@ import kotlin.test.assertTrue
  * [QueryItemsToolTest]'s per-root schema-op tests); C4 changes only WHICH mode governs that
  * resolution. Oracle: `task-scope` behaviour table, LAYERED row -- type lookup order
  * `PR[t] -> G[t] -> PR[default] -> G[default]`. Mirrors [QueryItemsToolTest]'s harness (mockk-free
- * fake [PerRootConfigSource], real H2-backed `repositoryProvider`, per
+ * fake [PerRootConfigSource], real SQLite-backed `repositoryProvider`, per
  * [QueryItemsToolSchemaDispatchTest]'s conventions).
  */
 class QueryItemsToolSchemaResolutionTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var repositoryProvider: DefaultRepositoryProvider
     private lateinit var tool: QueryItemsTool
 
     @BeforeEach
     fun setUp() {
-        val dbName = "test_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
-        repositoryProvider = DefaultRepositoryProvider(databaseManager)
+        repositoryProvider = db.repositoryProvider()
         tool = QueryItemsTool()
     }
 

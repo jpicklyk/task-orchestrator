@@ -3,24 +3,23 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Exercises [ProjectConfigPushService.push] directly against a real H2-backed
+ * Exercises [ProjectConfigPushService.push] directly against a real SQLite-backed
  * [SQLiteProjectConfigRepository] and [SQLiteWorkItemRepository] — mirrors
  * [io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigToolTest]'s DB-backed
  * style. Focused on the embedded `project.rootId` guard added on top of the existing
@@ -29,6 +28,9 @@ import kotlin.test.assertTrue
  * re-test of that pipeline).
  */
 class ProjectConfigPushServiceTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var service: ProjectConfigPushService
     private lateinit var workItemRepository: SQLiteWorkItemRepository
     private lateinit var projectConfigRepository: SQLiteProjectConfigRepository
@@ -48,13 +50,8 @@ class ProjectConfigPushServiceTest {
     @BeforeEach
     fun setUp() =
         runBlocking {
-            val dbName = "test_${System.nanoTime()}"
-            val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            val databaseManager = DatabaseManager(database)
-            DirectDatabaseSchemaManager().updateSchema()
-
-            workItemRepository = SQLiteWorkItemRepository(databaseManager)
-            projectConfigRepository = SQLiteProjectConfigRepository(databaseManager)
+            workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
+            projectConfigRepository = db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository
 
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository

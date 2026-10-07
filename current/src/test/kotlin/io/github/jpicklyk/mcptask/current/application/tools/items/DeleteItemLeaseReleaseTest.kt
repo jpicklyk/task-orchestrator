@@ -9,7 +9,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseReposit
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -20,6 +20,7 @@ import org.jetbrains.exposed.v1.core.VarCharColumnType
 import org.jetbrains.exposed.v1.core.java.UUIDColumnType
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -106,8 +107,8 @@ private class DeleteFailOnIdRepositoryProvider(
  * Parser-level lifecycle scenarios (S1-S3) live in
  * [io.github.jpicklyk.mcptask.current.infrastructure.config.LifecycleAutoReopenRemovalTest].
  *
- * Runs on real SQLite ([SQLiteRepositoryTestBase]) because the lease repository's SQL uses
- * `datetime()`, which the H2 database [DeleteItemHandlerAtomicityTest] uses does not support —
+ * Runs on real SQLite ([SqliteTestDatabase]) because the lease repository's SQL uses
+ * `datetime()`, which the SQLite database [DeleteItemHandlerAtomicityTest] uses does not support —
  * the harness the test-plan names for these scenarios.
  *
  * Oracles (frozen in test-plan note b9109cc0 / diagnosis note ca116121, before implementation was
@@ -122,7 +123,12 @@ private class DeleteFailOnIdRepositoryProvider(
  *       per-id failure with the row kept (non-recursive); a refused non-recursive delete (item
  *       has children) must NOT release the parent's lease.
  */
-class DeleteItemLeaseReleaseTest : SQLiteRepositoryTestBase() {
+class DeleteItemLeaseReleaseTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
+    private val repositoryProvider get() = db.repositoryProvider()
+
     private val handler = DeleteItemHandler()
     private lateinit var context: ToolExecutionContext
 
@@ -170,7 +176,7 @@ class DeleteItemLeaseReleaseTest : SQLiteRepositoryTestBase() {
         resourceKey: String,
         holderItemId: UUID,
     ) {
-        transaction(db = database) {
+        transaction(db = db.database) {
             val uuidType = UUIDColumnType()
             val keyType = VarCharColumnType(255)
             exec(

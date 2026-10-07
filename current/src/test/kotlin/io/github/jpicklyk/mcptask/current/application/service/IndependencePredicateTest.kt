@@ -15,11 +15,10 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
-import org.jetbrains.exposed.v1.jdbc.Database
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.Test
@@ -46,13 +45,16 @@ import kotlin.test.assertTrue
  *
  * Harness: note() builds Note fixtures directly (in-memory, no DB) for scenarios that only need
  * actorClaim/verification/createdAt values the test itself controls. S4 additionally seeds and
- * reads back through the REAL NoteRepository (H2, via DefaultRepositoryProvider -- the same
+ * reads back through the REAL NoteRepository (SQLite, via DefaultRepositoryProvider -- the same
  * production repository SQLiteNoteRepository wires) because the addendum requires S4's identity
  * read "from the DB, never from an in-memory object" -- proofClaims is the field the addendum
  * cites as DB-persisted (SQLiteNoteRepository.kt:110), unlike VerificationResult.verifiedSubject
  * which is documented as never persisted.
  */
 class IndependencePredicateTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private val itemId: UUID = UUID.randomUUID()
 
     companion object {
@@ -214,12 +216,7 @@ class IndependencePredicateTest {
     // S4 -- require_verified, identity precedence, read back from the REAL note repository
     // ──────────────────────────────────────────────
 
-    private fun buildRepositoryProvider(): DefaultRepositoryProvider {
-        val dbName = "indep_predicate_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DefaultRepositoryProvider(DatabaseManager(database))
-    }
+    private fun buildRepositoryProvider(): DefaultRepositoryProvider = db.repositoryProvider()
 
     // Orchestrator arbitration fix (59a0d98e round): the original version upserted notes against
     // the class-level `itemId` with no WorkItem ever created for it, and ignored the upsert

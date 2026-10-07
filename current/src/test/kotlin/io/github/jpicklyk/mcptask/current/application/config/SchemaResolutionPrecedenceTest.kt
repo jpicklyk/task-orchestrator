@@ -12,14 +12,13 @@ import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
@@ -41,6 +40,9 @@ import kotlin.test.assertNull
  * source, which is out of bounds for the test author per the `test-author` skill's blindness rule.
  */
 class SchemaResolutionPrecedenceTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     // ──────────────────────────────────────────────
     // Fixtures
     // ──────────────────────────────────────────────
@@ -404,12 +406,8 @@ class SchemaResolutionPrecedenceTest {
     @Test
     fun `S8 - legacy mode tag probe applies identically for a rooted item whose per-root config has no default`(): Unit =
         runBlocking {
-            val dbName = "test_${System.nanoTime()}"
-            val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            val databaseManager = DatabaseManager(database)
-            DirectDatabaseSchemaManager().updateSchema()
-            val projectConfigRepository = SQLiteProjectConfigRepository(databaseManager)
-            val workItemRepository = SQLiteWorkItemRepository(databaseManager)
+            val projectConfigRepository = db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository
+            val workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
             val perRootConfigService = PerRootConfigService(projectConfigRepository)
 
             val root = WorkItem(title = "S8 root")
@@ -445,12 +443,8 @@ class SchemaResolutionPrecedenceTest {
     @Test
     fun `S13 - a cold per-root read failure throws in layered mode too, never falling back to global`(): Unit =
         runBlocking {
-            val dbName = "test_${System.nanoTime()}"
-            val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            val databaseManager = DatabaseManager(database)
-            DirectDatabaseSchemaManager().updateSchema()
-            val realRepo = SQLiteProjectConfigRepository(databaseManager)
-            val workItemRepository = SQLiteWorkItemRepository(databaseManager)
+            val realRepo = db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository
+            val workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
             val wrapper = FailableProjectConfigRepository(realRepo)
             val perRootConfigService = PerRootConfigService(wrapper)
 

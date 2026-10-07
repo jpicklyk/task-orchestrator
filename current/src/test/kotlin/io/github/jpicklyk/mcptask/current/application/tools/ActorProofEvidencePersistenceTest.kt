@@ -19,9 +19,8 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.CacheState
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.every
@@ -40,6 +39,7 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.Date
@@ -58,7 +58,7 @@ import kotlin.test.assertTrue
  * to the `notes` / `role_transitions` tables, as distinct from what the MCP response itself shows,
  * which [ActorProofMcpExposureTest] already covers and continues to guard).
  *
- * Harness: real H2 in-memory DB via [DirectDatabaseSchemaManager], same pattern as
+ * Harness: real SQLite DB via [SqliteTestDatabase], same pattern as
  * [ActorProofMcpExposureTest]. JWKS signing/mocking follows
  * `infrastructure.config.JwksActorVerifierExpRequiredTest`'s [JwksKeySetProvider] mock + real RSA
  * key + real [SignedJWT] pattern.
@@ -69,6 +69,9 @@ import kotlin.test.assertTrue
  * precedent test files (readable under `src/test`), not from `src/main`.
  */
 class ActorProofEvidencePersistenceTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     companion object {
         /** The one JWKS-trusted key for most VERIFIED scenarios. */
         private val rsaKey = RSAKeyGenerator(2048).keyID("evidence-test-key").generate()
@@ -82,16 +85,13 @@ class ActorProofEvidencePersistenceTest {
     private lateinit var manageNotesTool: ManageNotesTool
     private lateinit var advanceItemTool: AdvanceItemTool
 
-    /** Raw handle to the same H2 database, for the B1 at-rest (raw-SQL) assertions. */
+    /** Raw handle to the same SQLite database, for the B1 at-rest (raw-SQL) assertions. */
     private lateinit var database: Database
 
     @BeforeEach
     fun setUp() {
-        val dbName = "test_${System.nanoTime()}"
-        database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
-        repositoryProvider = DefaultRepositoryProvider(databaseManager)
+        database = db.database
+        repositoryProvider = db.repositoryProvider()
         context = ToolExecutionContext(repositoryProvider)
         manageNotesTool = ManageNotesTool()
         advanceItemTool = AdvanceItemTool()
@@ -104,7 +104,7 @@ class ActorProofEvidencePersistenceTest {
      * WRITE side of the fix independently of the READ side's own defense-in-depth.
      *
      * Matches by `body` rather than `key` -- `key` is a SQL-reserved word whose exact quoted
-     * physical column name/case in the Direct-mode (H2) schema is not among the supplied
+     * physical column name/case in the Flyway SQLite schema is not among the supplied
      * declarations, so this avoids depending on it. Assumes exactly one matching row (each B1 test
      * uses a note body unique to that call).
      */
@@ -124,7 +124,7 @@ class ActorProofEvidencePersistenceTest {
 
     /**
      * Same as [rawNoteProofColumns] but for `role_transitions`. Assumes exactly one row exists in
-     * the table (true for every B1 test, each using its own freshly-created, isolated H2 database).
+     * the table (true for every B1 test, each using its own freshly-created, isolated SQLite database).
      */
     private fun rawTransitionProofColumns(): Pair<String?, String?> {
         var proof: String? = null

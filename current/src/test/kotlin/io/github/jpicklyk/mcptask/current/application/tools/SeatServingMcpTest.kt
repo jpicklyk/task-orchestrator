@@ -8,9 +8,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -22,8 +22,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -39,7 +39,7 @@ import kotlin.test.assertTrue
  * the REST-side parity leg of S12 is A1c's test author's responsibility, not this file's), and S13.
  *
  * HARNESS (task-scope-addendum "Harness rule", pattern: `SeatlessResponseGoldenTest`): every capture
- * runs the REAL [ServerComposition.build] over an H2 in-memory DB and executes the REAL tool classes
+ * runs the REAL [ServerComposition.build] over an SQLite DB and executes the REAL tool classes
  * ([GetContextTool], [QueryItemsTool], [AdvanceItemTool]) against the resulting
  * `composition.toolContext` — never a hand-built `ToolExecutionContext` replica. The fixture config
  * is supplied as the GLOBAL layer only (a real temp `.taskorchestrator/config.yaml` read by
@@ -72,6 +72,9 @@ import kotlin.test.assertTrue
  *   still absent (neither side sets it).
  */
 class SeatServingMcpTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     companion object {
         private val ROOT_ID: UUID = UUID.fromString("a1b00000-0000-4000-8000-000000000000")
         private val SEAT_AWARE_WORK_ID: UUID = UUID.fromString("a1b00000-0000-4000-8000-000000000001")
@@ -121,15 +124,10 @@ traits:
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // Fixture wiring — REAL ServerComposition.build over H2, global-file-only config.
+    // Fixture wiring — REAL ServerComposition.build over SQLite, global-file-only config.
     // ─────────────────────────────────────────────────────────────────────
 
-    private fun buildDatabaseManager(): DatabaseManager {
-        val dbName = "a1b_seat_serving_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DatabaseManager(database)
-    }
+    private fun buildDatabaseManager(): DatabaseManager = db.databaseManager
 
     private fun materializeGlobalConfig(tempDir: Path): Path {
         val configDir = tempDir.resolve(".taskorchestrator")

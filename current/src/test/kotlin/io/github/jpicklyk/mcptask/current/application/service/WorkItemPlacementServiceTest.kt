@@ -4,24 +4,25 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 
 /**
- * Tests [WorkItemPlacementService] against a real in-memory H2 database: the single guard
+ * Tests [WorkItemPlacementService] against a real SQLite database: the single guard
  * ([WorkItemPlacementService.checkReparent]) and the placement-aware create / reparent write
  * pipeline shared by `manage_items` and `POST/PATCH /items`.
  */
 class WorkItemPlacementServiceTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var plainRepo: WorkItemRepository
 
     /**
@@ -61,10 +62,8 @@ class WorkItemPlacementServiceTest {
     @BeforeEach
     fun setUp() {
         val database =
-            Database.connect("jdbc:h2:mem:placement_service_${System.nanoTime()};DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
-        plainRepo = DefaultRepositoryProvider(databaseManager).workItemRepository()
+            db.database
+        plainRepo = db.repositoryProvider().workItemRepository()
     }
 
     private suspend fun root(title: String): WorkItem {

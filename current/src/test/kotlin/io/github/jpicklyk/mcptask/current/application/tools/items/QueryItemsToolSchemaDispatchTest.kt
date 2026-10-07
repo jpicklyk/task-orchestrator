@@ -9,9 +9,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -20,9 +19,9 @@ import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -30,7 +29,7 @@ import kotlin.test.assertTrue
 
 /**
  * Unit tests for `query_items(operation="schema")`'s top-level `dispatch`/`resources` fields (B1,
- * dispatch trait dimension, S12 + S10 portions). Mirrors [QueryItemsToolTest]'s real-H2 harness
+ * dispatch trait dimension, S12 + S10 portions). Mirrors [QueryItemsToolTest]'s real-SQLite harness
  * conventions — that file already covers the base `notes`/`configFingerprint`/`configSource`
  * schema-op contract; this file is scoped to the two new fields only.
  *
@@ -38,16 +37,15 @@ import kotlin.test.assertTrue
  * contract and P9 in the item's `task-scope` note — never from reading QueryItemsTool's source.
  */
 class QueryItemsToolSchemaDispatchTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var repositoryProvider: DefaultRepositoryProvider
     private lateinit var tool: QueryItemsTool
 
     @BeforeEach
     fun setUp() {
-        val dbName = "test_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
-        repositoryProvider = DefaultRepositoryProvider(databaseManager)
+        repositoryProvider = db.repositoryProvider()
         tool = QueryItemsTool()
     }
 
