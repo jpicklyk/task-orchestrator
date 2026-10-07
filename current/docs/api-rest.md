@@ -1568,7 +1568,7 @@ All require `READ`. `actor` and `verification` fields are redacted (null) for no
 
 ### GET /items/{id}/transitions
 
-Per-item role-transition history (append-only audit log), paginated.
+Per-item role-transition history (append-only audit log), paginated. Newest first (`transitionedAt` descending); accepts the standard `page` and `pageSize` parameters.
 
 **Response:** `200 OK` → `PageDto<RoleTransitionDto>`
 

@@ -82,7 +82,7 @@ fun Route.transitionRoutes(
             }
 
             val pp = call.pageParamsOrRespond() ?: return@get
-            val result = transitionRepo.findByItemId(id, limit = pp.pageSize + 1)
+            val result = transitionRepo.findByItemId(id, limit = pp.pageSize + 1, offset = pp.offset)
             when (result) {
                 is Result.Error -> {
                     transitionLogger.warn("GET /items/{}/transitions DB error: {}", id, result.error.message)
