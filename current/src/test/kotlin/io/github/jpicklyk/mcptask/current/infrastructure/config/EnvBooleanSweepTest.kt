@@ -24,7 +24,7 @@ import kotlin.test.assertTrue
  * contract for `require`; CLAUDE.md's env-var table for documented defaults). Nothing here was
  * read off the call sites' implementations to decide correctness.
  *
- * Covers test-plan scenarios S1 (happy: the USE_FLYWAY=1 diagnosis repro), S4 (failure:
+ * Covers test-plan scenarios S1 (USE_FLYWAY no longer parsed; rewritten for the Flyway-only switch), S4 (failure:
  * API_ENABLED fail-fast), S7 (edge: all 8 vars default correctly, silently, when unset), S9
  * (RESOURCE_LEASES_ENFORCED's widened 0/no contract), S10 (RESOURCE_LEASES_ENFORCED stays
  * per-call, never hoisted into AppConfig), and S11 (the single-parser invariant, to the extent
@@ -65,14 +65,16 @@ class EnvBooleanSweepTest {
     // ------------------------------------------------------------------
 
     @Test
-    fun `S1 USE_FLYWAY=1 parses to true, fixing the historical toBoolean bug`() {
-        // Oracle: diagnosis repro + CLAUDE.md ("USE_FLYWAY -- default: true"). Before this item,
-        // Kotlin's .toBoolean() only recognized the literal "true", so USE_FLYWAY=1 silently
-        // resolved to false. This item's scope is the boolean value itself; which
-        // DatabaseSchemaManager gets constructed from it is SchemaManagerFactory's concern, not an
-        // owned file of this item and out of this test's scope.
+    fun `S1 USE_FLYWAY is no longer a parsed boolean setting on AppConfig`() {
+        // Oracle: plan v4-phase1-core section 6 / 3.10 -- "USE_FLYWAY is ignored" (Flyway is the only
+        // schema path). The historical toBoolean repro is obsolete; the variable must have no
+        // effect on AppConfig and no field to carry it.
         val c = AppConfig.fromEnv(env("USE_FLYWAY" to "1"))
-        assertTrue(c.useFlyway)
+        assertTrue(
+            AppConfig::class.java.declaredFields.none { it.name.equals("useFlyway", ignoreCase = true) },
+            "AppConfig must not carry a useFlyway field",
+        )
+        assertFalse(c.flywayRepair, "an unrelated boolean stays at its default when USE_FLYWAY is set")
     }
 
     // ------------------------------------------------------------------
@@ -97,7 +99,6 @@ class EnvBooleanSweepTest {
             captureWarnLogs {
                 val c = AppConfig.fromEnv { null }
                 // The 6 AppConfig-resident vars.
-                assertTrue(c.useFlyway, "USE_FLYWAY default is true")
                 assertFalse(c.databaseShowSql, "DATABASE_SHOW_SQL default is false")
                 assertFalse(c.flywayRepair, "FLYWAY_REPAIR default is false")
                 assertFalse(c.apiAllowQueryTokenForSse, "API_ALLOW_QUERY_TOKEN_FOR_SSE default is false")

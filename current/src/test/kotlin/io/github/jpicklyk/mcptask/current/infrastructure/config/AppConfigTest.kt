@@ -34,7 +34,11 @@ class AppConfigTest {
         assertEquals(3001, c.mcpHttpPort)
 
         assertEquals("data/current-tasks.db", c.databasePath)
-        assertTrue(c.useFlyway)
+        // Oracle: plan v4-phase1-core 3.10 / 6 -- USE_FLYWAY is ignored; AppConfig no longer carries it.
+        assertTrue(
+            AppConfig::class.java.declaredFields.none { it.name == "useFlyway" },
+            "AppConfig must not expose a useFlyway setting",
+        )
         assertEquals("INFO", c.logLevel)
         assertNull(c.agentConfigDir)
         assertEquals(10, c.databaseMaxConnections)
@@ -77,7 +81,6 @@ class AppConfigTest {
                     "MCP_HTTP_HOST" to "127.0.0.1",
                     "MCP_HTTP_PORT" to "8080",
                     "DATABASE_PATH" to "/tmp/x.db",
-                    "USE_FLYWAY" to "false",
                     "LOG_LEVEL" to "DEBUG",
                     "DATABASE_MAX_CONNECTIONS" to "25",
                     "DATABASE_SHOW_SQL" to "true",
@@ -98,7 +101,6 @@ class AppConfigTest {
         assertEquals("127.0.0.1", c.mcpHttpHost)
         assertEquals(8080, c.mcpHttpPort)
         assertEquals("/tmp/x.db", c.databasePath)
-        assertFalse(c.useFlyway)
         assertEquals("DEBUG", c.logLevel)
         assertEquals(25, c.databaseMaxConnections)
         assertTrue(c.databaseShowSql)
