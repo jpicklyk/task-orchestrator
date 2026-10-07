@@ -278,6 +278,8 @@ omission: gate status depends on the item's notes and its resolved schema/config
 versioned by `item.modifiedAt` — an `ETag` derived from the item alone would go stale the moment a
 note is upserted or the config changes, without the item itself being touched.
 
+**`GET /items/{id}` with a recognized `include` (`notes`, `deps`, `children`) carries no `ETag` and ignores `If-None-Match`.** Same rationale as `/gate`: inlined notes, dependencies and (per-principal tag-filtered) children are not versioned by `item.modifiedAt`, so an item-only validator would serve a stale `304` after a note upsert or child creation. An absent, empty or unrecognized-only `include` keeps the normal `ETag`/`304` behavior. The `etag` field inside the body is still `etagFor(item.modifiedAt)` and remains the `If-Match` validator for `PATCH`/`DELETE`; it is not a conditional-read validator.
+
 ### Config ETags
 
 Config/schema endpoints (`/config`, `/config/schemas`, etc.) use a fingerprint-based ETag:
@@ -1006,7 +1008,8 @@ Single item by UUID.
 
 **Responses:**
 - `200 OK` → `ItemDto`
-- `304 Not Modified` — when `If-None-Match` matches current ETag
++
+- 400 bad_request — invalid UUID
 - `400 bad_request` — invalid UUID
 - `403 scope_forbidden`
 - `404 not_found`

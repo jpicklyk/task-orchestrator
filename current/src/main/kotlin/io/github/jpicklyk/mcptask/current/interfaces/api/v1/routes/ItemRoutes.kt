@@ -55,6 +55,9 @@ private val logger = LoggerFactory.getLogger("ItemRoutes")
  */
 private const val TAG_SCOPE_SCAN_LIMIT = 1000
 
+/** Recognized `?include=` tokens on `GET /items/{id}`; any of them disables the ETag/304 shortcut. */
+private val INCLUDE_TOKENS = setOf("notes", "deps", "children")
+
 /**
  * One page of an already scope-filtered, in-memory [visible] set: the page is sliced from the
  * survivors and totalItems is their count, so paging never counts an item the caller may not read.
@@ -72,6 +75,7 @@ private fun pageOfVisible(
  * - `GET /items`                    — paginated list with query-param filters
  * - `GET /items/roots`              — root-level items in caller's scope
  * - `GET /items/{id}`               — single item; `?include=notes,deps,children` to inline
+ *                                     (conditional GET / 304 only when no include is requested)
  * - `GET /items/{id}/tree`          — descendant tree
  * - `GET /items/{id}/breadcrumbs`   — ancestor chain root→item
  * - `GET /items/{id}/children`      — direct children only (paginated)
@@ -357,12 +361,16 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                 return@get
             }
 
-            if (call.respondWithEtagCheck(item.modifiedAt)) return@get
-
             val includes =
                 call.request.queryParameters["include"]
                     ?.split(",")
                     ?.map { it.trim() } ?: emptyList()
+
+            // The validator is modifiedAt only; notes, dependencies and (per-principal filtered)
+            // children do not touch the parent's modifiedAt, so a conditional read that inlines
+            // them could serve a stale 304. Like /gate and /schema, skip the check (no ETag
+            // header, If-None-Match ignored) when a recognized include is requested.
+            if (includes.none { it in INCLUDE_TOKENS } && call.respondWithEtagCheck(item.modifiedAt)) return@get
 
             val noteDtos =
                 if ("notes" in includes) {

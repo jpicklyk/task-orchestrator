@@ -1685,9 +1685,12 @@ paths:
           schema:
             type: string
           description: >-
-            Comma-separated inclusions - notes, deps, children.
+            Comma-separated inclusions - notes, deps, children. When any recognized token is
+            present the response carries no ETag header and If-None-Match is ignored (never 304).
         - name: If-None-Match
           in: header
+          description: >-
+            Honored only when no recognized include is requested; ignored otherwise.
           schema:
             type: string
       responses:
@@ -1695,6 +1698,7 @@ paths:
           description: Item
           headers:
             ETag:
+              description: Absent when a recognized include is requested.
               schema:
                 type: string
           content:
@@ -1702,7 +1706,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ItemDto"
         "304":
-          description: Not modified (If-None-Match matched)
+          description: Not modified (If-None-Match matched; never returned when include is requested)
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":

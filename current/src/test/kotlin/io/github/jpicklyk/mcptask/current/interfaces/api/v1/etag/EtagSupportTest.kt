@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag
 
+import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
@@ -118,5 +119,114 @@ class EtagSupportTest {
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             assertTrue(body.contains("Stale ETag test"), "Expected item in response: $body")
+        }
+
+    // --- ?include= disables the ETag/304 shortcut (F-014) ---
+
+    @Test
+    fun `include=notes ignores If-None-Match and sees a note upserted after the item last changed`() =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val item =
+                runBlocking {
+                    repo.workItemRepository().create(WorkItem(title = "Include notes", depth = 0)).getOrNull()!!
+                }
+            application { configureTestApp { itemRoutes(repo) } }
+            val validator = etagFor(item.modifiedAt)
+            runBlocking {
+                repo.noteRepository().upsert(Note(itemId = item.id, key = "fresh-note", role = "work", body = "hello"))
+            }
+            val response =
+                client.get("/api/v1/items/${item.id}?include=notes") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                    header(HttpHeaders.IfNoneMatch, validator)
+                }
+            assertEquals(HttpStatusCode.OK, response.status)
+            assertTrue(response.bodyAsText().contains("fresh-note"), "Expected new note inlined")
+            assertEquals(null, response.headers[HttpHeaders.ETag], "include response must carry no ETag header")
+        }
+
+    @Test
+    fun `include=children ignores If-None-Match and inlines a child added after the parent last changed`() =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val parent =
+                runBlocking {
+                    repo.workItemRepository().create(WorkItem(title = "Include parent", depth = 0)).getOrNull()!!
+                }
+            application { configureTestApp { itemRoutes(repo) } }
+            val validator = etagFor(parent.modifiedAt)
+            runBlocking {
+                repo.workItemRepository().create(WorkItem(title = "Late child", parentId = parent.id, depth = 1))
+            }
+            val response =
+                client.get("/api/v1/items/${parent.id}?include=children") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                    header(HttpHeaders.IfNoneMatch, validator)
+                }
+            assertEquals(HttpStatusCode.OK, response.status)
+            assertTrue(response.bodyAsText().contains("Late child"), "Expected new child inlined")
+            assertEquals(null, response.headers[HttpHeaders.ETag])
+        }
+
+    @Test
+    fun `include=deps ignores If-None-Match and carries no ETag header`() =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val item =
+                runBlocking {
+                    repo.workItemRepository().create(WorkItem(title = "Include deps", depth = 0)).getOrNull()!!
+                }
+            application { configureTestApp { itemRoutes(repo) } }
+            val response =
+                client.get("/api/v1/items/${item.id}?include=deps") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                    header(HttpHeaders.IfNoneMatch, etagFor(item.modifiedAt))
+                }
+            assertEquals(HttpStatusCode.OK, response.status)
+            assertEquals(null, response.headers[HttpHeaders.ETag])
+        }
+
+    @Test
+    fun `no include or unrecognized-only include keeps ETag and 304 behavior`() =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val item =
+                runBlocking {
+                    repo.workItemRepository().create(WorkItem(title = "Preserve 304", depth = 0)).getOrNull()!!
+                }
+            application { configureTestApp { itemRoutes(repo) } }
+            for (suffix in listOf("", "?include=foo", "?include=")) {
+                val first =
+                    client.get("/api/v1/items/${item.id}$suffix") {
+                        header("Authorization", "Bearer $TEST_TOKEN")
+                    }
+                assertEquals(HttpStatusCode.OK, first.status, "suffix=$suffix")
+                val etag = first.headers[HttpHeaders.ETag] ?: error("ETag header missing for suffix=$suffix")
+                val second =
+                    client.get("/api/v1/items/${item.id}$suffix") {
+                        header("Authorization", "Bearer $TEST_TOKEN")
+                        header(HttpHeaders.IfNoneMatch, etag)
+                    }
+                assertEquals(HttpStatusCode.NotModified, second.status, "suffix=$suffix")
+            }
+        }
+
+    @Test
+    fun `body etag field on an include response still equals the modifiedAt validator`() =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val item =
+                runBlocking {
+                    repo.workItemRepository().create(WorkItem(title = "Body etag", depth = 0)).getOrNull()!!
+                }
+            application { configureTestApp { itemRoutes(repo) } }
+            val response =
+                client.get("/api/v1/items/${item.id}?include=notes") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(HttpStatusCode.OK, response.status)
+            val escaped = etagFor(item.modifiedAt).replace("\"", "\\\"")
+            assertTrue(response.bodyAsText().contains(escaped), "Body etag field should equal etagFor(modifiedAt)")
         }
 }
