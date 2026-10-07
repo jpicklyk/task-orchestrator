@@ -224,20 +224,26 @@ class UnitRunner internal constructor(
         unit: ActiveUnit,
         freshConfig: Boolean,
         body: suspend JdbcTransaction.(ActiveUnit) -> R
-    ): R =
-        suspendTransaction(db = db) {
-            val tx = this
-            val context: CoroutineContext = if (freshConfig) UnitElement(unit) + ConfigSession() else UnitElement(unit)
-            try {
+    ): R {
+        // Captured so a cancellation raised OUTSIDE the block (Exposed's own await/commit/close steps, e.g. an SSE
+        // client disconnecting mid-read) can still release the connection. Exposed leaks it otherwise.
+        var opened: JdbcTransaction? = null
+        try {
+            return suspendTransaction(db = db) {
+                val tx = this
+                opened = tx
+                val context: CoroutineContext = if (freshConfig) UnitElement(unit) + ConfigSession() else UnitElement(unit)
                 withContext(context) { tx.body(unit) }
-            } catch (e: CancellationException) {
-                // Exposed does not roll back or close the transaction when the coroutine is cancelled after a
-                // statement ran: the connection would stay checked out of the size-1 writer pool with its lock held
-                // and the transaction would stay bound to the thread. Release both here, then rethrow.
-                withContext(NonCancellable) { abandon(tx) }
-                throw e
             }
+        } catch (e: CancellationException) {
+            // Exposed does not roll back or close the transaction when the coroutine is cancelled after a
+            // statement ran: the connection would stay checked out of its pool (a writer would hold the lock) and the
+            // transaction would stay bound to the thread. Release both here, then rethrow.
+            val leaked = opened
+            if (leaked != null) withContext(NonCancellable) { abandon(leaked) }
+            throw e
         }
+    }
 
     private fun abandon(tx: JdbcTransaction) {
         try {
