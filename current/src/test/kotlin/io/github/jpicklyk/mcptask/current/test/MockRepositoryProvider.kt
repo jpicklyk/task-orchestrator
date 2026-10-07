@@ -10,6 +10,9 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
+import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentRepository
+import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
+import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
@@ -26,6 +29,9 @@ class MockRepositoryProvider {
     val noteRepo: NoteRepository = mockk()
     val depRepo: DependencyRepository = mockk()
     val roleTransitionRepo: RoleTransitionRepository = mockk()
+    val projectConfigRepo: ProjectConfigRepository = mockk()
+    val planDocumentRepo: PlanDocumentRepository = mockk()
+    val resourceLeaseRepo: ResourceLeaseRepository = mockk()
     val workTreeExecutor: WorkTreeExecutor = mockk()
     val provider: RepositoryProvider = mockk()
 
@@ -34,6 +40,9 @@ class MockRepositoryProvider {
         every { provider.noteRepository() } returns noteRepo
         every { provider.dependencyRepository() } returns depRepo
         every { provider.roleTransitionRepository() } returns roleTransitionRepo
+        every { provider.projectConfigRepository() } returns projectConfigRepo
+        every { provider.planDocumentRepository() } returns planDocumentRepo
+        every { provider.resourceLeaseRepository() } returns resourceLeaseRepo
         every { provider.database() } returns null
         every { provider.workTreeExecutor() } returns workTreeExecutor
         // Default: workItemRepo.dbNow() returns JVM time (suitable for tests not exercising clock skew)
