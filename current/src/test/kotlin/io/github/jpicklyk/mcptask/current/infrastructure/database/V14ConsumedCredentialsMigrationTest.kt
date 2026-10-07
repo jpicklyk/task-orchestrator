@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database
 
+import io.github.jpicklyk.mcptask.current.infrastructure.database.upgrade.UpgradeHarness
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
@@ -7,6 +8,8 @@ import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
 import java.nio.ByteBuffer
 import java.sql.Connection
 import java.sql.DriverManager
@@ -29,17 +32,20 @@ import kotlin.test.assertTrue
  * inserted rows, and round-trips an explicit value.
  */
 class V14ConsumedCredentialsMigrationTest {
+    @TempDir
+    lateinit var tempDir: File
+
+    private lateinit var jdbcUrl: String
     private lateinit var database: Database
     private lateinit var keepAliveConnection: Connection
 
     @BeforeEach
     fun setUp() {
-        val dbName = "v14_consumed_credentials_${System.nanoTime()}"
-        val jdbcUrl = "jdbc:sqlite:file:$dbName?mode=memory&cache=shared"
+        // The real V13 schema (what a pre-V14 user has), not a hand-built copy.
+        jdbcUrl = UpgradeHarness.copyAt(13, File(tempDir, "v14.db"))
         keepAliveConnection = DriverManager.getConnection(jdbcUrl)
         database = Database.connect(url = jdbcUrl, driver = "org.sqlite.JDBC")
         TransactionManager.manager.defaultIsolationLevel = Connection.TRANSACTION_SERIALIZABLE
-        createPreV14Schema()
     }
 
     @AfterEach
@@ -54,64 +60,9 @@ class V14ConsumedCredentialsMigrationTest {
         }
     }
 
-    /** Minimal pre-V14 schema: work_items (FK target) + role_transitions without consumed_credentials. */
-    private fun createPreV14Schema() {
-        transaction(db = database) {
-            exec(
-                """
-                CREATE TABLE work_items (
-                    id    BLOB PRIMARY KEY DEFAULT (randomblob(16)),
-                    title TEXT NOT NULL
-                )
-                """.trimIndent()
-            )
-            exec(
-                """
-                CREATE TABLE role_transitions (
-                    id                  BLOB PRIMARY KEY DEFAULT (randomblob(16)),
-                    item_id             BLOB NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
-                    from_role           VARCHAR(20) NOT NULL,
-                    to_role             VARCHAR(20) NOT NULL,
-                    from_status_label   TEXT,
-                    to_status_label     TEXT,
-                    trigger             VARCHAR(50) NOT NULL,
-                    summary             TEXT,
-                    transitioned_at     TIMESTAMP NOT NULL
-                )
-                """.trimIndent()
-            )
-            exec("CREATE INDEX idx_role_trans_item ON role_transitions(item_id)")
-            exec("CREATE INDEX idx_role_trans_time ON role_transitions(transitioned_at)")
-        }
-    }
-
-    /**
-     * Reads the real `V14__Add_Consumed_Credentials.sql` off the classpath and executes it.
-     * Strips full-line `--` comments, then splits on `;` (mirrors [V9RootIdMigrationTest]) — safe
-     * here since the migration's single ALTER TABLE statement contains no embedded semicolon.
-     */
+    /** Applies the real V14 migration through Flyway (target 14) on the V13 database. */
     private fun applyV14Migration() {
-        val resourceStream =
-            requireNotNull(
-                Thread.currentThread().contextClassLoader.getResourceAsStream(
-                    "db/migration/sqlite/V14__Add_Consumed_Credentials.sql"
-                )
-            ) { "V14__Add_Consumed_Credentials.sql not found on the test classpath" }
-        val sqlText = resourceStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-        val withoutComments =
-            sqlText
-                .lineSequence()
-                .filterNot { it.trimStart().startsWith("--") }
-                .joinToString("\n")
-        val statements =
-            withoutComments
-                .split(";")
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-
-        transaction(db = database) {
-            statements.forEach { statement -> exec(statement) }
-        }
+        UpgradeHarness.migrate(jdbcUrl, target = 14)
     }
 
     private fun uuidToBytes(id: UUID): ByteArray {
@@ -125,11 +76,15 @@ class V14ConsumedCredentialsMigrationTest {
         id: UUID,
         title: String
     ) {
-        keepAliveConnection.prepareStatement("INSERT INTO work_items (id, title) VALUES (?, ?)").use { stmt ->
-            stmt.setBytes(1, uuidToBytes(id))
-            stmt.setString(2, title)
-            stmt.executeUpdate()
-        }
+        keepAliveConnection
+            .prepareStatement(
+                "INSERT INTO work_items (id, title, created_at, modified_at, role_changed_at) " +
+                    "VALUES (?, ?, datetime('now'), datetime('now'), datetime('now'))"
+            ).use { stmt ->
+                stmt.setBytes(1, uuidToBytes(id))
+                stmt.setString(2, title)
+                stmt.executeUpdate()
+            }
     }
 
     private fun insertPreV14Transition(

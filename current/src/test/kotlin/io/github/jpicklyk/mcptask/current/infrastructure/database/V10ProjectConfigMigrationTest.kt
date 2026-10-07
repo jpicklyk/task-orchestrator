@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database
 
+import io.github.jpicklyk.mcptask.current.infrastructure.database.upgrade.UpgradeHarness
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
@@ -7,6 +8,8 @@ import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
 import java.nio.ByteBuffer
 import java.sql.Connection
 import java.sql.DriverManager
@@ -29,18 +32,21 @@ import kotlin.test.assertTrue
  * behavior under test.
  */
 class V10ProjectConfigMigrationTest {
+    @TempDir
+    lateinit var tempDir: File
+
+    private lateinit var jdbcUrl: String
     private lateinit var database: Database
     private lateinit var keepAliveConnection: Connection
 
     @BeforeEach
     fun setUp() {
-        val dbName = "v10_project_config_${System.nanoTime()}"
-        val jdbcUrl = "jdbc:sqlite:file:$dbName?mode=memory&cache=shared"
+        // The real V9 schema (what a pre-V10 user has), not a hand-built minimal work_items table.
+        jdbcUrl = UpgradeHarness.copyAt(9, File(tempDir, "v10.db"))
         keepAliveConnection = DriverManager.getConnection(jdbcUrl)
         keepAliveConnection.createStatement().use { it.execute("PRAGMA foreign_keys = ON") }
         database = Database.connect(url = jdbcUrl, driver = "org.sqlite.JDBC")
         TransactionManager.manager.defaultIsolationLevel = Connection.TRANSACTION_SERIALIZABLE
-        createMinimalWorkItemsTable()
     }
 
     @AfterEach
@@ -55,55 +61,24 @@ class V10ProjectConfigMigrationTest {
         }
     }
 
-    private fun createMinimalWorkItemsTable() {
-        transaction(db = database) {
-            exec(
-                """
-                CREATE TABLE work_items (
-                    id    BLOB PRIMARY KEY DEFAULT (randomblob(16)),
-                    title TEXT NOT NULL
-                )
-                """.trimIndent()
-            )
-        }
-    }
-
-    /**
-     * Reads the real `V10__Project_Config.sql` off the classpath and executes each statement.
-     * Strips full-line `--` comments, then splits on `;` — safe here since none of the migration's
-     * statements contain an embedded semicolon (mirrors [V9RootIdMigrationTest.applyV9Migration]).
-     */
+    /** Applies the real V10 migration through Flyway (target 10) on the V9 database. */
     private fun applyV10Migration() {
-        val resourceStream =
-            requireNotNull(
-                Thread.currentThread().contextClassLoader.getResourceAsStream("db/migration/sqlite/V10__Project_Config.sql")
-            ) { "V10__Project_Config.sql not found on the test classpath" }
-        val sqlText = resourceStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-        val withoutComments =
-            sqlText
-                .lineSequence()
-                .filterNot { it.trimStart().startsWith("--") }
-                .joinToString("\n")
-        val statements =
-            withoutComments
-                .split(";")
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-
-        transaction(db = database) {
-            statements.forEach { statement -> exec(statement) }
-        }
+        UpgradeHarness.migrate(jdbcUrl, target = 10)
     }
 
     private fun insertWorkItem(
         id: UUID,
         title: String
     ) {
-        keepAliveConnection.prepareStatement("INSERT INTO work_items (id, title) VALUES (?, ?)").use { stmt ->
-            stmt.setBytes(1, uuidToBytes(id))
-            stmt.setString(2, title)
-            stmt.executeUpdate()
-        }
+        keepAliveConnection
+            .prepareStatement(
+                "INSERT INTO work_items (id, title, created_at, modified_at, role_changed_at) " +
+                    "VALUES (?, ?, datetime('now'), datetime('now'), datetime('now'))"
+            ).use { stmt ->
+                stmt.setBytes(1, uuidToBytes(id))
+                stmt.setString(2, title)
+                stmt.executeUpdate()
+            }
     }
 
     private fun insertProjectConfig(

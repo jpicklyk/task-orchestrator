@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database
 
+import io.github.jpicklyk.mcptask.current.infrastructure.database.upgrade.UpgradeHarness
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
@@ -7,6 +8,8 @@ import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.io.File
 import java.nio.ByteBuffer
 import java.sql.Connection
 import java.sql.DriverManager
@@ -24,18 +27,21 @@ import kotlin.test.assertTrue
  * on `holder_item_id` (see the migration header for why this is deliberate).
  */
 class V16ResourceLeaseHistoryMigrationTest {
+    @TempDir
+    lateinit var tempDir: File
+
+    private lateinit var jdbcUrl: String
     private lateinit var database: Database
     private lateinit var keepAliveConnection: Connection
 
     @BeforeEach
     fun setUp() {
-        val dbName = "v16_resource_lease_history_${System.nanoTime()}"
-        val jdbcUrl = "jdbc:sqlite:file:$dbName?mode=memory&cache=shared"
+        // The real V15 schema (what a pre-V16 user has), not a hand-built copy.
+        jdbcUrl = UpgradeHarness.copyAt(15, File(tempDir, "v16.db"))
         keepAliveConnection = DriverManager.getConnection(jdbcUrl)
         keepAliveConnection.createStatement().use { it.execute("PRAGMA foreign_keys = ON") }
         database = Database.connect(url = jdbcUrl, driver = "org.sqlite.JDBC")
         TransactionManager.manager.defaultIsolationLevel = Connection.TRANSACTION_SERIALIZABLE
-        createMinimalPreV16Schema()
     }
 
     @AfterEach
@@ -50,70 +56,24 @@ class V16ResourceLeaseHistoryMigrationTest {
         }
     }
 
-    private fun createMinimalPreV16Schema() {
-        transaction(db = database) {
-            exec(
-                """
-                CREATE TABLE work_items (
-                    id    BLOB PRIMARY KEY DEFAULT (randomblob(16)),
-                    title TEXT NOT NULL
-                )
-                """.trimIndent()
-            )
-            exec(
-                """
-                CREATE TABLE resource_leases (
-                    id                     BLOB PRIMARY KEY DEFAULT (randomblob(16)),
-                    resource_key           TEXT NOT NULL,
-                    holder_item_id         BLOB NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
-                    acquired_by_actor_id   TEXT NULL,
-                    acquired_at            TEXT NOT NULL,
-                    expires_at             TEXT NOT NULL,
-                    original_acquired_at   TEXT NOT NULL,
-                    version                INTEGER NOT NULL DEFAULT 0
-                )
-                """.trimIndent()
-            )
-        }
-    }
-
-    /**
-     * Reads the real `V16__Resource_Lease_History.sql` off the classpath and executes each
-     * statement. Strips full-line `--` comments, then splits on `;` — safe here since none of the
-     * migration's statements contain an embedded semicolon (mirrors
-     * [V15ResourceLeasesMigrationTest.applyV15Migration]).
-     */
+    /** Applies the real V16 migration through Flyway (target 16) on the V15 database. */
     private fun applyV16Migration() {
-        val resourceStream =
-            requireNotNull(
-                Thread.currentThread().contextClassLoader.getResourceAsStream("db/migration/sqlite/V16__Resource_Lease_History.sql")
-            ) { "V16__Resource_Lease_History.sql not found on the test classpath" }
-        val sqlText = resourceStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-        val withoutComments =
-            sqlText
-                .lineSequence()
-                .filterNot { it.trimStart().startsWith("--") }
-                .joinToString("\n")
-        val statements =
-            withoutComments
-                .split(";")
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-
-        transaction(db = database) {
-            statements.forEach { statement -> exec(statement) }
-        }
+        UpgradeHarness.migrate(jdbcUrl, target = 16)
     }
 
     private fun insertWorkItem(
         id: UUID,
         title: String
     ) {
-        keepAliveConnection.prepareStatement("INSERT INTO work_items (id, title) VALUES (?, ?)").use { stmt ->
-            stmt.setBytes(1, uuidToBytes(id))
-            stmt.setString(2, title)
-            stmt.executeUpdate()
-        }
+        keepAliveConnection
+            .prepareStatement(
+                "INSERT INTO work_items (id, title, created_at, modified_at, role_changed_at) " +
+                    "VALUES (?, ?, datetime('now'), datetime('now'), datetime('now'))"
+            ).use { stmt ->
+                stmt.setBytes(1, uuidToBytes(id))
+                stmt.setString(2, title)
+                stmt.executeUpdate()
+            }
     }
 
     private fun insertHistoryRow(
