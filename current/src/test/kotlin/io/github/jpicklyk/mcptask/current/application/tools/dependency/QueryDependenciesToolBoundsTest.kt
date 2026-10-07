@@ -7,16 +7,15 @@ import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.*
@@ -87,22 +86,21 @@ private class WorkItemRepositoryOverrideProvider(
  *    (S5 there, lines 151-189).
  *  - S6/S7: item scope note — small graphs and the `backlinks` operation stay byte-identical.
  *
- * Extends the QueryDependenciesToolTest harness conventions: H2 via [DefaultRepositoryProvider] +
- * `DirectDatabaseSchemaManager().updateSchema()`, `createItem`/`createDependency` helpers,
+ * Extends the QueryDependenciesToolTest harness conventions: SQLite via [DefaultRepositoryProvider] +
+ * [SqliteTestDatabase], `createItem`/`createDependency` helpers,
  * `runBlocking` bodies.
  */
 class QueryDependenciesToolBoundsTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var repositoryProvider: DefaultRepositoryProvider
     private lateinit var context: ToolExecutionContext
     private lateinit var tool: QueryDependenciesTool
 
     @BeforeEach
     fun setUp() {
-        val dbName = "test_bounds_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
-        repositoryProvider = DefaultRepositoryProvider(databaseManager)
+        repositoryProvider = db.repositoryProvider()
         context = ToolExecutionContext(repositoryProvider)
         tool = QueryDependenciesTool()
     }

@@ -10,9 +10,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
@@ -22,9 +21,9 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -37,7 +36,7 @@ import kotlin.test.assertTrue
  * `query_notes`, `advance_item`, or `create_work_tree` must never be echoed back over MCP.
  *
  * [ActorClaim.toJson] is the single serializer all four tools funnel through, so these tests
- * exercise it end to end via each tool's real `execute()` against a real (H2 in-memory) database
+ * exercise it end to end via each tool's real `execute()` against a real (SQLite) database
  * — the same harness pattern used by `ManageNotesToolTest` / `QueryNotesToolTest` /
  * `CreateWorkTreeToolIntegrationTest`.
  *
@@ -45,6 +44,9 @@ import kotlin.test.assertTrue
  * scenario passes only when SECRET is not a substring of the tool's serialized JSON response.
  */
 class ActorProofMcpExposureTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var repositoryProvider: DefaultRepositoryProvider
     private lateinit var context: ToolExecutionContext
     private lateinit var manageNotesTool: ManageNotesTool
@@ -57,11 +59,7 @@ class ActorProofMcpExposureTest {
 
     @BeforeEach
     fun setUp() {
-        val dbName = "test_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
-        repositoryProvider = DefaultRepositoryProvider(databaseManager)
+        repositoryProvider = db.repositoryProvider()
         context = ToolExecutionContext(repositoryProvider)
         manageNotesTool = ManageNotesTool()
         queryNotesTool = QueryNotesTool()

@@ -12,10 +12,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.coEvery
 import io.mockk.coVerify
 import kotlinx.coroutines.Dispatchers
@@ -23,10 +22,10 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
@@ -44,17 +43,16 @@ import kotlin.test.assertTrue
  * 4. No requestId means no cache interaction (current behavior preserved).
  */
 class IdempotencyToolsTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var repositoryProvider: DefaultRepositoryProvider
     private lateinit var idempotencyCache: IdempotencyCache
     private lateinit var context: ToolExecutionContext
 
     @BeforeEach
     fun setUp() {
-        val dbName = "test_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
-        repositoryProvider = DefaultRepositoryProvider(databaseManager)
+        repositoryProvider = db.repositoryProvider()
         idempotencyCache = IdempotencyCache()
         context =
             ToolExecutionContext(
@@ -647,10 +645,9 @@ class IdempotencyToolsTest {
     // ──────────────────────────────────────────────
     // ClaimItemTool — claim idempotency (TEST-I10a, TEST-I10b)
     //
-    // NOTE: claim_item's repository.claim() uses SQLite-specific HEX(id) syntax
-    // that is incompatible with H2 in-memory databases. These tests use a mocked
-    // WorkItemRepository (via MockRepositoryProvider) to test the idempotency
-    // wiring directly without hitting DB-level SQL compatibility issues.
+    // NOTE: claim_item's repository.claim() uses HEX(id) / datetime('now') claim SQL.
+    // These tests use a mocked WorkItemRepository (via MockRepositoryProvider)
+    // to test the idempotency wiring directly, without depending on claim SQL.
     // ──────────────────────────────────────────────
 
     private fun buildClaimParams(
@@ -997,7 +994,7 @@ class IdempotencyToolsTest {
      * TEST-C3d: manage_items with degradedModePolicy=reject and unverified actor
      * returns error WITHOUT writing to the idempotency cache.
      *
-     * Uses a real H2-backed context but with degradedModePolicy=REJECT so that
+     * Uses a real SQLite-backed context but with degradedModePolicy=REJECT so that
      * an unverified (noop-verified) actor is rejected by policy. The cache must
      * remain empty — no successful execution, no stored response.
      */

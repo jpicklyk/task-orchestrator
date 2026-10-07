@@ -5,10 +5,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ChildPlacement
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -20,9 +19,9 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -47,7 +46,7 @@ import kotlin.test.assertTrue
  * `ManageItemsParentPlacementInTxnTest` (see that file's class KDoc for the `by delegate` /
  * `resolveChildPlacement` forwarding subtlety), injected through a [RepositoryProvider] wrapper
  * that overrides only `workItemRepository()` — `workTreeExecutor()` is left to delegate to the
- * REAL executor (matching `CreateWorkTreeToolIntegrationTest`'s H2 harness convention), so the
+ * REAL executor (matching `CreateWorkTreeToolIntegrationTest`'s SQLite harness convention), so the
  * actual insert path under test is exercised for real, not mocked.
  *
  * BLINDNESS: authored from `diagnosis`/`test-plan` (queue-phase, frozen, `keys`-filtered
@@ -57,6 +56,9 @@ import kotlin.test.assertTrue
  * file, diff, or commit was read.
  */
 class CreateWorkTreeParentPlacementInTxnTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     /** See `ManageItemsParentPlacementInTxnTest.MutateOnFirstTransactionRepository` KDoc. */
     private class MutateOnFirstTransactionRepository(
         private val delegate: WorkItemRepository,
@@ -102,11 +104,7 @@ class CreateWorkTreeParentPlacementInTxnTest {
 
     @BeforeEach
     fun setUp() {
-        val dbName = "create_work_tree_placement_txn_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
-        repositoryProvider = DefaultRepositoryProvider(databaseManager)
+        repositoryProvider = db.repositoryProvider()
     }
 
     private suspend fun create(item: WorkItem): WorkItem = (repositoryProvider.workItemRepository().create(item) as Result.Success).data

@@ -4,23 +4,23 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteNoteRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Integration tests for [CreateWorkTreeTool] using a real H2 in-memory database
+ * Integration tests for [CreateWorkTreeTool] using a real SQLite database
  * and the production [DefaultRepositoryProvider] wiring (which constructs
  * [io.github.jpicklyk.mcptask.current.infrastructure.service.SQLiteWorkTreeService]
  * via the same lazy property used in production).
@@ -30,20 +30,20 @@ import kotlin.test.assertTrue
  * transaction and persist with the correct itemId binding, role, and verbatim body.
  */
 class CreateWorkTreeToolIntegrationTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var tool: CreateWorkTreeTool
     private lateinit var context: ToolExecutionContext
     private lateinit var workItemRepository: SQLiteWorkItemRepository
     private lateinit var noteRepository: SQLiteNoteRepository
     private lateinit var repositoryProvider: DefaultRepositoryProvider
-    private lateinit var h2Database: Database
+    private lateinit var database: Database
 
     @BeforeEach
     fun setUp() {
-        val dbName = "create_work_tree_tool_integration_${System.nanoTime()}"
-        h2Database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(h2Database)
-        DirectDatabaseSchemaManager().updateSchema()
-        repositoryProvider = DefaultRepositoryProvider(databaseManager)
+        database = db.database
+        repositoryProvider = db.repositoryProvider()
 
         workItemRepository = repositoryProvider.workItemRepository() as SQLiteWorkItemRepository
         noteRepository = repositoryProvider.noteRepository() as SQLiteNoteRepository

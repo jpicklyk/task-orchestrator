@@ -4,11 +4,10 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
@@ -18,9 +17,9 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -34,11 +33,14 @@ import kotlin.test.assertTrue
  *
  * Independent test authorship per the `needs-test-author` trait: written against the item's
  * `test-plan` note oracles and [ManageProjectConfigTool]'s public `execute` contract, without
- * reading the implementer's own tests or notes. Mirrors [ManageProjectConfigToolTest]'s H2-backed
+ * reading the implementer's own tests or notes. Mirrors [ManageProjectConfigToolTest]'s SQLite-backed
  * harness style; that file already covers the rest of the push/get contract, so this file focuses
  * solely on `schemaWarnings`.
  */
 class ManageProjectConfigToolSchemaWarningsTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var tool: ManageProjectConfigTool
     private lateinit var workItemRepository: SQLiteWorkItemRepository
     private lateinit var projectConfigRepository: SQLiteProjectConfigRepository
@@ -50,13 +52,8 @@ class ManageProjectConfigToolSchemaWarningsTest {
         runBlocking {
             tool = ManageProjectConfigTool(YamlConfigDocumentParser)
 
-            val dbName = "test_${System.nanoTime()}"
-            val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            val databaseManager = DatabaseManager(database)
-            DirectDatabaseSchemaManager().updateSchema()
-
-            workItemRepository = SQLiteWorkItemRepository(databaseManager)
-            projectConfigRepository = SQLiteProjectConfigRepository(databaseManager)
+            workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
+            projectConfigRepository = db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository
 
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository

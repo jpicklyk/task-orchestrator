@@ -8,9 +8,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -21,8 +21,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -51,7 +51,7 @@ import kotlin.test.assertTrue
  * advance 422/200 mapping, the phase-guard hook.
  *
  * HARNESS (task-scope-addendum "Harness rule", pattern: SeatServingMcpTest): every capture runs the
- * REAL [ServerComposition.build] over an H2 in-memory DB and executes the REAL tool classes
+ * REAL [ServerComposition.build] over an SQLite DB and executes the REAL tool classes
  * ([GetContextTool], [AdvanceItemTool], [ManageNotesTool]) against the resulting
  * `composition.toolContext` -- never a hand-built ToolExecutionContext replica. Actor-bearing notes
  * are written via [ManageNotesTool]'s public `actor: {id, kind}` upsert parameter (NoOpActorVerifier
@@ -73,6 +73,9 @@ import kotlin.test.assertTrue
  * of its own.
  */
 class IndependenceGateMcpTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private companion object {
         const val SCHEMA_YAML = """
 work_item_schemas:
@@ -105,15 +108,10 @@ work_item_schemas:
     ): String = "independence:\n  mode: \"$mode\"\n  require_verified: $requireVerified\n$SCHEMA_YAML"
 
     // ─────────────────────────────────────────────────────────────────────
-    // Fixture wiring -- REAL ServerComposition.build over H2, global-file-only config.
+    // Fixture wiring -- REAL ServerComposition.build over SQLite, global-file-only config.
     // ─────────────────────────────────────────────────────────────────────
 
-    private fun buildDatabaseManager(): DatabaseManager {
-        val dbName = "a2a_indep_gate_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DatabaseManager(database)
-    }
+    private fun buildDatabaseManager(): DatabaseManager = db.databaseManager
 
     private fun materializeGlobalConfig(
         tempDir: Path,

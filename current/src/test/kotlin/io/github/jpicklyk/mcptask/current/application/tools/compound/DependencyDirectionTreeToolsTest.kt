@@ -8,14 +8,13 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -31,12 +30,15 @@ import kotlin.test.assertTrue
  * rejected; [Dc] diagnosis decision (c) — orient every in-set edge via blocker/blocked
  * accessors, skip RELATES_TO; [Db] decision (b) — restatement as a separate row is not a cycle.
  *
- * Real H2 + [DefaultRepositoryProvider] throughout (real dependency graph / real
+ * Real SQLite + [DefaultRepositoryProvider] throughout (real dependency graph / real
  * [io.github.jpicklyk.mcptask.current.infrastructure.service.SQLiteWorkTreeService]) — the
  * MockK-based sibling test files in this package are not usable here since S4/S13/S3/S12 need
  * true cycle/topological behavior over real dependency edges.
  */
 class DependencyDirectionTreeToolsTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var repositoryProvider: DefaultRepositoryProvider
     private lateinit var context: ToolExecutionContext
     private lateinit var workItemRepository: WorkItemRepository
@@ -46,11 +48,7 @@ class DependencyDirectionTreeToolsTest {
 
     @BeforeEach
     fun setUp() {
-        val dbName = "test_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
-        repositoryProvider = DefaultRepositoryProvider(databaseManager)
+        repositoryProvider = db.repositoryProvider()
         context = ToolExecutionContext(repositoryProvider)
         workItemRepository = repositoryProvider.workItemRepository()
         depRepository = repositoryProvider.dependencyRepository()
