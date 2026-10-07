@@ -27,8 +27,11 @@ class ItemHierarchyValidator {
      * [WorkItemRepository.update] (the update builder keeps `modifiedAt` monotonic, and
      * `update` enforces the same optimistic-version check used for any other item write).
      *
-     * This issues one `update` per descendant — there is no bulk-update primitive on
-     * [WorkItemRepository] to batch these into a single statement. Callers that need the parent's
+     * This issues one `update` per descendant on purpose: each per-row write carries the
+     * optimistic version check, monotonic `modifiedAt`, and a per-descendant ITEM_UPDATED event
+     * through the event-publishing decorator. A bulk restamp primitive (a new decorator override
+     * plus SQL-side version/`modifiedAt` semantics) is a known follow-up, not a missing
+     * primitive; the descendant fetch itself is chunked and has no bound-variable limit. Callers that need the parent's
      * own depth/rootId write and this cascade to be atomic (all-or-nothing) MUST invoke both
      * inside a shared [WorkItemRepository.inTransaction] block.
      *
