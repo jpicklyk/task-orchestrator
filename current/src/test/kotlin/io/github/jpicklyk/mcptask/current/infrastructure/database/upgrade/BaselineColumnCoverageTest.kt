@@ -35,6 +35,12 @@ class BaselineColumnCoverageTest {
                 "role_transitions.actor_proof" to
                     "NULL by invariant since V17, same as notes.actor_proof."
             )
+
+        /**
+         * Column pairs ("table.a=table.b") that may legitimately be equal in every row. Every entry needs a reason; a
+         * stale entry (the pair is distinguishable, or a column is gone) fails the test.
+         */
+        val PAIR_EXEMPT: Map<String, String> = emptyMap()
     }
 
     private data class Col(
@@ -72,6 +78,65 @@ class BaselineColumnCoverageTest {
                 rs.next()
                 rs.getInt(1)
             }
+        }
+    }
+
+    /** Pairs of columns of one table that are equal (SQL `IS`, NULL-safe) in every row of a non-empty table. */
+    private fun identicalPairs(conn: Connection): List<String> =
+        columns(conn)
+            .groupBy { it.table }
+            .flatMap { (table, cols) ->
+                val rows =
+                    conn.createStatement().use { st ->
+                        st.executeQuery("SELECT count(*) FROM $table").use {
+                            it.next()
+                            it.getInt(1)
+                        }
+                    }
+                if (rows == 0) return@flatMap emptyList<String>()
+                cols.flatMapIndexed { i, a ->
+                    cols.drop(i + 1).mapNotNull { b ->
+                        val differing =
+                            conn.createStatement().use { st ->
+                                st.executeQuery("SELECT count(*) FROM $table WHERE ${a.name} IS NOT ${b.name}").use {
+                                    it.next()
+                                    it.getInt(1)
+                                }
+                            }
+                        if (differing == 0) "$table.${a.name}=$table.${b.name}" else null
+                    }
+                }
+            }
+
+    @Test
+    fun `no two columns of a table hold the same value in every seeded row`() {
+        val url = UpgradeHarness.urlFor(File(dir, "pairwise.db"))
+        UpgradeHarness.migrate(url)
+        DriverManager.getConnection(url).use { conn ->
+            BaselineDataset.seed(conn)
+            val identical = identicalPairs(conn)
+            val unexplained = identical.filter { it !in PAIR_EXEMPT }
+            assertTrue(
+                unexplained.isEmpty(),
+                "BaselineDataset seeds identical values in every row for: $unexplained. A recreation that mis-maps one " +
+                    "onto the other would pass; give each column its own literal in at least one row, or add a reasoned " +
+                    "entry to PAIR_EXEMPT."
+            )
+            assertEquals(emptyList(), PAIR_EXEMPT.keys.filter { it !in identical }, "PAIR_EXEMPT has stale entries")
+        }
+    }
+
+    @Test
+    fun `the pairwise check is non-vacuous (a seeded identical pair is reported)`() {
+        val url = UpgradeHarness.urlFor(File(dir, "pairwise-vacuity.db"))
+        UpgradeHarness.migrate(url)
+        DriverManager.getConnection(url).use { conn ->
+            BaselineDataset.seed(conn)
+            conn.createStatement().use { it.execute("UPDATE work_items SET modified_at = created_at") }
+            assertTrue(
+                "work_items.created_at=work_items.modified_at" in identicalPairs(conn),
+                "an identical pair must be reported"
+            )
         }
     }
 

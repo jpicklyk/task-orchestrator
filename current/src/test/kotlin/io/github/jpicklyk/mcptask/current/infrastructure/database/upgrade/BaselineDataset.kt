@@ -12,6 +12,10 @@ import java.util.UUID
  * Every column of every table is given a distinct, non-default value in at least one row (the guard test
  * `BaselineColumnCoverageTest` enforces it against the latest schema, with a short reasoned exemption list).
  *
+ * Columns that would otherwise share a literal are given different ones (created_at / modified_at /
+ * role_changed_at are TS, TS+1s, TS+2s; original_acquired_at is earlier than acquired_at), so a recreation that
+ * mis-maps one onto the other is visible; the pairwise guard in `BaselineColumnCoverageTest` enforces it.
+ *
  * Every id is a deterministic `nameUUIDFromBytes`, every timestamp a fixed literal in one of the two
  * shapes the 3.16 server wrote: the Exposed `Instant` shape (`2026-03-01 10:15:30.123`, probed from
  * `WorkItemsTable` inserts) and the DB-side `datetime('now')` shape (`2026-03-01 10:15:30`) that the
@@ -25,6 +29,12 @@ import java.util.UUID
 object BaselineDataset {
     /** Exposed `Instant` write shape (3.16). */
     const val TS = "2026-03-01 10:15:30.123"
+
+    /** [TS] plus one second (Exposed shape), so a column seeded with it is distinguishable from one seeded with [TS]. */
+    const val TS_PLUS_1 = "2026-03-01 10:15:31.123"
+
+    /** [TS] plus two seconds (Exposed shape). */
+    const val TS_PLUS_2 = "2026-03-01 10:15:32.123"
 
     /** `datetime('now')` write shape (3.16 claim and lease SQL). */
     const val DB_TS = "2026-03-01 10:15:30"
@@ -110,8 +120,8 @@ object BaselineDataset {
         "requires_verification" to 0,
         "depth" to 2,
         "created_at" to TS,
-        "modified_at" to TS,
-        "role_changed_at" to TS,
+        "modified_at" to TS_PLUS_1,
+        "role_changed_at" to TS_PLUS_2,
         "version" to 1
     )
 
@@ -154,8 +164,8 @@ object BaselineDataset {
             "type" to "feature-task",
             "properties" to "{\"traits\":[\"needs-review\",\"trait-$name\"]}",
             "created_at" to TS,
-            "modified_at" to TS,
-            "role_changed_at" to TS,
+            "modified_at" to TS_PLUS_1,
+            "role_changed_at" to TS_PLUS_2,
             "version" to version,
             "claimed_by" to if (claim) "agent-one" else null,
             "claimed_at" to if (claim) TS else null,
@@ -187,7 +197,7 @@ object BaselineDataset {
             "role" to role,
             "body" to body,
             "created_at" to TS,
-            "modified_at" to TS,
+            "modified_at" to TS_PLUS_1,
             "actor_id" to if (proofStatus != null) "actor-one" else null,
             "actor_kind" to if (proofStatus != null) "subagent" else null,
             "actor_parent" to if (proofStatus != null) "orchestrator-one" else null,
@@ -275,7 +285,7 @@ object BaselineDataset {
             "acquired_by_actor_id" to "actor-one",
             "acquired_at" to DB_TS,
             "expires_at" to expires,
-            "original_acquired_at" to DB_TS,
+            "original_acquired_at" to "2026-02-28 09:00:00",
             "budget_limit" to if (budget) 10 else null,
             "budget_used" to if (budget) 3 else null,
             "budget_window_seconds" to if (budget) 3600 else null,
@@ -331,7 +341,7 @@ object BaselineDataset {
             "status" to "pending",
             "adopted_by_item_id" to null,
             "created_at" to TS,
-            "modified_at" to TS
+            "modified_at" to TS_PLUS_1
         )
         insert(
             conn,
@@ -344,7 +354,7 @@ object BaselineDataset {
             "status" to "adopted",
             "adopted_by_item_id" to id("feature"),
             "created_at" to TS,
-            "modified_at" to TS
+            "modified_at" to TS_PLUS_1
         )
     }
 }

@@ -88,6 +88,24 @@ class GoldenV17UpgradeTest {
         val url = UpgradeHarness.urlFor(golden)
         val before = DriverManager.getConnection(url).use { UpgradeHarness.dump(it) }
         assertEquals(0, DriverManager.getConnection(url).use { scalar(it, "PRAGMA user_version") }, "the golden has never been compacted")
+        // The golden carries a rowid gap (the generator deletes a sacrificial first row), so rowids are not the row
+        // position. Observed: this SQLite's VACUUM keeps the gap (it does not renumber), so the rebuild is asserted
+        // directly instead: the FTS indexes are wiped in the copy first, and only a startup rebuild can restore them.
+        DriverManager.getConnection(url).use { conn ->
+            assertEquals(2, scalar(conn, "SELECT min(rowid) FROM work_items"), "golden work_items must start at rowid 2 (gap)")
+            assertEquals(2, scalar(conn, "SELECT min(rowid) FROM notes"), "golden notes must start at rowid 2 (gap)")
+            for (fts in listOf("work_items_fts_trigram", "work_items_fts_text", "notes_fts_trigram", "notes_fts_text")) {
+                conn.createStatement().use { it.execute("INSERT INTO $fts($fts) VALUES('delete-all')") }
+            }
+            assertEquals(
+                0,
+                scalar(
+                    conn,
+                    "SELECT count(*) FROM work_items_fts_text WHERE work_items_fts_text MATCH '${BaselineDataset.ITEM_FTS_TOKEN}'"
+                ),
+                "the wiped index must not match before startup"
+            )
+        }
 
         // The exact startup order of CurrentMain: initialize, then updateSchema (Flyway + cycle check + the one-time
         // compaction gated by DB_COMPACT_ON_UPGRADE, switched on explicitly here).
@@ -105,7 +123,7 @@ class GoldenV17UpgradeTest {
                 )
                 val failures = UpgradeHarness.checkUpgrade(conn, before, laterSeeds, null)
                 assertTrue(failures.isEmpty(), "rows, FK or FTS failures after real startup:\n" + failures.joinToString("\n"))
-                // VACUUM can renumber the implicit rowids the external-content FTS tables key on. Prove the rebuilt
+                // The wiped external-content FTS tables key on implicit rowids (here offset by the gap). Prove the rebuilt
                 // indexes still point at the right rows: a MATCH must resolve, through the rowid, to the seeded titles.
                 val itemHits =
                     scalar(

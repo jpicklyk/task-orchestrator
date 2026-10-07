@@ -16,7 +16,8 @@ import java.sql.DriverManager
  * [MigrationSeed] for N, snapshot every row, run the bare migration chain to latest (plain Flyway, never a
  * production startup path), then check:
  * - every pre-existing row is still there with unchanged values in every column present before and after,
- *   except the `table.column` pairs seeds declare as rewritten;
+ *   compared exactly, where a [MigrationSeed.expected] transform (when a seed's migration rewrites a column)
+ *   supplies the exact post-migration value instead of the pre-migration one;
  * - `PRAGMA foreign_key_check` is empty;
  * - per FTS table: the indexed-document count equals the backing table, `integrity-check` (rank=1) passes
  *   and a seeded token is found by MATCH. This runs BEFORE any production startup, because

@@ -48,8 +48,37 @@ object GoldenV17 {
             val url = UpgradeHarness.urlFor(File(work, "v17.db"))
             UpgradeHarness.migrate(url, target = 17)
             DriverManager.getConnection(url).use { conn ->
+                // Rowid gap: a sacrificial work item and note are inserted BEFORE the baseline and deleted after, so the
+                // seeded rows start at rowid 2 and a later VACUUM has to renumber them (and the rowid-keyed FTS indexes
+                // have to be rebuilt to match). See GoldenV17UpgradeTest (real startup).
+                BaselineDataset.insert(
+                    conn,
+                    "work_items",
+                    "id" to BaselineDataset.id("gap-item"),
+                    "root_id" to BaselineDataset.id("gap-item"),
+                    "title" to "Gap item",
+                    "depth" to 0,
+                    "created_at" to BaselineDataset.TS,
+                    "modified_at" to BaselineDataset.TS_PLUS_1,
+                    "role_changed_at" to BaselineDataset.TS_PLUS_2
+                )
+                BaselineDataset.insert(
+                    conn,
+                    "notes",
+                    "id" to BaselineDataset.id("gap-note"),
+                    "work_item_id" to BaselineDataset.id("gap-item"),
+                    "key" to "gap",
+                    "role" to "queue",
+                    "body" to "Gap note",
+                    "created_at" to BaselineDataset.TS,
+                    "modified_at" to BaselineDataset.TS_PLUS_1
+                )
                 BaselineDataset.seed(conn)
                 conn.createStatement().use { st ->
+                    st.execute("DELETE FROM notes WHERE id = x'${BaselineDataset.id("gap-note").joinToString("") { "%02x".format(it) }}'")
+                    st.execute(
+                        "DELETE FROM work_items WHERE id = x'${BaselineDataset.id("gap-item").joinToString("") { "%02x".format(it) }}'"
+                    )
                     st.execute(
                         "UPDATE flyway_schema_history SET installed_by = 'golden-generator', " +
                             "installed_on = '2026-01-01 00:00:00', execution_time = 1"
