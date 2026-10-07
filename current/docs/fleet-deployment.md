@@ -787,8 +787,10 @@ out of scope; this is a known, accepted forensic gap for anything written before
 |----------|--------------|---------|-------------|
 | `DB_COMPACT_ON_UPGRADE` | Flyway mode, opting out | `true` | Set `false` to skip the automatic one-time startup compaction described above (e.g. to run the offline runbook manually instead, or to avoid the extra startup time on a very large database). Ignored in Direct mode and during a `FLYWAY_REPAIR` run — neither ever runs the automatic compaction regardless of this variable. |
 
-Direct mode (`USE_FLYWAY=false`) does not apply V17 to an existing database; migrate it via
-Flyway.
+Direct mode (`USE_FLYWAY=false`) is for disposable dev/test databases and has no upgrade path: it
+does not apply V17 (or any other migration) to an existing database, and Flyway mode refuses to
+open a Direct-created database (tables present, no `flyway_schema_history`) with an error. Point
+`DATABASE_PATH` at a new file, or restore a Flyway-mode backup.
 
 ---
 

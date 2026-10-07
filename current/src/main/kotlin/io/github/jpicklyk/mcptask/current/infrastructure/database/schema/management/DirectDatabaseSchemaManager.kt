@@ -199,10 +199,39 @@ class DirectDatabaseSchemaManager : DatabaseSchemaManager {
                 }
             }
 
+            // SchemaUtils.create never adds columns to an existing table. Outside H2, fail fast when
+            // an older Direct-mode file lacks columns the current tables declare, rather than
+            // reporting success over a DB that will fail on insert.
+            if (!columnsMatch()) return false
+
             logger.info("Database schema created/updated successfully via Direct mode")
             true
         } catch (e: Exception) {
             logger.error("Failed to create/update schema: ${e.message}", e)
             false
         }
+
+    /** Returns false (after one ERROR) if any Exposed-declared column is missing from the live SQLite table. */
+    private fun columnsMatch(): Boolean {
+        val missing = mutableListOf<String>()
+        transaction {
+            if (currentDialect is H2Dialect) return@transaction
+            tables.forEach { table ->
+                val tableName = table.tableName
+                val existing = mutableSetOf<String>()
+                exec("PRAGMA table_info($tableName)") { rs ->
+                    while (rs.next()) existing += rs.getString("name").lowercase()
+                }
+                table.columns.forEach { col ->
+                    if (col.name.lowercase() !in existing) missing += "$tableName.${col.name}"
+                }
+            }
+        }
+        if (missing.isEmpty()) return true
+        logger.error(
+            "Direct-mode database is missing columns: ${missing.joinToString(", ")}. " +
+                "Direct-mode databases are disposable and have no upgrade path; use a new DATABASE_PATH."
+        )
+        return false
+    }
 }
