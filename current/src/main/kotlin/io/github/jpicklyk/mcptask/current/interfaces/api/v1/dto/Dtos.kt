@@ -489,13 +489,15 @@ data class MissingNoteDto(
 )
 
 /**
- * A cascade transition applied (or gate-blocked) as a side effect of an advance.
+ * A cascade transition applied (or suppressed) as a side effect of an advance.
  *
- * Mirrors the MCP `advance_item` cascadeEvents shape. When [gateBlocked] is true the cascade was
- * suppressed because the parent had unfilled required notes; [applied] is then false and
- * [missingNotes] lists the structured gaps. When [applied] is false and [gateBlocked] is false, the
- * cascade's own apply step failed and [error] carries the reason (omitted from the wire format when
- * null, since `explicitNulls = false`).
+ * Mirrors the MCP `advance_item` cascadeEvents shape. When [applied] is false, exactly one reason
+ * applies: [gateBlocked] (the parent had unfilled required notes; [missingNotes] lists the gaps),
+ * [roleBlocked] (the parent is BLOCKED), [dependencyBlocked] (an unmet blocking dependency on the
+ * parent; [blockers] lists them), or none of these flags, in which case [error] carries the reason:
+ * the cascade's own apply step failed, or a terminal cascade's dependency re-validation failed with
+ * no blockers (e.g. the parent turned terminal in a race). [error] is omitted from the wire format
+ * when null, since `explicitNulls = false`.
  */
 @Serializable
 data class CascadeEventDto(

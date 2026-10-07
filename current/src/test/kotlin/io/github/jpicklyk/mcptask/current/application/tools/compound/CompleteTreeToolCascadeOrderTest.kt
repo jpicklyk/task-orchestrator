@@ -123,6 +123,9 @@ class CompleteTreeToolCascadeOrderTest {
             coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
             every { depRepo.findByToItemId(childId) } returns emptyList()
             every { depRepo.findByFromItemId(childId) } returns emptyList()
+            // F-003: the terminal cascade now re-validates the parent's blocking dependencies.
+            every { depRepo.findByToItemId(parentId) } returns emptyList()
+            every { depRepo.findByFromItemId(parentId) } returns emptyList()
             coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
 
             // Only the child is in the target set — the parent is NOT requested directly.
@@ -251,6 +254,9 @@ class CompleteTreeToolCascadeOrderTest {
             coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
             every { depRepo.findByToItemId(childId) } returns emptyList()
             every { depRepo.findByFromItemId(childId) } returns emptyList()
+            // F-003: the terminal cascade now re-validates the parent's blocking dependencies.
+            every { depRepo.findByToItemId(rootId) } returns emptyList()
+            every { depRepo.findByFromItemId(rootId) } returns emptyList()
             // All (one) of the root's children are now terminal once the child applies — the
             // terminal cascade fires up to the root during the CHILD's own advance() call.
             coEvery { workItemRepo.countChildrenByRole(rootId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
