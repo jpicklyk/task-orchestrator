@@ -1,9 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -14,9 +12,9 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -43,22 +41,21 @@ import kotlin.test.assertTrue
  *
  * BLINDNESS: authored from the item's `diagnosis`/`test-plan` notes (queue-phase, frozen before
  * implementation) and the orchestrator-supplied declarations block, plus existing test
- * conventions in `QueryItemsToolTest.kt` (H2 setUp, `createItem` helper, the excludeTerminal /
+ * conventions in `QueryItemsToolTest.kt` (SQLite setUp, `createItem` helper, the excludeTerminal /
  * includeChildren / anchorId test blocks already in that file). No `src/main` file was opened to
  * author this suite.
  */
 class QueryItemsOverviewTerminalRetentionTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var context: ToolExecutionContext
     private lateinit var tool: QueryItemsTool
     private lateinit var manageTool: ManageItemsTool
 
     @BeforeEach
     fun setUp() {
-        val dbName = "test_overview_terminal_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
-        val repositoryProvider = DefaultRepositoryProvider(databaseManager)
+        val repositoryProvider = db.repositoryProvider()
         context = ToolExecutionContext(repositoryProvider)
         tool = QueryItemsTool()
         manageTool = ManageItemsTool()

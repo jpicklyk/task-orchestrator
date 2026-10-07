@@ -12,10 +12,10 @@ import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionReposi
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -33,6 +33,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
@@ -51,6 +52,9 @@ import kotlin.test.assertEquals
  * run against an otherwise mocked [RepositoryProvider], mirroring [CompleteTreeToolTest]'s setup.
  */
 class CompleteTreeToolConfigUnavailableTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var database: Database
     private lateinit var databaseManager: DatabaseManager
     private lateinit var wrapperRepo: FailableProjectConfigRepository
@@ -89,15 +93,14 @@ class CompleteTreeToolConfigUnavailableTest {
     @BeforeEach
     fun setUp(): Unit =
         runBlocking {
-            val dbName = "test_${System.nanoTime()}"
-            database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            databaseManager = DatabaseManager(database)
-            DirectDatabaseSchemaManager().updateSchema()
+            database = db.database
+            databaseManager = db.databaseManager
 
-            wrapperRepo = FailableProjectConfigRepository(SQLiteProjectConfigRepository(databaseManager))
+            wrapperRepo =
+                FailableProjectConfigRepository(db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository)
             perRootConfigService = PerRootConfigService(wrapperRepo)
 
-            workItemRepository = SQLiteWorkItemRepository(databaseManager)
+            workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
             val root = WorkItem(title = "Root R")
             workItemRepository.create(root)
             rootItemId = root.id

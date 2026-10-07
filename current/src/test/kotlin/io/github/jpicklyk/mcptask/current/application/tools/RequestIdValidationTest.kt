@@ -10,9 +10,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTo
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -20,14 +18,13 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import org.jetbrains.exposed.v1.jdbc.Database
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.DynamicTest
 import org.junit.jupiter.api.DynamicTest.dynamicTest
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestFactory
 import org.junit.jupiter.api.assertThrows
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -55,6 +52,16 @@ import kotlin.test.assertTrue
  * `execute` surface — it is `protected` and is never called directly.
  */
 class RequestIdValidationTest {
+    // Dynamic tests of one @TestFactory share a single @BeforeEach, so each freshContext() opens its own
+    // isolated database (one per dynamic test, as before) and @AfterEach closes them all.
+    private val openDatabases = mutableListOf<SqliteTestDatabase>()
+
+    @AfterEach
+    fun closeDatabases() {
+        openDatabases.forEach { it.close() }
+        openDatabases.clear()
+    }
+
     // ──────────────────────────────────────────────────────────────────
     // Fixture plumbing
     // ──────────────────────────────────────────────────────────────────
@@ -106,15 +113,10 @@ class RequestIdValidationTest {
             }
         }
 
-    private val dbCounter = AtomicInteger(0)
-
-    /** A fresh, isolated H2-backed [ToolExecutionContext] — mirrors [IdempotencyToolsTest]'s setUp. */
+    /** A fresh, isolated SQLite-backed [ToolExecutionContext] — mirrors [IdempotencyToolsTest]'s setUp. */
     private fun freshContext(): ToolExecutionContext {
-        val dbName = "test_ridval_${System.nanoTime()}_${dbCounter.incrementAndGet()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
-        return ToolExecutionContext(repositoryProvider = DefaultRepositoryProvider(databaseManager))
+        val db = SqliteTestDatabase.open().also { openDatabases += it }
+        return ToolExecutionContext(repositoryProvider = db.repositoryProvider())
     }
 
     private fun toolCases(): List<ToolCase> =

@@ -6,9 +6,8 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigReposit
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -20,9 +19,9 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -38,24 +37,23 @@ import kotlin.test.assertTrue
  * plus the verbatim `CreateItemHandler.kt` excerpt showing the two independent try/catch sites
  * (per-item decoration, and the batch's `availableTraits`).
  *
- * Harness mirrors [ManageItemsToolTest]'s real-H2-DB setup, adding a real [PerRootConfigService]
+ * Harness mirrors [ManageItemsToolTest]'s real-SQLite-DB setup, adding a real [PerRootConfigService]
  * over a [FailableProjectConfigRepository]-wrapped real [io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository]
  * (via `repositoryProvider.projectConfigRepository()`) for the create call under test, following
  * the same "own copy per file" fixture used by the sibling config-unavailable test files (this
  * item's file-ownership rule forbids a shared harness file).
  */
 class CreateItemConfigUnavailableTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var repositoryProvider: DefaultRepositoryProvider
     private lateinit var tool: ManageItemsTool
     private lateinit var plainContext: ToolExecutionContext
 
     @BeforeEach
     fun setUp() {
-        val dbName = "test_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
-        repositoryProvider = DefaultRepositoryProvider(databaseManager)
+        repositoryProvider = db.repositoryProvider()
         plainContext = ToolExecutionContext(repositoryProvider)
         tool = ManageItemsTool()
     }

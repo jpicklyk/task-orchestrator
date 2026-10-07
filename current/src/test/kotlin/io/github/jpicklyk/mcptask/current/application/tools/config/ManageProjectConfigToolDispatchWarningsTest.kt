@@ -4,11 +4,10 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
@@ -18,16 +17,16 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertTrue
 
 /**
  * Exercises `manage_project_config` `push`'s `data.schemaWarnings` surface for the `dispatch:`
  * trait dimension (B1, S14, AC1) — a malformed dispatch phase key (`terminal`) must warn, not
- * reject the push. Mirrors [ManageProjectConfigToolSchemaWarningsTest]'s H2-backed harness; that
+ * reject the push. Mirrors [ManageProjectConfigToolSchemaWarningsTest]'s SQLite-backed harness; that
  * file already covers the general schemaWarnings contract (role-warnings, omit-when-empty), this
  * file is scoped to dispatch-specific warnings only.
  *
@@ -36,6 +35,9 @@ import kotlin.test.assertTrue
  * ManageProjectConfigTool's source.
  */
 class ManageProjectConfigToolDispatchWarningsTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var tool: ManageProjectConfigTool
     private lateinit var workItemRepository: SQLiteWorkItemRepository
     private lateinit var projectConfigRepository: SQLiteProjectConfigRepository
@@ -47,13 +49,8 @@ class ManageProjectConfigToolDispatchWarningsTest {
         runBlocking {
             tool = ManageProjectConfigTool(YamlConfigDocumentParser)
 
-            val dbName = "test_${System.nanoTime()}"
-            val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            val databaseManager = DatabaseManager(database)
-            DirectDatabaseSchemaManager().updateSchema()
-
-            workItemRepository = SQLiteWorkItemRepository(databaseManager)
-            projectConfigRepository = SQLiteProjectConfigRepository(databaseManager)
+            workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
+            projectConfigRepository = db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository
 
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository

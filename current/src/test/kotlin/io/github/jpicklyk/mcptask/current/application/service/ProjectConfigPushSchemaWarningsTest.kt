@@ -3,17 +3,16 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -28,11 +27,14 @@ import kotlin.test.assertTrue
  * Independent test authorship per the `needs-test-author` trait: written against the item's
  * `test-plan` note oracles and the public [ProjectConfigPushService.push] /
  * [ProjectConfigPushResult.Success] shapes, without reading the implementer's own tests or
- * notes. Mirrors [ProjectConfigPushServiceTest]'s H2-backed harness style; that file already
+ * notes. Mirrors [ProjectConfigPushServiceTest]'s SQLite-backed harness style; that file already
  * covers the rest of the validate-then-persist pipeline (size cap / existence / depth-0 / parse /
  * rootId guard / fingerprint guard) so this file focuses solely on `schemaWarnings`.
  */
 class ProjectConfigPushSchemaWarningsTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var service: ProjectConfigPushService
     private lateinit var workItemRepository: SQLiteWorkItemRepository
     private lateinit var projectConfigRepository: SQLiteProjectConfigRepository
@@ -41,13 +43,8 @@ class ProjectConfigPushSchemaWarningsTest {
     @BeforeEach
     fun setUp() =
         runBlocking {
-            val dbName = "test_${System.nanoTime()}"
-            val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            val databaseManager = DatabaseManager(database)
-            DirectDatabaseSchemaManager().updateSchema()
-
-            workItemRepository = SQLiteWorkItemRepository(databaseManager)
-            projectConfigRepository = SQLiteProjectConfigRepository(databaseManager)
+            workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
+            projectConfigRepository = db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository
 
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository

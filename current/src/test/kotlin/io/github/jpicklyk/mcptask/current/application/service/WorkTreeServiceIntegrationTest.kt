@@ -6,25 +6,24 @@ import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteDependencyRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteNoteRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLitePlanDocumentRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.service.SQLiteWorkTreeService
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Integration tests for [SQLiteWorkTreeService] using a real H2 in-memory database.
+ * Integration tests for [SQLiteWorkTreeService] using a real SQLite database.
  *
  * Atomicity guarantee
  * -------------------
@@ -41,20 +40,21 @@ import kotlin.test.assertTrue
  *     rollback guarantees the note is also absent.
  */
 class WorkTreeServiceIntegrationTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var workItemRepository: SQLiteWorkItemRepository
     private lateinit var dependencyRepository: SQLiteDependencyRepository
     private lateinit var noteRepository: SQLiteNoteRepository
     private lateinit var planDocumentRepository: SQLitePlanDocumentRepository
     private lateinit var service: SQLiteWorkTreeService
-    private lateinit var h2Database: Database
+    private lateinit var database: Database
 
     @BeforeEach
     fun setUp() {
-        val dbName = "worktree_integration_${System.nanoTime()}"
-        h2Database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(h2Database)
-        DirectDatabaseSchemaManager().updateSchema()
-        val repositoryProvider = DefaultRepositoryProvider(databaseManager)
+        database = db.database
+        val databaseManager = db.databaseManager
+        val repositoryProvider = db.repositoryProvider()
 
         workItemRepository = repositoryProvider.workItemRepository() as SQLiteWorkItemRepository
         noteRepository = repositoryProvider.noteRepository() as SQLiteNoteRepository

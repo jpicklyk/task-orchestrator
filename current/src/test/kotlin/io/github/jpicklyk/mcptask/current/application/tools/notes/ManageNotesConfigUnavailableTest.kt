@@ -6,9 +6,8 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigReposit
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -20,9 +19,9 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -46,8 +45,8 @@ import kotlin.test.assertTrue
  * that [io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesToolTest]
  * confirms carries a zero-based `index` matching the request array's position.
  *
- * Harness: a REAL [PerRootConfigService] backed by a REAL [ProjectConfigRepository] (H2-backed
- * [DefaultRepositoryProvider], schema via [DirectDatabaseSchemaManager]) wrapped in a private
+ * Harness: a REAL [PerRootConfigService] backed by a REAL [ProjectConfigRepository] (SQLite-backed
+ * [DefaultRepositoryProvider], schema via [SqliteTestDatabase]) wrapped in a private
  * [FailableProjectConfigRepository] whose reads can be switched to `Result.Error` — the same "own
  * copy per file" harness pattern used by the sibling `AdvanceItemToolConfigUnavailableTest` /
  * `CreateItemConfigUnavailableTest` / `CompleteTreeToolConfigUnavailableTest` files (this item's
@@ -63,6 +62,9 @@ import kotlin.test.assertTrue
  * is exactly the distinction D1 depends on.
  */
 class ManageNotesConfigUnavailableTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var repositoryProvider: DefaultRepositoryProvider
     private lateinit var failable: FailableProjectConfigRepository
     private lateinit var tool: ManageNotesTool
@@ -71,11 +73,7 @@ class ManageNotesConfigUnavailableTest {
     @BeforeEach
     fun setUp(): Unit =
         runBlocking {
-            val dbName = "test_${System.nanoTime()}"
-            val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            val databaseManager = DatabaseManager(database)
-            DirectDatabaseSchemaManager().updateSchema()
-            repositoryProvider = DefaultRepositoryProvider(databaseManager)
+            repositoryProvider = db.repositoryProvider()
 
             failable = FailableProjectConfigRepository(repositoryProvider.projectConfigRepository())
             // Armed before any read is ever attempted through this PerRootConfigService instance,

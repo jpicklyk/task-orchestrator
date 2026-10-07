@@ -7,11 +7,11 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -21,8 +21,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -45,18 +45,16 @@ import kotlin.test.assertTrue
  *
  * Harness (contract "Public-API rule" / "Harness rule"): every MCP call runs `QueryRulesTool`
  * (and `ManagePlanDocumentsTool` for fixture stashing where the oracle explicitly names that
- * surface) against the `ToolExecutionContext` from a REAL `ServerComposition.build()` over an H2
- * in-memory DB -- never a hand-built TEC.
+ * surface) against the `ToolExecutionContext` from a REAL `ServerComposition.build()` over a SQLite
+ * DB -- never a hand-built TEC.
  */
 class QueryRulesToolTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     // --- Shared composition wiring (own copy; no shared harness file across owned test files) ---
 
-    private fun buildDatabaseManager(): DatabaseManager {
-        val dbName = "query_rules_tool_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DatabaseManager(database)
-    }
+    private fun buildDatabaseManager(): DatabaseManager = db.databaseManager
 
     private fun materializeGlobalConfig(
         tempDir: Path,

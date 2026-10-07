@@ -12,7 +12,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -28,6 +28,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
@@ -48,7 +49,7 @@ import kotlin.test.assertNull
  * the REAL NextItemRecommender.explainEmpty or the REAL SQLite countSelectorMatches override --
  * a dropped filter (diagnosis Risk 1: countSelectorMatches drifting from findClaimable's
  * condition builder) could not have failed those tests. This version extends
- * SQLiteRepositoryTestBase (real in-memory SQLite, matching the idiom in the sibling
+ * SqliteTestDatabase (real file-backed SQLite, matching the idiom in the sibling
  * ClaimItemToolBatchCompositionTest.kt) and drives ClaimItemTool.execute(...) against real rows
  * for every S2-S6 scenario, so the real explainEmpty/countSelectorMatches implementation runs
  * end-to-end. Only S8 (passive expiry, EXISTING-SURFACE, already covered against real DB
@@ -73,7 +74,12 @@ import kotlin.test.assertNull
  * EXISTING-SURFACE (passive expiry was already the selector's behavior; this test pins that the
  * new split does not disturb it).
  */
-class ClaimItemToolSelectorOutcomeTest : SQLiteRepositoryTestBase() {
+class ClaimItemToolSelectorOutcomeTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
+    private val repositoryProvider get() = db.repositoryProvider()
+
     private lateinit var tool: ClaimItemTool
     private lateinit var repository: WorkItemRepository
 

@@ -8,7 +8,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -20,6 +20,7 @@ import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
@@ -44,13 +45,18 @@ import kotlin.test.assertTrue
  * heartbeat re-claim, non-owner release, not-found paths, unresolvable id prefixes, and the
  * entry-level `agentId` field being ignored in favor of `actor.id`.
  *
- * Uses a real in-memory SQLite repository (via [SQLiteRepositoryTestBase]) because the claim SQL
+ * Uses a real SQLite repository (via [SqliteTestDatabase]) because the claim SQL
  * relies on SQLite-specific `datetime('now', ...)` semantics that a mock cannot exercise
  * faithfully — matching the idiom already proven out in
  * [io.github.jpicklyk.mcptask.current.infrastructure.database.repository.SQLiteWorkItemRepositoryClaimTest]
  * and [ClaimItemToolSelectorOutcomeTest].
  */
-class ClaimItemToolRealStateTest : SQLiteRepositoryTestBase() {
+class ClaimItemToolRealStateTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
+    private val repositoryProvider get() = db.repositoryProvider()
+
     private lateinit var tool: ClaimItemTool
     private lateinit var repository: WorkItemRepository
 
