@@ -17,7 +17,7 @@ Read the changed files and migration SQL to determine:
   2. Copy data from old table
   3. Drop old table
   4. Rename new table
-- **New tables** — check foreign key ordering in `DirectDatabaseSchemaManager`
+- **New tables** — a Flyway migration is the only place a table is defined (the Exposed table is a query mapping); there is no second table list to update
 - **Index changes** — `CREATE INDEX` / `DROP INDEX` work normally
 
 ## Step 2: SQLite Constraint Check
@@ -25,7 +25,7 @@ Read the changed files and migration SQL to determine:
 Verify against known SQLite limitations:
 - [ ] No `ALTER COLUMN` — if modifying existing columns, table recreation pattern is used
 - [ ] No `DROP COLUMN` in older SQLite versions — check if the Docker image's SQLite supports it
-- [ ] Foreign key constraints — new tables must be inserted in correct order in `DirectDatabaseSchemaManager`
+- [ ] Foreign key constraints — Flyway's connection runs with `foreign_keys = OFF` (see the template below), so a `DROP TABLE` does not cascade; the application connection runs with it ON
 - [ ] `TEXT` affinity — SQLite stores all strings as TEXT regardless of declared type
 - [ ] No concurrent write transactions — migrations must be sequential
 
@@ -44,7 +44,19 @@ For migrations that modify existing data:
 - [ ] Migration file follows naming: `V{N}__{Description}.sql`
 - [ ] Version number is sequential (no gaps, no conflicts with existing migrations)
 - [ ] Migration is idempotent where possible
-- [ ] `DirectDatabaseSchemaManager` updated if new tables are added (insert in FK dependency order)
+- [ ] Migration files stay byte-identical once released: Flyway's checksum covers every line including comments, so never edit one (the V9 header comment's description of root_id and foreign keys is corrected here, not in the file)
+- [ ] Expand/contract: ship additive changes first and remove the old shape in a later release; flag any table-recreating migration in the release notes
+
+### Table-recreation template
+
+Migrations live in `current/src/main/resources/db/migration/sqlite/`. A migration that recreates a table
+(SQLite has no `ALTER COLUMN`) must:
+1. Run on Flyway's connection, which has `foreign_keys = OFF` and `busy_timeout` set (do not rely on cascades; re-check child rows after).
+2. Create the new table, then `INSERT INTO new SELECT rowid, ... FROM old` to PRESERVE rowids: the external-content FTS5 tables key on `rowid`.
+3. Drop the old table, rename the new one, recreate its indexes.
+4. Recreate all 8 FTS update triggers in their V8 form (the `_au` triggers restricted to the indexed columns) plus the `_ai`/`_ad` triggers and the 2 parent-cycle triggers (`work_items_cycle_check`, `work_items_cycle_check_update`) if the dropped table owned them: dropping a table drops its triggers.
+5. `INSERT INTO <fts>(<fts>) VALUES('rebuild')` for all 4 FTS tables.
+Startup then verifies the trigger/FTS inventory and runs the FTS `integrity-check`, so a missed trigger fails startup. Never use `VACUUM` in a migration: it can renumber rowids.
 
 ## Step 5: Rollback Considerations
 

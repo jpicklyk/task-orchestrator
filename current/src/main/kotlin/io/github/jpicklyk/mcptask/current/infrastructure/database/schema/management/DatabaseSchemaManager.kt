@@ -1,9 +1,8 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management
 
 /**
- * Manages database schema creation and updates.
- * Implementations provide either direct Exposed ORM schema creation (development)
- * or Flyway-based versioned migrations (production).
+ * Manages database schema creation and updates. The production implementation is
+ * [FlywayDatabaseSchemaManager] (versioned Flyway migrations).
  */
 interface DatabaseSchemaManager {
     /**

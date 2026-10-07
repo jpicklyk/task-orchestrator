@@ -16,19 +16,18 @@ tool. Adding a new service dependency means updating both the context class and
 the server construction site. If your change introduces a new service that tools
 need, this is part of the blast radius.
 
-## DirectDatabaseSchemaManager Table Ordering
+## Flyway Is the Only Schema Path
 
-Maintains a manually-ordered list of tables in foreign-key dependency order. New
-tables must be inserted at the correct position — the compiler cannot detect wrong
-ordering. If your change adds a database table, verify the insertion position against
-FK relationships.
+A new table or column is defined only by a Flyway migration; the Exposed table objects are
+query mappings and no production code creates schema (`SchemaUtils` is banned in production).
+There is no second table list to keep in parity.
 
 ## SQLite Migration Constraints
 
 Flyway migrations are append-only — never modify an existing migration file. SQLite
 has no `ALTER COLUMN`, so schema changes that modify existing columns require table
 recreation (create new, copy data, drop old, rename). Migration files live in
-`current/src/main/resources/db/migration/`.
+`current/src/main/resources/db/migration/sqlite/`.
 
 ## Domain Model Defaults and Test Impact
 

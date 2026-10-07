@@ -333,7 +333,7 @@ echo '{"tool_input": {"id": "test", "status": "completed"}}' | \
 For schema changes, see [docs/developer-guides/database-migrations.md](docs/developer-guides/database-migrations.md).
 
 **Production migrations** (Flyway):
-1. Create file: `src/main/resources/db/migration/V{N}__{Description}.sql`
+1. Create file: `src/main/resources/db/migration/sqlite/V{N}__{Description}.sql`
 2. Use sequential numbering
 3. Follow SQLite patterns
 4. Include rollback instructions in comments

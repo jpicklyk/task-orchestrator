@@ -79,8 +79,8 @@ Base schema note keys win on duplicates; first-trait-in-order wins for duplicate
 ### ToolExecutionContext
 `ToolExecutionContext` is now constructed exactly ONCE, in `ServerComposition.build()` (MCP). REST no longer builds its own copy: `ItemRoutes.kt` (`itemGateRoutes`) and `ItemWriteRoutes.kt` (`itemWriteRoutes`) take the already-built `EffectiveConfigResolver` (`toolContext.configResolver`) and, where they used to hand-wire `AdvanceService`, an `AdvanceServiceFactory` (`toolContext.advanceServiceFactory()`) instead — both wired in `CurrentMcpServer.installRestApiRoutes()` from the single `CompositionResult`. This is also what makes REST and MCP share one per-root last-known-good config cache (previously two independent caches — see `api-rest.md` §6). `AdvanceService` itself is built in exactly one place, `AdvanceServiceFactory.forItem()` (`application/service/AdvanceServiceFactory.kt`); `AdvanceItemTool.kt`, `CompleteTreeTool.kt`, and the REST advance route all call `advanceServiceFactory.forItem(item, trigger)` instead of constructing `AdvanceService` inline. Adding a new constructor dependency to `ToolExecutionContext` or `AdvanceServiceFactory` still means updating that class's own (now singular) construction site plus its own field/getter — the compiler will not catch a site you miss if the new parameter has a default.
 
-### DirectDatabaseSchemaManager
-Table creation order is derived automatically (`SchemaUtils.create` orders by FK references), not manually maintained. The real hazard is keeping the Direct-mode table list and DDL in parity with the Flyway migrations: a new table or column must be added to both, and the two can drift silently since nothing enforces the parity at compile time.
+### Flyway migrations are the only schema path
+`DirectDatabaseSchemaManager` and `SchemaManagerFactory` are gone from production: the Exposed tables are query mappings only, and `NoSchemaUtilsInProductionTest` bans `SchemaUtils` in production source. A new table or column needs exactly one change, a Flyway migration under `db/migration/sqlite/`. Migration files are byte-immutable once released (Flyway checksums every line, comments included). Startup runs the whole schema phase under an OS file lock (`<db>.migrate.lock`) and then verifies the FTS5 tables/triggers inventory and FTS `integrity-check` (see `StartupIntegrity`); a missing FTS table or trigger fails startup. A test-only `DirectDatabaseSchemaManager` bridge remains under `src/test` until the test fixture migration removes it.
 
 ## Configuration Directory (AGENT_CONFIG_DIR)
 
@@ -121,7 +121,7 @@ default, and an unrecognized non-empty value either falls back to the default wi
 
 **Key environment variables:**
 - `DATABASE_PATH` — SQLite file path (default: `data/current-tasks.db`)
-- `USE_FLYWAY` — enable Flyway migrations (default: `true` in Docker). Direct mode (`USE_FLYWAY=false`) databases are dev-only and disposable; opening an existing Direct-mode DB under Flyway fails fast
+- `SCHEMA_MODE` — `migrate` (default) or `validate` (no migrate/baseline; a pending or future version fails startup); any other value fails startup. `USE_FLYWAY` is removed and ignored with a WARN (Flyway is the only schema path)
 - `AGENT_CONFIG_DIR` — directory containing `.taskorchestrator/` (default: working dir)
 - `MCP_TRANSPORT` — `stdio` (default) or `http`
 - `MCP_HTTP_PORT` — HTTP port (default: `3001`)
@@ -139,7 +139,7 @@ default, and an unrecognized non-empty value either falls back to the default wi
 
 **REST API environment variables** (`API_*`, `CORS_*`, `RESOURCE_LEASES_ENFORCED`) are documented with defaults in `current/docs/fleet-deployment.md` and `current/docs/api-rest.md`. Gotchas: `API_ENABLED`/`API_ALLOW_UNAUTHENTICATED` use `EnvBoolean.require` (a bad value fails startup) while the other booleans fall back with a WARN; `RESOURCE_LEASES_ENFORCED` is read fresh on every `advance_item`/advance-route call, but since a running process's environment cannot change and a container's environment changes only when the container is recreated, flipping this var takes effect only after the process or container restarts.
 
-**Migration files:** `current/src/main/resources/db/migration/`
+**Migration files:** `current/src/main/resources/db/migration/sqlite/` (the only configured Flyway location)
 
 ## Testing
 

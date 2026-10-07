@@ -90,12 +90,12 @@ class CompositionResult(
  *
  * @param appConfig The single startup environment snapshot.
  * @param databaseManager An already-initialized [DatabaseManager] (schema applied).
- * @param shutdownCoordinator Optional coordinator used to register cleanup of JWKS key providers.
+ * @param shutdownCoordinator Coordinator used to register cleanup of JWKS key providers.
  */
 class ServerComposition(
     private val appConfig: AppConfig,
     private val databaseManager: DatabaseManager,
-    private val shutdownCoordinator: ShutdownCoordinator?,
+    private val shutdownCoordinator: ShutdownCoordinator,
     private val logger: Logger = LoggerFactory.getLogger(ServerComposition::class.java),
 ) {
     /**
@@ -252,7 +252,7 @@ class ServerComposition(
                             cacheTtlSeconds = apiConfig.cacheTtlSeconds,
                         ),
                     )
-                shutdownCoordinator?.addCleanupAction("Close REST JWKS key provider") {
+                shutdownCoordinator.addCleanupAction("Close REST JWKS key provider") {
                     keyProvider.close()
                 }
                 JwksApiVerifier(apiConfig, keyProvider)
@@ -312,7 +312,7 @@ class ServerComposition(
                         )
                     }
                     JwksActorVerifier(vc).also { jwksVerifier ->
-                        shutdownCoordinator?.addCleanupAction("Close JWKS ActorVerifier") {
+                        shutdownCoordinator.addCleanupAction("Close JWKS ActorVerifier") {
                             jwksVerifier.close()
                         }
                     }

@@ -215,7 +215,7 @@ internal object StartupCompaction {
      * file-backed SQLite database (a different driver entirely, an in-memory database, or a
      * URL with no resolvable path).
      */
-    private fun resolveDbFile(jdbcUrl: String): File? {
+    internal fun resolveDbFile(jdbcUrl: String): File? {
         if (!jdbcUrl.startsWith("jdbc:sqlite:")) return null
 
         var rest = jdbcUrl.removePrefix("jdbc:sqlite:")

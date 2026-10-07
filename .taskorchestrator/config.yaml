@@ -176,7 +176,7 @@ traits:
         required: true
         description: "SQLite migration strategy — table recreation patterns, data migration, rollback plan."
         skill: "migration-review"
-        guidance: "Document: (1) what schema changes are needed (new columns, table recreation, index changes), (2) SQLite constraints (no ALTER COLUMN — requires table recreation if modifying existing columns), (3) data migration strategy for existing rows, (4) Flyway migration file name and version number, (5) DirectDatabaseSchemaManager table ordering impact. Reference .claude/skills/spec-quality/references/project-concerns.md for SQLite-specific gotchas."
+        guidance: "Document: (1) what schema changes are needed (new columns, table recreation, index changes), (2) SQLite constraints (no ALTER COLUMN — requires table recreation if modifying existing columns), (3) data migration strategy for existing rows, (4) Flyway migration file name and version number, (5) FTS trigger/rebuild impact if a table with FTS triggers is recreated (see the migration-review table-recreation template). Reference .claude/skills/spec-quality/references/project-concerns.md for SQLite-specific gotchas."
 
   needs-api-compat-review:
     notes:
