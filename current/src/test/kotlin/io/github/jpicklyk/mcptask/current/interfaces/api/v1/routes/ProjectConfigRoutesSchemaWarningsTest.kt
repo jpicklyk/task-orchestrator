@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
@@ -14,6 +15,7 @@ import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -29,10 +31,13 @@ import kotlin.test.assertTrue
  * Independent test authorship per the `needs-test-author` trait: written against the item's
  * `test-plan` note oracles and the route's public HTTP contract, without reading the
  * implementer's own tests or notes. Reuses [configureProjectConfigTestApp] and
- * [buildH2RepositoryProvider] from [ProjectConfigPutRouteTest]'s file, which already covers the
+ * `SqliteTestDatabase.repositoryProvider()` from [ProjectConfigPutRouteTest]'s file, which already covers the
  * rest of the PUT contract -- this file focuses solely on `schemaWarnings`.
  */
 class ProjectConfigRoutesSchemaWarningsTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private fun createRoot(repo: DefaultRepositoryProvider): WorkItem =
         runBlocking {
             (
@@ -49,7 +54,7 @@ class ProjectConfigRoutesSchemaWarningsTest {
     @Test
     fun `S11 PUT with an invalid role returns 200 with the warning text in schemaWarnings and keeps the ETag`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -93,7 +98,7 @@ class ProjectConfigRoutesSchemaWarningsTest {
     @Test
     fun `S1 PUT with an all-valid schema omits schemaWarnings from the response`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 

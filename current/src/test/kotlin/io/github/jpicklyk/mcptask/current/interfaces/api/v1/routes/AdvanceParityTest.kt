@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -30,6 +31,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -45,6 +47,9 @@ import kotlin.test.assertTrue
  * so the MCP tool can act on one and the REST route on the other within the same DB.
  */
 class AdvanceParityTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     /** Schema with a single REQUIRED queue-phase note — drives gate parity. */
     private class GateSchemaService : WorkItemSchemaService {
         private val schema =
@@ -96,7 +101,7 @@ class AdvanceParityTest {
     @Test
     fun `gate decision matches - both paths block a start with a missing required note`(): Unit =
         runBlocking {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val schemaService = GateSchemaService()
 
             // Two mirrored items, both gate-incomplete (no 'spec' note).
@@ -150,7 +155,7 @@ class AdvanceParityTest {
     @Test
     fun `cascade and unblock sets match across MCP and REST paths`(): Unit =
         runBlocking {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
 
             // Build two mirrored subtrees:
             //   parent (WORK) → child (WORK, last child)   — completing child cascades parent→terminal

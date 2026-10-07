@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryPr
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.delete
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
@@ -37,6 +38,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -72,6 +74,9 @@ import kotlin.test.assertTrue
  * without racing concurrent requests.
  */
 class ItemPatchConflictMappingTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     /**
      * Wraps a real [WorkItemRepository], optionally substituting a scripted result for `update()`
      * and/or `delete()`. Counts invocations of both so tests can assert the repository seam was
@@ -154,7 +159,7 @@ class ItemPatchConflictMappingTest {
     @Test
     fun `S1 PATCH with matching If-Match and valid merge patch returns 200 with fresh ETag`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Original", depth = 0)).getOrNull()!!
@@ -188,7 +193,7 @@ class ItemPatchConflictMappingTest {
     @Test
     fun `S2 update() returning ConflictError while If-Match matched returns 409 version_conflict`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Conflict Target", depth = 0)).getOrNull()!!
@@ -229,7 +234,7 @@ class ItemPatchConflictMappingTest {
     @Test
     fun `S3 update() returning DatabaseError stays 500 db_error`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "DB Error Target", depth = 0)).getOrNull()!!
@@ -261,7 +266,7 @@ class ItemPatchConflictMappingTest {
     @Test
     fun `S4 stale If-Match returns 412 etag_mismatch and never calls update()`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Stale ETag Target", depth = 0)).getOrNull()!!
@@ -292,7 +297,7 @@ class ItemPatchConflictMappingTest {
     @Test
     fun `S5 missing If-Match returns 400 precondition_required and never calls update()`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "No ETag Target", depth = 0)).getOrNull()!!
@@ -324,7 +329,7 @@ class ItemPatchConflictMappingTest {
     @Test
     fun `S6 409 body is exactly error and message with no repository exception text echoed`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Shape Target", depth = 0)).getOrNull()!!
@@ -371,7 +376,7 @@ class ItemPatchConflictMappingTest {
     @Test
     fun `S7 replaying the same Idempotency-Key on a 409 returns the cached body and does not re-run update()`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Idempotent Conflict Target", depth = 0)).getOrNull()!!
@@ -426,7 +431,7 @@ class ItemPatchConflictMappingTest {
     @Test
     fun `probe scope check precedes conflict mapping - scoped-out token gets 403 before update() runs`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     // No explicit rootId: the item is its own root (see ItemRoutesTest scope
@@ -463,7 +468,7 @@ class ItemPatchConflictMappingTest {
     @Test
     fun `probe empty json patch body still reaches update() and maps ConflictError to 409`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Empty Patch Target", depth = 0)).getOrNull()!!
@@ -492,7 +497,7 @@ class ItemPatchConflictMappingTest {
     @Test
     fun `probe empty and whitespace-only If-Match are present-but-non-matching - 412 not 400`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Blank ETag Target", depth = 0)).getOrNull()!!
@@ -540,7 +545,7 @@ class ItemPatchConflictMappingTest {
     @Test
     fun `probe unquoted If-Match value (matching digits, missing quotes) is a mismatch`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Unquoted ETag Target", depth = 0)).getOrNull()!!
@@ -573,7 +578,7 @@ class ItemPatchConflictMappingTest {
     @Test
     fun `probe DELETE conflict stays 500 db_error - the fix is PATCH-only`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Delete Conflict Target", depth = 0)).getOrNull()!!

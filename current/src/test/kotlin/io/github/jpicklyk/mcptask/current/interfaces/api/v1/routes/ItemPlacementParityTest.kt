@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigSer
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
@@ -46,6 +47,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -64,6 +66,9 @@ import kotlin.test.assertTrue
  *   R -> A(1) -> B(2) -> D(3)      X (own root) -> XC(1)      R2 (own root)
  */
 class ItemPlacementParityTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private class Tree(
         val ids: Map<String, UUID>
     ) {
@@ -348,7 +353,7 @@ class ItemPlacementParityTest {
         faults: ((WorkItemRepository, Tree) -> WorkItemRepository)? = null
     ): ReparentRun =
         runBlocking {
-            val provider = buildH2RepositoryProvider()
+            val provider = db.repositoryProvider()
             val plain = provider.workItemRepository()
             val mcpTree = buildTree(plain, "mcp")
             val restTree = buildTree(plain, "rest")
@@ -379,7 +384,7 @@ class ItemPlacementParityTest {
     @Test
     fun `parented create stamps the same depth and rootId on both surfaces`(): Unit =
         runBlocking {
-            val provider = buildH2RepositoryProvider()
+            val provider = db.repositoryProvider()
             val plain = provider.workItemRepository()
             val mcpTree = buildTree(plain, "mcp")
             val restTree = buildTree(plain, "rest")
@@ -472,7 +477,7 @@ class ItemPlacementParityTest {
     @Test
     fun `parent deleted inside the write transaction is reported not-found with nothing written on create`(): Unit =
         runBlocking {
-            val provider = buildH2RepositoryProvider()
+            val provider = db.repositoryProvider()
             val plain = provider.workItemRepository()
             val mcpTree = buildTree(plain, "mcp")
             val restTree = buildTree(plain, "rest")

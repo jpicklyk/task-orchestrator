@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigSer
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -34,6 +35,7 @@ import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -51,13 +53,16 @@ import kotlin.test.assertTrue
  * `ToolExecutionContext`/`PerRootConfigService` directly in this file.
  *
  * Harness mirrors [AdvanceRouteResourceLeaseTest]'s `LeaseOverridingProvider` pattern (a
- * `RepositoryProvider by delegate` override) and [ApiTestHelper]'s `buildH2RepositoryProvider`.
+ * `RepositoryProvider by delegate` override) and the SQLite test fixture (`SqliteTestDatabase.repositoryProvider()`).
  */
 class ConfigUnavailableRoutesTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `S10 - POST items id advance returns 503 config_unavailable when the per-root config read fails cold`() =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val (root, item) =
                 runBlocking {
                     val r = h2.workItemRepository().create(WorkItem(title = "Root S10", depth = 0)).getOrNull()!!
@@ -97,7 +102,7 @@ class ConfigUnavailableRoutesTest {
     @Test
     fun `S11 - GET items id gate returns 503 config_unavailable when the per-root config read fails cold`() =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val item =
                 runBlocking {
                     val r = h2.workItemRepository().create(WorkItem(title = "Root S11", depth = 0)).getOrNull()!!

@@ -10,9 +10,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
@@ -39,6 +39,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
@@ -64,6 +65,9 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  * S-ids are stable identifiers frozen in `test-plan` -- do not renumber.
  */
 class SyncLostSseDeliveryTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     companion object {
         private const val TOKEN = "sync-lost-sse-test-token-xyz789"
 
@@ -310,7 +314,7 @@ class SyncLostSseDeliveryTest {
     @Test
     fun `S8 - a tags_include-scoped subscription still receives the sentinel across eviction while dropping out-of-scope replay`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
+            val provider = db.repositoryProvider()
             val bus = ApiEventBus(bufferSize = 3)
             val itemAlpha = createItem(provider, tags = "alpha")
             val itemBeta1 = createItem(provider, tags = "beta")

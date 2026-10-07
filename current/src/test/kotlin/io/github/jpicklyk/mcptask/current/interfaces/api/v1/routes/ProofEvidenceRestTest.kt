@@ -19,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.NoteDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ProofEvidenceDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.VerificationDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -32,6 +33,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -59,6 +61,9 @@ import kotlin.test.assertTrue
  * uses for `actorClaim`/`verification`.
  */
 class ProofEvidenceRestTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private fun makeItemAndEvidenceNote(
         repo: DefaultRepositoryProvider,
         proofSha256: String,
@@ -95,7 +100,7 @@ class ProofEvidenceRestTest {
     @Test
     fun `S5 admin GET notes shows verification proof evidence with matching fields, actor proof absent`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val sha = "deadbeef".repeat(8)
             val claims =
                 ProofClaims(
@@ -129,7 +134,7 @@ class ProofEvidenceRestTest {
     @Test
     fun `S5 admin GET transitions shows verification proof evidence with matching fields, actor proof absent`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val sha = "beefdead".repeat(8)
             val claims = ProofClaims(iss = "https://test-issuer.example", sub = "agent-evidence-t", kid = "kid-s5b", alg = "RS256")
             val item =
@@ -178,7 +183,7 @@ class ProofEvidenceRestTest {
     @Test
     fun `S6 guard non-admin with default attribution redaction sees no actor and no verification`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (item, _) = makeItemAndEvidenceNote(repo, proofSha256 = "11".repeat(32), claims = null)
             application { configureTestApp { noteRoutes(repo) } }
 
@@ -206,7 +211,7 @@ class ProofEvidenceRestTest {
     @Test
     fun `S7 non-admin with attribution redaction disabled sees verification but never its proof evidence`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val sha = "cafebabe".repeat(8)
             val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "S7 item", depth = 0)).getOrNull()!! }
             runBlocking {
@@ -332,7 +337,7 @@ class ProofEvidenceRestTest {
     @Test
     fun `admin GET notes with include=proof returns 200, no Warning header, and no actor proof value`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (item, _) = makeItemAndEvidenceNote(repo, proofSha256 = "22".repeat(32), claims = null)
             application { configureTestApp { noteRoutes(repo) } }
 
@@ -355,7 +360,8 @@ class ProofEvidenceRestTest {
     @Test
     fun `S9 a transition row whose actor_proof was set by raw SQL still returns actor proof null even with redaction fully disabled`() =
         testApplication {
-            val (repo, database) = buildH2RepositoryProviderWithDatabase()
+            val repo = db.repositoryProvider()
+            val database = db.database
             val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Raw SQL row", depth = 0)).getOrNull()!! }
             runBlocking {
                 repo.roleTransitionRepository().create(
@@ -398,7 +404,7 @@ class ProofEvidenceRestTest {
     @Test
     fun `GET items id with include=notes,proof returns notes populated and no Warning header`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (item, _) = makeItemAndEvidenceNote(repo, proofSha256 = "44".repeat(32), claims = null)
             application { configureTestApp { itemRoutes(repo) } }
 

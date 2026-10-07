@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepos
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -32,6 +33,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -93,10 +95,13 @@ private fun createRoot(
     }
 
 class ProjectConfigPutRouteTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `PUT roots rootId config happy path returns 200 with ETag and persists the row`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -124,7 +129,7 @@ class ProjectConfigPutRouteTest {
     @Test
     fun `PUT roots rootId config surfaces ignoredSections when the doc has an unhonored top-level key`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -144,7 +149,7 @@ class ProjectConfigPutRouteTest {
     @Test
     fun `PUT roots rootId config omits ignoredSections when the doc only uses honored keys`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -163,7 +168,7 @@ class ProjectConfigPutRouteTest {
     @Test
     fun `PUT roots rootId config without WRITE_CONFIG capability returns 403`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -182,7 +187,7 @@ class ProjectConfigPutRouteTest {
     @Test
     fun `PUT roots rootId config with token scope lacking the root returns 403`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             val otherRoot = createRoot(repo, title = "Other Root")
             // WRITE_TOKEN scoped to a DIFFERENT root than the one we're pushing to.
@@ -203,7 +208,7 @@ class ProjectConfigPutRouteTest {
     @Test
     fun `PUT roots rootId config with malformed YAML returns 422 and stores nothing`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -225,7 +230,7 @@ class ProjectConfigPutRouteTest {
     @Test
     fun `PUT roots rootId config with a YAML type tag (CWE-502) is rejected with 422 and stores nothing`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -245,7 +250,7 @@ class ProjectConfigPutRouteTest {
     @Test
     fun `PUT roots rootId config over the size cap returns 413`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -265,7 +270,7 @@ class ProjectConfigPutRouteTest {
     @Test
     fun `PUT roots rootId config with stale If-Match returns 412`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -292,7 +297,7 @@ class ProjectConfigPutRouteTest {
     @Test
     fun `PUT roots rootId config to unknown root returns 404`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureProjectConfigTestApp(repo) }
 
             val response =
@@ -308,7 +313,7 @@ class ProjectConfigPutRouteTest {
     @Test
     fun `PUT roots rootId config to a non-depth-0 root returns 422`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val parent = createRoot(repo, title = "Parent")
             val child =
                 runBlocking {
@@ -335,7 +340,7 @@ class ProjectConfigPutRouteTest {
     @Test
     fun `PUT roots rootId config with a mismatched embedded project rootId returns 422 naming both ids`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             val otherRootId = UUID.randomUUID()
             application { configureProjectConfigTestApp(repo) }
@@ -360,7 +365,7 @@ class ProjectConfigPutRouteTest {
     @Test
     fun `PUT roots rootId config with force=true bypasses a mismatched embedded project rootId`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             val otherRootId = UUID.randomUUID()
             application { configureProjectConfigTestApp(repo) }
@@ -380,7 +385,7 @@ class ProjectConfigPutRouteTest {
     @Test
     fun `PUT roots rootId config with a known-old (superseded) fingerprint returns 409 superseded`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
             val yamlB = VALID_YAML + "\n"
@@ -416,7 +421,7 @@ class ProjectConfigPutRouteTest {
     @Test
     fun `PUT roots rootId config with force=true bypasses a superseded fingerprint`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
             val yamlB = VALID_YAML + "\n"
@@ -446,10 +451,13 @@ class ProjectConfigPutRouteTest {
 }
 
 class ProjectConfigGetRouteTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `GET roots rootId config returns stored config`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -472,7 +480,7 @@ class ProjectConfigGetRouteTest {
     @Test
     fun `GET roots rootId config with matching If-None-Match returns 304`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -501,7 +509,7 @@ class ProjectConfigGetRouteTest {
     @Test
     fun `GET roots rootId config with token scope lacking the root returns 403`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             val otherRoot = createRoot(repo, title = "Other Root")
             application { configureProjectConfigTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(otherRoot.id))) }
@@ -517,7 +525,7 @@ class ProjectConfigGetRouteTest {
     @Test
     fun `GET roots rootId config for a root with no pushed config returns 404`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -532,7 +540,7 @@ class ProjectConfigGetRouteTest {
     @Test
     fun `GET roots rootId config with no fingerprint query param omits relation`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -554,7 +562,7 @@ class ProjectConfigGetRouteTest {
     @Test
     fun `GET roots rootId config with fingerprint matching current returns relation current`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -577,7 +585,7 @@ class ProjectConfigGetRouteTest {
     @Test
     fun `GET roots rootId config with a superseded fingerprint returns relation superseded`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
             val yamlB = VALID_YAML + "\n"
@@ -606,7 +614,7 @@ class ProjectConfigGetRouteTest {
     @Test
     fun `GET roots rootId config with an unrelated fingerprint returns relation unknown`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -627,10 +635,13 @@ class ProjectConfigGetRouteTest {
 }
 
 class ProjectConfigDeleteRouteTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `DELETE roots rootId config removes the row and returns 204`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -653,7 +664,7 @@ class ProjectConfigDeleteRouteTest {
     @Test
     fun `DELETE roots rootId config with token scope lacking the root returns 403`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             val otherRoot = createRoot(repo, title = "Other Root")
             application { configureProjectConfigTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(otherRoot.id))) }
@@ -669,7 +680,7 @@ class ProjectConfigDeleteRouteTest {
     @Test
     fun `DELETE roots rootId config for a root with no pushed config returns 404`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -690,10 +701,13 @@ class ProjectConfigDeleteRouteTest {
  * exact use case: a token-less PUT against a local unauthenticated server.
  */
 class ProjectConfigUnauthenticatedModeTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `PUT roots rootId config with no Authorization header succeeds in unauthenticated mode`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo, authConfig = ApiAuthConfig.Unauthenticated) }
 
@@ -715,7 +729,7 @@ class ProjectConfigUnauthenticatedModeTest {
     @Test
     fun `GET roots rootId config with no Authorization header succeeds in unauthenticated mode`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo, authConfig = ApiAuthConfig.Unauthenticated) }
 
@@ -740,10 +754,13 @@ class ProjectConfigUnauthenticatedModeTest {
  * fingerprint + stored bytes.
  */
 class ProjectConfigConvergenceTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `MCP tool push and REST PUT converge on identical DB state for the same payload`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val rootViaTool = createRoot(repo, title = "Root Via Tool")
             val rootViaRest = createRoot(repo, title = "Root Via REST")
 

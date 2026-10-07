@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
@@ -16,6 +17,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -45,6 +47,9 @@ import kotlin.test.assertTrue
  * any test was written for this item — this file is a fresh, independent authorship pass.
  */
 class ItemWriteIdempotencyConcurrencyTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     // -------------------------------------------------------------------------
     // S5 HAPPY / EXISTING-SURFACE — same key, different bodies: verbatim replay of the FIRST
     // response, exactly one item persisted
@@ -53,7 +58,7 @@ class ItemWriteIdempotencyConcurrencyTest {
     @Test
     fun `S5 same Idempotency-Key with different bodies replays the first response verbatim`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureWriteTestApp(repo) }
 
             val key = UUID.randomUUID().toString()
@@ -102,7 +107,7 @@ class ItemWriteIdempotencyConcurrencyTest {
     @Test
     fun `S6 malformed body without If-Match returns precondition_required not validation_error`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "S6 Target", depth = 0)).getOrNull()!!
@@ -139,7 +144,7 @@ class ItemWriteIdempotencyConcurrencyTest {
     @Test
     fun `probe mixed-case Idempotency-Key hex resolves to the same cache entry`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureWriteTestApp(repo) }
 
             val key = UUID.randomUUID()

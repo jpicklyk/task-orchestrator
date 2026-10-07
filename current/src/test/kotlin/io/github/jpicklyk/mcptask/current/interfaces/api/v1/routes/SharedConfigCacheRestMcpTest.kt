@@ -13,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -34,6 +35,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -55,6 +57,9 @@ import kotlin.test.assertTrue
  * [ToolExecutionContext] into both route families.
  */
 class SharedConfigCacheRestMcpTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     companion object {
         private const val NOTE_KEY = "req-note"
         private const val SCHEMA_TYPE = "shared-type"
@@ -124,7 +129,7 @@ class SharedConfigCacheRestMcpTest {
     @Test
     fun `S4 - after a warm read via GetContextTool, a per-root read failure serves REST gate 200 and advance 422, not 503`() =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val failable = FailableProjectConfigRepository(h2.projectConfigRepository())
             val provider = FailableRepositoryProvider(h2, failable)
             val ctx = ToolExecutionContext(provider, NoGlobalSchemaService, perRootConfigService = PerRootConfigService(failable))
@@ -197,7 +202,7 @@ class SharedConfigCacheRestMcpTest {
     @Test
     fun `S5 - after a warm REST gate read, a per-root read failure still serves get_context on the shared context`() =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val failable = FailableProjectConfigRepository(h2.projectConfigRepository())
             val provider = FailableRepositoryProvider(h2, failable)
             val ctx = ToolExecutionContext(provider, NoGlobalSchemaService, perRootConfigService = PerRootConfigService(failable))
@@ -246,7 +251,7 @@ class SharedConfigCacheRestMcpTest {
     @Test
     fun `S6 - with no warm read at all, a cold per-root failure yields 503 config_unavailable with no Retry-After on both routes`() =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val failable = FailableProjectConfigRepository(h2.projectConfigRepository())
             failable.failFingerprint = true
             failable.failGet = true
@@ -295,7 +300,7 @@ class SharedConfigCacheRestMcpTest {
     @Test
     fun `S7 - one POST advance for a rooted item with a config row performs exactly one underlying getFingerprint read`() =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val spyConfigRepo = spyk(h2.projectConfigRepository())
             val provider = SpyRepositoryProvider(h2, spyConfigRepo)
             val ctx = ToolExecutionContext(provider, NoGlobalSchemaService, perRootConfigService = PerRootConfigService(spyConfigRepo))

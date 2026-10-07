@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -15,6 +16,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.UUID
@@ -26,6 +28,9 @@ import kotlin.test.assertTrue
  * the parameter, never silently dropped (which widened the result set).
  */
 class FilterParamValidationRouteTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private suspend fun HttpClient.getAs(path: String) = get(path) { header("Authorization", "Bearer $TEST_TOKEN") }
 
     private suspend fun assertValidation400(
@@ -50,7 +55,7 @@ class FilterParamValidationRouteTest {
     @Test
     fun `GET items rejects each unparsable filter with 400 validation_error`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             runBlocking { repo.workItemRepository().create(WorkItem(title = "A", depth = 0)) }
             application { configureTestApp { itemRoutes(repo) } }
 
@@ -74,7 +79,7 @@ class FilterParamValidationRouteTest {
     @Test
     fun `GET items accepts case-insensitive enum values and applies the filter`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             runBlocking {
                 repo.workItemRepository().create(WorkItem(title = "Queued", depth = 0))
                 repo.workItemRepository().create(WorkItem(title = "Working", depth = 0, role = Role.WORK))
@@ -107,7 +112,7 @@ class FilterParamValidationRouteTest {
     @Test
     fun `GET items treats blank values as absent and valid parentId still filters`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val parent = WorkItem(title = "Parent", depth = 0)
             runBlocking {
                 repo.workItemRepository().create(parent)
@@ -126,7 +131,7 @@ class FilterParamValidationRouteTest {
     @Test
     fun `GET items root-scoped principal gets 400 not a widened 200`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val rootId = UUID.randomUUID()
             runBlocking { repo.workItemRepository().create(WorkItem(id = rootId, title = "Root", depth = 0)) }
             application { configureTestApp(makeTestAuthConfig(scopeRootIds = setOf(rootId))) { itemRoutes(repo) } }
@@ -137,7 +142,7 @@ class FilterParamValidationRouteTest {
     @Test
     fun `GET items tag-scoped principal gets 400`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureTestApp(makeTestAuthConfig(tagsInclude = setOf("a"))) { itemRoutes(repo) } }
             assertValidation400(client, "/api/v1/items?parentId=xyz", "parentId")
         }
@@ -145,7 +150,7 @@ class FilterParamValidationRouteTest {
     @Test
     fun `GET items orderBy and orderDir keep bad_request`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureTestApp { itemRoutes(repo) } }
             for (path in listOf("/api/v1/items?orderBy=bogus", "/api/v1/items?orderDir=sideways")) {
                 val r = client.getAs(path)
@@ -164,7 +169,7 @@ class FilterParamValidationRouteTest {
     @Test
     fun `GET tree rejects non-numeric and negative depth, valid depth limits`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = WorkItem(title = "Root", depth = 0)
             val child = WorkItem(title = "Child", parentId = root.id, depth = 1)
             val grandchild = WorkItem(title = "Grand", parentId = child.id, depth = 2)
@@ -186,7 +191,7 @@ class FilterParamValidationRouteTest {
     @Test
     fun `GET transitions rejects invalid since and keeps the default when absent or blank`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureTestApp { transitionRoutes(repo) } }
 
             assertValidation400(client, "/api/v1/transitions?since=garbage", "since")
@@ -198,7 +203,7 @@ class FilterParamValidationRouteTest {
     @Test
     fun `GET search rejects invalid ancestorId and role before any search`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureTestApp { searchRoutes(repo) } }
 
             assertValidation400(client, "/api/v1/search?q=x&ancestorId=xyz", "ancestorId")
@@ -209,7 +214,7 @@ class FilterParamValidationRouteTest {
     @Test
     fun `GET search with invalid ancestorId on a scoped principal is validation_error not scope_forbidden`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application {
                 configureTestApp(makeTestAuthConfig(scopeRootIds = setOf(UUID.randomUUID()))) { searchRoutes(repo) }
             }
@@ -219,7 +224,7 @@ class FilterParamValidationRouteTest {
     @Test
     fun `GET notes search rejects invalid ancestorId`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureTestApp { noteRoutes(repo) } }
             assertValidation400(client, "/api/v1/notes/search?q=x&ancestorId=xyz", "ancestorId")
         }

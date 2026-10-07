@@ -9,9 +9,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -43,6 +43,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
@@ -78,6 +79,9 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  * scenarios reachable by a plain revert.
  */
 class SseRootScopeFailClosedTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     companion object {
         private const val TOKEN = "sse-root-scope-fail-closed-test-token-abc123"
 
@@ -298,7 +302,7 @@ class SseRootScopeFailClosedTest {
     @Test
     fun `S11 - a dependency create on a never-cached item reaches only the unrestricted subscriber, never a root-scoped one`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val uncachedFromId = UUID.randomUUID()
             val uncachedToId = UUID.randomUUID()
             // Pre-create the items directly through the UNDECORATED delegate so the decorator's root

@@ -2,11 +2,12 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 
 /**
  * Independent test authorship for item 0e9d5675 (needs-test-author).
@@ -34,6 +35,9 @@ import org.junit.jupiter.api.Test
  * compilation. S9 is the same shape with an explicit zero-subscriber precondition.
  */
 class EventPublishingTransactionRollbackTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     // -------------------------------------------------------------------------
     // S4 — update() inside a rolling-back transaction
     // -------------------------------------------------------------------------
@@ -41,7 +45,7 @@ class EventPublishingTransactionRollbackTest {
     @Test
     fun `S4 - update inside a rolling-back transaction publishes zero item_updated or item_advanced events`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -76,7 +80,7 @@ class EventPublishingTransactionRollbackTest {
     @Test
     fun `S5 - cascading deletes inside a rolling-back transaction publish zero item_deleted events`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -111,7 +115,7 @@ class EventPublishingTransactionRollbackTest {
     @Test
     fun `S8 - outside any transaction, create then note upsert still deliver item_created then note_upserted in order`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
             val baselineCount = bus.ringBufferSnapshot().size
@@ -133,7 +137,7 @@ class EventPublishingTransactionRollbackTest {
     @Test
     fun `S9 - with zero subscribers a rolled-back transaction still leaves the ring buffer empty`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
             assertEquals(0, bus.subscriberCount(), "precondition: no subscriber connected")

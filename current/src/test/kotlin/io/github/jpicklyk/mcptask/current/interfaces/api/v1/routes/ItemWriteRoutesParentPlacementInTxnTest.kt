@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryPr
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
@@ -40,6 +41,7 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -63,7 +65,7 @@ import kotlin.test.assertTrue
  * must be re-implemented rather than left to `by delegate` forwarding), injected via a
  * [RepositoryProvider]-typed local test app (`configureParentPlacementTestApp`, mirroring
  * `PatchReparentCycleGuardTest.configureReparentTestApp` in this same package — `ApiTestHelper.kt`
- * and `WriteRoutesTest.kt` are not edited; only their existing `buildH2RepositoryProvider` /
+ * and `WriteRoutesTest.kt` are not edited; only their existing `SqliteTestDatabase.repositoryProvider()` /
  * `makeWriteAuthConfig` / `WRITE_TOKEN` helpers are reused, since `WriteRoutesTest`'s own
  * `configureWriteTestApp` is typed to the concrete `DefaultRepositoryProvider` and cannot accept a
  * wrapped provider).
@@ -74,6 +76,9 @@ import kotlin.test.assertTrue
  * `ApiTestHelper.kt`). No `src/main` file, diff, or commit was read.
  */
 class ItemWriteRoutesParentPlacementInTxnTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     /** See `ManageItemsParentPlacementInTxnTest.MutateOnFirstTransactionRepository` KDoc. */
     private class MutateOnFirstTransactionRepository(
         private val delegate: WorkItemRepository,
@@ -182,7 +187,7 @@ class ItemWriteRoutesParentPlacementInTxnTest {
     @Test
     fun `S4 POST items under P reflects P's placement as of the write transaction, not a pre-transaction snapshot`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (_, _, p, q) = runBlocking { threeLevelTreeWithAlternateRoot(repo) }
             val wrapped =
                 MutateOnFirstTransactionRepository(repo.workItemRepository()) { d ->
@@ -218,7 +223,7 @@ class ItemWriteRoutesParentPlacementInTxnTest {
     @Test
     fun `S5 PATCH reparenting X under P reflects P's placement as of the write transaction, not a pre-transaction snapshot`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (_, _, p, q) = runBlocking { threeLevelTreeWithAlternateRoot(repo) }
             val x =
                 runBlocking {
@@ -260,7 +265,7 @@ class ItemWriteRoutesParentPlacementInTxnTest {
     @Test
     fun `S10 POST items under P whose parent is deleted inside the write transaction returns 400 not_found without an orphan row`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root =
                 runBlocking {
                     stampSelfRoot(
@@ -303,7 +308,7 @@ class ItemWriteRoutesParentPlacementInTxnTest {
     @Test
     fun `probe replaying the same Idempotency-Key on the S10 400 not_found returns the cached body and does not re-run`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root =
                 runBlocking {
                     stampSelfRoot(

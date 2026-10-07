@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
@@ -14,6 +15,7 @@ import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -52,6 +54,9 @@ private val GUARD_ORDER_VALID_YAML =
  * plain revert of the fix still exercises the same route surface and yields behavioral red.
  */
 class ProjectConfigRoutesGuardOrderTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private fun createGuardOrderRoot(repo: DefaultRepositoryProvider): WorkItem =
         runBlocking {
             (
@@ -68,7 +73,7 @@ class ProjectConfigRoutesGuardOrderTest {
     @Test
     fun `S6 a superseded body with a mismatched If-Match returns 409 superseded, not 412`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
             application { configureProjectConfigTestApp(repo) }
             val yamlA = GUARD_ORDER_VALID_YAML
@@ -109,7 +114,7 @@ class ProjectConfigRoutesGuardOrderTest {
     @Test
     fun `S7 malformed YAML with a stale If-Match returns 422 parse_error, not 412`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -138,7 +143,7 @@ class ProjectConfigRoutesGuardOrderTest {
     @Test
     fun `S9a a blank but present If-Match on an existing row is a mismatch, 412`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -163,7 +168,7 @@ class ProjectConfigRoutesGuardOrderTest {
     @Test
     fun `S9b an absent If-Match on an existing row is not evaluated, 200`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -187,7 +192,7 @@ class ProjectConfigRoutesGuardOrderTest {
     @Test
     fun `S9c a blank If-Match with no existing row is ignored — first push is a create, 200`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -209,7 +214,7 @@ class ProjectConfigRoutesGuardOrderTest {
     @Test
     fun `S10 replaying the same body with If-Match set to its own current ETag succeeds both times with the same ETag`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -246,7 +251,7 @@ class ProjectConfigRoutesGuardOrderTest {
     @Test
     fun `probe a CRLF copy of the current content fingerprints identically and stores the raw CRLF bytes`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -289,7 +294,7 @@ class ProjectConfigRoutesGuardOrderTest {
     @Test
     fun `probe an unquoted If-Match value matching the fingerprint digits is a mismatch, 412`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -317,7 +322,7 @@ class ProjectConfigRoutesGuardOrderTest {
     @Test
     fun `probe an uppercase-hex If-Match value is a mismatch, 412`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -345,7 +350,7 @@ class ProjectConfigRoutesGuardOrderTest {
     @Test
     fun `probe force=true with a stale If-Match still returns 412 — force skips guards 5-6 only`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
             application { configureProjectConfigTestApp(repo) }
             val yamlB = GUARD_ORDER_VALID_YAML + "\n"

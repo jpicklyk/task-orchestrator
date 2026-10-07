@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -14,6 +15,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -64,6 +66,9 @@ import kotlin.test.assertTrue
  * than adjusted to match observed behavior.
  */
 class ChildrenTagScopePaginationTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     // ─────────────────────────────────────────────────────────────────────
     // S11 — REGRESSION (red pre-fix): tag-scoped /children pages the FILTERED set, not the raw
     // candidate window; beta siblings must never appear and must not inflate totalItems
@@ -72,7 +77,7 @@ class ChildrenTagScopePaginationTest {
     @Test
     fun `S11 tag-scoped GET children pages filtered results ignoring beta siblings`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val parent =
                 runBlocking {
                     val p = repo.workItemRepository().create(WorkItem(title = "S11 Parent", tags = "alpha", depth = 0)).getOrNull()!!
@@ -118,7 +123,7 @@ class ChildrenTagScopePaginationTest {
     @Test
     fun `S12 tag-scoped GET children page beyond the filtered total returns an empty page`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val parent =
                 runBlocking {
                     val p = repo.workItemRepository().create(WorkItem(title = "S12 Parent", tags = "alpha", depth = 0)).getOrNull()!!
@@ -150,7 +155,7 @@ class ChildrenTagScopePaginationTest {
     @Test
     fun `S13 tag-scoped GET children with no matching children reports totalItems 0`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val parent =
                 runBlocking {
                     val p = repo.workItemRepository().create(WorkItem(title = "S13 Parent", tags = "alpha", depth = 0)).getOrNull()!!
@@ -184,7 +189,7 @@ class ChildrenTagScopePaginationTest {
     @Test
     fun `S14 tag-scoped children total matches tag-scoped GET items parentId total`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val parent =
                 runBlocking {
                     val p = repo.workItemRepository().create(WorkItem(title = "S14 Parent", tags = "alpha", depth = 0)).getOrNull()!!
@@ -240,7 +245,7 @@ class ChildrenTagScopePaginationTest {
     @Test
     fun `S15 unscoped GET children still uses the SQL LIMIT OFFSET path over all 5 children`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val parent =
                 runBlocking {
                     val p = repo.workItemRepository().create(WorkItem(title = "S15 Parent", tags = "alpha", depth = 0)).getOrNull()!!
@@ -276,7 +281,7 @@ class ChildrenTagScopePaginationTest {
     @Test
     fun `S16 rootIds-only scoped GET children total is unaffected by tag filtering`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val parent =
                 runBlocking {
                     val p0 = repo.workItemRepository().create(WorkItem(title = "S16 Parent", tags = "alpha", depth = 0)).getOrNull()!!
@@ -321,7 +326,7 @@ class ChildrenTagScopePaginationTest {
     @Test
     fun `P7 tag-scoped GET children with pageSize exactly matching the filtered total has no more pages`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val parent =
                 runBlocking {
                     val p = repo.workItemRepository().create(WorkItem(title = "P7 Parent", tags = "alpha", depth = 0)).getOrNull()!!

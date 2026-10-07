@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -16,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -29,14 +31,17 @@ import kotlin.test.assertTrue
  * pre-check only runs when `blockerId() != null`; [Df] decision (f) — toDto().unblockAt always
  * uses effectiveUnblockRole(), not a BLOCKS-only ternary.
  *
- * H2 + [buildH2RepositoryProvider] / [configureWriteTestApp] (from [ApiTestHelper] /
+ * H2 + `SqliteTestDatabase.repositoryProvider()` / [configureWriteTestApp] (from [ApiTestHelper] /
  * `WriteRoutesTest`), not a hand-rolled Ktor `testApplication`.
  */
 class DependencyDirectionRestTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `S5 POST relates_to succeeds even though a stored BLOCKS edge exists between the same items`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (a, b) =
                 runBlocking {
                     val x = repo.workItemRepository().create(WorkItem(title = "A", depth = 0)).getOrNull()!!
@@ -96,7 +101,7 @@ class DependencyDirectionRestTest {
     @Test
     fun `probe REST POST rejects lower-case is_blocked_by type (blocks and relates_to only)`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (a, b) =
                 runBlocking {
                     val x = repo.workItemRepository().create(WorkItem(title = "A", depth = 0)).getOrNull()!!

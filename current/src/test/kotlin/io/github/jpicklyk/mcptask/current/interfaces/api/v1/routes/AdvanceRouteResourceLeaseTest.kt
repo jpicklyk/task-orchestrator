@@ -21,6 +21,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepos
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -40,6 +41,7 @@ import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
@@ -244,10 +246,13 @@ private fun DefaultRepositoryProvider.createTracedItem(title: String): WorkItem 
     }
 
 class AdvanceRouteResourceLeaseTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `contended resource returns 409 with Retry-After and the contended keys`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val fake = LeaseGateFakeRepository()
             val item = h2.createTracedItem("Needs staging DB")
             fake.forceContended = listOf("staging-db-credential")
@@ -291,7 +296,7 @@ class AdvanceRouteResourceLeaseTest {
     @Test
     fun `an uncontended advance acquires the lease and succeeds`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val fake = LeaseGateFakeRepository()
             val item = h2.createTracedItem("Needs staging DB")
             application { configureLeaseTestApp(LeaseOverridingProvider(h2, fake)) }
@@ -312,7 +317,7 @@ class AdvanceRouteResourceLeaseTest {
     @Test
     fun `leaving the work phase releases the lease`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val fake = LeaseGateFakeRepository()
             val item = h2.createTracedItem("Needs staging DB")
             application { configureLeaseTestApp(LeaseOverridingProvider(h2, fake)) }
@@ -343,7 +348,7 @@ class AdvanceRouteResourceLeaseTest {
     @Test
     fun `overrideResourceLeases from a non-admin principal is rejected with 403`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val fake = LeaseGateFakeRepository()
             val item = h2.createTracedItem("Needs staging DB")
             fake.forceContended = listOf("staging-db-credential")
@@ -368,7 +373,7 @@ class AdvanceRouteResourceLeaseTest {
     @Test
     fun `overrideResourceLeases from an ADMIN principal proceeds past contention and is audited`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val fake = LeaseGateFakeRepository()
             val item = h2.createTracedItem("Needs staging DB")
             fake.forceContended = listOf("staging-db-credential")
@@ -399,7 +404,7 @@ class AdvanceRouteResourceLeaseTest {
     @Test
     fun `omitting overrideResourceLeases keeps the gate enforced for an ADMIN principal`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val fake = LeaseGateFakeRepository()
             val item = h2.createTracedItem("Needs staging DB")
             fake.forceContended = listOf("staging-db-credential")
@@ -419,7 +424,7 @@ class AdvanceRouteResourceLeaseTest {
     @Test
     fun `an item declaring no resources is unaffected by the gate`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val fake = LeaseGateFakeRepository()
             val item =
                 runBlocking {

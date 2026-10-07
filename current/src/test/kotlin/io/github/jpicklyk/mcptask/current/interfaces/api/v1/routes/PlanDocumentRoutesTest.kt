@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepos
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.put
@@ -29,6 +30,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -67,10 +69,13 @@ private fun createRoot(
     }
 
 class PlanDocumentPutRouteTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `PUT roots rootId plans slug happy path returns 200 and persists the row`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configurePlanDocumentTestApp(repo) }
 
@@ -95,7 +100,7 @@ class PlanDocumentPutRouteTest {
     @Test
     fun `PUT roots rootId plans slug without WRITE_CONFIG capability returns 403`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configurePlanDocumentTestApp(repo) }
 
@@ -114,7 +119,7 @@ class PlanDocumentPutRouteTest {
     @Test
     fun `PUT roots rootId plans slug with token scope lacking the root returns 403`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             val otherRoot = createRoot(repo, title = "Other Root")
             application { configurePlanDocumentTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(otherRoot.id))) }
@@ -132,7 +137,7 @@ class PlanDocumentPutRouteTest {
     @Test
     fun `PUT roots rootId plans slug to unknown root returns 404`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configurePlanDocumentTestApp(repo) }
 
             val response =
@@ -148,7 +153,7 @@ class PlanDocumentPutRouteTest {
     @Test
     fun `PUT roots rootId plans slug to a non-depth-0 root returns 422`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val parent = createRoot(repo, title = "Parent")
             val child =
                 runBlocking {
@@ -173,7 +178,7 @@ class PlanDocumentPutRouteTest {
     @Test
     fun `PUT roots rootId plans slug over the size cap returns 413`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configurePlanDocumentTestApp(repo) }
 
@@ -193,7 +198,7 @@ class PlanDocumentPutRouteTest {
     @Test
     fun `PUT roots rootId plans slug re-push overwrites the PENDING row`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configurePlanDocumentTestApp(repo) }
 
@@ -217,7 +222,7 @@ class PlanDocumentPutRouteTest {
     @Test
     fun `PUT roots rootId plans slug against an ADOPTED slug returns 409`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configurePlanDocumentTestApp(repo) }
 
@@ -249,10 +254,13 @@ class PlanDocumentPutRouteTest {
 }
 
 class PlanDocumentGetRouteTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `GET roots rootId plans slug returns the stored document including body`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configurePlanDocumentTestApp(repo) }
 
@@ -275,7 +283,7 @@ class PlanDocumentGetRouteTest {
     @Test
     fun `GET roots rootId plans slug for a missing slug returns 404`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configurePlanDocumentTestApp(repo) }
 
@@ -290,7 +298,7 @@ class PlanDocumentGetRouteTest {
     @Test
     fun `GET roots rootId plans slug with token scope lacking the root returns 403`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             val otherRoot = createRoot(repo, title = "Other Root")
             application { configurePlanDocumentTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(otherRoot.id))) }
@@ -305,10 +313,13 @@ class PlanDocumentGetRouteTest {
 }
 
 class PlanDocumentListRouteTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `GET roots rootId plans lists metadata-only summaries without bodies`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configurePlanDocumentTestApp(repo) }
 
@@ -337,7 +348,7 @@ class PlanDocumentListRouteTest {
     @Test
     fun `GET roots rootId plans filters by status query param`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configurePlanDocumentTestApp(repo) }
 
@@ -370,10 +381,13 @@ class PlanDocumentListRouteTest {
  * payload through each surface must produce identical content hashes + stored bytes.
  */
 class PlanDocumentConvergenceTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `MCP tool stash and REST PUT converge on identical DB state for the same payload`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val rootViaTool = createRoot(repo, title = "Root Via Tool")
             val rootViaRest = createRoot(repo, title = "Root Via REST")
             val text = "# Shared Plan\n\nSame bytes either way.\n"

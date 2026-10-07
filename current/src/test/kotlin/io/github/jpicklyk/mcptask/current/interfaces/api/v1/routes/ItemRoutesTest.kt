@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -23,6 +24,7 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.jetbrains.exposed.v1.jdbc.update
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -43,12 +45,15 @@ import kotlin.test.assertTrue
  * - `?include=notes,deps,children` inlining
  */
 class ItemRoutesTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     // ─── Happy path ──────────────────────────────────────────────────────────
 
     @Test
     fun `GET items returns 200 with list`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root =
                 runBlocking {
                     repo
@@ -73,7 +78,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items roots returns 200 with root items`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             runBlocking {
                 repo.workItemRepository().create(WorkItem(title = "Root A", depth = 0))
                 repo.workItemRepository().create(WorkItem(title = "Root B", depth = 0))
@@ -93,7 +98,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items id returns 200 for existing item`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "My Item", depth = 0)).getOrNull()!!
@@ -114,7 +119,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items id returns 404 for missing item`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application {
                 configureTestApp { itemRoutes(repo) }
             }
@@ -128,7 +133,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items id returns 400 for invalid UUID`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application {
                 configureTestApp { itemRoutes(repo) }
             }
@@ -142,7 +147,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items id tree returns 200 with descendants`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root =
                 runBlocking {
                     val r = repo.workItemRepository().create(WorkItem(title = "Root", depth = 0)).getOrNull()!!
@@ -164,7 +169,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items id breadcrumbs returns ancestor chain`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val child =
                 runBlocking {
                     val r = repo.workItemRepository().create(WorkItem(title = "Root", depth = 0)).getOrNull()!!
@@ -186,7 +191,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items id children returns direct children paginated`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root =
                 runBlocking {
                     val r = repo.workItemRepository().create(WorkItem(title = "Root", depth = 0)).getOrNull()!!
@@ -212,7 +217,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items id returns 403 for item outside scope`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val r1 = UUID.randomUUID()
             val itemOutsideScope =
                 runBlocking {
@@ -233,7 +238,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items id returns 200 for item within scope`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "In Scope Root", depth = 0)).getOrNull()!!
@@ -259,7 +264,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items id succeeds with no Authorization header in unauthenticated mode`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Unauth Item", depth = 0)).getOrNull()!!
@@ -278,7 +283,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items hasMore is true when more items exist`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             runBlocking {
                 repeat(3) { i -> repo.workItemRepository().create(WorkItem(title = "Item $i", depth = 0)) }
             }
@@ -297,7 +302,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items hasMore is false when on last page`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             runBlocking {
                 repeat(2) { i -> repo.workItemRepository().create(WorkItem(title = "Small $i", depth = 0)) }
             }
@@ -318,7 +323,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items filters by role`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             runBlocking {
                 repo.workItemRepository().create(WorkItem(title = "Queue item", role = Role.QUEUE, depth = 0))
                 repo.workItemRepository().create(WorkItem(title = "Work item", role = Role.WORK, depth = 0))
@@ -339,7 +344,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items filters by priority`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             runBlocking {
                 repo.workItemRepository().create(WorkItem(title = "High prio", priority = Priority.HIGH, depth = 0))
                 repo.workItemRepository().create(WorkItem(title = "Low prio", priority = Priority.LOW, depth = 0))
@@ -360,7 +365,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items filters by tag`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             runBlocking {
                 repo.workItemRepository().create(WorkItem(title = "Tagged item", tags = "bug,urgent", depth = 0))
                 repo.workItemRepository().create(WorkItem(title = "Untagged item", depth = 0))
@@ -382,7 +387,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items id with include notes inlines notes`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     val i = repo.workItemRepository().create(WorkItem(title = "Noted", depth = 0)).getOrNull()!!
@@ -412,7 +417,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items id with include children inlines children`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root =
                 runBlocking {
                     val r = repo.workItemRepository().create(WorkItem(title = "Parent", depth = 0)).getOrNull()!!
@@ -434,7 +439,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items returns 401 without auth header`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application {
                 configureTestApp { itemRoutes(repo) }
             }
@@ -451,7 +456,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items id breadcrumbs truncates ancestors above scope root`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (scopeRoot, leaf) =
                 runBlocking {
                     val a = repo.workItemRepository().create(WorkItem(title = "GrandParentA", depth = 0)).getOrNull()!!
@@ -481,7 +486,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items id breadcrumbs returns full chain for unscoped token`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val leaf =
                 runBlocking {
                     val a = repo.workItemRepository().create(WorkItem(title = "TopA", depth = 0)).getOrNull()!!
@@ -512,7 +517,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items id tree with tag-scoped token excludes descendants without required tag`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (root, child1, child2) =
                 runBlocking {
                     val r = repo.workItemRepository().create(WorkItem(title = "SecRoot", tags = "security,api", depth = 0)).getOrNull()!!
@@ -555,7 +560,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items id children with tag-scoped token excludes children without required tag`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (root, _, _) =
                 runBlocking {
                     val r = repo.workItemRepository().create(WorkItem(title = "SecParent", tags = "security", depth = 0)).getOrNull()!!
@@ -594,7 +599,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items id tree unscoped token returns all descendants regardless of tags`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root =
                 runBlocking {
                     val r = repo.workItemRepository().create(WorkItem(title = "AllRoot", tags = "security", depth = 0)).getOrNull()!!
@@ -624,7 +629,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items roots with scoped token returns only principal roots`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (inScopeRoot, outScopeRoot) =
                 runBlocking {
                     val r1 = repo.workItemRepository().create(WorkItem(title = "InScopeRoot", depth = 0)).getOrNull()!!
@@ -666,7 +671,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items roots unscoped reports true total and pages through all roots`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             runBlocking {
                 repeat(5) { i -> repo.workItemRepository().create(WorkItem(title = "Root $i", depth = 0)) }
             }
@@ -697,7 +702,8 @@ class ItemRoutesTest {
     @Test
     fun `GET items roots unscoped surfaces skipped for a row that fails domain validation`() =
         testApplication {
-            val (repo, database) = buildH2RepositoryProviderWithDatabase()
+            val repo = db.repositoryProvider()
+            val database = db.database
             val good1 =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Good root 1", depth = 0)).getOrNull()!!
@@ -728,7 +734,7 @@ class ItemRoutesTest {
     @Test
     fun `GET items roots omits skipped field when nothing was dropped`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             runBlocking {
                 repo.workItemRepository().create(WorkItem(title = "Clean root", depth = 0))
             }
@@ -747,7 +753,8 @@ class ItemRoutesTest {
     @Test
     fun `GET items surfaces skipped for a row that fails domain validation`() =
         testApplication {
-            val (repo, database) = buildH2RepositoryProviderWithDatabase()
+            val repo = db.repositoryProvider()
+            val database = db.database
             runBlocking { repo.workItemRepository().create(WorkItem(title = "Good item", depth = 0)) }
             val corrupt =
                 runBlocking {

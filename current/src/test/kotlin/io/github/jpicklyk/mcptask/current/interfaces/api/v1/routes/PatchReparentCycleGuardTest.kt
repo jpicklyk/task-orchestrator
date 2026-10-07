@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryPr
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
 import io.ktor.client.request.setBody
@@ -38,6 +39,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -88,7 +90,7 @@ import kotlin.test.assertNull
  * SEAM (test-only, named in `test-plan`): a private `WorkItemRepository by delegate` wrapper
  * injected through a private `RepositoryProvider by delegate` provider — the pattern already
  * used in this package at `ItemPatchConflictMappingTest.kt` (~76-115). `ApiTestHelper.kt` is not
- * edited; only its existing `buildH2RepositoryProvider`/`makeWriteAuthConfig`/`WRITE_TOKEN`
+ * edited; only its existing `SqliteTestDatabase.repositoryProvider()`/`makeWriteAuthConfig`/`WRITE_TOKEN`
  * helpers are reused.
  *
  * MANDATORY SAFETY STUB: every scenario below that constructs a REAL ancestor/descendant
@@ -111,6 +113,9 @@ import kotlin.test.assertNull
  * `test-manifest` per skill §4/§8 for audit; it did not change how this suite was designed.
  */
 class PatchReparentCycleGuardTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     /**
      * Wraps a real [WorkItemRepository], optionally substituting scripted results for `getById`,
      * `findAncestorChains`, `findDescendants` and/or `update`. Each `on*` lambda may return `null`
@@ -230,7 +235,7 @@ class PatchReparentCycleGuardTest {
     @Test
     fun `S1 legitimate reparent among siblings returns 200 with recomputed depth and unchanged rootId`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (root, x, p) =
                 runBlocking {
                     val r = makeRoot(repo, "Root S1")
@@ -263,7 +268,7 @@ class PatchReparentCycleGuardTest {
     @Test
     fun `S2 self reparent returns 400 validation_error with the exact self-parent message and never calls update`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val x = runBlocking { makeRoot(repo, "X S2") }
             val scripted = ScriptedWorkItemRepository(repo.workItemRepository())
             application { configureReparentTestApp(WorkItemRepoOverrideProvider(repo, scripted)) }
@@ -296,7 +301,7 @@ class PatchReparentCycleGuardTest {
     @Test
     fun `S3 reparenting under a descendant with an understated stale depth is still rejected 400`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (x, d) =
                 runBlocking {
                     val xItem = makeRoot(repo, "X S3")
@@ -353,7 +358,7 @@ class PatchReparentCycleGuardTest {
     @Test
     fun `S4 reparenting under a deep honestly-depthed descendant is still rejected 400`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (x, d) =
                 runBlocking {
                     val xItem = makeRoot(repo, "X S4")
@@ -398,7 +403,7 @@ class PatchReparentCycleGuardTest {
     @Test
     fun `S5 a repository error during ancestor lookup returns 500 db_error and writes nothing`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (x, b, d) =
                 runBlocking {
                     val xItem = makeRoot(repo, "X S5")
@@ -457,7 +462,7 @@ class PatchReparentCycleGuardTest {
     @Test
     fun `S6 title-only patch under the same erroring ancestor-lookup wrapper still returns 200`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (x, b, d) =
                 runBlocking {
                     val xItem = makeRoot(repo, "X S6")
@@ -501,7 +506,7 @@ class PatchReparentCycleGuardTest {
     @Test
     fun `S7 parentId null under an erroring ancestor-lookup wrapper still moves the item to root`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val x =
                 runBlocking {
                     val root = makeRoot(repo, "Root S7")
@@ -555,7 +560,7 @@ class PatchReparentCycleGuardTest {
     @Test
     fun `S8 reparenting under an unknown parent id returns 400 not_found before any ancestor-chain walk`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val x = runBlocking { makeRoot(repo, "X S8") }
             // If the not_found check did not run first, this unconditional error would surface as
             // a 500 instead of the expected 400 not_found, proving the ordering.
@@ -594,7 +599,7 @@ class PatchReparentCycleGuardTest {
     @Test
     fun `S9 replaying the same Idempotency-Key on a 500 db_error returns the cached body and does not re-run the lookup`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (x, b, d) =
                 runBlocking {
                     val xItem = makeRoot(repo, "X S9")
@@ -649,7 +654,7 @@ class PatchReparentCycleGuardTest {
     @Test
     fun `probe reparenting under the immediate direct child (1 hop) is rejected, including a mixed-case UUID string`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (x, c) =
                 runBlocking {
                     val xItem = makeRoot(repo, "X Probe1Hop")
@@ -692,7 +697,7 @@ class PatchReparentCycleGuardTest {
             // the pre-fix hopsRemaining=depth+1=2 walk falls exactly one hop short of the 3 hops
             // (D->B->A->X) needed to see X) — recorded here as its own named probe per the
             // adversarial-probe catalog rather than duplicated as a second assertion block.
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (x, d) =
                 runBlocking {
                     val xItem = makeRoot(repo, "X ProbeOffByOne")

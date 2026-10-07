@@ -4,7 +4,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.take
@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 
@@ -64,6 +65,9 @@ import kotlin.time.Duration.Companion.seconds
  * guard", unchanged by this fix), so waiting on it is a real condition, not a guess at timing.
  */
 class DependencyEventRootScopingTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     /**
      * Polls the public [ApiEventBus.subscriberCount] until it reaches [expected], bounded by
      * [timeoutMs]. Used instead of a fixed sleep: subscription registration timing is not
@@ -108,7 +112,7 @@ class DependencyEventRootScopingTest {
     @Test
     fun `S1 - cold-cache dependency create reaches a root-scoped subscriber once connected`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -138,7 +142,7 @@ class DependencyEventRootScopingTest {
     @Test
     fun `S2 - cold-cache dependency delete reaches a root-scoped subscriber once connected`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -172,7 +176,7 @@ class DependencyEventRootScopingTest {
     @Test
     fun `S3 - cold-cache dependency create does not reach an out-of-scope subscriber`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -200,7 +204,7 @@ class DependencyEventRootScopingTest {
     @Test
     fun `S4 - dependency create inside a rolling-back transaction publishes nothing and persists nothing`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -241,7 +245,7 @@ class DependencyEventRootScopingTest {
     @Test
     fun `S5 - dependency create inside a committing transaction is observed only after commit, in enqueue order`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -278,7 +282,7 @@ class DependencyEventRootScopingTest {
     @Test
     fun `S6 - standalone dependency create, with no enclosing transaction, publishes synchronously`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -307,7 +311,7 @@ class DependencyEventRootScopingTest {
     @Test
     fun `probe - duplicate edge is rejected and publishes no second event`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -345,7 +349,7 @@ class DependencyEventRootScopingTest {
     @Test
     fun `probe - RELATES_TO dependency publishes an event despite skipping cycle detection`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -370,7 +374,7 @@ class DependencyEventRootScopingTest {
     @Test
     fun `probe - deleting an unknown dependency id returns false and publishes no event`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
             val baselineCount = bus.ringBufferSnapshot().size
@@ -385,7 +389,7 @@ class DependencyEventRootScopingTest {
     @Test
     fun `probe - two dependency creates in one transaction flush in enqueue order on commit`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 

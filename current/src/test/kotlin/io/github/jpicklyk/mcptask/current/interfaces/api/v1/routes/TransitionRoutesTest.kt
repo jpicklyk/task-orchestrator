@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -9,6 +10,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -22,10 +24,13 @@ import kotlin.test.assertTrue
  * - Scope filter: global transitions only show accessible items
  */
 class TransitionRoutesTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `GET items id transitions returns 200 with transitions list`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     val i = repo.workItemRepository().create(WorkItem(title = "Transitioning", depth = 0)).getOrNull()!!
@@ -56,7 +61,7 @@ class TransitionRoutesTest {
     @Test
     fun `GET items id transitions returns 404 for missing item`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application {
                 configureTestApp { transitionRoutes(repo) }
             }
@@ -70,7 +75,7 @@ class TransitionRoutesTest {
     @Test
     fun `GET items id transitions returns 403 for item outside scope`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Out of scope transition", depth = 0)).getOrNull()!!
@@ -89,7 +94,7 @@ class TransitionRoutesTest {
     @Test
     fun `GET transitions returns 200 with global transitions`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             runBlocking {
                 val item = repo.workItemRepository().create(WorkItem(title = "Globally transitions", depth = 0)).getOrNull()!!
                 repo.roleTransitionRepository().create(
@@ -116,7 +121,7 @@ class TransitionRoutesTest {
     @Test
     fun `GET transitions since filter limits results`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             runBlocking {
                 val item = repo.workItemRepository().create(WorkItem(title = "Recent transition item", depth = 0)).getOrNull()!!
                 repo.roleTransitionRepository().create(
@@ -144,7 +149,7 @@ class TransitionRoutesTest {
     @Test
     fun `GET items id transitions pagination works`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     val i = repo.workItemRepository().create(WorkItem(title = "Many transitions", depth = 0)).getOrNull()!!
@@ -178,7 +183,7 @@ class TransitionRoutesTest {
     @Test
     fun `GET items id transitions page 2 returns the remainder`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val base = java.time.Instant.parse("2026-01-01T00:00:00Z")
             val item =
                 runBlocking {
@@ -228,7 +233,7 @@ class TransitionRoutesTest {
     @Test
     fun `GET transitions returns 401 without auth`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application {
                 configureTestApp { transitionRoutes(repo) }
             }

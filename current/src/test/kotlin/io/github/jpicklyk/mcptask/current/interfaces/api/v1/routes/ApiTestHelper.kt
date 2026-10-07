@@ -1,8 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
@@ -19,7 +16,6 @@ import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.ktor.server.sse.SSE
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
-import org.jetbrains.exposed.v1.jdbc.Database
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -43,37 +39,6 @@ const val WRITE_TOKEN_ID = "test-write-principal"
 fun sha256(input: String): ByteArray {
     val md = MessageDigest.getInstance("SHA-256")
     return md.digest(input.toByteArray(Charsets.UTF_8))
-}
-
-/**
- * Builds a [DefaultRepositoryProvider] backed by an H2 in-memory DB.
- * The schema is set up via [DirectDatabaseSchemaManager].
- */
-fun buildH2RepositoryProvider(): DefaultRepositoryProvider {
-    val dbName = "api_test_${System.nanoTime()}"
-    val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-    val databaseManager = DatabaseManager(database)
-    DirectDatabaseSchemaManager().updateSchema()
-    return DefaultRepositoryProvider(databaseManager)
-}
-
-/**
- * Builds a [DefaultRepositoryProvider] backed by an H2 in-memory DB with a specific scope root.
- * Identical to [buildH2RepositoryProvider] — the scope restriction is on the token, not the repo.
- */
-fun buildH2RepositoryProviderScoped(): DefaultRepositoryProvider = buildH2RepositoryProvider()
-
-/**
- * Like [buildH2RepositoryProvider] but also returns the raw [Database] handle, for tests that
- * need to bypass the repository layer (e.g. writing a corrupt/invalid-domain row directly via
- * Exposed to simulate validation-drop scenarios — see [WorkItemsTable] usage in repository tests).
- */
-fun buildH2RepositoryProviderWithDatabase(): Pair<DefaultRepositoryProvider, Database> {
-    val dbName = "api_test_${System.nanoTime()}"
-    val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-    val databaseManager = DatabaseManager(database)
-    DirectDatabaseSchemaManager().updateSchema()
-    return DefaultRepositoryProvider(databaseManager) to database
 }
 
 /**

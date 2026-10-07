@@ -30,6 +30,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryPr
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
@@ -55,6 +56,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
@@ -77,7 +79,7 @@ import kotlin.test.assertTrue
  * (`missingNotes` guidance/skill "omitted when unset"), and `current/docs/workflow-guide.md`
  * (resource-lease same-call release on apply failure, start-cascade QUEUE->WORK).
  *
- * SEAMS (own file, H2 via [ApiTestHelper.buildH2RepositoryProvider]):
+ * SEAMS (own file, H2 via [ApiTestHelper.SqliteTestDatabase.repositoryProvider]):
  * - [FailingRoleTransitionRepository] wraps the real `roleTransitionRepository()`, failing
  *   `create()` only for a chosen item id — this is how the apply step (`workItemRepository.update`
  *   then `roleTransitionRepository.create` inside one transaction) is forced to fail for S1/S4 and
@@ -103,6 +105,9 @@ import kotlin.test.assertTrue
  * read.
  */
 class ItemWriteRoutesFailurePathTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     // ─────────────────────────────────────────────────────────────────────────
     // Test-only seams
     // ─────────────────────────────────────────────────────────────────────────
@@ -319,7 +324,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `S1 REST start apply failure returns 422 transition_failed with same-call lease release`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val item =
                 (
                     h2.workItemRepository().create(
@@ -351,7 +356,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `probe replaying the S1 apply failure twice both return 422 with zero leases each time`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val item =
                 (
                     h2.workItemRepository().create(
@@ -389,7 +394,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `S4 REST start with cascade apply failure reports cascadeEvents applied false with error`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val p =
                 (
                     h2.workItemRepository().create(
@@ -445,7 +450,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `S5 REST start blocked by an unsatisfied dependency returns 422 transition_blocked with blockers`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val b = (h2.workItemRepository().create(WorkItem(title = "B S5", role = Role.QUEUE, depth = 0)) as Result.Success).data
             val t = (h2.workItemRepository().create(WorkItem(title = "T S5", role = Role.QUEUE, depth = 0)) as Result.Success).data
             runBlocking { h2.dependencyRepository().create(Dependency(fromItemId = b.id, toItemId = t.id, type = DependencyType.BLOCKS)) }
@@ -480,7 +485,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `S6 REST start on a terminal item returns 422 transition_failed`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val item =
                 (
                     h2.workItemRepository().create(
@@ -513,7 +518,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `S7 REST start blocked by an unfilled required-note gate returns 422 gate_blocked with missingNotes`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val item =
                 (
                     h2.workItemRepository().create(
@@ -555,7 +560,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `S8 REST start blocked by resource contention returns 409 with Retry-After rounded up`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val item =
                 (
                     h2.workItemRepository().create(
@@ -592,7 +597,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `probe S8 retryAfterMs of 1ms rounds up to Retry-After header of 1`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val item =
                 (
                     h2.workItemRepository().create(
@@ -624,7 +629,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `probe S8 retryAfterMs of 0ms floors to Retry-After header of 1`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val item =
                 (
                     h2.workItemRepository().create(
@@ -660,7 +665,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `S10 REST PATCH reparenting X under P whose parent is deleted inside the write transaction returns 400 not_found`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val root =
                 runBlocking {
                     stampSelfRoot(h2, (h2.workItemRepository().create(WorkItem(title = "R S10", depth = 0)) as Result.Success).data)
@@ -701,7 +706,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `probe S10 a mixed-case UUID for the deleted parent still resolves and returns 400 not_found`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val root =
                 runBlocking {
                     stampSelfRoot(h2, (h2.workItemRepository().create(WorkItem(title = "R S10 probe", depth = 0)) as Result.Success).data)
@@ -742,7 +747,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `S12 REST PATCH moving X to a different root fails closed with 500 db_error when the descendant cascade update fails`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val r =
                 runBlocking {
                     stampSelfRoot(h2, (h2.workItemRepository().create(WorkItem(title = "R S12", depth = 0)) as Result.Success).data)
@@ -805,7 +810,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `F7 advance with a non-JSON Content-Type returns 415 unsupported_media_type before the body is read`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val item = runBlocking { createQueueItem(h2, "F7 Item") }
             application { configureFailurePathTestApp(h2) }
 
@@ -825,7 +830,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `F8 advance with malformed JSON returns 400 validation_error`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val item = runBlocking { createQueueItem(h2, "F8 Item") }
             application { configureFailurePathTestApp(h2) }
 
@@ -844,7 +849,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `F9 advance with an unrecognized trigger returns 400 validation_error naming the trigger`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val item = runBlocking { createQueueItem(h2, "F9 Item") }
             application { configureFailurePathTestApp(h2) }
 
@@ -865,7 +870,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `F10 advance with more than 8 credentialRefs is rejected with the exact count message`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val item = runBlocking { createQueueItem(h2, "F10 Item") }
             application { configureFailurePathTestApp(h2) }
 
@@ -890,7 +895,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `F11 advance with a credentialRefs entry violating the pattern is rejected with the exact message`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val item = runBlocking { createQueueItem(h2, "F11 Item") }
             application { configureFailurePathTestApp(h2) }
 
@@ -914,7 +919,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `F12 advance with an empty credentialRefs entry is rejected with the exact length message`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val item = runBlocking { createQueueItem(h2, "F12 Item") }
             application { configureFailurePathTestApp(h2) }
 
@@ -942,7 +947,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `F13 create with a non-JSON Content-Type returns 415 unsupported_media_type and nothing persists`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             application { configureFailurePathTestApp(h2) }
 
             val response =
@@ -970,7 +975,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `F14a wrong Content-Type with overrideResourceLeases set returns 415, not 403`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val item = runBlocking { createQueueItem(h2, "F14a Item") }
             application { configureFailurePathTestApp(h2) }
 
@@ -989,7 +994,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `F14b an unrecognized trigger with overrideResourceLeases set returns 400, not 403`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val item = runBlocking { createQueueItem(h2, "F14b Item") }
             application { configureFailurePathTestApp(h2) }
 
@@ -1008,7 +1013,7 @@ class ItemWriteRoutesFailurePathTest {
     @Test
     fun `F14c a valid trigger with overrideResourceLeases set from a non-admin returns 403 once parsing succeeds`(): Unit =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val item = runBlocking { createQueueItem(h2, "F14c Item") }
             application { configureFailurePathTestApp(h2) }
 

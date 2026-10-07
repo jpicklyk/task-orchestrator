@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -8,6 +8,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 
 /**
@@ -36,6 +37,9 @@ import java.util.UUID
  * one test red without touching any other test's compilation.
  */
 class DeferredEventPublisherTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     // -------------------------------------------------------------------------
     // S1 — outside a transaction, publish is synchronous
     // -------------------------------------------------------------------------
@@ -64,7 +68,7 @@ class DeferredEventPublisherTest {
     @Test
     fun `S2 - publishOnCommit inside a committing transaction defers until commit then flushes FIFO`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val publisher = DeferredEventPublisher(bus)
             val id1 = UUID.randomUUID()
@@ -101,7 +105,7 @@ class DeferredEventPublisherTest {
     @Test
     fun `S3 - publishOnCommit inside a rolling-back transaction discards the buffer entirely`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val publisher = DeferredEventPublisher(bus)
 
@@ -141,7 +145,7 @@ class DeferredEventPublisherTest {
     @Test
     fun `S6 - deferred events receive ids allocated at flush time, after any concurrent immediate publish`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val publisher = DeferredEventPublisher(bus)
             val idE1 = UUID.randomUUID()
@@ -179,7 +183,7 @@ class DeferredEventPublisherTest {
     @Test
     fun `S7a - nested inTransaction shares one buffer and flushes once on the outermost commit`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val publisher = DeferredEventPublisher(bus)
             val id = UUID.randomUUID()
@@ -203,7 +207,7 @@ class DeferredEventPublisherTest {
     @Test
     fun `S7b - nested inTransaction rollback at the outer level publishes nothing`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val publisher = DeferredEventPublisher(bus)
 
@@ -231,7 +235,7 @@ class DeferredEventPublisherTest {
     @Test
     fun `edge - a transaction that enqueues nothing commits as a no-op`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             // DeferredEventPublisher is constructed but never used inside the transaction below —
             // this pins the declared "empty buffer commits as a no-op" behavior.
@@ -247,7 +251,7 @@ class DeferredEventPublisherTest {
     @Test
     fun `edge - a minimal PendingApiEvent with all-default optional fields flushes with those fields null-absent`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val publisher = DeferredEventPublisher(bus)
 

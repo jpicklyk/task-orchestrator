@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.MAX_PAGE
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -19,6 +20,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -50,6 +52,9 @@ import kotlin.test.assertTrue
  * JSON-body pagination assertions). No `src/main` file was opened to author this suite.
  */
 class PaginationBoundsTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     /**
      * Wraps a real [RoleTransitionRepository], substituting a scripted result for `findSince`
      * that captures the `limit` argument it was called with instead of delegating — this keeps
@@ -100,7 +105,7 @@ class PaginationBoundsTest {
     @Test
     fun `S1 GET transitions with no params returns 200 with page 1 and pageSize 50`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureTestApp { transitionRoutes(repo) } }
             val response =
                 client.get("/api/v1/transitions") {
@@ -117,7 +122,7 @@ class PaginationBoundsTest {
     @Test
     fun `S2 GET transitions page 2 pageSize 2 of 5 returns items 3 and 4 with hasMore true`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val base = Instant.now().minusSeconds(60)
             val items =
                 runBlocking {
@@ -185,7 +190,7 @@ class PaginationBoundsTest {
     @Test
     fun `S3 GET transitions with page beyond Int range returns 400 validation_error`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureTestApp { transitionRoutes(repo) } }
             val response =
                 client.get("/api/v1/transitions?page=99999999999") {
@@ -200,7 +205,7 @@ class PaginationBoundsTest {
     @Test
     fun `S4 GET transitions with page 0 returns 400 validation_error`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureTestApp { transitionRoutes(repo) } }
             val response =
                 client.get("/api/v1/transitions?page=0") {
@@ -215,7 +220,7 @@ class PaginationBoundsTest {
     @Test
     fun `S5 GET transitions with page negative 5 returns 400 validation_error`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureTestApp { transitionRoutes(repo) } }
             val response =
                 client.get("/api/v1/transitions?page=-5") {
@@ -230,7 +235,7 @@ class PaginationBoundsTest {
     @Test
     fun `S6 GET transitions with non-integer page returns 400 validation_error`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureTestApp { transitionRoutes(repo) } }
             val response =
                 client.get("/api/v1/transitions?page=abc") {
@@ -245,7 +250,7 @@ class PaginationBoundsTest {
     @Test
     fun `S7 GET transitions at page MAX_PAGE returns 200 empty and MAX_PAGE plus 1 returns 400`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureTestApp { transitionRoutes(repo) } }
 
             val atMax =
@@ -269,7 +274,7 @@ class PaginationBoundsTest {
     @Test
     fun `S8 GET transitions with pageSize 0 or negative returns 400 validation_error`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureTestApp { transitionRoutes(repo) } }
 
             val zero =
@@ -292,7 +297,7 @@ class PaginationBoundsTest {
     @Test
     fun `S9 GET transitions with pageSize 99999 is silently capped at 200`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureTestApp { transitionRoutes(repo) } }
             val response =
                 client.get("/api/v1/transitions?pageSize=99999") {
@@ -308,7 +313,7 @@ class PaginationBoundsTest {
     @Test
     fun `S10 GET transitions with non-integer pageSize returns 400 validation_error`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureTestApp { transitionRoutes(repo) } }
             val response =
                 client.get("/api/v1/transitions?pageSize=abc") {
@@ -323,7 +328,7 @@ class PaginationBoundsTest {
     @Test
     fun `S11 GET transitions with blank page and pageSize returns 200 with defaults`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureTestApp { transitionRoutes(repo) } }
             val response =
                 client.get("/api/v1/transitions?page=&pageSize=") {
@@ -340,7 +345,7 @@ class PaginationBoundsTest {
     @Test
     fun `S12 GET transitions with page Int MAX_VALUE returns 400 not 500`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureTestApp { transitionRoutes(repo) } }
             val response =
                 client.get("/api/v1/transitions?page=2147483647") {
@@ -359,7 +364,7 @@ class PaginationBoundsTest {
     @Test
     fun `S15 page 100000 pageSize 200 bounds the findSince fetch limit`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val scripted = ScriptedRoleTransitionRepository(repo.roleTransitionRepository())
             application {
                 configureTestApp { transitionRoutes(RoleTransitionRepoOverrideProvider(repo, scripted)) }
@@ -385,7 +390,7 @@ class PaginationBoundsTest {
     @Test
     fun `S16 GET transitions with tagsInclude and valid pagination still excludes non-matching items`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (itemA, itemB) =
                 runBlocking {
                     val a = repo.workItemRepository().create(WorkItem(title = "TransAlphaS16", tags = "alpha", depth = 0)).getOrNull()!!
@@ -420,7 +425,7 @@ class PaginationBoundsTest {
     @Test
     fun `S17a GET items with page 0 returns 400 validation_error`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureTestApp { itemRoutes(repo) } }
             val response =
                 client.get("/api/v1/items?page=0") {
@@ -433,7 +438,7 @@ class PaginationBoundsTest {
     @Test
     fun `S17b GET items roots with page abc returns 400 validation_error`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureTestApp { itemRoutes(repo) } }
             val response =
                 client.get("/api/v1/items/roots?page=abc") {
@@ -446,7 +451,7 @@ class PaginationBoundsTest {
     @Test
     fun `S17c GET items id tree with page beyond Int range returns 400 validation_error`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "S17c tree root", depth = 0)).getOrNull()!!
@@ -463,7 +468,7 @@ class PaginationBoundsTest {
     @Test
     fun `S17d GET items id children with page negative 1 returns 400 validation_error`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "S17d children root", depth = 0)).getOrNull()!!
@@ -480,7 +485,7 @@ class PaginationBoundsTest {
     @Test
     fun `S17e GET items id transitions with page 0 returns 400 validation_error`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "S17e transitions item", depth = 0)).getOrNull()!!

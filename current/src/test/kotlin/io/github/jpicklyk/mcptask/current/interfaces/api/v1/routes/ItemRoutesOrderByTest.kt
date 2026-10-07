@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -12,6 +13,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import kotlin.test.assertEquals
 
@@ -36,11 +38,14 @@ import kotlin.test.assertEquals
  * BLINDNESS: authored from the item's `diagnosis`/`test-plan` notes (queue-phase, frozen before
  * implementation) and the orchestrator-supplied declarations block (`ErrorDto`, the `ItemRoutes`
  * `orderBy`/`orderDir` KDoc), plus existing test conventions in this package (`ItemRoutesTest.kt`'s
- * `buildH2RepositoryProvider`/`configureTestApp`/`TEST_TOKEN` harness and JSON-body pagination
+ * `SqliteTestDatabase.repositoryProvider()`/`configureTestApp`/`TEST_TOKEN` harness and JSON-body pagination
  * assertions, `PaginationBoundsTest.kt`'s `Json.parseToJsonElement` + `ErrorDto` field assertions).
  * No `src/main` file was opened to author this suite.
  */
 class ItemRoutesOrderByTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     // ──────────────────────────────────────────────
     // S11 — orderBy/orderDir forwarded into the same repository sort mapping
     // ──────────────────────────────────────────────
@@ -48,7 +53,7 @@ class ItemRoutesOrderByTest {
     @Test
     fun `S11 GET items orderBy modifiedAt orderDir desc orders newest-modified first`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val t1 = Instant.parse("2025-01-01T00:00:00Z")
             val t2 = Instant.parse("2025-06-01T00:00:00Z")
             val t3 = Instant.parse("2025-12-01T00:00:00Z")
@@ -86,7 +91,7 @@ class ItemRoutesOrderByTest {
     @Test
     fun `S12 GET items rejects an unresolvable orderBy with 400 bad_request`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             runBlocking {
                 repo.workItemRepository().create(WorkItem(title = "Only Item", depth = 0))
             }
@@ -110,7 +115,7 @@ class ItemRoutesOrderByTest {
     @Test
     fun `S12 GET items rejects an unresolvable orderDir with 400 bad_request`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             runBlocking {
                 repo.workItemRepository().create(WorkItem(title = "Only Item", depth = 0))
             }

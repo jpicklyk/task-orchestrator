@@ -11,8 +11,8 @@ import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManage
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.WRITE_TOKEN
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureProjectConfigTestApp
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
@@ -30,6 +30,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -53,6 +54,9 @@ import kotlin.test.assertTrue
  * `projectConfigRoutes`) -- never a hand-built replica of either surface.
  */
 class SeatConfigLoadFailClosedTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     // ─── Shared fixtures ───────────────────────────────────────────────────
 
     private fun buildDatabaseManager(): DatabaseManager {
@@ -79,7 +83,7 @@ class SeatConfigLoadFailClosedTest {
     }
 
     private fun buildContext(): Pair<ToolExecutionContext, java.util.UUID> {
-        val repo = buildH2RepositoryProvider()
+        val repo = db.repositoryProvider()
         val rootId =
             runBlocking {
                 (repo.workItemRepository().create(WorkItem(title = "Push Root", type = "project")) as Result.Success).data.id
@@ -213,7 +217,7 @@ class SeatConfigLoadFailClosedTest {
     @Test
     fun `S3 push of two enters true seats in one list is rejected as 422 parse_error via REST and stores nothing`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root =
                 runBlocking {
                     (repo.workItemRepository().create(WorkItem(title = "REST Push Root", depth = 0)) as Result.Success).data
@@ -298,7 +302,7 @@ class SeatConfigLoadFailClosedTest {
             assertTrue(!isSuccess(mcpResult), "MCP push must be rejected: $mcpResult")
             assertEquals(ErrorCodes.VALIDATION_ERROR, errorOf(mcpResult)["code"]!!.jsonPrimitive.content)
 
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root =
                 runBlocking {
                     (repo.workItemRepository().create(WorkItem(title = "F2 REST Root", depth = 0)) as Result.Success).data
@@ -338,7 +342,7 @@ class SeatConfigLoadFailClosedTest {
             assertTrue(!isSuccess(mcpResult), "MCP push must be rejected: $mcpResult")
             assertEquals(ErrorCodes.VALIDATION_ERROR, errorOf(mcpResult)["code"]!!.jsonPrimitive.content)
 
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root =
                 runBlocking {
                     (repo.workItemRepository().create(WorkItem(title = "F3 REST Root", depth = 0)) as Result.Success).data
@@ -377,7 +381,7 @@ class SeatConfigLoadFailClosedTest {
             assertTrue(!isSuccess(mcpResult), "MCP push must be rejected: $mcpResult")
             assertEquals(ErrorCodes.VALIDATION_ERROR, errorOf(mcpResult)["code"]!!.jsonPrimitive.content)
 
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root =
                 runBlocking {
                     (repo.workItemRepository().create(WorkItem(title = "F4 REST Root", depth = 0)) as Result.Success).data

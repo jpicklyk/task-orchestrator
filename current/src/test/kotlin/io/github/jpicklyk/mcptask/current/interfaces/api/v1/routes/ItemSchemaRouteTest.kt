@@ -22,6 +22,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStor
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -42,6 +43,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -73,6 +75,9 @@ import kotlin.test.assertTrue
  * route function.
  */
 class ItemSchemaRouteTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     // ─── Shared composition wiring ─────────────────────────────────────────
 
     private fun buildDatabaseManager(): DatabaseManager {
@@ -335,7 +340,7 @@ class ItemSchemaRouteTest {
     @Test
     fun `S11b GET items id schema returns 503 config_unavailable on a cold per-root config read failure`() =
         testApplication {
-            val h2 = buildH2RepositoryProvider()
+            val h2 = db.repositoryProvider()
             val item =
                 runBlocking {
                     val r = h2.workItemRepository().create(WorkItem(title = "Schema S11b 503 root", depth = 0)).getOrNull()!!

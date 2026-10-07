@@ -4,11 +4,12 @@ import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 
 /**
@@ -30,6 +31,9 @@ import java.util.UUID
  * replay.
  */
 class EventPublishingZeroSubscriberReplayTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private fun lastBufferedId(bus: ApiEventBus): Long = bus.ringBufferSnapshot().last().id
 
     // -------------------------------------------------------------------------
@@ -40,7 +44,7 @@ class EventPublishingZeroSubscriberReplayTest {
     @Test
     fun `S1 note delete at zero subscribers is still replayed on resume`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -73,7 +77,7 @@ class EventPublishingZeroSubscriberReplayTest {
     @Test
     fun `S2 dependency delete at zero subscribers is still replayed on resume`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -102,7 +106,7 @@ class EventPublishingZeroSubscriberReplayTest {
     @Test
     fun `S3 dependency deleteByItemId at zero subscribers is still replayed on resume`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -133,7 +137,7 @@ class EventPublishingZeroSubscriberReplayTest {
     @Test
     fun `S4 item deleteAll at zero subscribers is still replayed on resume`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -166,7 +170,7 @@ class EventPublishingZeroSubscriberReplayTest {
     @Test
     fun `S5 item delete and note deleteByItemId at zero subscribers were already replayed and remain so`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -208,7 +212,7 @@ class EventPublishingZeroSubscriberReplayTest {
     @Test
     fun `S6 delete of a nonexistent note or dependency id emits no events`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -243,7 +247,7 @@ class EventPublishingZeroSubscriberReplayTest {
     @Test
     fun `S7 no-op bulk deletes at zero subscribers emit no events`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -289,7 +293,7 @@ class EventPublishingZeroSubscriberReplayTest {
     @Test
     fun `S8 a root-scoped resume never receives an unresolved zero-subscriber delete event`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 

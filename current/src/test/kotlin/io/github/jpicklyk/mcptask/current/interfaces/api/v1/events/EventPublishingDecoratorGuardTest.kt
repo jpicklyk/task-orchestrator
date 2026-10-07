@@ -5,10 +5,11 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 
 /**
  * S17 — reflection + source guard for [EventPublishingRepositoryProvider]'s decorator surface.
@@ -42,6 +43,9 @@ import org.junit.jupiter.api.Test
  * O3/O5 event tests in this package do that.
  */
 class EventPublishingDecoratorGuardTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     /**
      * Declared method names on [cls], excluding synthetic/bridge artifacts the Kotlin compiler
      * generates for default-parameter overloads (e.g. `foo$default`) — those are not part of the
@@ -222,7 +226,7 @@ class EventPublishingDecoratorGuardTest {
 
     @Test
     fun `decorated provider returns its own wrapping instances, not the delegate's raw ones`() {
-        val delegate = buildH2RepositoryProvider()
+        val delegate = db.repositoryProvider()
         val bus = ApiEventBus()
         val provider = EventPublishingRepositoryProvider(delegate, bus)
 
