@@ -1,10 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.EventActor
-import io.github.jpicklyk.mcptask.current.application.support.UnscopedUnitOfWork
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -32,7 +30,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import org.slf4j.LoggerFactory
-import java.time.Instant
 import java.util.UUID
 
 private val depWriteLogger = LoggerFactory.getLogger("DependencyWriteRoutes")
@@ -66,7 +63,7 @@ private val JSON_WRITE_CONTENT_TYPES = setOf("application/json", "*/*")
 fun Route.dependencyWriteRoutes(
     repositoryProvider: RepositoryProvider,
     @Suppress("UNUSED_PARAMETER") degradedModePolicy: DegradedModePolicy,
-    unitOfWork: UnitOfWork = UnscopedUnitOfWork(repositoryProvider, Clock { Instant.now() }),
+    unitOfWork: UnitOfWork,
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
     val depRepo = repositoryProvider.dependencyRepository()
@@ -260,10 +257,19 @@ fun Route.dependencyWriteRoutes(
                 return@delete
             }
 
-            val deleted: Boolean =
+            val deleteOutcome =
                 withContext(
                     Dispatchers.IO + EventActor(ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey]))
-                ) { depRepo.delete(id) }
+                ) { unitOfWork.write("dependency.delete") { Outcome.Ok(depRepo.delete(id)) } }
+            val deleted: Boolean =
+                when (deleteOutcome) {
+                    is Outcome.Ok -> deleteOutcome.value
+                    is Outcome.Err -> {
+                        depWriteLogger.warn("DELETE /dependencies/{} failed: {}", id, deleteOutcome.error.message)
+                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("internal", deleteOutcome.error.message))
+                        return@delete
+                    }
+                }
             if (!deleted) {
                 depWriteLogger.warn("DELETE /dependencies/{} returned false (race?)", id)
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Dependency $id not found or already deleted"))

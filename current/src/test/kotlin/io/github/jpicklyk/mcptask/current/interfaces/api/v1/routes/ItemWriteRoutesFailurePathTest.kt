@@ -30,6 +30,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryPr
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.CountingUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
@@ -152,13 +153,11 @@ class ItemWriteRoutesFailurePathTest {
     ) : WorkItemRepository by delegate {
         private var hasFired = false
 
-        override suspend fun inTransaction(block: suspend () -> Unit) {
-            delegate.inTransaction {
-                if (!hasFired) {
-                    hasFired = true
-                    mutate(delegate)
-                }
-                block()
+        /** Fires [mutate] once, from the [CountingUnitOfWork] hook at the first top-level unit's open. */
+        suspend fun fireOnce() {
+            if (!hasFired) {
+                hasFired = true
+                mutate(delegate)
             }
         }
 
@@ -284,6 +283,11 @@ class ItemWriteRoutesFailurePathTest {
         idempotencyCache: IdempotencyCache = IdempotencyCache(),
         authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig()
     ) {
+        // Fires a MutateOnFirstTransactionRepository's write at the first top-level unit's open.
+        val uow =
+            CountingUnitOfWork(
+                db.unitOfWork()
+            ) { (repositoryProvider.workItemRepository() as? MutateOnFirstTransactionRepository)?.fireOnce() }
         install(ContentNegotiation) { json(McpJson) }
         install(SSE)
         routing {
@@ -304,7 +308,9 @@ class ItemWriteRoutesFailurePathTest {
                         schemaService,
                         statusLabelService = NoOpStatusLabelService,
                         perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()),
+                        unitOfWork = uow
                     ).advanceServiceFactory(),
+                    uow,
                 )
             }
         }

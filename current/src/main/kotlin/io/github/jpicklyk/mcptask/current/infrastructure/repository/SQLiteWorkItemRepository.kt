@@ -96,12 +96,6 @@ class SQLiteWorkItemRepository(
             Instant.now()
         }
 
-    override suspend fun inTransaction(block: suspend () -> Unit) {
-        databaseManager.writeTx("WorkItemRepository.inTransaction") {
-            block()
-        }
-    }
-
     /**
      * Parse SQLite's CURRENT_TIMESTAMP string ("YYYY-MM-DD HH:MM:SS", UTC with no zone suffix) into an [Instant].
      */
@@ -1330,7 +1324,7 @@ class SQLiteWorkItemRepository(
             //   AND (requestingAgentId == null OR claimed_by != requestingAgentId)
             //
             // Batched BFS pattern modeled on findAncestorChains, inlined within the same
-            // suspendedTransaction block to avoid an extra transaction open/close.
+            // transaction block to avoid an extra transaction open/close.
             // -----------------------------------------------------------------------
             val candidatesWithParents = candidates.filter { it.parentId != null }
             if (candidatesWithParents.isEmpty()) {

@@ -241,7 +241,7 @@ class QueryNotesScopeRoleContractTest {
     @Test
     fun `S5 - top-level list role filter is untouched by the scope role removal`(): Unit =
         runBlocking {
-            val context = ToolExecutionContext(db.repositoryProvider())
+            val context = ToolExecutionContext(db.repositoryProvider(), unitOfWork = db.unitOfWork())
             val queryTool = QueryNotesTool()
             val manageTool = ManageNotesTool()
 

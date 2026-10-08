@@ -1,6 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.UnitResult
+import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
@@ -67,7 +71,10 @@ private const val HISTORY_MAX_LIMIT = 500
  * **REST-only:** registered on the authenticated `/api/v1` pipeline only, like the other
  * `/api/v1/resources` routes — never reachable on the unauthenticated `/mcp` transport.
  */
-fun Route.resourceLeaseRoutes(repositoryProvider: RepositoryProvider) {
+fun Route.resourceLeaseRoutes(
+    repositoryProvider: RepositoryProvider,
+    unitOfWork: UnitOfWork,
+) {
     val leaseRepo = repositoryProvider.resourceLeaseRepository()
 
     route("/resources/leases") {
@@ -101,7 +108,17 @@ fun Route.resourceLeaseRoutes(repositoryProvider: RepositoryProvider) {
                 }
 
                 val principal = call.attributes.getOrNull(ApiPrincipalKey)
-                when (val result = leaseRepo.forceReleaseByKey(key, principal?.tokenId)) {
+                val released =
+                    unitOfWork.writeUnit(
+                        "ResourceLeaseRoutes.forceRelease",
+                        onFault = { LeaseReleaseResult.DBError(IllegalStateException(LegacyFaults.message(it))) }
+                    ) {
+                        when (val release = leaseRepo.forceReleaseByKey(key, principal?.tokenId)) {
+                            is LeaseReleaseResult.Success -> UnitResult.Commit(release)
+                            is LeaseReleaseResult.DBError -> UnitResult.Rollback(release)
+                        }
+                    }
+                when (val result = released) {
                     is LeaseReleaseResult.Success -> {
                         if (result.releasedCount == 0) {
                             call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "No active lease found for key '$key'"))

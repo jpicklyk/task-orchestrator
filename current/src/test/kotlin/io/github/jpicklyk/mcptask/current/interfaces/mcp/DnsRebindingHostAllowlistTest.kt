@@ -149,6 +149,7 @@ class DnsRebindingHostAllowlistTest {
                     NoOpNoteSchemaService,
                     statusLabelService = YamlStatusLabelService(),
                     perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                    unitOfWork = db.unitOfWork(),
                 ),
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
             idempotencyCache = IdempotencyCache(),

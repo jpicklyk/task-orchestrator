@@ -2,6 +2,9 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.UnitResult
+import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.application.tools.ActorAware
 import io.github.jpicklyk.mcptask.current.application.tools.ActorParseResult
 import io.github.jpicklyk.mcptask.current.application.tools.BaseToolDefinition
@@ -514,7 +517,7 @@ Call only in claim-mode deployments, to take ownership before working an item.
                     // Resolved: take the top item and claim it
                     val resolvedItem = items.first()
                     logAgentIdOverride(claimObj, trustedAgentId)
-                    val claimResult = context.workItemRepository().claim(resolvedItem.id, trustedAgentId, ttlSeconds)
+                    val claimResult = claimInUnit(context, resolvedItem.id, trustedAgentId, ttlSeconds)
                     mapClaimResult(claimResult, claimRef, trustedAgentId, selectorResolved = true)
                 }
             }
@@ -610,9 +613,29 @@ Call only in claim-mode deployments, to take ownership before working an item.
 
         logAgentIdOverride(claimObj, trustedAgentId)
 
-        val result = context.workItemRepository().claim(itemId!!, trustedAgentId, ttlSeconds)
+        val result = claimInUnit(context, itemId!!, trustedAgentId, ttlSeconds)
         return mapClaimResult(result, claimRef, trustedAgentId, selectorResolved = false)
     }
+
+    /**
+     * One claim as ONE write unit. A store [ClaimResult.DBError] rolls the unit back; a fault of the unit
+     * itself becomes a [ClaimResult.DBError] (the existing `db_error` outcome).
+     */
+    private suspend fun claimInUnit(
+        context: ToolExecutionContext,
+        itemId: UUID,
+        agentId: String,
+        ttlSeconds: Int
+    ): ClaimResult =
+        context.unitOfWork.writeUnit(
+            "ClaimItemTool.claim",
+            onFault = { ClaimResult.DBError(itemId, IllegalStateException(LegacyFaults.message(it))) }
+        ) {
+            when (val claimed = context.workItemRepository().claim(itemId, agentId, ttlSeconds)) {
+                is ClaimResult.DBError -> UnitResult.Rollback(claimed)
+                else -> UnitResult.Commit(claimed)
+            }
+        }
 
     /** Logs when a caller-supplied `agentId` differs from the verified trusted identity. */
     private fun logAgentIdOverride(
@@ -737,7 +760,17 @@ Call only in claim-mode deployments, to take ownership before working an item.
             }
         }
 
-        return when (val result = context.workItemRepository().release(itemId!!, trustedAgentId)) {
+        val released =
+            context.unitOfWork.writeUnit(
+                "ClaimItemTool.release",
+                onFault = { ReleaseResult.DBError(itemId!!, IllegalStateException(LegacyFaults.message(it))) }
+            ) {
+                when (val release = context.workItemRepository().release(itemId!!, trustedAgentId)) {
+                    is ReleaseResult.DBError -> UnitResult.Rollback(release)
+                    else -> UnitResult.Commit(release)
+                }
+            }
+        return when (val result = released) {
             is ReleaseResult.Success ->
                 buildJsonObject {
                     put("itemId", JsonPrimitive(result.item.id.toString()))

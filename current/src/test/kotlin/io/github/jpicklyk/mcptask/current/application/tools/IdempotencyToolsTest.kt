@@ -57,7 +57,8 @@ class IdempotencyToolsTest {
         context =
             ToolExecutionContext(
                 repositoryProvider = repositoryProvider,
-                idempotencyCache = idempotencyCache
+                idempotencyCache = idempotencyCache,
+                unitOfWork = db.unitOfWork()
             )
     }
 
@@ -720,7 +721,8 @@ class IdempotencyToolsTest {
             val claimContext =
                 ToolExecutionContext(
                     repositoryProvider = mockRepo.provider,
-                    idempotencyCache = claimCache
+                    idempotencyCache = claimCache,
+                    unitOfWork = db.unitOfWork()
                 )
 
             val tool = ClaimItemTool()
@@ -774,7 +776,8 @@ class IdempotencyToolsTest {
             val claimContext =
                 ToolExecutionContext(
                     repositoryProvider = mockRepo.provider,
-                    idempotencyCache = claimCache
+                    idempotencyCache = claimCache,
+                    unitOfWork = db.unitOfWork()
                 )
 
             val tool = ClaimItemTool()
@@ -1005,7 +1008,8 @@ class IdempotencyToolsTest {
                 ToolExecutionContext(
                     repositoryProvider = repositoryProvider,
                     idempotencyCache = idempotencyCache,
-                    degradedModePolicy = DegradedModePolicy.REJECT
+                    degradedModePolicy = DegradedModePolicy.REJECT,
+                    unitOfWork = db.unitOfWork()
                 )
 
             val tool = ManageItemsTool()

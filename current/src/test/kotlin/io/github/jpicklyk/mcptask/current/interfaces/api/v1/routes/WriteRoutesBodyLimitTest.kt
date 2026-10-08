@@ -97,7 +97,7 @@ class WriteRoutesBodyLimitTest {
     fun `POST items with an overstated Content-Length is rejected 413`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -125,7 +125,7 @@ class WriteRoutesBodyLimitTest {
         testApplication {
             val repo = db.repositoryProvider()
             val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Patch Target", depth = 0)).getOrNull()!! }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.patch("/api/v1/items/${item.id}") {
@@ -151,7 +151,7 @@ class WriteRoutesBodyLimitTest {
         testApplication {
             val repo = db.repositoryProvider()
             val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Advance Target", depth = 0)).getOrNull()!! }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -177,7 +177,7 @@ class WriteRoutesBodyLimitTest {
         testApplication {
             val repo = db.repositoryProvider()
             val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Note Target", depth = 0)).getOrNull()!! }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/items/${item.id}/notes/impl-note") {
@@ -204,7 +204,7 @@ class WriteRoutesBodyLimitTest {
             val repo = db.repositoryProvider()
             val from = runBlocking { repo.workItemRepository().create(WorkItem(title = "From", depth = 0)).getOrNull()!! }
             runBlocking { repo.workItemRepository().create(WorkItem(title = "To", depth = 0)).getOrNull()!! }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/dependencies") {
@@ -237,7 +237,7 @@ class WriteRoutesBodyLimitTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/roots/${root.id}/config") {
@@ -262,7 +262,7 @@ class WriteRoutesBodyLimitTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configurePlanDocumentTestApp(repo) }
+            application { configurePlanDocumentTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/roots/${root.id}/plans/plan-a") {
@@ -290,7 +290,7 @@ class WriteRoutesBodyLimitTest {
     fun `POST items with a body of exactly MAX_JSON_WRITE_BODY_BYTES is not rejected as too large`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val prefix = "{\"title\":\""
             val suffix = "\"}"
@@ -333,7 +333,7 @@ class WriteRoutesBodyLimitTest {
     fun `POST items rejects a chunked body exceeding the 1 MiB cap via the bounded-read path`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val totalBytes = MAX_JSON_WRITE_BODY_BYTES + (256 * 1024) // ~256 KiB over cap, not gigabytes
             val content = CountingChunkedJsonContent(totalBytes = totalBytes)

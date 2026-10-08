@@ -2,8 +2,10 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushResult
 import io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushService
+import io.github.jpicklyk.mcptask.current.application.support.writeResult
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -87,11 +89,12 @@ private const val NON_MATCHING_FINGERPRINT_SENTINEL = "<malformed-if-match>"
  */
 fun Route.projectConfigRoutes(
     repositoryProvider: RepositoryProvider,
+    unitOfWork: UnitOfWork,
     configDocumentParser: ConfigDocumentParser = YamlConfigDocumentParser,
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
     val projectConfigRepo = repositoryProvider.projectConfigRepository()
-    val service = ProjectConfigPushService(repositoryProvider, configDocumentParser)
+    val service = ProjectConfigPushService(repositoryProvider, configDocumentParser, unitOfWork)
 
     route("/roots/{rootId}/config") {
         // ─── GET /roots/{rootId}/config ──────────────────────────────────────
@@ -275,7 +278,7 @@ fun Route.projectConfigRoutes(
                     return@delete
                 }
 
-                when (val result = projectConfigRepo.delete(rootId)) {
+                when (val result = unitOfWork.writeResult("ProjectConfigRoutes.delete") { projectConfigRepo.delete(rootId) }) {
                     is Result.Success -> {
                         if (!result.data) {
                             call.respond(

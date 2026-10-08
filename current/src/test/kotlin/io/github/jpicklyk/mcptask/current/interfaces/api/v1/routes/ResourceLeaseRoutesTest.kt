@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.support.UnscopedUnitOfWork
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
@@ -180,7 +181,13 @@ class ResourceLeaseGetRouteTest {
         io.ktor.server.testing.testApplication {
             val fake = FakeResourceLeaseRepository()
             fake.seedLease(actorId = "agent-99")
-            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+            application {
+                configureTestApp(routeBlock = {
+                    leaseTestProvider(fake).let { p ->
+                        resourceLeaseRoutes(p, UnscopedUnitOfWork(p))
+                    }
+                })
+            }
 
             val response =
                 client.get("/api/v1/resources/leases") {
@@ -201,7 +208,13 @@ class ResourceLeaseGetRouteTest {
         io.ktor.server.testing.testApplication {
             val fake = FakeResourceLeaseRepository()
             fake.seedLease(actorId = "agent-99")
-            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+            application {
+                configureTestApp(routeBlock = {
+                    leaseTestProvider(fake).let { p ->
+                        resourceLeaseRoutes(p, UnscopedUnitOfWork(p))
+                    }
+                })
+            }
 
             val response =
                 client.get("/api/v1/resources/leases") {
@@ -217,7 +230,13 @@ class ResourceLeaseGetRouteTest {
     fun `GET resources leases without any token returns 401`(): Unit =
         io.ktor.server.testing.testApplication {
             val fake = FakeResourceLeaseRepository()
-            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+            application {
+                configureTestApp(routeBlock = {
+                    leaseTestProvider(fake).let { p ->
+                        resourceLeaseRoutes(p, UnscopedUnitOfWork(p))
+                    }
+                })
+            }
 
             val response = client.get("/api/v1/resources/leases")
 
@@ -231,7 +250,13 @@ class ResourceLeaseDeleteRouteTest {
         io.ktor.server.testing.testApplication {
             val fake = FakeResourceLeaseRepository()
             fake.seedLease()
-            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+            application {
+                configureTestApp(routeBlock = {
+                    leaseTestProvider(fake).let { p ->
+                        resourceLeaseRoutes(p, UnscopedUnitOfWork(p))
+                    }
+                })
+            }
 
             val response =
                 client.delete("/api/v1/resources/leases/db-migration-lock") {
@@ -248,7 +273,13 @@ class ResourceLeaseDeleteRouteTest {
         io.ktor.server.testing.testApplication {
             val fake = FakeResourceLeaseRepository()
             fake.seedLease()
-            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+            application {
+                configureTestApp(routeBlock = {
+                    leaseTestProvider(fake).let { p ->
+                        resourceLeaseRoutes(p, UnscopedUnitOfWork(p))
+                    }
+                })
+            }
 
             val response =
                 client.delete("/api/v1/resources/leases/db-migration-lock") {
@@ -275,7 +306,13 @@ class ResourceLeaseDeleteRouteTest {
     fun `DELETE resources leases key for an unknown key returns 404`(): Unit =
         io.ktor.server.testing.testApplication {
             val fake = FakeResourceLeaseRepository()
-            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+            application {
+                configureTestApp(routeBlock = {
+                    leaseTestProvider(fake).let { p ->
+                        resourceLeaseRoutes(p, UnscopedUnitOfWork(p))
+                    }
+                })
+            }
 
             val response =
                 client.delete("/api/v1/resources/leases/no-such-key") {
@@ -289,7 +326,13 @@ class ResourceLeaseDeleteRouteTest {
     fun `DELETE resources leases key with an invalid key format returns 400`(): Unit =
         io.ktor.server.testing.testApplication {
             val fake = FakeResourceLeaseRepository()
-            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+            application {
+                configureTestApp(routeBlock = {
+                    leaseTestProvider(fake).let { p ->
+                        resourceLeaseRoutes(p, UnscopedUnitOfWork(p))
+                    }
+                })
+            }
 
             val response =
                 client.delete("/api/v1/resources/leases/Invalid_Key!") {
@@ -303,7 +346,13 @@ class ResourceLeaseDeleteRouteTest {
     fun `DELETE resources leases key exceeding max length returns 400`(): Unit =
         io.ktor.server.testing.testApplication {
             val fake = FakeResourceLeaseRepository()
-            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+            application {
+                configureTestApp(routeBlock = {
+                    leaseTestProvider(fake).let { p ->
+                        resourceLeaseRoutes(p, UnscopedUnitOfWork(p))
+                    }
+                })
+            }
 
             val tooLong = "a".repeat(129)
             val response =
@@ -321,7 +370,13 @@ class ResourceLeaseHistoryRouteTest {
         io.ktor.server.testing.testApplication {
             val fake = FakeResourceLeaseRepository()
             fake.seedLease(actorId = "agent-77")
-            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+            application {
+                configureTestApp(routeBlock = {
+                    leaseTestProvider(fake).let { p ->
+                        resourceLeaseRoutes(p, UnscopedUnitOfWork(p))
+                    }
+                })
+            }
 
             val response =
                 client.get("/api/v1/resources/leases/history") {
@@ -342,7 +397,13 @@ class ResourceLeaseHistoryRouteTest {
         io.ktor.server.testing.testApplication {
             val fake = FakeResourceLeaseRepository()
             fake.seedLease(actorId = "agent-77")
-            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+            application {
+                configureTestApp(routeBlock = {
+                    leaseTestProvider(fake).let { p ->
+                        resourceLeaseRoutes(p, UnscopedUnitOfWork(p))
+                    }
+                })
+            }
 
             val response =
                 client.get("/api/v1/resources/leases/history") {
@@ -358,7 +419,13 @@ class ResourceLeaseHistoryRouteTest {
     fun `GET resources leases history without any token returns 401`(): Unit =
         io.ktor.server.testing.testApplication {
             val fake = FakeResourceLeaseRepository()
-            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+            application {
+                configureTestApp(routeBlock = {
+                    leaseTestProvider(fake).let { p ->
+                        resourceLeaseRoutes(p, UnscopedUnitOfWork(p))
+                    }
+                })
+            }
 
             val response = client.get("/api/v1/resources/leases/history")
 
@@ -369,7 +436,13 @@ class ResourceLeaseHistoryRouteTest {
     fun `GET resources leases history with an invalid at value returns 400`(): Unit =
         io.ktor.server.testing.testApplication {
             val fake = FakeResourceLeaseRepository()
-            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+            application {
+                configureTestApp(routeBlock = {
+                    leaseTestProvider(fake).let { p ->
+                        resourceLeaseRoutes(p, UnscopedUnitOfWork(p))
+                    }
+                })
+            }
 
             val response =
                 client.get("/api/v1/resources/leases/history?at=not-a-timestamp") {
@@ -383,7 +456,13 @@ class ResourceLeaseHistoryRouteTest {
     fun `GET resources leases history with an invalid key returns 400`(): Unit =
         io.ktor.server.testing.testApplication {
             val fake = FakeResourceLeaseRepository()
-            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+            application {
+                configureTestApp(routeBlock = {
+                    leaseTestProvider(fake).let { p ->
+                        resourceLeaseRoutes(p, UnscopedUnitOfWork(p))
+                    }
+                })
+            }
 
             val response =
                 client.get("/api/v1/resources/leases/history?key=Invalid_Key!") {
@@ -418,7 +497,13 @@ class ResourceLeaseHistoryRouteTest {
                     acquiredAt = now.minusSeconds(900),
                     expiresAt = now.plusSeconds(900),
                 )
-            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+            application {
+                configureTestApp(routeBlock = {
+                    leaseTestProvider(fake).let { p ->
+                        resourceLeaseRoutes(p, UnscopedUnitOfWork(p))
+                    }
+                })
+            }
 
             val at = now.minusSeconds(2400) // inside A's held window, before B even acquired
             val response =
@@ -453,7 +538,13 @@ class ResourceLeaseHistoryRouteTest {
                     acquiredAt = now.minusSeconds(60),
                     expiresAt = now.plusSeconds(600),
                 )
-            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+            application {
+                configureTestApp(routeBlock = {
+                    leaseTestProvider(fake).let { p ->
+                        resourceLeaseRoutes(p, UnscopedUnitOfWork(p))
+                    }
+                })
+            }
 
             val response =
                 client.get("/api/v1/resources/leases/history?limit=1") {
@@ -487,7 +578,13 @@ class ResourceLeaseHistoryRouteTest {
                     acquiredAt = now.minusSeconds(60),
                     expiresAt = now.plusSeconds(600),
                 )
-            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+            application {
+                configureTestApp(routeBlock = {
+                    leaseTestProvider(fake).let { p ->
+                        resourceLeaseRoutes(p, UnscopedUnitOfWork(p))
+                    }
+                })
+            }
 
             val response =
                 client.get("/api/v1/resources/leases/history?limit=0") {
@@ -505,7 +602,13 @@ class ResourceLeaseHistoryRouteTest {
         io.ktor.server.testing.testApplication {
             val fake = FakeResourceLeaseRepository()
             fake.seedLease()
-            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+            application {
+                configureTestApp(routeBlock = {
+                    leaseTestProvider(fake).let { p ->
+                        resourceLeaseRoutes(p, UnscopedUnitOfWork(p))
+                    }
+                })
+            }
 
             val response =
                 client.get("/api/v1/resources/leases/history?limit=99999") {

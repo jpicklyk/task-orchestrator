@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -74,9 +75,6 @@ class AdvanceServiceTerminalClaimClearTest {
             updatedItems.add(item)
             Result.Success(item)
         }
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
-        }
         coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
         coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
         every { depRepo.findByToItemId(any()) } returns emptyList()
@@ -119,6 +117,7 @@ class AdvanceServiceTerminalClaimClearTest {
             noteRepository = noteRepo,
             statusLabelService = NoOpStatusLabelService,
             schemaResolver = { null },
+            unitOfWork = unscopedUnitOfWork(),
         )
 
     private fun assertAllClaimFieldsNull(item: WorkItem) {

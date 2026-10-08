@@ -84,7 +84,7 @@ class PatchReparentScopeTest {
                     Triple(r, xItem, pItem)
                 }
             val authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))
-            application { configureWriteTestApp(repo, authConfig = authConfig) }
+            application { configureWriteTestApp(repo, authConfig = authConfig, unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""
             val response =
@@ -119,7 +119,7 @@ class PatchReparentScopeTest {
                     Pair(xItem, qItem)
                 }
             // makeWriteAuthConfig() with no scopeRootIds -> rootIds = null -> unrestricted.
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig()) }
+            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(), unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""
             val response =
@@ -153,7 +153,7 @@ class PatchReparentScopeTest {
                     repo.workItemRepository().update(r0.copy(rootId = r0.id)).getOrNull()!!
                 }
             val authConfig = makeWriteAuthConfig(scopeRootIds = setOf(x.id))
-            application { configureWriteTestApp(repo, authConfig = authConfig) }
+            application { configureWriteTestApp(repo, authConfig = authConfig, unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""
             val response =
@@ -192,7 +192,7 @@ class PatchReparentScopeTest {
                     Triple(r, xItem, qItem)
                 }
             val authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))
-            application { configureWriteTestApp(repo, authConfig = authConfig) }
+            application { configureWriteTestApp(repo, authConfig = authConfig, unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""
             val response =
@@ -261,7 +261,7 @@ class PatchReparentScopeTest {
                 ApiAuthConfig.Bearer(
                     tokens = base.tokens + (HashBytes(sha256(tagScopedToken)) to tagScopedPrincipal),
                 )
-            application { configureWriteTestApp(repo, authConfig = authConfig) }
+            application { configureWriteTestApp(repo, authConfig = authConfig, unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""
             val response =
@@ -289,7 +289,7 @@ class PatchReparentScopeTest {
         testApplication {
             val repo = db.repositoryProvider()
             val x = runBlocking { repo.workItemRepository().create(WorkItem(title = "X S6", depth = 0)).getOrNull()!! }
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig()) }
+            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(), unitOfWork = db.unitOfWork()) }
 
             val missingParentId = UUID.randomUUID()
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""
@@ -327,7 +327,7 @@ class PatchReparentScopeTest {
                     Pair(r, xItem)
                 }
             val authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))
-            application { configureWriteTestApp(repo, authConfig = authConfig) }
+            application { configureWriteTestApp(repo, authConfig = authConfig, unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""
             val response =
@@ -365,7 +365,7 @@ class PatchReparentScopeTest {
         testApplication {
             val repo = db.repositoryProvider()
             val x = runBlocking { repo.workItemRepository().create(WorkItem(title = "X S8a", depth = 0)).getOrNull()!! }
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig()) }
+            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(), unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""
             val response =
@@ -399,7 +399,7 @@ class PatchReparentScopeTest {
                             .getOrNull()!!
                     Pair(xItem, c)
                 }
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig()) }
+            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(), unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""
             val response =
@@ -450,7 +450,7 @@ class PatchReparentScopeTest {
                     listOf(r, xItem, d, qItem)
                 }
             val authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))
-            application { configureWriteTestApp(repo, authConfig = authConfig) }
+            application { configureWriteTestApp(repo, authConfig = authConfig, unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""
             val response =
@@ -499,7 +499,7 @@ class PatchReparentScopeTest {
                     Triple(r, xItem, qItem)
                 }
             val authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))
-            application { configureWriteTestApp(repo, authConfig = authConfig) }
+            application { configureWriteTestApp(repo, authConfig = authConfig, unitOfWork = db.unitOfWork()) }
 
             val idempotencyKey = UUID.randomUUID().toString()
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""

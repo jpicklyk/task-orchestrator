@@ -42,7 +42,7 @@ class PlanDocumentServiceTest {
             every { repositoryProvider.workItemRepository() } returns workItemRepository
             every { repositoryProvider.planDocumentRepository() } returns planDocumentRepository
 
-            service = PlanDocumentService(repositoryProvider)
+            service = PlanDocumentService(repositoryProvider, db.unitOfWork())
 
             rootId = (workItemRepository.create(WorkItem(title = "Root", type = "project")) as Result.Success).data.id
         }

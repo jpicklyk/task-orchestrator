@@ -52,7 +52,7 @@ class DependencyDirectionRestTest {
                     )
                     Pair(x, y)
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             // B relates_to A — RELATES_TO has no blocking semantics and must not be cycle-checked
             val response =
@@ -108,7 +108,7 @@ class DependencyDirectionRestTest {
                     val y = repo.workItemRepository().create(WorkItem(title = "B", depth = 0)).getOrNull()!!
                     Pair(x, y)
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/dependencies") {

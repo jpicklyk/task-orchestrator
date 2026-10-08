@@ -144,7 +144,9 @@ class ItemPatchConflictMappingTest {
                         NoOpNoteSchemaService,
                         statusLabelService = NoOpStatusLabelService,
                         perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()),
+                        unitOfWork = db.unitOfWork()
                     ).advanceServiceFactory(),
+                    db.unitOfWork(),
                 )
             }
         }

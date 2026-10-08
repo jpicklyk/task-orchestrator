@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
@@ -81,7 +82,10 @@ private class FailOnIdRepositoryProvider(
  * so a [RepositoryProvider] wrapper — [FailOnIdRepositoryProvider] — can be installed for S8.
  * Mirrors [AdvanceRouteResourceLeaseTest]'s `configureLeaseTestApp`.
  */
-private fun Application.configureDeleteLeaseTestApp(provider: RepositoryProvider) {
+private fun Application.configureDeleteLeaseTestApp(
+    provider: RepositoryProvider,
+    unitOfWork: UnitOfWork
+) {
     install(ContentNegotiation) { json(McpJson) }
     install(SSE)
     val authConfig = makeWriteAuthConfig()
@@ -103,7 +107,9 @@ private fun Application.configureDeleteLeaseTestApp(provider: RepositoryProvider
                     NoOpNoteSchemaService,
                     statusLabelService = NoOpStatusLabelService,
                     perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                    unitOfWork = unitOfWork
                 ).advanceServiceFactory(),
+                unitOfWork,
             )
         }
     }
@@ -136,7 +142,7 @@ class ItemDeleteLeaseReleaseRouteTest {
     @Test
     fun `S6 REST DELETE of a leased leaf returns 204 and closes its lease interval as released`(): Unit =
         testApplication {
-            application { configureWriteTestApp(repositoryProvider) }
+            application { configureWriteTestApp(repositoryProvider, unitOfWork = db.unitOfWork()) }
             val item =
                 runBlocking {
                     repositoryProvider.workItemRepository().create(WorkItem(title = "Leased Leaf", depth = 0)).getOrNull()!!
@@ -172,7 +178,12 @@ class ItemDeleteLeaseReleaseRouteTest {
                 runBlocking { leaseRepo.acquireAll(item.id, "agent-a", listOf("k-s8" to 900)) },
             )
             val failing = FailOnIdResourceLeaseRepository(leaseRepo, item.id)
-            application { configureDeleteLeaseTestApp(FailOnIdRepositoryProvider(repositoryProvider, failing)) }
+            application {
+                configureDeleteLeaseTestApp(
+                    FailOnIdRepositoryProvider(repositoryProvider, failing),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val response =
                 client.delete("/api/v1/items/${item.id}") {
@@ -205,7 +216,7 @@ class ItemDeleteLeaseReleaseRouteTest {
     @Test
     fun `B1 REST DELETE of a leased parent without recursive is refused with 409 has_children and touches no lease`(): Unit =
         testApplication {
-            application { configureWriteTestApp(repositoryProvider) }
+            application { configureWriteTestApp(repositoryProvider, unitOfWork = db.unitOfWork()) }
             val parent =
                 runBlocking {
                     repositoryProvider.workItemRepository().create(WorkItem(title = "Leased Parent", depth = 0)).getOrNull()!!

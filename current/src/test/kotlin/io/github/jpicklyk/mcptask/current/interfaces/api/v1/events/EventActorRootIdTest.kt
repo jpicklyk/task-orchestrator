@@ -22,6 +22,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
+import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -92,6 +93,7 @@ class EventActorRootIdTest {
             repositoryProvider = decorated(bus),
             actorVerifier = NoOpActorVerifier,
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
+            unitOfWork = db.unitOfWork(),
         )
 
     private fun List<ApiEvent>.one(
@@ -434,7 +436,7 @@ class EventActorRootIdTest {
             lateinit var child: WorkItem
             // The actor scope closes BEFORE the transaction commits, so a flush-time context read
             // would see no actor: the assertion below can only pass if capture happened at enqueue.
-            provider.workItemRepository().inTransaction {
+            db.unitOfWork().inUnit {
                 child = withEventActor(agentA) { provider.newChild("C-s5a", root) }
             }
 
@@ -453,7 +455,7 @@ class EventActorRootIdTest {
 
             var threw = false
             try {
-                provider.workItemRepository().inTransaction {
+                db.unitOfWork().inUnit {
                     withEventActor(agentA) { provider.newRoot("X-s5b") }
                     throw IllegalStateException("forced rollback s5b")
                 }

@@ -134,7 +134,7 @@ class DeleteItemLeaseReleaseTest {
 
     @org.junit.jupiter.api.BeforeEach
     fun setUpContext() {
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
     }
 
     private fun idsArray(vararg ids: UUID) = JsonArray(ids.map { JsonPrimitive(it.toString()) })
@@ -257,7 +257,8 @@ class DeleteItemLeaseReleaseTest {
             )
 
             val failing = LeaseFailOnIdResourceLeaseRepository(leaseRepo, tree.grandchild.id)
-            val failingContext = ToolExecutionContext(LeaseFailOnIdRepositoryProvider(repositoryProvider, failing))
+            val failingContext =
+                ToolExecutionContext(LeaseFailOnIdRepositoryProvider(repositoryProvider, failing), unitOfWork = db.unitOfWork())
 
             val response = handler.execute(idsArray(tree.root.id), true, failingContext) as JsonObject
             val data = response["data"] as JsonObject
@@ -290,7 +291,11 @@ class DeleteItemLeaseReleaseTest {
             assertIs<LeaseAcquireResult.Success>(leaseRepo.acquireAll(item.id, "agent-a", listOf("k-b1a" to 900)))
 
             val failingWorkItemRepo = DeleteFailOnIdWorkItemRepository(repositoryProvider.workItemRepository(), item.id)
-            val failingContext = ToolExecutionContext(DeleteFailOnIdRepositoryProvider(repositoryProvider, failingWorkItemRepo))
+            val failingContext =
+                ToolExecutionContext(
+                    DeleteFailOnIdRepositoryProvider(repositoryProvider, failingWorkItemRepo),
+                    unitOfWork = db.unitOfWork()
+                )
 
             val response = handler.execute(idsArray(item.id), false, failingContext) as JsonObject
             val data = response["data"] as JsonObject
@@ -325,7 +330,11 @@ class DeleteItemLeaseReleaseTest {
             )
 
             val failingWorkItemRepo = DeleteFailOnIdWorkItemRepository(repositoryProvider.workItemRepository(), tree.root.id)
-            val failingContext = ToolExecutionContext(DeleteFailOnIdRepositoryProvider(repositoryProvider, failingWorkItemRepo))
+            val failingContext =
+                ToolExecutionContext(
+                    DeleteFailOnIdRepositoryProvider(repositoryProvider, failingWorkItemRepo),
+                    unitOfWork = db.unitOfWork()
+                )
 
             val response = handler.execute(idsArray(tree.root.id), true, failingContext) as JsonObject
             val data = response["data"] as JsonObject

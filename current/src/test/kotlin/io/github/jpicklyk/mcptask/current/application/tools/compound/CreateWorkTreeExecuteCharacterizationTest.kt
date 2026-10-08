@@ -13,7 +13,9 @@ import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.CountingUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.sqlite.assertNoOutsideUnitWrites
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -71,13 +73,11 @@ class CreateWorkTreeExecuteCharacterizationTest {
     ) : WorkItemRepository by delegate {
         private var hasFired = false
 
-        override suspend fun inTransaction(block: suspend () -> Unit) {
-            delegate.inTransaction {
-                if (!hasFired) {
-                    hasFired = true
-                    mutate(delegate)
-                }
-                block()
+        /** Fires [mutate] once, from the [CountingUnitOfWork] hook at the first top-level unit's open. */
+        suspend fun fireOnce() {
+            if (!hasFired) {
+                hasFired = true
+                mutate(delegate)
             }
         }
 
@@ -112,11 +112,14 @@ class CreateWorkTreeExecuteCharacterizationTest {
         repositoryProvider = db.repositoryProvider()
 
         tool = CreateWorkTreeTool()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
     }
 
     private fun contextWith(workItemRepo: WorkItemRepository) =
-        ToolExecutionContext(WorkItemRepoOverrideProvider(repositoryProvider, workItemRepo))
+        ToolExecutionContext(
+            WorkItemRepoOverrideProvider(repositoryProvider, workItemRepo),
+            unitOfWork = CountingUnitOfWork(db.unitOfWork()) { (workItemRepo as? MutateOnFirstTransactionRepository)?.fireOnce() }
+        )
 
     private fun childSpec(
         ref: String,
@@ -173,7 +176,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                     put("deps", buildJsonArray { add(depSpec("c1", "c2", type = "DEPENDS")) })
                 }
 
-            val result = tool.execute(params, context) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(params, context) } as JsonObject
             assertFalse(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val error = errorOf(result)
             assertEquals("VALIDATION_ERROR", error["code"]!!.jsonPrimitive.content)
@@ -200,7 +203,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                     put("deps", buildJsonArray { add(depSpec("c1", "c2", type = "is-blocked-by")) })
                 }
 
-            val result = tool.execute(params, context) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(params, context) } as JsonObject
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val depsArr = (result["data"] as JsonObject)["dependencies"] as JsonArray
             assertEquals(1, depsArr.size)
@@ -229,7 +232,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                     put("deps", buildJsonArray { add(depSpec("root", "ghost")) })
                 }
 
-            val result = tool.execute(params, context) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(params, context) } as JsonObject
             assertFalse(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val error = errorOf(result)
             assertEquals("VALIDATION_ERROR", error["code"]!!.jsonPrimitive.content)
@@ -267,7 +270,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                     )
                 }
 
-            val result = tool.execute(params, context) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(params, context) } as JsonObject
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val depsArr = (result["data"] as JsonObject)["dependencies"] as JsonArray
             assertEquals(2, depsArr.size)
@@ -305,7 +308,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                     )
                 }
 
-            val result = tool.execute(params, context) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(params, context) } as JsonObject
             assertFalse(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val error = errorOf(result)
             assertEquals("INTERNAL_ERROR", error["code"]!!.jsonPrimitive.content)
@@ -331,7 +334,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                     put("children", buildJsonArray { add(childSpec("c1", "C1", tags = "Bad Tag")) })
                 }
 
-            val result = tool.execute(params, context) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(params, context) } as JsonObject
             assertFalse(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val error = errorOf(result)
             assertEquals("VALIDATION_ERROR", error["code"]!!.jsonPrimitive.content)
@@ -356,7 +359,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                     )
                 }
 
-            val result = tool.execute(params, context) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(params, context) } as JsonObject
             assertFalse(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val error = errorOf(result)
             assertEquals("VALIDATION_ERROR", error["code"]!!.jsonPrimitive.content)
@@ -384,7 +387,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                     put("parentId", JsonPrimitive(p.id.toString()))
                 }
 
-            val result = tool.execute(params, contextWith(wrapped)) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(params, contextWith(wrapped)) } as JsonObject
             assertFalse(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val error = errorOf(result)
             assertEquals("RESOURCE_NOT_FOUND", error["code"]!!.jsonPrimitive.content)
@@ -408,7 +411,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                     put("children", buildJsonArray { add(childSpec("c1", "S9 Orphan Child")) })
                 }
 
-            val result = tool.execute(params, contextWith(wrapped)) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(params, contextWith(wrapped)) } as JsonObject
             assertFalse(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val error = errorOf(result)
             assertEquals("RESOURCE_NOT_FOUND", error["code"]!!.jsonPrimitive.content)
@@ -454,7 +457,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                     )
                 }
 
-            val result = tool.execute(params, contextWith(wrapped)) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(params, contextWith(wrapped)) } as JsonObject
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
 
             val data = result["data"] as JsonObject
@@ -500,7 +503,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                     put("docRef", buildJsonObject { put("slug", JsonPrimitive("nope")) })
                 }
 
-            val result = tool.execute(params, context) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(params, context) } as JsonObject
             assertFalse(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val error = errorOf(result)
             assertEquals("RESOURCE_NOT_FOUND", error["code"]!!.jsonPrimitive.content)
@@ -541,7 +544,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                     put("docRef", buildJsonObject { put("slug", JsonPrimitive("my-plan")) })
                 }
 
-            val result = tool.execute(params, context) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(params, context) } as JsonObject
             assertFalse(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val error = errorOf(result)
             assertEquals("VALIDATION_ERROR", error["code"]!!.jsonPrimitive.content)
@@ -571,7 +574,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                     put("docRef", buildJsonObject { put("slug", JsonPrimitive("my-plan")) })
                 }
 
-            val result = tool.execute(params, context) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(params, context) } as JsonObject
             assertFalse(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val error = errorOf(result)
             assertEquals("VALIDATION_ERROR", error["code"]!!.jsonPrimitive.content)
@@ -594,7 +597,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                 override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
                     if (tags.contains("task")) schemaEntries else null
             }
-        return ToolExecutionContext(repositoryProvider, noteSchemaService)
+        return ToolExecutionContext(repositoryProvider, noteSchemaService, unitOfWork = db.unitOfWork())
     }
 
     @Test
@@ -635,7 +638,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                     )
                 }
 
-            val result = tool.execute(params, taskSchemaContext()) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(params, taskSchemaContext()) } as JsonObject
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
 
             val data = result["data"] as JsonObject
@@ -689,7 +692,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                     )
                 }
 
-            val result = tool.execute(params, taskSchemaContext()) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(params, taskSchemaContext()) } as JsonObject
             assertFalse(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val error = errorOf(result)
             assertEquals("VALIDATION_ERROR", error["code"]!!.jsonPrimitive.content)
@@ -742,7 +745,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                     )
                 }
 
-            val result = tool.execute(params, context) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(params, context) } as JsonObject
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
 
             val data = result["data"] as JsonObject
@@ -787,7 +790,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                     )
                 }
 
-            val result = tool.execute(params, taskSchemaContext()) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(params, taskSchemaContext()) } as JsonObject
             assertFalse(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val error = errorOf(result)
             assertEquals("VALIDATION_ERROR", error["code"]!!.jsonPrimitive.content)

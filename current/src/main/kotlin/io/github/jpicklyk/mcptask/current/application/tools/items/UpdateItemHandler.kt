@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
 import io.github.jpicklyk.mcptask.current.application.service.PlacedWriteOutcome
 import io.github.jpicklyk.mcptask.current.application.service.ReparentCheck
@@ -70,7 +71,7 @@ class UpdateItemHandler(
                     }
 
                 val spec = parseUpdateFields(itemObj, itemId, id, existing, sharedTraits, context, repo)
-                val updateResult = persistWithPlacement(id, itemId, existing, spec, repo)
+                val updateResult = persistWithPlacement(id, itemId, existing, spec, repo, context.unitOfWork)
 
                 when (updateResult) {
                     is Result.Success -> {
@@ -274,7 +275,8 @@ class UpdateItemHandler(
         itemId: String,
         existing: WorkItem,
         spec: ParsedUpdateSpec,
-        repo: WorkItemRepository
+        repo: WorkItemRepository,
+        unitOfWork: UnitOfWork
     ): Result<WorkItem> {
         // Builds the fully-updated WorkItem given a resolved placement, applying all the
         // other partial-update fields extracted above via the update builder (monotonic
@@ -306,7 +308,7 @@ class UpdateItemHandler(
         return when (
             val outcome =
                 WorkItemPlacementService(repo, hierarchyValidator)
-                    .update(existing, spec.newParentId, spec.parentChanged) { depth, rootId ->
+                    .update(unitOfWork, existing, spec.newParentId, spec.parentChanged) { depth, rootId ->
                         buildUpdatedItem(depth, rootId)
                     }
         ) {

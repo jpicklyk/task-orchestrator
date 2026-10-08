@@ -3,6 +3,10 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.UnitResult
+import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
 import io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.ProjectConfig
@@ -29,6 +33,8 @@ import java.util.UUID
 class ProjectConfigPushService(
     private val repositoryProvider: RepositoryProvider,
     private val parser: ConfigDocumentParser,
+    /** The transaction boundary: each write ([push]'s guarded upsert, [delete]) is ONE write unit. */
+    private val unitOfWork: UnitOfWork,
 ) {
     /**
      * Validates and persists [configYaml] for [rootItemId]. See [ProjectConfigPushResult] for the
@@ -102,18 +108,28 @@ class ProjectConfigPushService(
 
         val projectConfigRepository = repositoryProvider.projectConfigRepository()
 
-        return when (
-            val result =
-                projectConfigRepository.upsertGuarded(
-                    rootItemId = rootItemId,
-                    configYaml = configYaml,
-                    // Unlike rejectSuperseded, expectedFingerprint is NOT skipped by force=true:
-                    // force bypasses the rootId-mismatch and fast-forward guards only, not an
-                    // explicit If-Match precondition the caller supplied for THIS request.
-                    expectedFingerprint = expectedFingerprint,
-                    rejectSuperseded = !force,
-                )
-        ) {
+        val result =
+            unitOfWork.writeUnit(
+                "ProjectConfigPushService.push",
+                onFault = { Result.Error(LegacyFaults.toRepositoryError(it)) }
+            ) {
+                when (
+                    val upserted =
+                        projectConfigRepository.upsertGuarded(
+                            rootItemId = rootItemId,
+                            configYaml = configYaml,
+                            // Unlike rejectSuperseded, expectedFingerprint is NOT skipped by force=true:
+                            // force bypasses the rootId-mismatch and fast-forward guards only, not an
+                            // explicit If-Match precondition the caller supplied for THIS request.
+                            expectedFingerprint = expectedFingerprint,
+                            rejectSuperseded = !force,
+                        )
+                ) {
+                    is Result.Success -> UnitResult.Commit(upserted)
+                    is Result.Error -> UnitResult.Rollback(upserted)
+                }
+            }
+        return when (result) {
             is Result.Success ->
                 when (val outcome = result.data) {
                     is GuardedUpsertOutcome.Applied ->
@@ -171,7 +187,16 @@ class ProjectConfigPushService(
         }
 
     /** Deletes the stored config row for [rootItemId]. Returns true when a row was deleted. */
-    suspend fun delete(rootItemId: UUID): Result<Boolean> = repositoryProvider.projectConfigRepository().delete(rootItemId)
+    suspend fun delete(rootItemId: UUID): Result<Boolean> =
+        unitOfWork.writeUnit(
+            "ProjectConfigPushService.delete",
+            onFault = { Result.Error(LegacyFaults.toRepositoryError(it)) }
+        ) {
+            when (val deleted = repositoryProvider.projectConfigRepository().delete(rootItemId)) {
+                is Result.Success -> UnitResult.Commit(deleted)
+                is Result.Error -> UnitResult.Rollback(deleted)
+            }
+        }
 
     /**
      * Parses [configYaml] the same way [io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService]

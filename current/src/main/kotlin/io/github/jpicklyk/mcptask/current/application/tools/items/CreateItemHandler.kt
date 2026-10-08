@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
 import io.github.jpicklyk.mcptask.current.application.service.PlacedWriteOutcome
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemPlacementService
@@ -58,7 +59,7 @@ class CreateItemHandler(
                         ?: throw ToolValidationException("Item at index $index must be a JSON object")
 
                 val spec = parseItemSpec(itemObj, index, sharedParentId, sharedTraits, context, repo)
-                val createResult = createWithPlacement(spec, index, repo)
+                val createResult = createWithPlacement(spec, index, repo, context.unitOfWork)
 
                 when (createResult) {
                     is Result.Success -> {
@@ -270,11 +271,12 @@ class CreateItemHandler(
     private suspend fun createWithPlacement(
         spec: ParsedCreateSpec,
         index: Int,
-        repo: WorkItemRepository
+        repo: WorkItemRepository,
+        unitOfWork: UnitOfWork
     ): Result<WorkItem> =
         when (
             val outcome =
-                WorkItemPlacementService(repo, hierarchyValidator).create(spec.itemId, spec.parentId) { depth, rootId ->
+                WorkItemPlacementService(repo, hierarchyValidator).create(unitOfWork, spec.itemId, spec.parentId) { depth, rootId ->
                     spec.toWorkItem(parentId = spec.parentId, rootId = rootId, depth = depth)
                 }
         ) {

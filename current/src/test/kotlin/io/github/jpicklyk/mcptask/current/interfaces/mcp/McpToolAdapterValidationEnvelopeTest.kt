@@ -88,7 +88,7 @@ class McpToolAdapterValidationEnvelopeTest {
             closeInMemoryPair(client, server)
         }
 
-    private val dummyContext by lazy { ToolExecutionContext(repositoryProvider = db.repositoryProvider()) }
+    private val dummyContext by lazy { ToolExecutionContext(repositoryProvider = db.repositoryProvider(), unitOfWork = db.unitOfWork()) }
 
     // ──────────────────────────────────────────────
     // Fixtures

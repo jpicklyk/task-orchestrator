@@ -87,7 +87,8 @@ class ToolExecutionContext(
             dependencyRepository(),
             noteRepository(),
             repositoryProvider.resourceLeaseRepository(),
-            configResolver
+            configResolver,
+            unitOfWork
         )
     }
 

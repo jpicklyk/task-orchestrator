@@ -56,7 +56,7 @@ class ProjectConfigRoutesSchemaWarningsTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val yaml =
                 """
@@ -100,7 +100,7 @@ class ProjectConfigRoutesSchemaWarningsTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val yaml =
                 """

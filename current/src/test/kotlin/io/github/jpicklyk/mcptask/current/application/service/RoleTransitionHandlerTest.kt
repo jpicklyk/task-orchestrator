@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.BeforeEach
@@ -539,10 +540,6 @@ class RoleTransitionHandlerTest {
 
         @BeforeEach
         fun setUpInTransaction() {
-            // inTransaction delegates to its block directly — no real DB transaction in unit tests
-            coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-                firstArg<suspend () -> Unit>().invoke()
-            }
         }
 
         @Test
@@ -560,7 +557,8 @@ class RoleTransitionHandlerTest {
                         summary = "Beginning work",
                         statusLabel = null,
                         workItemRepository = workItemRepo,
-                        roleTransitionRepository = roleTransitionRepo
+                        roleTransitionRepository = roleTransitionRepo,
+                        unitOfWork = unscopedUnitOfWork()
                     )
 
                 assertTrue(result.success)
@@ -593,7 +591,8 @@ class RoleTransitionHandlerTest {
                         summary = null,
                         statusLabel = null,
                         workItemRepository = workItemRepo,
-                        roleTransitionRepository = roleTransitionRepo
+                        roleTransitionRepository = roleTransitionRepo,
+                        unitOfWork = unscopedUnitOfWork()
                     )
 
                 assertTrue(result.success)
@@ -617,7 +616,8 @@ class RoleTransitionHandlerTest {
                         summary = "Unblocked",
                         statusLabel = null,
                         workItemRepository = workItemRepo,
-                        roleTransitionRepository = roleTransitionRepo
+                        roleTransitionRepository = roleTransitionRepo,
+                        unitOfWork = unscopedUnitOfWork()
                     )
 
                 assertTrue(result.success)
@@ -642,7 +642,8 @@ class RoleTransitionHandlerTest {
                         summary = "No longer needed",
                         statusLabel = "cancelled",
                         workItemRepository = workItemRepo,
-                        roleTransitionRepository = roleTransitionRepo
+                        roleTransitionRepository = roleTransitionRepo,
+                        unitOfWork = unscopedUnitOfWork()
                     )
 
                 assertTrue(result.success)
@@ -668,7 +669,8 @@ class RoleTransitionHandlerTest {
                         summary = null,
                         statusLabel = null,
                         workItemRepository = workItemRepo,
-                        roleTransitionRepository = roleTransitionRepo
+                        roleTransitionRepository = roleTransitionRepo,
+                        unitOfWork = unscopedUnitOfWork()
                     )
 
                 assertFalse(result.success)
@@ -699,7 +701,8 @@ class RoleTransitionHandlerTest {
                         workItemRepository = workItemRepo,
                         roleTransitionRepository = roleTransitionRepo,
                         actorClaim = actorClaim,
-                        verification = verification
+                        verification = verification,
+                        unitOfWork = unscopedUnitOfWork()
                     )
 
                 assertTrue(result.success)
@@ -729,7 +732,8 @@ class RoleTransitionHandlerTest {
                         summary = null,
                         statusLabel = null,
                         workItemRepository = workItemRepo,
-                        roleTransitionRepository = roleTransitionRepo
+                        roleTransitionRepository = roleTransitionRepo,
+                        unitOfWork = unscopedUnitOfWork()
                     )
 
                 assertTrue(result.success)
@@ -750,9 +754,6 @@ class RoleTransitionHandlerTest {
 
         @BeforeEach
         fun setUp() {
-            coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-                firstArg<suspend () -> Unit>().invoke()
-            }
         }
 
         // -------------------------------------------------------------------
@@ -777,7 +778,8 @@ class RoleTransitionHandlerTest {
                         summary = "cancelled with custom label",
                         statusLabel = "aborted", // custom non-default label
                         workItemRepository = workItemRepo,
-                        roleTransitionRepository = roleTransitionRepo
+                        roleTransitionRepository = roleTransitionRepo,
+                        unitOfWork = unscopedUnitOfWork()
                     )
 
                 assertTrue(result.success)
@@ -806,7 +808,8 @@ class RoleTransitionHandlerTest {
                         summary = null,
                         statusLabel = "cancelled", // misleading label, but trigger is "complete"
                         workItemRepository = workItemRepo,
-                        roleTransitionRepository = roleTransitionRepo
+                        roleTransitionRepository = roleTransitionRepo,
+                        unitOfWork = unscopedUnitOfWork()
                     )
 
                 assertTrue(result.success)
@@ -835,7 +838,8 @@ class RoleTransitionHandlerTest {
                         summary = null,
                         statusLabel = null,
                         workItemRepository = workItemRepo,
-                        roleTransitionRepository = roleTransitionRepo
+                        roleTransitionRepository = roleTransitionRepo,
+                        unitOfWork = unscopedUnitOfWork()
                     )
 
                 assertTrue(result.success)
@@ -867,7 +871,8 @@ class RoleTransitionHandlerTest {
                         summary = null,
                         statusLabel = null,
                         workItemRepository = workItemRepo,
-                        roleTransitionRepository = roleTransitionRepo
+                        roleTransitionRepository = roleTransitionRepo,
+                        unitOfWork = unscopedUnitOfWork()
                     )
 
                 // Must be a failure — no partial success when the audit write fails
@@ -899,7 +904,8 @@ class RoleTransitionHandlerTest {
                         statusLabel = null,
                         workItemRepository = workItemRepo,
                         roleTransitionRepository = roleTransitionRepo,
-                        roleChangedAt = fixedTimestamp
+                        roleChangedAt = fixedTimestamp,
+                        unitOfWork = unscopedUnitOfWork()
                     )
 
                 assertTrue(result.success)
@@ -929,7 +935,8 @@ class RoleTransitionHandlerTest {
                         summary = null,
                         statusLabel = null,
                         workItemRepository = workItemRepo,
-                        roleTransitionRepository = roleTransitionRepo
+                        roleTransitionRepository = roleTransitionRepo,
+                        unitOfWork = unscopedUnitOfWork()
                         // roleChangedAt omitted — uses Instant.now() default
                     )
 
@@ -953,10 +960,6 @@ class RoleTransitionHandlerTest {
         fun setUp() {
             // dbNow() is called by userTransition for ownership checks; return JVM time as a sensible default.
             coEvery { workItemRepo.dbNow() } returns Instant.now()
-            // inTransaction delegates to its block directly — no real DB transaction in unit tests
-            coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-                firstArg<suspend () -> Unit>().invoke()
-            }
         }
 
         @Test
@@ -977,7 +980,8 @@ class RoleTransitionHandlerTest {
                         hasReviewPhase = true,
                         workItemRepository = workItemRepo,
                         roleTransitionRepository = roleTransitionRepo,
-                        dependencyRepository = depRepo
+                        dependencyRepository = depRepo,
+                        unitOfWork = unscopedUnitOfWork()
                     )
 
                 assertTrue(result.success)
@@ -1004,7 +1008,8 @@ class RoleTransitionHandlerTest {
                         hasReviewPhase = true,
                         workItemRepository = workItemRepo,
                         roleTransitionRepository = roleTransitionRepo,
-                        dependencyRepository = depRepo
+                        dependencyRepository = depRepo,
+                        unitOfWork = unscopedUnitOfWork()
                     )
 
                 assertTrue(result.success)
@@ -1037,7 +1042,8 @@ class RoleTransitionHandlerTest {
                         hasReviewPhase = true,
                         workItemRepository = workItemRepo,
                         roleTransitionRepository = roleTransitionRepo,
-                        dependencyRepository = depRepo
+                        dependencyRepository = depRepo,
+                        unitOfWork = unscopedUnitOfWork()
                     )
 
                 assertFalse(result.success)
@@ -1058,7 +1064,8 @@ class RoleTransitionHandlerTest {
                         targetRole = Role.TERMINAL,
                         reason = "Auto-cascaded from child completion",
                         workItemRepository = workItemRepo,
-                        roleTransitionRepository = roleTransitionRepo
+                        roleTransitionRepository = roleTransitionRepo,
+                        unitOfWork = unscopedUnitOfWork()
                     )
 
                 assertTrue(result.success)
@@ -1089,7 +1096,8 @@ class RoleTransitionHandlerTest {
                         targetRole = Role.TERMINAL,
                         reason = "cascade reason",
                         workItemRepository = workItemRepo,
-                        roleTransitionRepository = roleTransitionRepo
+                        roleTransitionRepository = roleTransitionRepo,
+                        unitOfWork = unscopedUnitOfWork()
                     )
 
                 assertTrue(result.success, "cascadeTransition should not run dependency validation")
@@ -1132,7 +1140,8 @@ class RoleTransitionHandlerTest {
                         reason = "Last child reached terminal — auto-cascading parent",
                         statusLabel = cascadeStatusLabel,
                         workItemRepository = workItemRepo,
-                        roleTransitionRepository = roleTransitionRepo
+                        roleTransitionRepository = roleTransitionRepo,
+                        unitOfWork = unscopedUnitOfWork()
                     )
 
                 // Assert: transition succeeds

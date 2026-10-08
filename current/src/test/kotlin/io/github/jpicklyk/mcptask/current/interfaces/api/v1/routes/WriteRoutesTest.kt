@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
@@ -82,6 +83,7 @@ fun Application.configureWriteTestApp(
     authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig(),
     schemaService: WorkItemSchemaService = NoOpNoteSchemaService,
     statusLabelService: StatusLabelService = NoOpStatusLabelService,
+    unitOfWork: UnitOfWork
 ) {
     install(ContentNegotiation) { json(McpJson) }
     install(SSE)
@@ -108,10 +110,12 @@ fun Application.configureWriteTestApp(
                     schemaService,
                     statusLabelService = statusLabelService,
                     perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
+                    unitOfWork = unitOfWork
                 ).advanceServiceFactory(),
+                unitOfWork,
             )
-            noteWriteRoutes(repo, degradedModePolicy, idempotencyCache)
-            dependencyWriteRoutes(repo, degradedModePolicy)
+            noteWriteRoutes(repo, degradedModePolicy, idempotencyCache, unitOfWork)
+            dependencyWriteRoutes(repo, degradedModePolicy, unitOfWork)
         }
     }
 }
@@ -128,7 +132,7 @@ class ItemCreateRouteTest {
     fun `POST items creates item and returns 201 with persisted data`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -155,7 +159,7 @@ class ItemCreateRouteTest {
     fun `POST items without WRITE_ITEMS capability returns 403`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -178,7 +182,7 @@ class ItemCreateRouteTest {
     fun `POST items with validation error returns 400`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -199,7 +203,7 @@ class ItemCreateRouteTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Root", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             // Root itself was created directly via the repository (not through this route), so
             // it has no rootId yet — the create route must fall back to the parent's own id.
@@ -222,7 +226,7 @@ class ItemCreateRouteTest {
     fun `POST items without parentId stamps rootId as its own id`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -256,7 +260,7 @@ class ItemPatchRouteTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Original", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${item.modifiedAt.toEpochMilli()}\""
             val response =
@@ -285,7 +289,7 @@ class ItemPatchRouteTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "No ETag", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.patch("/api/v1/items/${item.id}") {
@@ -308,7 +312,7 @@ class ItemPatchRouteTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Stale ETag Test", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.patch("/api/v1/items/${item.id}") {
@@ -330,7 +334,7 @@ class ItemPatchRouteTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Protected Fields", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${item.modifiedAt.toEpochMilli()}\""
             val response =
@@ -358,7 +362,7 @@ class ItemPatchRouteTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Content Type Test", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${item.modifiedAt.toEpochMilli()}\""
             val response =
@@ -387,7 +391,7 @@ class ItemPatchRouteTest {
                             WorkItem(title = "Has Description", description = "to remove", depth = 0)
                         ).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${item.modifiedAt.toEpochMilli()}\""
             val response =
@@ -419,7 +423,7 @@ class ItemPatchRouteTest {
                             WorkItem(title = "Keep Description", description = "keep me", depth = 0)
                         ).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${item.modifiedAt.toEpochMilli()}\""
             val response =
@@ -448,7 +452,7 @@ class ItemPatchRouteTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Priority Test", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${item.modifiedAt.toEpochMilli()}\""
             val response =
@@ -471,7 +475,7 @@ class ItemPatchRouteTest {
                     val c = repo.workItemRepository().create(WorkItem(title = "Child", parentId = p.id, depth = 1)).getOrNull()!!
                     Pair(p, c)
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${child.modifiedAt.toEpochMilli()}\""
             val response =
@@ -501,7 +505,7 @@ class ItemPatchRouteTest {
                     val d = repo.workItemRepository().create(WorkItem(title = "D", parentId = a.id, depth = 1)).getOrNull()!!
                     listOf(a, b, c, d)
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${b.modifiedAt.toEpochMilli()}\""
             val response =
@@ -549,7 +553,7 @@ class ItemPatchRouteTest {
                         repo.workItemRepository().update(d.copy(rootId = d.id)).getOrNull()!!
                     listOf(aWithRoot, b, c, dWithRoot)
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             // Move B under Root D: same depth (1), but rootId must flip for B and cascade to C.
             val etag = "\"v1-${b.modifiedAt.toEpochMilli()}\""
@@ -585,7 +589,7 @@ class ItemPatchRouteTest {
                             .getOrNull()!!
                     Pair(pWithRoot, c)
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${child.modifiedAt.toEpochMilli()}\""
             val response =
@@ -614,7 +618,7 @@ class ItemPatchRouteTest {
                             WorkItem(title = "Props Test", properties = """{"key1":"val1","key2":"val2"}""", depth = 0)
                         ).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${item.modifiedAt.toEpochMilli()}\""
             val response =
@@ -643,7 +647,7 @@ class ItemPatchRouteTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Validation Test", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${item.modifiedAt.toEpochMilli()}\""
             val response =
@@ -676,7 +680,7 @@ class ItemPatchRouteTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Role Test", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${item.modifiedAt.toEpochMilli()}\""
             val response =
@@ -709,7 +713,7 @@ class ItemDeleteRouteTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "To Delete", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.delete("/api/v1/items/${item.id}") {
@@ -730,7 +734,7 @@ class ItemDeleteRouteTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Protected", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.delete("/api/v1/items/${item.id}") {
@@ -751,7 +755,7 @@ class ItemDeleteRouteTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "ETag Guard", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.delete("/api/v1/items/${item.id}") {
@@ -782,7 +786,7 @@ class AdvanceRouteTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Advance Me", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -814,7 +818,7 @@ class AdvanceRouteTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Label Parity", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo, statusLabelService = NoOpStatusLabelService) }
+            application { configureWriteTestApp(repo, statusLabelService = NoOpStatusLabelService, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -859,6 +863,7 @@ class AdvanceRouteTest {
                     repo,
                     schemaService = ReviewPhaseSchemaService(),
                     statusLabelService = NoOpStatusLabelService,
+                    unitOfWork = db.unitOfWork()
                 )
             }
 
@@ -888,7 +893,7 @@ class AdvanceRouteTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Audit Test", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             client.post("/api/v1/items/${item.id}/advance") {
                 header("Authorization", "Bearer $WRITE_TOKEN")
@@ -927,7 +932,7 @@ class AdvanceRouteTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Protected Advance", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -955,7 +960,7 @@ class AdvanceRouteTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Bad Trigger", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -998,7 +1003,7 @@ class AdvanceRouteTest {
             assertEquals("fleet-agent-7", item.claimedBy)
             assertNotNull(item.claimExpiresAt)
 
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -1043,7 +1048,7 @@ class AdvanceRouteTest {
                         .create(WorkItem(title = "Gated", type = "gated-type", role = Role.QUEUE, depth = 0))
                         .getOrNull()!!
                 }
-            application { configureWriteTestApp(repo, schemaService = GatedSchemaService()) }
+            application { configureWriteTestApp(repo, schemaService = GatedSchemaService(), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -1084,7 +1089,7 @@ class AdvanceRouteTest {
                     repo.noteRepository().upsert(Note(itemId = i.id, key = "spec", role = "queue", body = "done"))
                     i
                 }
-            application { configureWriteTestApp(repo, schemaService = GatedSchemaService()) }
+            application { configureWriteTestApp(repo, schemaService = GatedSchemaService(), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -1187,7 +1192,7 @@ class AdvanceReviewPhaseTest {
                             WorkItem(title = "Has Review", type = "review-type", role = Role.WORK, depth = 0),
                         ).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo, schemaService = ReviewPhaseSchemaService()) }
+            application { configureWriteTestApp(repo, schemaService = ReviewPhaseSchemaService(), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -1221,7 +1226,7 @@ class AdvanceReviewPhaseTest {
                             WorkItem(title = "No Review", type = "flat-type", role = Role.WORK, depth = 0),
                         ).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo, schemaService = ReviewPhaseSchemaService()) }
+            application { configureWriteTestApp(repo, schemaService = ReviewPhaseSchemaService(), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -1259,7 +1264,7 @@ class NoteWriteRouteTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Note Target", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/items/${item.id}/notes/impl-note") {
@@ -1304,7 +1309,7 @@ class NoteWriteRouteTest {
             runBlocking {
                 repo.noteRepository().upsert(Note(itemId = item.id, key = "update-me", role = "work", body = "original"))
             }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             // First read to get ETag
             val readResponse =
@@ -1341,7 +1346,7 @@ class NoteWriteRouteTest {
             runBlocking {
                 repo.noteRepository().upsert(Note(itemId = item.id, key = "stale-test", role = "work", body = "original"))
             }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/items/${item.id}/notes/stale-test") {
@@ -1366,7 +1371,7 @@ class NoteWriteRouteTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Notes Forbidden", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/items/${item.id}/notes/new-note") {
@@ -1392,7 +1397,7 @@ class NoteWriteRouteTest {
             runBlocking {
                 repo.noteRepository().upsert(Note(itemId = item.id, key = "delete-me", role = "work", body = "bye"))
             }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.delete("/api/v1/items/${item.id}/notes/delete-me") {
@@ -1424,7 +1429,7 @@ class DependencyWriteRouteTest {
                     val b = repo.workItemRepository().create(WorkItem(title = "To", depth = 0)).getOrNull()!!
                     Pair(a, b)
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/dependencies") {
@@ -1456,7 +1461,7 @@ class DependencyWriteRouteTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Self Dep", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/dependencies") {
@@ -1479,7 +1484,7 @@ class DependencyWriteRouteTest {
                     repo.dependencyRepository().create(Dependency(fromItemId = a.id, toItemId = b.id, type = DependencyType.BLOCKS))
                     Pair(a, b)
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             // Try to create B → A (would create cycle)
             val response =
@@ -1512,7 +1517,7 @@ class DependencyWriteRouteTest {
                         )
                     }
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.delete("/api/v1/dependencies/${dep.id}") {
@@ -1551,7 +1556,7 @@ class DependencyWriteRouteTest {
                 }
             // Principal scoped to ONLY the 'from' root — authority over the from side, not the to side.
             application {
-                configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(from.id)))
+                configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(from.id)), unitOfWork = db.unitOfWork())
             }
 
             val response =
@@ -1580,7 +1585,7 @@ class DependencyWriteRouteTest {
                     val b = repo.workItemRepository().create(WorkItem(title = "To Forbidden", depth = 0)).getOrNull()!!
                     Pair(a, b)
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/dependencies") {
@@ -1605,7 +1610,7 @@ class IdempotencyTest {
         testApplication {
             val repo = db.repositoryProvider()
             val cache = IdempotencyCache()
-            application { configureWriteTestApp(repo, idempotencyCache = cache) }
+            application { configureWriteTestApp(repo, idempotencyCache = cache, unitOfWork = db.unitOfWork()) }
 
             val idempotencyKey = UUID.randomUUID().toString()
             val makeRequest: suspend () -> HttpResponse = {
@@ -1634,7 +1639,7 @@ class IdempotencyTest {
         testApplication {
             val repo = db.repositoryProvider()
             val cache = IdempotencyCache()
-            application { configureWriteTestApp(repo, idempotencyCache = cache) }
+            application { configureWriteTestApp(repo, idempotencyCache = cache, unitOfWork = db.unitOfWork()) }
 
             client.post("/api/v1/items") {
                 header("Authorization", "Bearer $WRITE_TOKEN")
@@ -1659,7 +1664,7 @@ class IdempotencyTest {
     fun `malformed Idempotency-Key returns 400`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -1691,7 +1696,7 @@ class WriteScopeEnforcementTest {
                 }
             // Scoped auth config: only allows access to scopeRootId subtree (item is not there)
             val scopedAuthConfig = makeWriteAuthConfig(scopeRootIds = setOf(scopeRootId))
-            application { configureWriteTestApp(repo, authConfig = scopedAuthConfig) }
+            application { configureWriteTestApp(repo, authConfig = scopedAuthConfig, unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${item.modifiedAt.toEpochMilli()}\""
             val response =

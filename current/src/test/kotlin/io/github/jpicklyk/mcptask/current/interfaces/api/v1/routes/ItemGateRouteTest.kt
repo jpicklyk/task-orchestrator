@@ -770,7 +770,12 @@ class ItemGateRouteTest {
         itemId: UUID,
     ): JsonObject {
         val context =
-            ToolExecutionContext(repo, schemaService, perRootConfigService = PerRootConfigService(repo.projectConfigRepository()))
+            ToolExecutionContext(
+                repo,
+                schemaService,
+                perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
+                unitOfWork = db.unitOfWork()
+            )
         val params = JsonObject(mapOf("itemId" to JsonPrimitive(itemId.toString())))
         val result = runBlocking { GetContextTool().execute(params, context) }
         return (result as JsonObject)["data"] as JsonObject

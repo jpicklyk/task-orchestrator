@@ -1,8 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
+import io.github.jpicklyk.mcptask.current.application.support.writeResult
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -73,6 +75,7 @@ fun Route.noteWriteRoutes(
     repositoryProvider: RepositoryProvider,
     degradedModePolicy: DegradedModePolicy,
     idempotencyCache: IdempotencyCache,
+    unitOfWork: UnitOfWork,
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
     val noteRepo = repositoryProvider.noteRepository()
@@ -195,7 +198,7 @@ fun Route.noteWriteRoutes(
                         return noteErrorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Validation failed")
                     }
 
-                return when (val result = noteRepo.upsert(note)) {
+                return when (val result = unitOfWork.writeResult("NoteWriteRoutes.upsert") { noteRepo.upsert(note) }) {
                     is Result.Error -> {
                         noteWriteLogger.warn("PUT /items/{}/notes/{} DB error: {}", id, key, result.error.message)
                         noteErrorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to upsert note")
@@ -260,7 +263,7 @@ fun Route.noteWriteRoutes(
                 val result =
                     withEventActor(
                         ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey])
-                    ) { noteRepo.delete(existingNote.id) }
+                    ) { unitOfWork.writeResult("NoteWriteRoutes.delete") { noteRepo.delete(existingNote.id) } }
             ) {
                 is Result.Error -> {
                     noteWriteLogger.warn("DELETE /items/{}/notes/{} DB error: {}", id, key, result.error.message)

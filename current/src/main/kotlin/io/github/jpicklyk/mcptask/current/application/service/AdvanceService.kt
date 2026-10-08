@@ -1,5 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.UnitResult
+import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
@@ -277,6 +281,8 @@ class AdvanceService(
     private val noteRepository: NoteRepository,
     private val statusLabelService: StatusLabelService,
     private val schemaResolver: suspend (WorkItem) -> WorkItemSchema?,
+    /** The transaction boundary: every advance STEP (lease acquire, apply, lease release, each cascade apply) is one unit. */
+    private val unitOfWork: UnitOfWork,
     private val resourceLeaseRepository: ResourceLeaseRepository? = null,
     private val resourceRequirementsResolver: suspend (WorkItem) -> List<ResourceRequirement> = { emptyList() },
     private val resourceRegistryResolver: suspend (java.util.UUID?) -> Map<String, ResourceDefinition> = { emptyMap() },
@@ -460,6 +466,7 @@ class AdvanceService(
                 effectiveLabel,
                 workItemRepository,
                 roleTransitionRepository,
+                unitOfWork,
                 actorClaim = actorClaim,
                 verification = verification,
                 roleChangedAt = dbNow,
@@ -694,7 +701,7 @@ class AdvanceService(
                     requirements
                         .filter { it.mode == ResourceMode.EXCLUSIVE }
                         .map { it.key to resolveTtlSeconds(it, registry) }
-                when (val acquire = leaseRepo.acquireAll(item.id, actorClaim?.id, leaseRequests)) {
+                when (val acquire = acquireInUnit(leaseRepo, item.id, actorClaim?.id, leaseRequests)) {
                     is LeaseAcquireResult.Success -> acquiredLeases = acquire.leases
                     is LeaseAcquireResult.Contended ->
                         return ResourceGateOutcome.Rejected(
@@ -768,7 +775,17 @@ class AdvanceService(
         reason: String
     ) {
         val leaseRepo = resourceLeaseRepository ?: return
-        when (val release = leaseRepo.releaseAllForItem(itemId)) {
+        val release =
+            unitOfWork.writeUnit(
+                "AdvanceService.releaseLeases",
+                onFault = { LeaseReleaseResult.DBError(IllegalStateException(LegacyFaults.message(it))) }
+            ) {
+                when (val released = leaseRepo.releaseAllForItem(itemId)) {
+                    is LeaseReleaseResult.Success -> UnitResult.Commit(released)
+                    is LeaseReleaseResult.DBError -> UnitResult.Rollback(released)
+                }
+            }
+        when (release) {
             is LeaseReleaseResult.Success ->
                 if (release.releasedCount > 0) {
                     logger.debug("Released {} resource lease(s) for item {} on {}", release.releasedCount, itemId, reason)
@@ -989,6 +1006,7 @@ class AdvanceService(
                     "Auto-cascaded from child completion",
                     workItemRepository,
                     roleTransitionRepository,
+                    unitOfWork,
                     statusLabel = statusLabelService.resolveLabel("cascade")
                 )
 
@@ -1190,6 +1208,7 @@ class AdvanceService(
                     reason,
                     workItemRepository,
                     roleTransitionRepository,
+                    unitOfWork,
                     statusLabel = statusLabelService.resolveLabel("cascade")
                 )
 
@@ -1261,7 +1280,7 @@ class AdvanceService(
 
         // Cascades have no actor by construction (see RoleTransitionHandler.cascadeTransition),
         // so the lease's audit actor is null here.
-        return when (val acquire = leaseRepo.acquireAll(parentItem.id, null, leaseRequests)) {
+        return when (val acquire = acquireInUnit(leaseRepo, parentItem.id, null, leaseRequests)) {
             is LeaseAcquireResult.Success -> CascadeAcquireOutcome(emptyList(), acquire.leases)
             is LeaseAcquireResult.Contended -> {
                 logger.info(
@@ -1282,6 +1301,26 @@ class AdvanceService(
             }
         }
     }
+
+    /**
+     * One lease-acquire STEP as its own write unit. A store [LeaseAcquireResult.DBError] rolls the unit back;
+     * a fault of the unit itself becomes a [LeaseAcquireResult.DBError] carrying the translated message.
+     */
+    private suspend fun acquireInUnit(
+        leaseRepo: ResourceLeaseRepository,
+        holderItemId: java.util.UUID,
+        actorId: String?,
+        requests: List<Pair<String, Int>>
+    ): LeaseAcquireResult =
+        unitOfWork.writeUnit(
+            "AdvanceService.acquireLeases",
+            onFault = { LeaseAcquireResult.DBError(IllegalStateException(LegacyFaults.message(it))) }
+        ) {
+            when (val acquired = leaseRepo.acquireAll(holderItemId, actorId, requests)) {
+                is LeaseAcquireResult.Success, is LeaseAcquireResult.Contended -> UnitResult.Commit(acquired)
+                is LeaseAcquireResult.DBError -> UnitResult.Rollback(acquired)
+            }
+        }
 }
 
 /**

@@ -69,7 +69,7 @@ class ManageProjectConfigToolTest {
             every { repositoryProvider.workItemRepository() } returns workItemRepository
             every { repositoryProvider.projectConfigRepository() } returns projectConfigRepository
 
-            context = ToolExecutionContext(repositoryProvider)
+            context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
 
             val root =
                 (workItemRepository.create(WorkItem(title = "Project Root", type = "project")) as Result.Success).data
@@ -521,7 +521,8 @@ class ManageProjectConfigToolTest {
                         every { it.workItemRepository() } returns workItemRepository
                         every { it.projectConfigRepository() } returns projectConfigRepository
                     },
-                    perRootConfigService = perRootConfigService
+                    perRootConfigService = perRootConfigService,
+                    unitOfWork = db.unitOfWork()
                 )
 
             val childItem =

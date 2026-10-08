@@ -271,7 +271,7 @@ class IndependenceConfigParseTest {
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository
             every { repositoryProvider.projectConfigRepository() } returns projectConfigRepository
-            val service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser)
+            val service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser, sqliteDb.unitOfWork())
             val rootId = (workItemRepository.create(WorkItem(title = "Root", type = "project")) as Result.Success).data.id
 
             val yaml = "independence:\n  mode: reject\nwork_item_schemas:\n  default:\n    notes: []\n"
@@ -294,7 +294,7 @@ class IndependenceConfigParseTest {
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository
             every { repositoryProvider.projectConfigRepository() } returns projectConfigRepository
-            val service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser)
+            val service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser, sqliteDb.unitOfWork())
             val rootId = (workItemRepository.create(WorkItem(title = "Root", type = "project")) as Result.Success).data.id
 
             val yaml = "independence:\n  mode: warn\n  colour: red\nwork_item_schemas:\n  default:\n    notes: []\n"

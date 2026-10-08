@@ -49,10 +49,6 @@ class CompleteTreeToolTest {
         every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
         // dbNow() is called for ownership checks; default to JVM time for non-clock-skew tests.
         coEvery { workItemRepo.dbNow() } returns Instant.now()
-        // inTransaction delegates to its block directly — no real DB transaction in unit tests
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
-        }
         // AdvanceService validates dependencies in both directions and inspects children for
         // cascade detection on every transition; default the strict mocks to "no edges / no
         // children" so pre-existing fixtures that never stubbed these calls keep their shape.

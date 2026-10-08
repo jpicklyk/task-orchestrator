@@ -60,7 +60,7 @@ class ActorProofMcpExposureTest {
     @BeforeEach
     fun setUp() {
         repositoryProvider = db.repositoryProvider()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         manageNotesTool = ManageNotesTool()
         queryNotesTool = QueryNotesTool()
         advanceItemTool = AdvanceItemTool()
@@ -335,7 +335,8 @@ class ActorProofMcpExposureTest {
                         object : ActorVerifier {
                             override suspend fun verify(actor: ActorClaim): VerificationResult =
                                 VerificationResult(status = VerificationStatus.VERIFIED, verifier = "jwks")
-                        }
+                        },
+                    unitOfWork = db.unitOfWork()
                 )
 
             val params =

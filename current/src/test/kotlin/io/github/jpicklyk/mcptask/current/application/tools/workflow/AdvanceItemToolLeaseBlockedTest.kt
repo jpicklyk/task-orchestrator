@@ -91,9 +91,6 @@ class AdvanceItemToolLeaseBlockedTest {
         coEvery { noteRepo.findByItemId(any(), any()) } returns Result.Success(emptyList())
         coEvery { workItemRepo.dbNow() } returns Instant.now()
         coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
-        }
         coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
         coEvery { leaseRepo.releaseAllForItem(any()) } returns LeaseReleaseResult.Success(0)
         every { depRepo.findByToItemId(any()) } returns emptyList()

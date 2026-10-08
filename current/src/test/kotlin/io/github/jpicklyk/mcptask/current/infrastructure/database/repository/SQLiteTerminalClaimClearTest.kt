@@ -52,6 +52,7 @@ class SQLiteTerminalClaimClearTest {
             noteRepository = repositoryProvider.noteRepository(),
             statusLabelService = NoOpStatusLabelService,
             schemaResolver = { null },
+            unitOfWork = sqliteDb.unitOfWork(),
         )
 
     /** Persists a WORK-role item already claimed by [claimedBy], via `create()`. */

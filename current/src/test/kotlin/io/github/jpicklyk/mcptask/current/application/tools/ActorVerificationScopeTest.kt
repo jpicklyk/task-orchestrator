@@ -215,9 +215,6 @@ class ActorVerificationScopeTest {
         coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
         coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
         coEvery { workItemRepo.dbNow() } returns Instant.now()
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
-        }
 
         val repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo

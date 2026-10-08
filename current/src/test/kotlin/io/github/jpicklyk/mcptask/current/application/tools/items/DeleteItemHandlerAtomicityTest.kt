@@ -95,13 +95,13 @@ class DeleteItemHandlerAtomicityTest {
     @BeforeEach
     fun setUp() {
         repositoryProvider = db.repositoryProvider()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
     }
 
     /** A context whose workItemRepository().delete() fails for [failingId]; everything else is real. */
     private fun contextFailingOn(failingId: UUID): ToolExecutionContext {
         val failing = FailOnIdWorkItemRepository(repositoryProvider.workItemRepository(), failingId)
-        return ToolExecutionContext(FailOnIdRepositoryProvider(repositoryProvider, failing))
+        return ToolExecutionContext(FailOnIdRepositoryProvider(repositoryProvider, failing), unitOfWork = db.unitOfWork())
     }
 
     private fun idsArray(vararg ids: UUID) = JsonArray(ids.map { JsonPrimitive(it.toString()) })

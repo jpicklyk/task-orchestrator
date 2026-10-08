@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.notes
 
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
+import io.github.jpicklyk.mcptask.current.application.support.writeResult
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
@@ -378,25 +379,31 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                     }
                 }
 
-                // Check for existing note with same (itemId, key) to preserve its ID
-                val existingNote =
-                    when (val findResult = noteRepo.findByItemIdAndKey(itemId, key)) {
-                        is Result.Success -> findResult.data
-                        is Result.Error -> null
+                // One write unit per note: the existing-note lookup (to preserve its ID) and the
+                // upsert commit or roll back together; a store failure rolls the unit back.
+                val upserted =
+                    context.unitOfWork.writeResult("ManageNotesTool.upsert") {
+                        // Check for existing note with same (itemId, key) to preserve its ID
+                        val existingNote =
+                            when (val findResult = noteRepo.findByItemIdAndKey(itemId, key)) {
+                                is Result.Success -> findResult.data
+                                is Result.Error -> null
+                            }
+
+                        val note =
+                            Note(
+                                id = existingNote?.id ?: UUID.randomUUID(),
+                                itemId = itemId,
+                                key = key,
+                                role = role,
+                                body = body,
+                                actorClaim = actorClaim,
+                                verification = verification
+                            )
+                        noteRepo.upsert(note)
                     }
 
-                val note =
-                    Note(
-                        id = existingNote?.id ?: UUID.randomUUID(),
-                        itemId = itemId,
-                        key = key,
-                        role = role,
-                        body = body,
-                        actorClaim = actorClaim,
-                        verification = verification
-                    )
-
-                when (val result = noteRepo.upsert(note)) {
+                when (val result = upserted) {
                     is Result.Success -> {
                         upsertedNotes.add(
                             buildJsonObject {
@@ -571,7 +578,7 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                         continue
                     }
 
-                when (val result = noteRepo.delete(id)) {
+                when (val result = context.unitOfWork.writeResult("ManageNotesTool.delete") { noteRepo.delete(id) }) {
                     is Result.Success ->
                         if (result.data) {
                             deletedCount++
@@ -600,39 +607,51 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
             val itemId = resolvedItemId!!
 
             if (key != null) {
-                // Delete specific note by (itemId, key)
-                when (val findResult = noteRepo.findByItemIdAndKey(itemId, key)) {
-                    is Result.Success -> {
-                        val note = findResult.data
-                        if (note != null) {
-                            when (val delResult = noteRepo.delete(note.id)) {
-                                is Result.Success -> deletedCount++
-                                is Result.Error -> {
-                                    failures.add(
-                                        buildJsonObject {
-                                            put("id", JsonPrimitive(note.id.toString()))
-                                            put("error", JsonPrimitive(delResult.error.message))
-                                        }
-                                    )
-                                }
+                // Delete specific note by (itemId, key): the lookup and the delete share ONE write unit.
+                var lookupFailed = false
+                var deletedNoteId: UUID? = null
+                val keyed =
+                    context.unitOfWork.writeResult("ManageNotesTool.deleteByKey") {
+                        when (val findResult = noteRepo.findByItemIdAndKey(itemId, key)) {
+                            is Result.Error -> findResult.also { lookupFailed = true }
+                            is Result.Success -> {
+                                val note = findResult.data
+                                deletedNoteId = note?.id
+                                if (note == null) Result.Success(false) else noteRepo.delete(note.id)
                             }
+                        }
+                    }
+                when (keyed) {
+                    is Result.Success ->
+                        if (deletedNoteId != null) {
+                            deletedCount++
                         } else {
                             // Key did not exist — not an error, but tracked so callers can distinguish
                             notFoundCount++
                         }
-                    }
                     is Result.Error -> {
                         failures.add(
                             buildJsonObject {
-                                put("id", JsonPrimitive("$itemIdStr/$key"))
-                                put("error", JsonPrimitive(findResult.error.message))
+                                put(
+                                    "id",
+                                    JsonPrimitive(
+                                        if (lookupFailed ||
+                                            deletedNoteId == null
+                                        ) {
+                                            "$itemIdStr/$key"
+                                        } else {
+                                            deletedNoteId.toString()
+                                        }
+                                    )
+                                )
+                                put("error", JsonPrimitive(keyed.error.message))
                             }
                         )
                     }
                 }
             } else {
                 // Delete all notes for itemId
-                when (val result = noteRepo.deleteByItemId(itemId)) {
+                when (val result = context.unitOfWork.writeResult("ManageNotesTool.deleteByItemId") { noteRepo.deleteByItemId(itemId) }) {
                     is Result.Success -> deletedCount += result.data
                     is Result.Error -> {
                         failures.add(

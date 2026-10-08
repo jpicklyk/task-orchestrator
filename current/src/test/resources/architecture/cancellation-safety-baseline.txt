@@ -3,12 +3,11 @@
 CurrentMain.kt 1
 application/config/ConfigSession.kt 1
 application/service/ProjectConfigPushService.kt 1
-application/service/RoleTransitionHandler.kt 1
 application/service/WorkItemPlacementService.kt 4
 application/service/rest/WorkItemPatchProjection.kt 1
 application/tools/BaseToolDefinition.kt 1
 application/tools/PropertiesHelper.kt 2
-application/tools/compound/CreateWorkTreeTool.kt 2
+application/tools/compound/CreateWorkTreeTool.kt 1
 application/tools/dependency/ManageDependenciesTool.kt 2
 application/tools/items/CreateItemHandler.kt 1
 application/tools/items/QueryItemsTool.kt 3

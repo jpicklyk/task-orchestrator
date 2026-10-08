@@ -82,7 +82,6 @@ class EventPublishingDecoratorGuardTest {
 
     private val readOnlyAllowListExact =
         setOf(
-            "inTransaction",
             "dbNow",
             "search",
             "ftsSearch",
@@ -101,7 +100,6 @@ class EventPublishingDecoratorGuardTest {
         val expectedNames =
             setOf(
                 "dbNow",
-                "inTransaction",
                 "getById",
                 "create",
                 "update",

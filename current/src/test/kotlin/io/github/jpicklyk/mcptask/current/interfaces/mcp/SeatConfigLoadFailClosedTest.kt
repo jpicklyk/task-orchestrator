@@ -78,7 +78,7 @@ class SeatConfigLoadFailClosedTest {
             runBlocking {
                 (repo.workItemRepository().create(WorkItem(title = "Push Root", type = "project")) as Result.Success).data.id
             }
-        return ToolExecutionContext(repo) to rootId
+        return ToolExecutionContext(repo, unitOfWork = db.unitOfWork()) to rootId
     }
 
     private fun push(
@@ -212,7 +212,7 @@ class SeatConfigLoadFailClosedTest {
                 runBlocking {
                     (repo.workItemRepository().create(WorkItem(title = "REST Push Root", depth = 0)) as Result.Success).data
                 }
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/roots/${root.id}/config") {
@@ -297,7 +297,7 @@ class SeatConfigLoadFailClosedTest {
                 runBlocking {
                     (repo.workItemRepository().create(WorkItem(title = "F2 REST Root", depth = 0)) as Result.Success).data
                 }
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
             val restResponse =
                 client.put("/api/v1/roots/${root.id}/config") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
@@ -337,7 +337,7 @@ class SeatConfigLoadFailClosedTest {
                 runBlocking {
                     (repo.workItemRepository().create(WorkItem(title = "F3 REST Root", depth = 0)) as Result.Success).data
                 }
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
             val restResponse =
                 client.put("/api/v1/roots/${root.id}/config") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
@@ -376,7 +376,7 @@ class SeatConfigLoadFailClosedTest {
                 runBlocking {
                     (repo.workItemRepository().create(WorkItem(title = "F4 REST Root", depth = 0)) as Result.Success).data
                 }
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
             val restResponse =
                 client.put("/api/v1/roots/${root.id}/config") {
                     header("Authorization", "Bearer $WRITE_TOKEN")

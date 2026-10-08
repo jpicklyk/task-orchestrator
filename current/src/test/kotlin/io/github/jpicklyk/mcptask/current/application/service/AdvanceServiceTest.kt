@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -54,9 +55,6 @@ class AdvanceServiceTest {
 
         coEvery { workItemRepo.dbNow() } returns Instant.now()
         coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
-        }
         coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
         coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
         every { depRepo.findByToItemId(any()) } returns emptyList()
@@ -99,6 +97,7 @@ class AdvanceServiceTest {
             noteRepository = noteRepo,
             statusLabelService = NoOpStatusLabelService,
             schemaResolver = { schema },
+            unitOfWork = unscopedUnitOfWork(),
         )
 
     private fun schema(vararg entries: NoteSchemaEntry): WorkItemSchema = WorkItemSchema(type = "test", notes = entries.toList())
@@ -285,6 +284,7 @@ class AdvanceServiceTest {
                     noteRepo,
                     NoOpStatusLabelService,
                     schemaResolver = { it -> if (it.id == parentId) sc else null },
+                    unitOfWork = unscopedUnitOfWork(),
                 )
             val outcome = service.advance(child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
@@ -486,6 +486,7 @@ class AdvanceServiceTest {
                     noteRepository = noteRepo,
                     statusLabelService = nullBlockLabelService,
                     schemaResolver = { null },
+                    unitOfWork = unscopedUnitOfWork(),
                 )
             val item = makeItem(role = Role.WORK).copy(statusLabel = "in-progress")
             val outcome = service.advance(item, "block", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)

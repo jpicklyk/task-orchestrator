@@ -15,7 +15,9 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryPr
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.CountingUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.sqlite.assertNoOutsideUnitWrites
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
@@ -86,13 +88,11 @@ class ItemWriteRoutesParentPlacementInTxnTest {
     ) : WorkItemRepository by delegate {
         private var hasFired = false
 
-        override suspend fun inTransaction(block: suspend () -> Unit) {
-            delegate.inTransaction {
-                if (!hasFired) {
-                    hasFired = true
-                    mutate(delegate)
-                }
-                block()
+        /** Fires [mutate] once, from the [CountingUnitOfWork] hook at the first top-level unit's open. */
+        suspend fun fireOnce() {
+            if (!hasFired) {
+                hasFired = true
+                mutate(delegate)
             }
         }
 
@@ -128,6 +128,11 @@ class ItemWriteRoutesParentPlacementInTxnTest {
         idempotencyCache: IdempotencyCache = IdempotencyCache(),
         authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig()
     ) {
+        // Fires a MutateOnFirstTransactionRepository's write at the first top-level unit's open.
+        val uow =
+            CountingUnitOfWork(
+                db.unitOfWork()
+            ) { (repositoryProvider.workItemRepository() as? MutateOnFirstTransactionRepository)?.fireOnce() }
         install(ContentNegotiation) { json(McpJson) }
         install(SSE)
         routing {
@@ -148,7 +153,9 @@ class ItemWriteRoutesParentPlacementInTxnTest {
                         NoOpNoteSchemaService,
                         statusLabelService = NoOpStatusLabelService,
                         perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()),
+                        unitOfWork = uow
                     ).advanceServiceFactory(),
+                    uow,
                 )
             }
         }
@@ -196,10 +203,12 @@ class ItemWriteRoutesParentPlacementInTxnTest {
             application { configureParentPlacementTestApp(WorkItemRepoOverrideProvider(repo, wrapped)) }
 
             val response =
-                client.post("/api/v1/items") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"title":"Child of P S4","parentId":"${p.id}"}""")
+                db.assertNoOutsideUnitWrites {
+                    client.post("/api/v1/items") {
+                        header("Authorization", "Bearer $WRITE_TOKEN")
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"title":"Child of P S4","parentId":"${p.id}"}""")
+                    }
                 }
 
             assertEquals(HttpStatusCode.Created, response.status, "actual: ${response.bodyAsText()}")
@@ -239,11 +248,13 @@ class ItemWriteRoutesParentPlacementInTxnTest {
             application { configureParentPlacementTestApp(WorkItemRepoOverrideProvider(repo, wrapped)) }
 
             val response =
-                client.patch("/api/v1/items/${x.id}") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    header(HttpHeaders.IfMatch, etagFor(x))
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"parentId":"${p.id}"}""")
+                db.assertNoOutsideUnitWrites {
+                    client.patch("/api/v1/items/${x.id}") {
+                        header("Authorization", "Bearer $WRITE_TOKEN")
+                        header(HttpHeaders.IfMatch, etagFor(x))
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"parentId":"${p.id}"}""")
+                    }
                 }
 
             assertEquals(HttpStatusCode.OK, response.status, "actual: ${response.bodyAsText()}")
@@ -285,10 +296,12 @@ class ItemWriteRoutesParentPlacementInTxnTest {
             application { configureParentPlacementTestApp(WorkItemRepoOverrideProvider(repo, wrapped)) }
 
             val response =
-                client.post("/api/v1/items") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"title":"Orphan Child S10","parentId":"${p.id}"}""")
+                db.assertNoOutsideUnitWrites {
+                    client.post("/api/v1/items") {
+                        header("Authorization", "Bearer $WRITE_TOKEN")
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"title":"Orphan Child S10","parentId":"${p.id}"}""")
+                    }
                 }
 
             assertEquals(HttpStatusCode.BadRequest, response.status, "O3: actual: ${response.bodyAsText()}")
@@ -330,11 +343,13 @@ class ItemWriteRoutesParentPlacementInTxnTest {
 
             val idempotencyKey = UUID.randomUUID().toString()
             val makeRequest: suspend () -> HttpResponse = {
-                client.post("/api/v1/items") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    header("Idempotency-Key", idempotencyKey)
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"title":"Orphan Child Probe","parentId":"${p.id}"}""")
+                db.assertNoOutsideUnitWrites {
+                    client.post("/api/v1/items") {
+                        header("Authorization", "Bearer $WRITE_TOKEN")
+                        header("Idempotency-Key", idempotencyKey)
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"title":"Orphan Child Probe","parentId":"${p.id}"}""")
+                    }
                 }
             }
 

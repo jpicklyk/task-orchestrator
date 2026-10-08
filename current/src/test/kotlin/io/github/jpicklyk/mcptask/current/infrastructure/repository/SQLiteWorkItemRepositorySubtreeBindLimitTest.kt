@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.repository
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
@@ -47,7 +48,7 @@ class SQLiteWorkItemRepositorySubtreeBindLimitTest {
     private suspend fun buildBigTree(): BigTree {
         val ids = LinkedHashSet<UUID>()
         lateinit var root: WorkItem
-        repo.inTransaction {
+        sqliteDb.unitOfWork().inUnit {
             root = (repo.create(WorkItem(title = "root", depth = 0)) as Result.Success).data
             for (c in 0 until childCount) {
                 val child = (repo.create(WorkItem(parentId = root.id, depth = 1, title = "c$c")) as Result.Success).data
@@ -63,7 +64,7 @@ class SQLiteWorkItemRepositorySubtreeBindLimitTest {
 
     private suspend fun <T> withVariableLimit(block: suspend () -> T): T {
         var out: T? = null
-        repo.inTransaction {
+        sqliteDb.unitOfWork().inUnit {
             val conn = TransactionManager.current().connection.connection as Connection
             conn.unwrap(SQLiteConnection::class.java).setLimit(SQLiteLimits.SQLITE_LIMIT_VARIABLE_NUMBER, limit)
             out = block()

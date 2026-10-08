@@ -218,7 +218,7 @@ optionally filtered to a single `status` (pending or adopted).
                 return errorResponse(e.message ?: "bodyFromFile could not be read", ErrorCodes.VALIDATION_ERROR)
             }
 
-        val service = PlanDocumentService(context.repositoryProvider)
+        val service = PlanDocumentService(context.repositoryProvider, context.unitOfWork)
         return when (val result = service.stash(rootId!!, slug, body)) {
             is PlanDocumentStashResult.Success -> successResponse(documentToJson(result.document, includeBody = false))
             is PlanDocumentStashResult.NotFound ->
@@ -264,7 +264,7 @@ optionally filtered to a single `status` (pending or adopted).
         if (idError != null) return idError
         val slug = requireString(params, "slug")
 
-        val service = PlanDocumentService(context.repositoryProvider)
+        val service = PlanDocumentService(context.repositoryProvider, context.unitOfWork)
         return when (val result = service.get(rootId!!, slug)) {
             is Result.Success -> {
                 val document =
@@ -294,7 +294,7 @@ optionally filtered to a single `status` (pending or adopted).
         if (idError != null) return idError
         val statusFilter = optionalString(params, "status")?.let { PlanDocumentStatus.fromDbValue(it) }
 
-        val service = PlanDocumentService(context.repositoryProvider)
+        val service = PlanDocumentService(context.repositoryProvider, context.unitOfWork)
         return when (val result = service.list(rootId!!, statusFilter)) {
             is Result.Success ->
                 successResponse(

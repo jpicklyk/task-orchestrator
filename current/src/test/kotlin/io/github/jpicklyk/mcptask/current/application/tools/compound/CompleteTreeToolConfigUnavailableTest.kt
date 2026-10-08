@@ -121,14 +121,11 @@ class CompleteTreeToolConfigUnavailableTest {
             every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
             every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
             coEvery { workItemRepo.dbNow() } returns Instant.now()
-            coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-                firstArg<suspend () -> Unit>().invoke()
-            }
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
             coEvery { workItemRepo.countChildrenByRole(any()) } returns Result.Success(emptyMap())
 
-            context = ToolExecutionContext(repoProvider, perRootConfigService = perRootConfigService)
+            context = ToolExecutionContext(repoProvider, perRootConfigService = perRootConfigService, unitOfWork = db.unitOfWork())
         }
 
     private fun makeItem(

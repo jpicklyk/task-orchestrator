@@ -107,19 +107,6 @@ interface WorkItemRepository {
      */
     suspend fun dbNow(): Instant
 
-    /**
-     * Execute [block] inside a single shared database transaction.
-     *
-     * All repository calls made inside [block] that use the same underlying [Database]
-     * instance will participate in the same transaction: if [block] throws, all writes
-     * are rolled back atomically. Callers MUST NOT call [dbNow] inside [block] — that
-     * would open a nested transaction; read DB time before entering [inTransaction].
-     *
-     * Used by [io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler]
-     * to write the item update and the audit trail row atomically in [applyTransition].
-     */
-    suspend fun inTransaction(block: suspend () -> Unit)
-
     suspend fun getById(id: UUID): Result<WorkItem>
 
     suspend fun create(item: WorkItem): Result<WorkItem>
@@ -668,7 +655,7 @@ interface WorkItemRepository {
      * Resolve the placement (`depth`/`rootId`) a new or reparented child of [parentId] must be
      * stamped with, reading the parent AS OF the call site.
      *
-     * **MUST be called inside the same [inTransaction] block as the write that stamps the
+     * **MUST be called inside the same unit of work as the write that stamps the
      * returned [ChildPlacement] onto a child row.** Reading the parent in its own transaction and
      * writing the child in a later, separate transaction lets a concurrent reparent or delete of
      * the parent commit in between, silently stamping the child with stale placement — see AR-19.

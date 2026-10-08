@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -43,6 +44,7 @@ import kotlin.test.assertTrue
 fun Application.configurePlanDocumentTestApp(
     repo: DefaultRepositoryProvider,
     authConfig: ApiAuthConfig = makeWriteAuthConfig(),
+    unitOfWork: UnitOfWork
 ) {
     install(ContentNegotiation) { json(McpJson) }
     install(SSE)
@@ -55,7 +57,7 @@ fun Application.configurePlanDocumentTestApp(
                         BearerTokenStore.TokenEntry(p, expiresAt = null)
                     } ?: emptyMap()
             }
-            planDocumentRoutes(repo)
+            planDocumentRoutes(repo, unitOfWork)
         }
     }
 }
@@ -77,7 +79,7 @@ class PlanDocumentPutRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configurePlanDocumentTestApp(repo) }
+            application { configurePlanDocumentTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/roots/${root.id}/plans/plan-a") {
@@ -102,7 +104,7 @@ class PlanDocumentPutRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configurePlanDocumentTestApp(repo) }
+            application { configurePlanDocumentTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/roots/${root.id}/plans/plan-a") {
@@ -122,7 +124,13 @@ class PlanDocumentPutRouteTest {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
             val otherRoot = createRoot(repo, title = "Other Root")
-            application { configurePlanDocumentTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(otherRoot.id))) }
+            application {
+                configurePlanDocumentTestApp(
+                    repo,
+                    authConfig = makeWriteAuthConfig(scopeRootIds = setOf(otherRoot.id)),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val response =
                 client.put("/api/v1/roots/${root.id}/plans/plan-a") {
@@ -138,7 +146,7 @@ class PlanDocumentPutRouteTest {
     fun `PUT roots rootId plans slug to unknown root returns 404`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            application { configurePlanDocumentTestApp(repo) }
+            application { configurePlanDocumentTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/roots/${UUID.randomUUID()}/plans/plan-a") {
@@ -163,7 +171,7 @@ class PlanDocumentPutRouteTest {
                         ) as Result.Success
                     ).data
                 }
-            application { configurePlanDocumentTestApp(repo) }
+            application { configurePlanDocumentTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/roots/${child.id}/plans/plan-a") {
@@ -180,7 +188,7 @@ class PlanDocumentPutRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configurePlanDocumentTestApp(repo) }
+            application { configurePlanDocumentTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val oversized = "x".repeat(65_537) // MAX_BODY_BYTES (65536) + 1
             val response =
@@ -200,7 +208,7 @@ class PlanDocumentPutRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configurePlanDocumentTestApp(repo) }
+            application { configurePlanDocumentTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             client.put("/api/v1/roots/${root.id}/plans/plan-a") {
                 header("Authorization", "Bearer $WRITE_TOKEN")
@@ -224,7 +232,7 @@ class PlanDocumentPutRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configurePlanDocumentTestApp(repo) }
+            application { configurePlanDocumentTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             client.put("/api/v1/roots/${root.id}/plans/plan-a") {
                 header("Authorization", "Bearer $WRITE_TOKEN")
@@ -262,7 +270,7 @@ class PlanDocumentGetRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configurePlanDocumentTestApp(repo) }
+            application { configurePlanDocumentTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             client.put("/api/v1/roots/${root.id}/plans/plan-a") {
                 header("Authorization", "Bearer $WRITE_TOKEN")
@@ -285,7 +293,7 @@ class PlanDocumentGetRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configurePlanDocumentTestApp(repo) }
+            application { configurePlanDocumentTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.get("/api/v1/roots/${root.id}/plans/no-such-slug") {
@@ -301,7 +309,13 @@ class PlanDocumentGetRouteTest {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
             val otherRoot = createRoot(repo, title = "Other Root")
-            application { configurePlanDocumentTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(otherRoot.id))) }
+            application {
+                configurePlanDocumentTestApp(
+                    repo,
+                    authConfig = makeWriteAuthConfig(scopeRootIds = setOf(otherRoot.id)),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val response =
                 client.get("/api/v1/roots/${root.id}/plans/plan-a") {
@@ -321,7 +335,7 @@ class PlanDocumentListRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configurePlanDocumentTestApp(repo) }
+            application { configurePlanDocumentTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             client.put("/api/v1/roots/${root.id}/plans/plan-a") {
                 header("Authorization", "Bearer $WRITE_TOKEN")
@@ -350,7 +364,7 @@ class PlanDocumentListRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configurePlanDocumentTestApp(repo) }
+            application { configurePlanDocumentTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             client.put("/api/v1/roots/${root.id}/plans/plan-a") {
                 header("Authorization", "Bearer $WRITE_TOKEN")
@@ -393,7 +407,7 @@ class PlanDocumentConvergenceTest {
             val text = "# Shared Plan\n\nSame bytes either way.\n"
 
             val tool = ManagePlanDocumentsTool()
-            val context = ToolExecutionContext(repo)
+            val context = ToolExecutionContext(repo, unitOfWork = db.unitOfWork())
             runBlocking {
                 tool.execute(
                     buildJsonObject {
@@ -406,7 +420,7 @@ class PlanDocumentConvergenceTest {
                 )
             }
 
-            application { configurePlanDocumentTestApp(repo) }
+            application { configurePlanDocumentTestApp(repo, unitOfWork = db.unitOfWork()) }
             val response =
                 client.put("/api/v1/roots/${rootViaRest.id}/plans/plan-a") {
                     header("Authorization", "Bearer $WRITE_TOKEN")

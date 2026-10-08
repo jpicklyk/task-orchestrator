@@ -49,7 +49,7 @@ class DependencyDirectionTreeToolsTest {
     @BeforeEach
     fun setUp() {
         repositoryProvider = db.repositoryProvider()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         workItemRepository = repositoryProvider.workItemRepository()
         depRepository = repositoryProvider.dependencyRepository()
         completeTreeTool = CompleteTreeTool()

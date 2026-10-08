@@ -43,7 +43,7 @@ class IdempotencyKeyRejectionTest {
     fun `POST items with malformed Idempotency-Key returns 400 validation_error and creates nothing`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -74,7 +74,7 @@ class IdempotencyKeyRejectionTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Untouched Title", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${item.modifiedAt.toEpochMilli()}\""
             val response =
@@ -107,7 +107,7 @@ class IdempotencyKeyRejectionTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Note Host", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/items/${item.id}/notes/should-not-exist") {

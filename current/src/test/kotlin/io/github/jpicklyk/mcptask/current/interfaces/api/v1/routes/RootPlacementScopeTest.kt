@@ -128,7 +128,7 @@ class RootPlacementScopeTest {
     fun `S1 unscoped POST items creates root with depth 0 and self rootId`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig()) }
+            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -158,7 +158,13 @@ class RootPlacementScopeTest {
                     val r0 = repo.workItemRepository().create(WorkItem(title = "S2 Root", depth = 0)).getOrNull()!!
                     repo.workItemRepository().update(r0.copy(rootId = r0.id)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))) }
+            application {
+                configureWriteTestApp(
+                    repo,
+                    authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id)),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val response =
                 client.post("/api/v1/items") {
@@ -183,7 +189,7 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val tagToken = "integration-write-token-s3"
             val principal = writeScopedPrincipal("test-write-s3", rootIds = null, tagsInclude = setOf("alpha"))
-            application { configureWriteTestApp(repo, authConfig = authConfigWith(tagToken, principal)) }
+            application { configureWriteTestApp(repo, authConfig = authConfigWith(tagToken, principal), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -222,7 +228,13 @@ class RootPlacementScopeTest {
                         .create(WorkItem(title = "S4 X", parentId = p.id, depth = 1, rootId = p.id))
                         .getOrNull()!!
                 }
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(x.id))) }
+            application {
+                configureWriteTestApp(
+                    repo,
+                    authConfig = makeWriteAuthConfig(scopeRootIds = setOf(x.id)),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""
             val response =
@@ -270,7 +282,7 @@ class RootPlacementScopeTest {
                 }
             val tagToken = "integration-write-token-s5"
             val principal = writeScopedPrincipal("test-write-s5", rootIds = null, tagsInclude = setOf("alpha"))
-            application { configureWriteTestApp(repo, authConfig = authConfigWith(tagToken, principal)) }
+            application { configureWriteTestApp(repo, authConfig = authConfigWith(tagToken, principal), unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""
             val response =
@@ -306,7 +318,13 @@ class RootPlacementScopeTest {
                     val r0 = repo.workItemRepository().create(WorkItem(title = "S6 Root Anchor", depth = 0)).getOrNull()!!
                     repo.workItemRepository().update(r0.copy(rootId = r0.id)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))) }
+            application {
+                configureWriteTestApp(
+                    repo,
+                    authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id)),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val response =
                 client.post("/api/v1/items") {
@@ -340,7 +358,13 @@ class RootPlacementScopeTest {
                     val r0 = repo.workItemRepository().create(WorkItem(title = "S7 Root Anchor", depth = 0)).getOrNull()!!
                     repo.workItemRepository().update(r0.copy(rootId = r0.id)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))) }
+            application {
+                configureWriteTestApp(
+                    repo,
+                    authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id)),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val response =
                 client.post("/api/v1/items") {
@@ -378,7 +402,7 @@ class RootPlacementScopeTest {
                 }
             val token = "integration-write-token-s8"
             val principal = writeScopedPrincipal("test-write-s8", rootIds = setOf(root.id), tagsInclude = setOf("alpha"))
-            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
+            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -410,7 +434,7 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val token = "integration-write-token-s9a"
             val principal = writeScopedPrincipal("test-write-s9a", rootIds = null, tagsInclude = setOf("alpha"))
-            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
+            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -439,7 +463,7 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val token = "integration-write-token-s9b"
             val principal = writeScopedPrincipal("test-write-s9b", rootIds = null, tagsInclude = setOf("alpha"))
-            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
+            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -487,7 +511,13 @@ class RootPlacementScopeTest {
                             .getOrNull()!!
                     Triple(r, xItem, dItem)
                 }
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))) }
+            application {
+                configureWriteTestApp(
+                    repo,
+                    authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id)),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""
             val response =
@@ -533,7 +563,7 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val token = "integration-write-token-p1a"
             val principal = writeScopedPrincipal("test-write-p1a", rootIds = null, tagsInclude = setOf("alpha"))
-            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
+            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -556,7 +586,7 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val token = "integration-write-token-p1b"
             val principal = writeScopedPrincipal("test-write-p1b", rootIds = null, tagsInclude = setOf("alpha"))
-            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
+            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -585,7 +615,7 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val token = "integration-write-token-p2"
             val principal = writeScopedPrincipal("test-write-p2", rootIds = null, tagsInclude = setOf("ALPHA"))
-            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
+            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -612,7 +642,7 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val token = "integration-write-token-p3"
             val principal = writeScopedPrincipal("test-write-p3", rootIds = null, tagsInclude = setOf("alpha"))
-            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
+            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -638,7 +668,7 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val token = "integration-write-token-p4"
             val principal = writeScopedPrincipal("test-write-p4", rootIds = null, tagsInclude = setOf("alpha"))
-            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
+            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -668,7 +698,13 @@ class RootPlacementScopeTest {
                     val r0 = repo.workItemRepository().create(WorkItem(title = "P5a Root Anchor", depth = 0)).getOrNull()!!
                     repo.workItemRepository().update(r0.copy(rootId = r0.id)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))) }
+            application {
+                configureWriteTestApp(
+                    repo,
+                    authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id)),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val idempotencyKey = UUID.randomUUID().toString()
             val makeRequest: suspend () -> HttpResponse = {
@@ -712,7 +748,13 @@ class RootPlacementScopeTest {
                             .getOrNull()!!
                     Pair(r, xItem)
                 }
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))) }
+            application {
+                configureWriteTestApp(
+                    repo,
+                    authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id)),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val idempotencyKey = UUID.randomUUID().toString()
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""
@@ -758,7 +800,13 @@ class RootPlacementScopeTest {
                     val x0 = repo.workItemRepository().create(WorkItem(title = "P6 Root", depth = 0)).getOrNull()!!
                     repo.workItemRepository().update(x0.copy(rootId = x0.id)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(x.id))) }
+            application {
+                configureWriteTestApp(
+                    repo,
+                    authConfig = makeWriteAuthConfig(scopeRootIds = setOf(x.id)),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""
             val response =

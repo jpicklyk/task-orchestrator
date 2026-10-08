@@ -71,7 +71,8 @@ class AdvanceParityTest {
     private fun mcpTool(
         repo: DefaultRepositoryProvider,
         schemaService: NoteSchemaService,
-    ): Pair<AdvanceItemTool, ToolExecutionContext> = AdvanceItemTool() to ToolExecutionContext(repo, schemaService)
+    ): Pair<AdvanceItemTool, ToolExecutionContext> =
+        AdvanceItemTool() to ToolExecutionContext(repo, schemaService, unitOfWork = db.unitOfWork())
 
     private fun advanceParams(
         itemId: UUID,
@@ -117,7 +118,7 @@ class AdvanceParityTest {
             // REST path.
             var restBody = ""
             testApplication {
-                application { configureWriteTestApp(repo, schemaService = schemaService) }
+                application { configureWriteTestApp(repo, schemaService = schemaService, unitOfWork = db.unitOfWork()) }
                 val r =
                     client.post("/api/v1/items/${restItem.id}/advance") {
                         header("Authorization", "Bearer $WRITE_TOKEN")
@@ -193,7 +194,7 @@ class AdvanceParityTest {
             // REST path — complete the mirrored child.
             var restBody = ""
             testApplication {
-                application { configureWriteTestApp(repo) }
+                application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
                 val r =
                     client.post("/api/v1/items/$restChild/advance") {
                         header("Authorization", "Bearer $WRITE_TOKEN")

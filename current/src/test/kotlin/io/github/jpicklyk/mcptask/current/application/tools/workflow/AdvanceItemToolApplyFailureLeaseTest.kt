@@ -206,7 +206,7 @@ class AdvanceItemToolApplyFailureLeaseTest {
             val failingRoleTx = FailingRoleTransitionRepository(repositoryProvider.roleTransitionRepository(), failFor = item.id)
             val leaseFake = SimpleLeaseFakeRepository()
             val provider = LeaseOverrideProvider(RoleTransitionOverrideProvider(repositoryProvider, failingRoleTx), leaseFake)
-            val context = ToolExecutionContext(provider, TraitSchemaService())
+            val context = ToolExecutionContext(provider, TraitSchemaService(), unitOfWork = db.unitOfWork())
 
             val result = AdvanceItemTool().execute(startParams(item.id), context) as JsonObject
             val data = result["data"]!!.jsonObject
@@ -243,7 +243,7 @@ class AdvanceItemToolApplyFailureLeaseTest {
             val failingRoleTx = FailingRoleTransitionRepository(repositoryProvider.roleTransitionRepository(), failFor = item.id)
             val leaseFake = SimpleLeaseFakeRepository()
             val provider = LeaseOverrideProvider(RoleTransitionOverrideProvider(repositoryProvider, failingRoleTx), leaseFake)
-            val context = ToolExecutionContext(provider, TraitSchemaService())
+            val context = ToolExecutionContext(provider, TraitSchemaService(), unitOfWork = db.unitOfWork())
 
             val result = AdvanceItemTool().execute(startParams(item.id, item.id), context) as JsonObject
             val results = result["data"]!!.jsonObject["results"]!!.jsonArray
@@ -280,7 +280,7 @@ class AdvanceItemToolApplyFailureLeaseTest {
             val failingRoleTx = FailingRoleTransitionRepository(repositoryProvider.roleTransitionRepository(), failFor = pStamped.id)
             val leaseFake = SimpleLeaseFakeRepository()
             val provider = LeaseOverrideProvider(RoleTransitionOverrideProvider(repositoryProvider, failingRoleTx), leaseFake)
-            val context = ToolExecutionContext(provider, TraitSchemaService())
+            val context = ToolExecutionContext(provider, TraitSchemaService(), unitOfWork = db.unitOfWork())
 
             val result = AdvanceItemTool().execute(startParams(c.id), context) as JsonObject
             val data = result["data"]!!.jsonObject

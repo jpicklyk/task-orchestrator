@@ -33,7 +33,7 @@ class ItemHierarchyValidator {
      * plus SQL-side version/`modifiedAt` semantics) is a known follow-up, not a missing
      * primitive; the descendant fetch itself is chunked and has no bound-variable limit. Callers that need the parent's
      * own depth/rootId write and this cascade to be atomic (all-or-nothing) MUST invoke both
-     * inside a shared [WorkItemRepository.inTransaction] block.
+     * inside one shared unit of work (`UnitOfWork.write`).
      *
      * @return [Result.Success] once every descendant has been updated (including the trivial case
      *   of zero descendants); [Result.Error] on the first failure encountered — either the

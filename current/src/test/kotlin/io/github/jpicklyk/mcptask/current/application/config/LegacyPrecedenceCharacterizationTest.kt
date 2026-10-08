@@ -173,7 +173,8 @@ class LegacyPrecedenceCharacterizationTest {
     private fun contextFor(
         global: NoteSchemaService,
         perRoot: PerRootConfigService?
-    ): ToolExecutionContext = ToolExecutionContext(mockk(relaxed = true), global, perRootConfigService = perRoot)
+    ): ToolExecutionContext =
+        ToolExecutionContext(mockk(relaxed = true), global, perRootConfigService = perRoot, unitOfWork = db.unitOfWork())
 
     // ──────────────────────────────────────────────
     // S1 oracle — Q1-Q4: whole-algorithm-first per-root-then-global precedence, both for the
@@ -424,7 +425,8 @@ class LegacyPrecedenceCharacterizationTest {
                     mockk(relaxed = true),
                     s3Global,
                     statusLabelService = YamlStatusLabelService(s3GlobalPath),
-                    perRootConfigService = perRootConfigService
+                    perRootConfigService = perRootConfigService,
+                    unitOfWork = db.unitOfWork()
                 )
         }
 

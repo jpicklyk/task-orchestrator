@@ -31,7 +31,7 @@ class WorkItemDeletionEventsTest {
             val c = (repo.create(WorkItem(parentId = a.id, title = "c", depth = 2)) as Result.Success).data
 
             val flow = bus.subscribe("t6", emptySet(), lastEventId = null)
-            val outcome = WorkItemDeletion(provider).delete(root.id, recursive = true)
+            val outcome = WorkItemDeletion(provider, db.unitOfWork()).delete(root.id, recursive = true)
             assertEquals(WorkItemDeleteOutcome.Deleted(root.id, 3), outcome)
 
             val events = bus.drainDelivered("t6", flow).filter { it.event == ApiEventType.ITEM_DELETED }
@@ -46,7 +46,9 @@ class WorkItemDeletionEventsTest {
             val provider = EventPublishingRepositoryProvider(repositoryProvider, bus)
             val flow = bus.subscribe("t6b", emptySet(), lastEventId = null)
 
-            assertTrue(WorkItemDeletion(provider).delete(UUID.randomUUID(), recursive = true) is WorkItemDeleteOutcome.NotFound)
+            assertTrue(
+                WorkItemDeletion(provider, db.unitOfWork()).delete(UUID.randomUUID(), recursive = true) is WorkItemDeleteOutcome.NotFound
+            )
 
             assertEquals(0, bus.drainDelivered("t6b", flow).size)
         }

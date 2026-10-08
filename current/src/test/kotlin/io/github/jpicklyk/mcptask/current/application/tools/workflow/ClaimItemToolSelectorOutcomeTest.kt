@@ -132,6 +132,7 @@ class ClaimItemToolSelectorOutcomeTest {
             repositoryProvider = repositoryProvider,
             actorVerifier = NoOpActorVerifier,
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
+            unitOfWork = db.unitOfWork(),
         )
 
     private suspend fun createItem(
@@ -422,6 +423,7 @@ class ClaimItemToolSelectorOutcomeTest {
                     repositoryProvider = mockProvider,
                     actorVerifier = NoOpActorVerifier,
                     nextItemRecommender = recommender,
+                    unitOfWork = db.unitOfWork(),
                 )
 
             val result = tool.execute(params(), mockContext)

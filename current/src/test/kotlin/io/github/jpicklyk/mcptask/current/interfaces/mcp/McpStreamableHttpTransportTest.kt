@@ -59,7 +59,7 @@ class McpStreamableHttpTransportTest {
                             ServerCapabilities(tools = ServerCapabilities.Tools(listChanged = true)),
                     ),
             )
-        McpToolAdapter().registerToolsWithServer(server, buildMcpTools(), ToolExecutionContext(provider))
+        McpToolAdapter().registerToolsWithServer(server, buildMcpTools(), ToolExecutionContext(provider, unitOfWork = db.unitOfWork()))
         return server
     }
 

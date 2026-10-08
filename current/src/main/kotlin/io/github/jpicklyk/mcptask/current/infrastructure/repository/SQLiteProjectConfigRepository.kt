@@ -30,7 +30,7 @@ import java.util.UUID
  * `(work_item_id, key)`) to avoid a SELECT-then-branch TOCTOU race between concurrent writers
  * deciding row EXISTENCE. Computing the new `fingerprint_history` value, however, needs the row
  * prior `fingerprint`/`fingerprint_history` state, so [upsert] reads those two columns first,
- * inside the same `suspendedTransaction` as the upsert itself. This table is one row per project
+ * inside the same transaction as the upsert itself. This table is one row per project
  * root -- tiny and low-write-frequency (config pushes, not hot-path reads) -- so the extra read
  * inside the transaction is not a meaningful bottleneck in practice, but [upsert] itself is
  * UNCONDITIONAL: it has no way to reject a write based on the row it just read. [upsertGuarded]

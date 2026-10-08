@@ -1,5 +1,10 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.UnitResult
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.application.tools.ActorAware
 import io.github.jpicklyk.mcptask.current.application.tools.PolicyResolution
 import io.github.jpicklyk.mcptask.current.domain.model.*
@@ -219,6 +224,7 @@ class RoleTransitionHandler {
      * @param workItemRepository Repository for persisting item updates.
      * @param roleTransitionRepository Repository for recording the audit trail.
      * @param dependencyRepository Repository for validating dependency constraints.
+     * @param unitOfWork The transaction boundary the apply runs in (see [applyTransition]).
      * @param actorClaim Optional actor attribution (populated from verified request context).
      * @param verification Optional verification result attached to the actor claim.
      * @param degradedModePolicy The deployment's identity degraded-mode policy.
@@ -239,6 +245,7 @@ class RoleTransitionHandler {
         workItemRepository: WorkItemRepository,
         roleTransitionRepository: RoleTransitionRepository,
         dependencyRepository: DependencyRepository,
+        unitOfWork: UnitOfWork,
         actorClaim: ActorClaim? = null,
         verification: VerificationResult? = null,
         degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
@@ -292,6 +299,7 @@ class RoleTransitionHandler {
                 effectiveLabel,
                 workItemRepository,
                 roleTransitionRepository,
+                unitOfWork,
                 actorClaim = actorClaim,
                 verification = verification
             )
@@ -332,6 +340,7 @@ class RoleTransitionHandler {
      *   using the "cascade" key before invoking this method.
      * @param workItemRepository Repository for persisting item updates.
      * @param roleTransitionRepository Repository for recording the audit trail.
+     * @param unitOfWork The transaction boundary the apply runs in (see [applyTransition]).
      */
     internal suspend fun cascadeTransition(
         item: WorkItem,
@@ -339,6 +348,7 @@ class RoleTransitionHandler {
         reason: String,
         workItemRepository: WorkItemRepository,
         roleTransitionRepository: RoleTransitionRepository,
+        unitOfWork: UnitOfWork,
         statusLabel: String? = null
     ): EntryPointTransitionResult {
         val applyResult =
@@ -350,6 +360,7 @@ class RoleTransitionHandler {
                 statusLabel,
                 workItemRepository,
                 roleTransitionRepository,
+                unitOfWork,
                 actorClaim = null,
                 verification = null
             )
@@ -677,7 +688,8 @@ class RoleTransitionHandler {
 
     /**
      * Persist the role change on the WorkItem and record a [RoleTransition] audit entry
-     * atomically: both writes execute inside a single shared database transaction.
+     * atomically: both writes execute inside ONE write unit of [unitOfWork] (joined when the caller
+     * already runs one).
      *
      * When transitioning to BLOCKED, the current role is saved as [WorkItem.previousRole]
      * so that "resume" can restore it later. When leaving BLOCKED, previousRole is cleared.
@@ -687,6 +699,7 @@ class RoleTransitionHandler {
      * @param trigger The trigger that initiated this transition.
      * @param summary Optional human-readable summary.
      * @param statusLabel Optional display label (e.g., "cancelled").
+     * @param unitOfWork The transaction boundary both writes run in.
      * @param roleChangedAt Timestamp to record as [WorkItem.roleChangedAt]. Callers should
      *   pass the DB-side current time (via [WorkItemRepository.dbNow]) to keep this
      *   timestamp consistent with DB-clock-based range filter queries. Defaults to
@@ -703,6 +716,7 @@ class RoleTransitionHandler {
         statusLabel: String?,
         workItemRepository: WorkItemRepository,
         roleTransitionRepository: RoleTransitionRepository,
+        unitOfWork: UnitOfWork,
         actorClaim: ActorClaim? = null,
         verification: VerificationResult? = null,
         roleChangedAt: Instant = Instant.now(),
@@ -764,24 +778,23 @@ class RoleTransitionHandler {
                 )
             }
 
-        // Persist both writes atomically inside a single shared transaction so that a
-        // crash or exception between the two operations never leaves the item's role
-        // updated without a corresponding audit row in role_transitions.
-        var savedItem: WorkItem? = null
-        var savedTransition: RoleTransition? = null
-        var atomicError: String? = null
-
-        // The AtomicTransitionException is thrown INSIDE the inTransaction lambda to abort and
-        // roll back the transaction when either write fails. It is caught HERE, at the boundary,
-        // and converted into a failure Result — applyTransition never throws to its caller.
-        // Any other exception (e.g. a raw DB exception) is likewise caught and surfaced as a
-        // failure Result after the transaction has already rolled back.
-        try {
-            workItemRepository.inTransaction {
+        // Persist both writes in ONE unit so that a crash or failure between the two operations
+        // never leaves the item's role updated without a corresponding audit row in
+        // role_transitions. Either write failing rolls the unit back; a fault of the unit itself
+        // and any other exception are surfaced as a failure result too: applyTransition never
+        // throws to its caller (cancellation excepted).
+        return try {
+            unitOfWork.writeUnit(
+                "RoleTransitionHandler.applyTransition",
+                onFault = { TransitionApplyResult(success = false, error = "Failed to apply transition: ${LegacyFaults.message(it)}") }
+            ) {
                 when (val result = workItemRepository.update(updatedItem)) {
+                    is Result.Error ->
+                        UnitResult.Rollback(
+                            TransitionApplyResult(success = false, error = "Failed to update item: ${result.error.message}")
+                        )
                     is Result.Success -> {
-                        savedItem = result.data
-                        // Record the audit trail inside the same transaction
+                        // Record the audit trail inside the same unit
                         val transition =
                             RoleTransition(
                                 itemId = item.id,
@@ -796,56 +809,31 @@ class RoleTransitionHandler {
                                 consumedCredentials = consumedCredentials
                             )
                         when (val createResult = roleTransitionRepository.create(transition)) {
-                            is Result.Success -> {
-                                savedTransition = createResult.data
-                            }
-                            is Result.Error -> {
-                                val errMsg = "Failed to create audit transition: ${createResult.error.message}"
-                                atomicError = errMsg
-                                throw AtomicTransitionException(errMsg)
-                            }
+                            is Result.Success ->
+                                UnitResult.Commit(
+                                    TransitionApplyResult(
+                                        success = true,
+                                        item = result.data,
+                                        transition = createResult.data,
+                                        previousRole = previousRole,
+                                        newRole = targetRole
+                                    )
+                                )
+                            is Result.Error ->
+                                UnitResult.Rollback(
+                                    TransitionApplyResult(
+                                        success = false,
+                                        error = "Failed to create audit transition: ${createResult.error.message}"
+                                    )
+                                )
                         }
-                    }
-                    is Result.Error -> {
-                        val errMsg = "Failed to update item: ${result.error.message}"
-                        atomicError = errMsg
-                        throw AtomicTransitionException(errMsg)
                     }
                 }
             }
-        } catch (e: AtomicTransitionException) {
-            // Expected abort path — atomicError already holds the message. The transaction
-            // has rolled back, so no partial writes remain. Fall through to the failure return.
-            atomicError = atomicError ?: e.message
         } catch (e: Exception) {
-            // Unexpected DB failure inside the transaction — also rolled back. Surface as failure.
-            atomicError = atomicError ?: "Failed to apply transition: ${e.message}"
-        }
-
-        val finalItem = savedItem
-        val finalTransition = savedTransition
-        return if (atomicError == null && finalItem != null && finalTransition != null) {
-            TransitionApplyResult(
-                success = true,
-                item = finalItem,
-                transition = finalTransition,
-                previousRole = previousRole,
-                newRole = targetRole
-            )
-        } else {
-            TransitionApplyResult(
-                success = false,
-                error = atomicError ?: "Unexpected error during atomic transition"
-            )
+            e.rethrowIfCancellation()
+            // Unexpected failure inside the unit: it has rolled back. Surface as failure.
+            TransitionApplyResult(success = false, error = "Failed to apply transition: ${e.message}")
         }
     }
-
-    /**
-     * Internal marker exception used to abort an [inTransaction] block when one of the
-     * two atomic writes fails. Caught and discarded by the [applyTransition] wrapper;
-     * never surfaced to callers.
-     */
-    private class AtomicTransitionException(
-        message: String
-    ) : Exception(message)
 }

@@ -145,7 +145,7 @@ class RuleBudgetStashTest {
         @TempDir tempDir: Path,
     ) {
         val composition = buildComposition(tempDir)
-        val service = PlanDocumentService(composition.toolContext.repositoryProvider)
+        val service = PlanDocumentService(composition.toolContext.repositoryProvider, db.unitOfWork())
         val root =
             runBlocking {
                 composition.toolContext.repositoryProvider
@@ -170,7 +170,7 @@ class RuleBudgetStashTest {
         @TempDir tempDir: Path,
     ) {
         val composition = buildComposition(tempDir)
-        val service = PlanDocumentService(composition.toolContext.repositoryProvider)
+        val service = PlanDocumentService(composition.toolContext.repositoryProvider, db.unitOfWork())
         val root =
             runBlocking {
                 composition.toolContext.repositoryProvider
@@ -202,7 +202,7 @@ class RuleBudgetStashTest {
         @TempDir tempDir: Path,
     ) {
         val composition = buildComposition(tempDir)
-        val service = PlanDocumentService(composition.toolContext.repositoryProvider)
+        val service = PlanDocumentService(composition.toolContext.repositoryProvider, db.unitOfWork())
         val root =
             runBlocking {
                 composition.toolContext.repositoryProvider

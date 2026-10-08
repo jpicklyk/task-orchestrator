@@ -115,6 +115,7 @@ class QueryRulesConfigUnavailableTest {
             ToolExecutionContext(
                 provider,
                 perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                unitOfWork = db.unitOfWork(),
             )
         return Triple(context, item, failable)
     }

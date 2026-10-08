@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
+import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -218,7 +219,7 @@ class DependencyEventRootScopingTest {
             val depId = UUID.randomUUID()
             var caught: Throwable? = null
             try {
-                provider.workItemRepository().inTransaction {
+                db.unitOfWork().inUnit {
                     provider.dependencyRepository().create(
                         Dependency(id = depId, fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS),
                     )
@@ -252,7 +253,7 @@ class DependencyEventRootScopingTest {
             val (_, itemA, itemB) = createRootAndChildren(provider, "S5")
             val baselineCount = bus.ringBufferSnapshot().size
 
-            provider.workItemRepository().inTransaction {
+            db.unitOfWork().inUnit {
                 provider.dependencyRepository().create(
                     Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS),
                 )
@@ -411,7 +412,7 @@ class DependencyEventRootScopingTest {
                     .getOrNull()!!
             val baselineCount = bus.ringBufferSnapshot().size
 
-            provider.workItemRepository().inTransaction {
+            db.unitOfWork().inUnit {
                 provider.dependencyRepository().create(
                     Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS),
                 )

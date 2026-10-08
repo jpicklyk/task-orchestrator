@@ -99,7 +99,8 @@ class ToolExecutionContextPerRootIntegrationTest {
                 ToolExecutionContext(
                     repositoryProvider,
                     noteSchemaService,
-                    perRootConfigService = perRootConfigService
+                    perRootConfigService = perRootConfigService,
+                    unitOfWork = db.unitOfWork()
                 )
         }
 

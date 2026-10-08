@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -314,7 +315,7 @@ class EventPublishingWriteCoverageTest {
 
             var threw = false
             try {
-                provider.workItemRepository().inTransaction {
+                db.unitOfWork().inUnit {
                     provider.workTreeExecutor().execute(input)
                     throw RuntimeException("forced rollback for S12")
                 }

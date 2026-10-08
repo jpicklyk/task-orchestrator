@@ -691,24 +691,25 @@ internal fun Application.installRestApiRoutes(
                 degradedModePolicy,
                 idempotencyCache,
                 toolContext.advanceServiceFactory(),
+                toolContext.unitOfWork,
                 warnOnClaimedAdvance = appConfig.apiWarnOnClaimedAdvance,
             )
-            noteWriteRoutes(effectiveProvider, degradedModePolicy, idempotencyCache)
+            noteWriteRoutes(effectiveProvider, degradedModePolicy, idempotencyCache, toolContext.unitOfWork)
             dependencyWriteRoutes(effectiveProvider, degradedModePolicy, toolContext.unitOfWork)
             // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete —
             // converges on the same ProjectConfigPushService the manage_project_config MCP tool uses.
-            projectConfigRoutes(effectiveProvider)
+            projectConfigRoutes(effectiveProvider, toolContext.unitOfWork)
             // Additive per-root effective (layered) config view — same LayeredConfig the MCP
             // configResolver already computes, surfaced as one REST resource (AR-42).
             effectiveConfigRoutes(effectiveProvider, toolContext.configResolver, noteSchemaService)
             // plan_documents store: per-root plan document read/write —
             // converges on the same PlanDocumentService the manage_plan_documents MCP tool uses.
-            planDocumentRoutes(effectiveProvider)
+            planDocumentRoutes(effectiveProvider, toolContext.unitOfWork)
             // Git-tracked rule text: read-only view over rule/<key> plan documents, converging on
             // the same RuleService the query_rules MCP tool uses (A3, 840e700a).
             ruleRoutes(effectiveProvider)
             // Operator resource-lease read + force-release — cross-project, server-wide (no rootId scope).
-            resourceLeaseRoutes(effectiveProvider)
+            resourceLeaseRoutes(effectiveProvider, toolContext.unitOfWork)
         }
         // Phase 6: real-time SSE event stream — registered in a separate, sibling
         // `route("/api/v1")` block from the one above. NOTE: this sibling-route registration does

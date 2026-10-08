@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
@@ -328,6 +329,7 @@ fun Route.itemWriteRoutes(
     degradedModePolicy: DegradedModePolicy,
     idempotencyCache: IdempotencyCache,
     advanceServiceFactory: AdvanceServiceFactory,
+    unitOfWork: UnitOfWork,
     warnOnClaimedAdvance: Boolean = defaultWarnOnClaimedAdvance,
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
@@ -521,7 +523,7 @@ fun Route.itemWriteRoutes(
                     val outcome =
                         withEventActor(actorClaim) {
                             WorkItemPlacementService(workItemRepo)
-                                .create(itemId, parentId) { depth, rootId -> buildItem(depth, rootId) }
+                                .create(unitOfWork, itemId, parentId) { depth, rootId -> buildItem(depth, rootId) }
                         }
                 ) {
                     is PlacedWriteOutcome.ParentNotFound ->
@@ -798,7 +800,7 @@ fun Route.itemWriteRoutes(
                 val outcome =
                     withEventActor(actorClaim) {
                         WorkItemPlacementService(workItemRepo)
-                            .update(existing, newParentId, parentChanged) { depth, rootId -> buildUpdated(depth, rootId) }
+                            .update(unitOfWork, existing, newParentId, parentChanged) { depth, rootId -> buildUpdated(depth, rootId) }
                     }
 
                 return when (outcome) {
@@ -903,7 +905,7 @@ fun Route.itemWriteRoutes(
             // Delegate to the shared helper (see WorkItemDeletion's KDoc) — release-before-delete,
             // the non-recursive children guard, and the recursive all-or-nothing subtree delete are
             // all identical to the MCP `manage_items` delete operation (DeleteItemHandler).
-            val deletion = WorkItemDeletion(repositoryProvider)
+            val deletion = WorkItemDeletion(repositoryProvider, unitOfWork)
             val actorClaim = ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey])
             when (
                 val outcome =

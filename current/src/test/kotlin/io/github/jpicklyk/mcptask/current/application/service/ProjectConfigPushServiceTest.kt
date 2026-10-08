@@ -57,7 +57,7 @@ class ProjectConfigPushServiceTest {
             every { repositoryProvider.workItemRepository() } returns workItemRepository
             every { repositoryProvider.projectConfigRepository() } returns projectConfigRepository
 
-            service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser)
+            service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser, db.unitOfWork())
 
             rootId = (workItemRepository.create(WorkItem(title = "Root", type = "project")) as Result.Success).data.id
             otherRootId = (workItemRepository.create(WorkItem(title = "Other Root", type = "project")) as Result.Success).data.id

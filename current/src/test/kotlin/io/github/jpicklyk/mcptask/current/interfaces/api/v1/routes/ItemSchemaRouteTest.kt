@@ -364,6 +364,7 @@ class ItemSchemaRouteTest {
                     provider,
                     ItemSchemaRouteNoGlobalSchemaService,
                     perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                    unitOfWork = db.unitOfWork(),
                 )
             application {
                 install(ContentNegotiation) { json(McpJson) }

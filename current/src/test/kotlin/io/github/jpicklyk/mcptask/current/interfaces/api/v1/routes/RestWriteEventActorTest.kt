@@ -66,10 +66,12 @@ class RestWriteEventActorTest {
                     NoOpNoteSchemaService,
                     statusLabelService = NoOpStatusLabelService,
                     perRootConfigService = PerRootConfigService(decorated.projectConfigRepository()),
+                    unitOfWork = db.unitOfWork()
                 ).advanceServiceFactory(),
+                db.unitOfWork(),
             )
-            noteWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyCache())
-            dependencyWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED)
+            noteWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyCache(), db.unitOfWork())
+            dependencyWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, db.unitOfWork())
         }
     }
 

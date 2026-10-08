@@ -75,7 +75,7 @@ class ProjectConfigRoutesGuardOrderTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
             val yamlA = GUARD_ORDER_VALID_YAML
             val yamlB = GUARD_ORDER_VALID_YAML + "\n"
 
@@ -116,7 +116,7 @@ class ProjectConfigRoutesGuardOrderTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             client.put("/api/v1/roots/${root.id}/config") {
                 header("Authorization", "Bearer $WRITE_TOKEN")
@@ -145,7 +145,7 @@ class ProjectConfigRoutesGuardOrderTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             client.put("/api/v1/roots/${root.id}/config") {
                 header("Authorization", "Bearer $WRITE_TOKEN")
@@ -170,7 +170,7 @@ class ProjectConfigRoutesGuardOrderTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             client.put("/api/v1/roots/${root.id}/config") {
                 header("Authorization", "Bearer $WRITE_TOKEN")
@@ -194,7 +194,7 @@ class ProjectConfigRoutesGuardOrderTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/roots/${root.id}/config") {
@@ -216,7 +216,7 @@ class ProjectConfigRoutesGuardOrderTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val first =
                 client.put("/api/v1/roots/${root.id}/config") {
@@ -253,7 +253,7 @@ class ProjectConfigRoutesGuardOrderTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val first =
                 client.put("/api/v1/roots/${root.id}/config") {
@@ -296,7 +296,7 @@ class ProjectConfigRoutesGuardOrderTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val first =
                 client.put("/api/v1/roots/${root.id}/config") {
@@ -324,7 +324,7 @@ class ProjectConfigRoutesGuardOrderTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val first =
                 client.put("/api/v1/roots/${root.id}/config") {
@@ -352,7 +352,7 @@ class ProjectConfigRoutesGuardOrderTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
             val yamlB = GUARD_ORDER_VALID_YAML + "\n"
 
             client.put("/api/v1/roots/${root.id}/config") {

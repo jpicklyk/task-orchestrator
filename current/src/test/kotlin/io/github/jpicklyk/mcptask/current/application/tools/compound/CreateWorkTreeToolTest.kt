@@ -43,7 +43,6 @@ class CreateWorkTreeToolTest {
         // call in inTransaction and resolves parent placement inside it via
         // resolveChildPlacement. Run the block inline and derive the placement from whatever
         // getById stub the individual test configures — no expectation changes.
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers { firstArg<suspend () -> Unit>().invoke() }
         coEvery { workItemRepo.resolveChildPlacement(any()) } coAnswers {
             val parentId = firstArg<UUID>()
             when (val parent = workItemRepo.getById(parentId)) {

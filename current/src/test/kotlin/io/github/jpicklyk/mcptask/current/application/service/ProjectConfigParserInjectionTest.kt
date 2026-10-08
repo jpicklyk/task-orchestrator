@@ -88,7 +88,11 @@ class ProjectConfigParserInjectionTest {
     fun `S10 - a Failed outcome maps to ParseError carrying the same detail`(): Unit =
         runBlocking {
             val service =
-                ProjectConfigPushService(repositoryProvider, FakeConfigDocumentParser(ConfigDocumentParser.Outcome.Failed("boom")))
+                ProjectConfigPushService(
+                    repositoryProvider,
+                    FakeConfigDocumentParser(ConfigDocumentParser.Outcome.Failed("boom")),
+                    db.unitOfWork()
+                )
 
             val result = service.push(rootId, "irrelevant: yaml")
 
@@ -101,7 +105,7 @@ class ProjectConfigParserInjectionTest {
         runBlocking {
             val doc = ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap(), warnings = listOf("w1"))
             val outcome = ConfigDocumentParser.Outcome.Parsed(doc, rawRoot = mapOf("x" to 1))
-            val service = ProjectConfigPushService(repositoryProvider, FakeConfigDocumentParser(outcome))
+            val service = ProjectConfigPushService(repositoryProvider, FakeConfigDocumentParser(outcome), db.unitOfWork())
 
             val result = service.push(rootId, "irrelevant: yaml")
 
@@ -118,7 +122,7 @@ class ProjectConfigParserInjectionTest {
     fun `S11 - ManageProjectConfigTool push surfaces the injected parser's Failed detail in the error response`(): Unit =
         runBlocking {
             val tool = ManageProjectConfigTool(FakeConfigDocumentParser(ConfigDocumentParser.Outcome.Failed("boom")))
-            val context = ToolExecutionContext(repositoryProvider)
+            val context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
 
             val params =
                 JsonObject(

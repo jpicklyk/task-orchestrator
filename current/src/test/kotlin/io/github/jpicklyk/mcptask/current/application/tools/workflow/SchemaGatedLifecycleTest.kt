@@ -125,7 +125,7 @@ class SchemaGatedLifecycleTest {
                 override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = tags.firstNotNullOfOrNull { schemas[it] }
             }
 
-        context = ToolExecutionContext(repositoryProvider, noteSchemaService)
+        context = ToolExecutionContext(repositoryProvider, noteSchemaService, unitOfWork = db.unitOfWork())
         transitionTool = AdvanceItemTool()
     }
 
@@ -1336,7 +1336,7 @@ class SchemaGatedLifecycleTest {
                     if (type != null) typeSchemas[type]?.defaultTraits ?: emptyList() else emptyList()
             }
 
-        return ToolExecutionContext(repoProvider, schemaService)
+        return ToolExecutionContext(repoProvider, schemaService, unitOfWork = db.unitOfWork())
     }
 
     private suspend fun createItemIn(

@@ -54,7 +54,7 @@ class ManagePlanDocumentsToolTest {
             every { repositoryProvider.workItemRepository() } returns workItemRepository
             every { repositoryProvider.planDocumentRepository() } returns planDocumentRepository
 
-            context = ToolExecutionContext(repositoryProvider)
+            context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
 
             val root = (workItemRepository.create(WorkItem(title = "Project Root", type = "project")) as Result.Success).data
             rootId = root.id

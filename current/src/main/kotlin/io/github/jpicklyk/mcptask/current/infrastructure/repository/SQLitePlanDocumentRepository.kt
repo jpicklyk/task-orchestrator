@@ -27,7 +27,7 @@ import java.util.UUID
  *
  * [stash] uses the same read-inside-transaction-then-upsert pattern as
  * [SQLiteProjectConfigRepository.upsert]: the ADOPTED-conflict guard needs the row's prior status,
- * which is read first inside the same `suspendedTransaction` as the upsert itself. This table is
+ * which is read first inside the same transaction as the upsert itself. This table is
  * low-write-frequency (plan stashes, not a hot path), so the extra read is not a meaningful
  * bottleneck or TOCTOU window in practice — the whole read+write happens under one transaction.
  */

@@ -32,7 +32,7 @@ class ManageDependenciesToolTest {
     @BeforeEach
     fun setUp() {
         val repositoryProvider = db.repositoryProvider()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         tool = ManageDependenciesTool()
         workItemRepo = repositoryProvider.workItemRepository()
 

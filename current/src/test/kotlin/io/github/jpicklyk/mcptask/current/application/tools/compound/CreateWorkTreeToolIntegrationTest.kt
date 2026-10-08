@@ -49,7 +49,7 @@ class CreateWorkTreeToolIntegrationTest {
         noteRepository = repositoryProvider.noteRepository() as SQLiteNoteRepository
 
         tool = CreateWorkTreeTool()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
     }
 
     // ──────────────────────────────────────────────────────────────────────────

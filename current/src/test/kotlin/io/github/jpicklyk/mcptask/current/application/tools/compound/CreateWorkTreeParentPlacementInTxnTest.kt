@@ -7,7 +7,9 @@ import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.CountingUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.sqlite.assertNoOutsideUnitWrites
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -66,13 +68,11 @@ class CreateWorkTreeParentPlacementInTxnTest {
     ) : WorkItemRepository by delegate {
         private var hasFired = false
 
-        override suspend fun inTransaction(block: suspend () -> Unit) {
-            delegate.inTransaction {
-                if (!hasFired) {
-                    hasFired = true
-                    mutate(delegate)
-                }
-                block()
+        /** Fires [mutate] once, from the [CountingUnitOfWork] hook at the first top-level unit's open. */
+        suspend fun fireOnce() {
+            if (!hasFired) {
+                hasFired = true
+                mutate(delegate)
             }
         }
 
@@ -129,7 +129,10 @@ class CreateWorkTreeParentPlacementInTxnTest {
     }
 
     private fun contextWith(workItemRepo: WorkItemRepository) =
-        ToolExecutionContext(WorkItemRepoOverrideProvider(repositoryProvider, workItemRepo))
+        ToolExecutionContext(
+            WorkItemRepoOverrideProvider(repositoryProvider, workItemRepo),
+            unitOfWork = CountingUnitOfWork(db.unitOfWork()) { (workItemRepo as? MutateOnFirstTransactionRepository)?.fireOnce() }
+        )
 
     // ─────────────────────────────────────────────────────────────────────────
     // S6 — create mode: root anchored at parentId=P, P concurrently reparented inside the txn
@@ -161,7 +164,7 @@ class CreateWorkTreeParentPlacementInTxnTest {
                     )
                 }
 
-            val result = tool.execute(params, contextWith(wrapped)) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(params, contextWith(wrapped)) } as JsonObject
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val data = result["data"] as JsonObject
@@ -217,7 +220,7 @@ class CreateWorkTreeParentPlacementInTxnTest {
                     )
                 }
 
-            val result = tool.execute(params, contextWith(wrapped)) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(params, contextWith(wrapped)) } as JsonObject
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val data = result["data"] as JsonObject
@@ -255,7 +258,7 @@ class CreateWorkTreeParentPlacementInTxnTest {
                     put("parentId", JsonPrimitive(p.id.toString()))
                 }
 
-            val result = tool.execute(params, contextWith(wrapped)) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(params, contextWith(wrapped)) } as JsonObject
 
             assertTrue(!result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val errorMsg = result["error"]!!.jsonObject["message"]!!.jsonPrimitive.content
@@ -277,7 +280,7 @@ class CreateWorkTreeParentPlacementInTxnTest {
         runBlocking {
             val root = stampSelfRoot(create(WorkItem(title = "R Replay", depth = 0)))
             val p = create(WorkItem(title = "P Replay", parentId = root.id, depth = 1, rootId = root.id))
-            val context = ToolExecutionContext(repositoryProvider)
+            val context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
 
             fun params(title: String) =
                 buildJsonObject {
@@ -285,8 +288,8 @@ class CreateWorkTreeParentPlacementInTxnTest {
                     put("parentId", JsonPrimitive(p.id.toString()))
                 }
 
-            val first = tool.execute(params("Replay Root 1"), context) as JsonObject
-            val second = tool.execute(params("Replay Root 2"), context) as JsonObject
+            val first = db.assertNoOutsideUnitWrites { tool.execute(params("Replay Root 1"), context) } as JsonObject
+            val second = db.assertNoOutsideUnitWrites { tool.execute(params("Replay Root 2"), context) } as JsonObject
 
             for (r in listOf(first, second)) {
                 val rootJson = (r["data"] as JsonObject)["root"] as JsonObject

@@ -95,7 +95,8 @@ class McpToolAdapterConfigSessionTest {
         ToolExecutionContext(
             repositoryProvider =
                 db.repositoryProvider(),
-            perRootConfigService = source
+            perRootConfigService = source,
+            unitOfWork = db.unitOfWork()
         )
 
     /**

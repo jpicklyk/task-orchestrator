@@ -59,7 +59,7 @@ class ItemWriteIdempotencyConcurrencyTest {
     fun `S5 same Idempotency-Key with different bodies replays the first response verbatim`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val key = UUID.randomUUID().toString()
             val first =
@@ -112,7 +112,7 @@ class ItemWriteIdempotencyConcurrencyTest {
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "S6 Target", depth = 0)).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.patch("/api/v1/items/${item.id}") {
@@ -145,7 +145,7 @@ class ItemWriteIdempotencyConcurrencyTest {
     fun `probe mixed-case Idempotency-Key hex resolves to the same cache entry`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val key = UUID.randomUUID()
             val lower = key.toString().lowercase()

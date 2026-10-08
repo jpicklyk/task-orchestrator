@@ -188,7 +188,7 @@ the root's stored fingerprint history.
         val configYaml = requireString(params, "configYaml")
         val force = optionalBoolean(params, "force")
 
-        val service = ProjectConfigPushService(context.repositoryProvider, configDocumentParser)
+        val service = ProjectConfigPushService(context.repositoryProvider, configDocumentParser, context.unitOfWork)
         return when (val result = service.push(rootId!!, configYaml, force)) {
             is ProjectConfigPushResult.Success ->
                 successResponse(
@@ -269,7 +269,7 @@ the root's stored fingerprint history.
         if (idError != null) return idError
         val fingerprint = optionalString(params, "fingerprint")
 
-        val service = ProjectConfigPushService(context.repositoryProvider, configDocumentParser)
+        val service = ProjectConfigPushService(context.repositoryProvider, configDocumentParser, context.unitOfWork)
         return when (val result = service.get(rootId!!)) {
             is Result.Success -> {
                 val config =

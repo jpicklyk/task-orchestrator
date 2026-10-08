@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.VarCharColumnType
@@ -85,7 +86,7 @@ class SQLiteResourceLeaseRepositoryBulkReleaseTest {
         block: suspend () -> T,
     ): T {
         var out: T? = null
-        repositoryProvider.workItemRepository().inTransaction {
+        sqliteDb.unitOfWork().inUnit {
             val conn = TransactionManager.current().connection.connection as Connection
             val sqlite = conn.unwrap(SQLiteConnection::class.java)
             sqlite.setLimit(SQLiteLimits.SQLITE_LIMIT_VARIABLE_NUMBER, limit)

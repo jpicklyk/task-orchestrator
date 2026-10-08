@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentService
 import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentStashResult
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocument
@@ -49,9 +50,12 @@ private val planDocumentLogger = LoggerFactory.getLogger("PlanDocumentRoutes")
  * **REST-only:** registered on the authenticated `/api/v1` pipeline only, like [projectConfigRoutes]
  * — never reachable on the unauthenticated `/mcp` transport.
  */
-fun Route.planDocumentRoutes(repositoryProvider: RepositoryProvider) {
+fun Route.planDocumentRoutes(
+    repositoryProvider: RepositoryProvider,
+    unitOfWork: UnitOfWork,
+) {
     val workItemRepo = repositoryProvider.workItemRepository()
-    val service = PlanDocumentService(repositoryProvider)
+    val service = PlanDocumentService(repositoryProvider, unitOfWork)
 
     route("/roots/{rootId}/plans") {
         // ─── GET /roots/{rootId}/plans (list, metadata only) ─────────────────

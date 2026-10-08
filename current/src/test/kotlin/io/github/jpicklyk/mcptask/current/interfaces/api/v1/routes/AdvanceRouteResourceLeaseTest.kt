@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
@@ -203,7 +204,10 @@ private class LeaseTraitSchemaService : WorkItemSchemaService {
         }
 }
 
-private fun Application.configureLeaseTestApp(provider: RepositoryProvider) {
+private fun Application.configureLeaseTestApp(
+    provider: RepositoryProvider,
+    unitOfWork: UnitOfWork
+) {
     install(ContentNegotiation) { json(McpJson) }
     install(SSE)
     val authConfig = makeWriteAuthConfig()
@@ -225,7 +229,9 @@ private fun Application.configureLeaseTestApp(provider: RepositoryProvider) {
                     LeaseTraitSchemaService(),
                     statusLabelService = NoOpStatusLabelService,
                     perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                    unitOfWork = unitOfWork
                 ).advanceServiceFactory(),
+                unitOfWork,
             )
         }
     }
@@ -270,7 +276,7 @@ class AdvanceRouteResourceLeaseTest {
                     expiresAt = now.plusSeconds(600),
                     originalAcquiredAt = now,
                 )
-            application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake)) }
+            application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -299,7 +305,7 @@ class AdvanceRouteResourceLeaseTest {
             val sqlite = db.repositoryProvider()
             val fake = LeaseGateFakeRepository()
             val item = sqlite.createTracedItem("Needs staging DB")
-            application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake)) }
+            application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -320,7 +326,7 @@ class AdvanceRouteResourceLeaseTest {
             val sqlite = db.repositoryProvider()
             val fake = LeaseGateFakeRepository()
             val item = sqlite.createTracedItem("Needs staging DB")
-            application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake)) }
+            application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake), unitOfWork = db.unitOfWork()) }
 
             val started =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -352,7 +358,7 @@ class AdvanceRouteResourceLeaseTest {
             val fake = LeaseGateFakeRepository()
             val item = sqlite.createTracedItem("Needs staging DB")
             fake.forceContended = listOf("staging-db-credential")
-            application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake)) }
+            application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -377,7 +383,7 @@ class AdvanceRouteResourceLeaseTest {
             val fake = LeaseGateFakeRepository()
             val item = sqlite.createTracedItem("Needs staging DB")
             fake.forceContended = listOf("staging-db-credential")
-            application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake)) }
+            application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -408,7 +414,7 @@ class AdvanceRouteResourceLeaseTest {
             val fake = LeaseGateFakeRepository()
             val item = sqlite.createTracedItem("Needs staging DB")
             fake.forceContended = listOf("staging-db-credential")
-            application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake)) }
+            application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -431,7 +437,7 @@ class AdvanceRouteResourceLeaseTest {
                     sqlite.workItemRepository().create(WorkItem(title = "Plain", depth = 0)).getOrNull()!!
                 }
             fake.forceContended = listOf("staging-db-credential")
-            application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake)) }
+            application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {

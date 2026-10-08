@@ -95,12 +95,14 @@ class FullApiWiringSmokeTest {
                         NoOpNoteSchemaService,
                         statusLabelService = YamlStatusLabelService(),
                         perRootConfigService = PerRootConfigService(decorated.projectConfigRepository()),
+                        unitOfWork = db.unitOfWork()
                     ).advanceServiceFactory(),
+                    db.unitOfWork(),
                 )
-                noteWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyCache())
-                dependencyWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED)
+                noteWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyCache(), db.unitOfWork())
+                dependencyWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, db.unitOfWork())
                 // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete
-                projectConfigRoutes(decorated)
+                projectConfigRoutes(decorated, db.unitOfWork())
             }
             // Phase 6 SSE — registered OUTSIDE the ApiBearerAuth block (sibling /api/v1 route)
             // so the header-only ApiBearerAuth plugin does not intercept it; the SSE route does

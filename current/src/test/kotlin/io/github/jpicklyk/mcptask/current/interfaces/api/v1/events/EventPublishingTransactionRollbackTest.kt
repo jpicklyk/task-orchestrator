@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -57,7 +58,7 @@ class EventPublishingTransactionRollbackTest {
 
             var caught: Throwable? = null
             try {
-                provider.workItemRepository().inTransaction {
+                db.unitOfWork().inUnit {
                     provider.workItemRepository().update(item.copy(title = "S4 Item Renamed"))
                     throw IllegalStateException("boom")
                 }
@@ -90,7 +91,7 @@ class EventPublishingTransactionRollbackTest {
 
             var caught: Throwable? = null
             try {
-                provider.workItemRepository().inTransaction {
+                db.unitOfWork().inUnit {
                     provider.workItemRepository().delete(itemA.id)
                     provider.workItemRepository().delete(itemB.id)
                     throw IllegalStateException("boom")
@@ -147,7 +148,7 @@ class EventPublishingTransactionRollbackTest {
 
             var caught: Throwable? = null
             try {
-                provider.workItemRepository().inTransaction {
+                db.unitOfWork().inUnit {
                     provider.workItemRepository().update(item.copy(title = "S9 Item Renamed"))
                     throw IllegalStateException("boom")
                 }

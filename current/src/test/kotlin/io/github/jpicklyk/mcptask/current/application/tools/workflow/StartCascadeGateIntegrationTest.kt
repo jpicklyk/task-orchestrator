@@ -79,7 +79,7 @@ class StartCascadeGateIntegrationTest {
                 override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = tags.firstNotNullOfOrNull { schemas[it] }
             }
 
-        context = ToolExecutionContext(repositoryProvider, noteSchemaService)
+        context = ToolExecutionContext(repositoryProvider, noteSchemaService, unitOfWork = db.unitOfWork())
         transitionTool = AdvanceItemTool()
     }
 

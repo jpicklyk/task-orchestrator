@@ -88,7 +88,7 @@ class SharedConfigCacheRestMcpTest {
     ) {
         configureTestApp(makeWriteAuthConfig()) {
             itemGateRoutes(provider, ctx.configResolver)
-            itemWriteRoutes(provider, DegradedModePolicy.ACCEPT_CACHED, IdempotencyCache(), ctx.advanceServiceFactory())
+            itemWriteRoutes(provider, DegradedModePolicy.ACCEPT_CACHED, IdempotencyCache(), ctx.advanceServiceFactory(), ctx.unitOfWork)
         }
     }
 
@@ -132,7 +132,13 @@ class SharedConfigCacheRestMcpTest {
             val sqlite = db.repositoryProvider()
             val failable = FailableProjectConfigRepository(sqlite.projectConfigRepository())
             val provider = FailableRepositoryProvider(sqlite, failable)
-            val ctx = ToolExecutionContext(provider, NoGlobalSchemaService, perRootConfigService = PerRootConfigService(failable))
+            val ctx =
+                ToolExecutionContext(
+                    provider,
+                    NoGlobalSchemaService,
+                    perRootConfigService = PerRootConfigService(failable),
+                    unitOfWork = db.unitOfWork()
+                )
 
             val item =
                 runBlocking {
@@ -205,7 +211,13 @@ class SharedConfigCacheRestMcpTest {
             val sqlite = db.repositoryProvider()
             val failable = FailableProjectConfigRepository(sqlite.projectConfigRepository())
             val provider = FailableRepositoryProvider(sqlite, failable)
-            val ctx = ToolExecutionContext(provider, NoGlobalSchemaService, perRootConfigService = PerRootConfigService(failable))
+            val ctx =
+                ToolExecutionContext(
+                    provider,
+                    NoGlobalSchemaService,
+                    perRootConfigService = PerRootConfigService(failable),
+                    unitOfWork = db.unitOfWork()
+                )
 
             val item =
                 runBlocking {
@@ -256,7 +268,13 @@ class SharedConfigCacheRestMcpTest {
             failable.failFingerprint = true
             failable.failGet = true
             val provider = FailableRepositoryProvider(sqlite, failable)
-            val ctx = ToolExecutionContext(provider, NoGlobalSchemaService, perRootConfigService = PerRootConfigService(failable))
+            val ctx =
+                ToolExecutionContext(
+                    provider,
+                    NoGlobalSchemaService,
+                    perRootConfigService = PerRootConfigService(failable),
+                    unitOfWork = db.unitOfWork()
+                )
 
             val item =
                 runBlocking {
@@ -303,7 +321,13 @@ class SharedConfigCacheRestMcpTest {
             val sqlite = db.repositoryProvider()
             val spyConfigRepo = spyk(sqlite.projectConfigRepository())
             val provider = SpyRepositoryProvider(sqlite, spyConfigRepo)
-            val ctx = ToolExecutionContext(provider, NoGlobalSchemaService, perRootConfigService = PerRootConfigService(spyConfigRepo))
+            val ctx =
+                ToolExecutionContext(
+                    provider,
+                    NoGlobalSchemaService,
+                    perRootConfigService = PerRootConfigService(spyConfigRepo),
+                    unitOfWork = db.unitOfWork()
+                )
 
             val item =
                 runBlocking {

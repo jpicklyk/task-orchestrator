@@ -392,7 +392,7 @@ class SchemaResolutionPrecedenceTest {
     fun `S8 - legacy mode, rootless, resolves the first exact tag over the global default via TEC's default construction`(): Unit =
         runBlocking {
             val global = YamlWorkItemSchemaService(writeGlobalYamlFile(s8GlobalYaml))
-            val ctx = ToolExecutionContext(mockk(relaxed = true), global)
+            val ctx = ToolExecutionContext(mockk(relaxed = true), global, unitOfWork = db.unitOfWork())
 
             val itemWithBug = WorkItem(id = UUID.randomUUID(), title = "i", type = null, tags = "x,bug", rootId = null, depth = 0)
             val resolvedBug = ctx.resolveSchema(itemWithBug)!!
@@ -415,7 +415,13 @@ class SchemaResolutionPrecedenceTest {
             projectConfigRepository.upsert(root.id, "work_item_schemas:\n  feature-task:\n    notes: []\n")
 
             val global = YamlWorkItemSchemaService(writeGlobalYamlFile(s8GlobalYaml))
-            val ctx = ToolExecutionContext(mockk(relaxed = true), global, perRootConfigService = perRootConfigService)
+            val ctx =
+                ToolExecutionContext(
+                    mockk(relaxed = true),
+                    global,
+                    perRootConfigService = perRootConfigService,
+                    unitOfWork = db.unitOfWork()
+                )
 
             val itemWithBug = WorkItem(id = UUID.randomUUID(), title = "i", type = null, tags = "x,bug", rootId = root.id, depth = 0)
             val resolvedBug = ctx.resolveSchema(itemWithBug)!!

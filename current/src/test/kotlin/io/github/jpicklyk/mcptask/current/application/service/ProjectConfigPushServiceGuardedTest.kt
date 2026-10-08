@@ -65,7 +65,7 @@ class ProjectConfigPushServiceGuardedTest {
             every { repositoryProvider.workItemRepository() } returns workItemRepository
             every { repositoryProvider.projectConfigRepository() } returns projectConfigRepository
 
-            service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser)
+            service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser, db.unitOfWork())
 
             rootId = (workItemRepository.create(WorkItem(title = "Root", type = "project")) as Result.Success).data.id
             // Establish row A via a normal push so the rest of `push`'s pipeline (size/parse/

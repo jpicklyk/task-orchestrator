@@ -67,7 +67,7 @@ class AdvanceRouteClaimClearTest {
                             ),
                         ).getOrNull()!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {

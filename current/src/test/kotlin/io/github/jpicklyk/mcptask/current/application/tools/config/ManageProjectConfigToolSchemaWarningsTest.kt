@@ -59,7 +59,7 @@ class ManageProjectConfigToolSchemaWarningsTest {
             every { repositoryProvider.workItemRepository() } returns workItemRepository
             every { repositoryProvider.projectConfigRepository() } returns projectConfigRepository
 
-            context = ToolExecutionContext(repositoryProvider)
+            context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
 
             val root = (workItemRepository.create(WorkItem(title = "Project Root", type = "project")) as Result.Success).data
             rootId = root.id

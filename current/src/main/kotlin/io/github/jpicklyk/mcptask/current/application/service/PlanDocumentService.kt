@@ -1,6 +1,10 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.UnitResult
+import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocument
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentSummary
@@ -24,6 +28,8 @@ import java.util.UUID
  */
 class PlanDocumentService(
     private val repositoryProvider: RepositoryProvider,
+    /** The transaction boundary: the root check and the stash run in ONE write unit. */
+    private val unitOfWork: UnitOfWork,
 ) {
     /**
      * Validates and persists [body] as the PENDING document at `(rootItemId, slug)`. See
@@ -48,23 +54,29 @@ class PlanDocumentService(
             return PlanDocumentStashResult.TooLarge(sizeBytes, maxBytes)
         }
 
-        val item =
-            when (val itemResult = repositoryProvider.workItemRepository().getById(rootItemId)) {
-                is Result.Success -> itemResult.data
-                is Result.Error -> return PlanDocumentStashResult.NotFound(rootItemId)
+        return unitOfWork.writeUnit(
+            "PlanDocumentService.stash",
+            onFault = { PlanDocumentStashResult.RepositoryError(LegacyFaults.message(it)) }
+        ) {
+            val item =
+                when (val itemResult = repositoryProvider.workItemRepository().getById(rootItemId)) {
+                    is Result.Success -> itemResult.data
+                    is Result.Error -> return@writeUnit UnitResult.Rollback(PlanDocumentStashResult.NotFound(rootItemId))
+                }
+
+            if (item.depth != 0) {
+                return@writeUnit UnitResult.Rollback(PlanDocumentStashResult.NotDepthZero(rootItemId, item.depth))
             }
 
-        if (item.depth != 0) {
-            return PlanDocumentStashResult.NotDepthZero(rootItemId, item.depth)
-        }
-
-        return when (val result = repositoryProvider.planDocumentRepository().stash(rootItemId, slug, body)) {
-            is Result.Success ->
-                when (val outcome = result.data) {
-                    is PlanDocumentStashOutcome.Stored -> PlanDocumentStashResult.Success(outcome.document)
-                    is PlanDocumentStashOutcome.AdoptedConflict -> PlanDocumentStashResult.AdoptedConflict(outcome.existing)
-                }
-            is Result.Error -> PlanDocumentStashResult.RepositoryError(result.error.message)
+            when (val result = repositoryProvider.planDocumentRepository().stash(rootItemId, slug, body)) {
+                is Result.Success ->
+                    when (val outcome = result.data) {
+                        is PlanDocumentStashOutcome.Stored -> UnitResult.Commit(PlanDocumentStashResult.Success(outcome.document))
+                        is PlanDocumentStashOutcome.AdoptedConflict ->
+                            UnitResult.Rollback(PlanDocumentStashResult.AdoptedConflict(outcome.existing))
+                    }
+                is Result.Error -> UnitResult.Rollback(PlanDocumentStashResult.RepositoryError(result.error.message))
+            }
         }
     }
 

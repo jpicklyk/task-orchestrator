@@ -101,7 +101,7 @@ class QueryDependenciesToolBoundsTest {
     @BeforeEach
     fun setUp() {
         repositoryProvider = db.repositoryProvider()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         tool = QueryDependenciesTool()
     }
 
@@ -282,7 +282,8 @@ class QueryDependenciesToolBoundsTest {
             spokes.forEach { createDependency(hub, it) }
 
             val counting = CountingWorkItemRepository(repositoryProvider.workItemRepository())
-            val countingContext = ToolExecutionContext(WorkItemRepositoryOverrideProvider(repositoryProvider, counting))
+            val countingContext =
+                ToolExecutionContext(WorkItemRepositoryOverrideProvider(repositoryProvider, counting), unitOfWork = db.unitOfWork())
 
             val result =
                 tool.execute(
@@ -323,7 +324,8 @@ class QueryDependenciesToolBoundsTest {
             createDependency(hub, spoke)
 
             val omitting = OmittingWorkItemRepository(repositoryProvider.workItemRepository(), missingId = spoke)
-            val omittingContext = ToolExecutionContext(WorkItemRepositoryOverrideProvider(repositoryProvider, omitting))
+            val omittingContext =
+                ToolExecutionContext(WorkItemRepositoryOverrideProvider(repositoryProvider, omitting), unitOfWork = db.unitOfWork())
 
             val result =
                 tool.execute(

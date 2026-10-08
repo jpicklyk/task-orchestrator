@@ -40,7 +40,7 @@ class QueryItemsToolClaimStatusTest {
     fun setUp() {
         val repositoryProvider = db.repositoryProvider()
         workItemRepo = repositoryProvider.workItemRepository() as SQLiteWorkItemRepository
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         tool = QueryItemsTool()
         manageTool = ManageItemsTool()
     }

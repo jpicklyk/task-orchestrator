@@ -128,7 +128,7 @@ class EventPublishingRepositoryProvider(
      * Delivery is routed through [DeferredEventPublisher]: with no transaction open the event is
      * built and published synchronously here (unchanged behaviour for every standalone write),
      * and inside an open transaction it is held until that transaction COMMITS — so a rolled-back
-     * `inTransaction` block publishes nothing. Root resolution stays here, at enqueue time, while
+     * unit of work publishes nothing. Root resolution stays here, at enqueue time, while
      * the pre-update ancestor chain is still visible; only the build and the publish move. The id
      * is therefore stamped at flush time, in commit order, which is what keeps the `Last-Event-ID`
      * replay contract intact. See [PendingApiEvent].
@@ -490,7 +490,7 @@ class EventPublishingRepositoryProvider(
      * calls `internal` row-insert helpers directly, so decorating its constituent repositories is
      * not possible; instead this wraps the executor itself and publishes from what it returns.
      *
-     * `CreateWorkTreeTool` calls `execute` inside `context.inTransaction`, so this runs inside that
+     * `CreateWorkTreeTool` calls `execute` inside its write unit (`context.unitOfWork.write`), so this runs inside that
      * same open transaction — every [publishScoped] call here is buffered by [deferredPublisher]
      * until the OUTER transaction commits, and discarded if it rolls back (including a rollback
      * triggered by [inner]'s own `execute` throwing, in which case this loop never runs at all).

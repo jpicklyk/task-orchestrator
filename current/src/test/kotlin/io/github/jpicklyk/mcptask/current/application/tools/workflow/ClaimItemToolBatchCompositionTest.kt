@@ -57,6 +57,7 @@ class ClaimItemToolBatchCompositionTest {
             repositoryProvider = repositoryProvider,
             actorVerifier = NoOpActorVerifier,
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
+            unitOfWork = db.unitOfWork(),
         )
 
     private fun actor(id: String): JsonObject =

@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
+import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.eq
@@ -35,7 +36,7 @@ class WorkItemDeletionBulkSubtreeTest {
     private val repositoryProvider get() = db.repositoryProvider()
 
     private val repo: WorkItemRepository get() = repositoryProvider.workItemRepository()
-    private val deletion get() = WorkItemDeletion(repositoryProvider)
+    private val deletion get() = WorkItemDeletion(repositoryProvider, db.unitOfWork())
 
     private suspend fun create(
         title: String,
@@ -52,7 +53,7 @@ class WorkItemDeletionBulkSubtreeTest {
             val perChild = 49
             lateinit var root: WorkItem
             val all = mutableListOf<UUID>()
-            repo.inTransaction {
+            db.unitOfWork().inUnit {
                 root = create("root")
                 for (c in 0 until childCount) {
                     val child = create("c$c", root.id, 1)
@@ -71,7 +72,7 @@ class WorkItemDeletionBulkSubtreeTest {
             assertIs<LeaseAcquireResult.Success>(lease.acquireAll(all.first(), "a", listOf("res" to 900)))
 
             var outcome: WorkItemDeleteOutcome? = null
-            repo.inTransaction {
+            db.unitOfWork().inUnit {
                 val conn = TransactionManager.current().connection.connection as Connection
                 conn.unwrap(SQLiteConnection::class.java).setLimit(SQLiteLimits.SQLITE_LIMIT_VARIABLE_NUMBER, 600)
                 outcome = deletion.delete(root.id, recursive = true)

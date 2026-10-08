@@ -82,9 +82,6 @@ class AdvanceItemToolErrorCodeTest {
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
         every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
         coEvery { workItemRepo.dbNow() } returns Instant.now()
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
-        }
 
         context = ToolExecutionContext(repoProvider)
     }

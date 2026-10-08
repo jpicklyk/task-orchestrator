@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.support
 
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -55,3 +57,20 @@ object LegacyFaults {
     /** [storeFailure] of a failed [Result] as an [Outcome.Err]. */
     fun <T> err(result: Result.Error): Outcome<T> = err(result.error)
 }
+
+/**
+ * Bridge while the stores still return `Result` (removed when they throw): runs [block] as ONE write unit
+ * labelled [op]. A [Result.Success] commits; a [Result.Error] rolls the unit back (a store failure never
+ * continues to a commit) and is returned unchanged; a fault of the unit itself becomes a [Result.Error]
+ * mapped by [LegacyFaults.toRepositoryError].
+ */
+suspend fun <T> UnitOfWork.writeResult(
+    op: String,
+    block: suspend WriteScope.() -> Result<T>
+): Result<T> =
+    writeUnit<Result<T>>(op, onFault = { Result.Error(LegacyFaults.toRepositoryError(it)) }) {
+        when (val result = block()) {
+            is Result.Success -> UnitResult.Commit(result)
+            is Result.Error -> UnitResult.Rollback(result)
+        }
+    }

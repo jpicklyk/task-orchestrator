@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseReposit
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
 import io.mockk.Called
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -69,9 +70,6 @@ class AdvanceServiceApplyFailureLeaseTest {
 
         coEvery { workItemRepo.dbNow() } returns Instant.now()
         coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
-        }
         coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
         coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
         every { depRepo.findByToItemId(any()) } returns emptyList()
@@ -120,6 +118,7 @@ class AdvanceServiceApplyFailureLeaseTest {
             },
             resourceRegistryResolver = { emptyMap() },
             resourceLeasesEnforced = resourceLeasesEnforced,
+            unitOfWork = unscopedUnitOfWork(),
         )
 
     private fun exclusive(key: String): ResourceRequirement = ResourceRequirement(key, ResourceMode.EXCLUSIVE, null)

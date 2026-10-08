@@ -36,7 +36,7 @@ class ManageNotesToolTest {
     @BeforeEach
     fun setUp() {
         repositoryProvider = db.repositoryProvider()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         tool = ManageNotesTool()
     }
 
@@ -499,7 +499,7 @@ class ManageNotesToolTest {
             object : NoteSchemaService {
                 override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = if (tags.contains(matchTag)) entries else null
             }
-        return ToolExecutionContext(repositoryProvider, noteSchemaService)
+        return ToolExecutionContext(repositoryProvider, noteSchemaService, unitOfWork = db.unitOfWork())
     }
 
     // ──────────────────────────────────────────────
@@ -1647,7 +1647,7 @@ class ManageNotesToolTest {
 
                 override fun getNoteLimitsMode(): String = noteLimitsMode
             }
-        return ToolExecutionContext(repositoryProvider, noteSchemaService)
+        return ToolExecutionContext(repositoryProvider, noteSchemaService, unitOfWork = db.unitOfWork())
     }
 
     /** Same as [contextWithSchemaAndLimitsMode], but with a [perRoot] layer wired in for t3 tests. */
@@ -1663,7 +1663,7 @@ class ManageNotesToolTest {
 
                 override fun getNoteLimitsMode(): String = globalNoteLimitsMode
             }
-        return ToolExecutionContext(repositoryProvider, noteSchemaService, perRootConfigService = perRoot)
+        return ToolExecutionContext(repositoryProvider, noteSchemaService, perRootConfigService = perRoot, unitOfWork = db.unitOfWork())
     }
 
     private suspend fun createTestItemWithTagsAndRoot(

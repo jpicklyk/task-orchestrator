@@ -966,6 +966,7 @@ class EffectiveConfigRoutesEdgeTest {
                             schemaService,
                             statusLabelService = NoOpStatusLabelService,
                             perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
+                            unitOfWork = db.unitOfWork(),
                         ),
                     degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
                     idempotencyCache = IdempotencyCache(),

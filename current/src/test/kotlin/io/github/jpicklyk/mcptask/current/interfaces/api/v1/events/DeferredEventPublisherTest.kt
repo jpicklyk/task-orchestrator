@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
@@ -75,7 +76,7 @@ class DeferredEventPublisherTest {
             val id2 = UUID.randomUUID()
             val id3 = UUID.randomUUID()
 
-            delegate.workItemRepository().inTransaction {
+            db.unitOfWork().inUnit {
                 publisher.publishOnCommit(PendingApiEvent(eventType = ApiEventType.ITEM_CREATED, itemId = id1))
                 publisher.publishOnCommit(PendingApiEvent(eventType = ApiEventType.ITEM_UPDATED, itemId = id2))
                 publisher.publishOnCommit(PendingApiEvent(eventType = ApiEventType.ITEM_DELETED, itemId = id3))
@@ -111,7 +112,7 @@ class DeferredEventPublisherTest {
 
             var caught: Throwable? = null
             try {
-                delegate.workItemRepository().inTransaction {
+                db.unitOfWork().inUnit {
                     publisher.publishOnCommit(
                         PendingApiEvent(eventType = ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID()),
                     )
@@ -151,7 +152,7 @@ class DeferredEventPublisherTest {
             val idE1 = UUID.randomUUID()
             val idE2 = UUID.randomUUID()
 
-            delegate.workItemRepository().inTransaction {
+            db.unitOfWork().inUnit {
                 publisher.publishOnCommit(PendingApiEvent(eventType = ApiEventType.ITEM_CREATED, itemId = idE1))
                 publisher.publishOnCommit(PendingApiEvent(eventType = ApiEventType.ITEM_UPDATED, itemId = idE2))
 
@@ -188,8 +189,8 @@ class DeferredEventPublisherTest {
             val publisher = DeferredEventPublisher(bus)
             val id = UUID.randomUUID()
 
-            delegate.workItemRepository().inTransaction {
-                delegate.workItemRepository().inTransaction {
+            db.unitOfWork().inUnit {
+                db.unitOfWork().inUnit {
                     publisher.publishOnCommit(PendingApiEvent(eventType = ApiEventType.ITEM_CREATED, itemId = id))
                 }
                 // Still open at the outer level: the inner block's completion alone must not flush.
@@ -213,8 +214,8 @@ class DeferredEventPublisherTest {
 
             var caught: Throwable? = null
             try {
-                delegate.workItemRepository().inTransaction {
-                    delegate.workItemRepository().inTransaction {
+                db.unitOfWork().inUnit {
+                    db.unitOfWork().inUnit {
                         publisher.publishOnCommit(
                             PendingApiEvent(eventType = ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID()),
                         )
@@ -241,7 +242,7 @@ class DeferredEventPublisherTest {
             // this pins the declared "empty buffer commits as a no-op" behavior.
             DeferredEventPublisher(bus)
 
-            delegate.workItemRepository().inTransaction {
+            db.unitOfWork().inUnit {
                 // intentionally empty
             }
 
@@ -255,7 +256,7 @@ class DeferredEventPublisherTest {
             val bus = ApiEventBus()
             val publisher = DeferredEventPublisher(bus)
 
-            delegate.workItemRepository().inTransaction {
+            db.unitOfWork().inUnit {
                 // eventType is the only required field; itemId/modifiedAt/newRole default to null
                 // and affectedRoots defaults to emptySet() — distinct from explicitly passing them.
                 publisher.publishOnCommit(PendingApiEvent(eventType = ApiEventType.AUTH_EXPIRED))

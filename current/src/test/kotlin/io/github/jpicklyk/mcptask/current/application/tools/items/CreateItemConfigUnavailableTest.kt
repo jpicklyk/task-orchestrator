@@ -54,7 +54,7 @@ class CreateItemConfigUnavailableTest {
     @BeforeEach
     fun setUp() {
         repositoryProvider = db.repositoryProvider()
-        plainContext = ToolExecutionContext(repositoryProvider)
+        plainContext = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         tool = ManageItemsTool()
     }
 
@@ -107,7 +107,11 @@ class CreateItemConfigUnavailableTest {
             val failable = FailableProjectConfigRepository(realConfigRepo)
             failable.failFingerprint = true
             val failingContext =
-                ToolExecutionContext(repositoryProvider, perRootConfigService = PerRootConfigService(failable))
+                ToolExecutionContext(
+                    repositoryProvider,
+                    perRootConfigService = PerRootConfigService(failable),
+                    unitOfWork = db.unitOfWork()
+                )
 
             val createResult =
                 tool.execute(
@@ -159,7 +163,11 @@ class CreateItemConfigUnavailableTest {
             val failable = FailableProjectConfigRepository(realConfigRepo)
             failable.failGet = true
             val failingContext =
-                ToolExecutionContext(repositoryProvider, perRootConfigService = PerRootConfigService(failable))
+                ToolExecutionContext(
+                    repositoryProvider,
+                    perRootConfigService = PerRootConfigService(failable),
+                    unitOfWork = db.unitOfWork()
+                )
 
             // Two items in ONE batch: a child of the failing root, and a standalone (no parentId,
             // no rootId) item — the standalone item never touches the per-root layer at all, so its

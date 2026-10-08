@@ -350,7 +350,7 @@ class EventRoutesTest {
             val baseRepo = db.repositoryProvider()
             val bus = ApiEventBus()
             val decorated = EventPublishingRepositoryProvider(baseRepo, bus)
-            val toolContext = ToolExecutionContext(decorated)
+            val toolContext = ToolExecutionContext(decorated, unitOfWork = db.unitOfWork())
             val tool = ManageItemsTool()
 
             // Subscribe BEFORE executing the tool (simulates a connected dashboard). The create

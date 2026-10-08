@@ -30,7 +30,7 @@ class WorkflowIntegrationTest {
     @BeforeEach
     fun setUp() {
         val repositoryProvider = db.repositoryProvider()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
 
         transitionTool = AdvanceItemTool()
         nextItemTool = GetNextItemTool()

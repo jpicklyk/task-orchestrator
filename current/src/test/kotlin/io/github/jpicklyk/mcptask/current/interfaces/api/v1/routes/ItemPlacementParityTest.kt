@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigSer
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.CountingUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
@@ -88,13 +89,11 @@ class ItemPlacementParityTest {
         override suspend fun findAncestorChains(itemIds: Set<UUID>): Result<Map<UUID, List<WorkItem>>> =
             if (failChains) Result.Error(RepositoryError.DatabaseError("chains boom")) else delegate.findAncestorChains(itemIds)
 
-        override suspend fun inTransaction(block: suspend () -> Unit) {
-            delegate.inTransaction {
-                onFirstTransaction?.let {
-                    onFirstTransaction = null
-                    it()
-                }
-                block()
+        /** Runs [onFirstTransaction] once, from the [CountingUnitOfWork] hook at the first top-level unit's open. */
+        suspend fun fireOnce() {
+            onFirstTransaction?.let {
+                onFirstTransaction = null
+                it()
             }
         }
     }
@@ -105,6 +104,10 @@ class ItemPlacementParityTest {
     ) : RepositoryProvider by delegate {
         override fun workItemRepository(): WorkItemRepository = repo
     }
+
+    /** A unit of work whose first top-level unit fires a [FaultRepository]'s scripted write at unit-open time. */
+    private fun hookedUnitOfWork(repo: WorkItemRepository): CountingUnitOfWork =
+        CountingUnitOfWork(db.unitOfWork()) { (repo as? FaultRepository)?.fireOnce() }
 
     private fun Application.configureApp(provider: RepositoryProvider) {
         val authConfig = makeWriteAuthConfig()
@@ -124,8 +127,10 @@ class ItemPlacementParityTest {
                         provider,
                         NoOpNoteSchemaService,
                         statusLabelService = NoOpStatusLabelService,
-                        perRootConfigService = PerRootConfigService(provider.projectConfigRepository())
-                    ).advanceServiceFactory()
+                        perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                        unitOfWork = hookedUnitOfWork(provider.workItemRepository()),
+                    ).advanceServiceFactory(),
+                    hookedUnitOfWork(provider.workItemRepository()),
                 )
             }
         }
@@ -216,7 +221,7 @@ class ItemPlacementParityTest {
             (
                 ManageItemsTool().execute(
                     params,
-                    ToolExecutionContext(OverrideProvider(provider, repo))
+                    ToolExecutionContext(OverrideProvider(provider, repo), unitOfWork = hookedUnitOfWork(repo))
                 ) as JsonObject
             )["data"]!!.jsonObject
         val ok = data["updated"]!!.jsonPrimitive.int == 1
@@ -257,7 +262,7 @@ class ItemPlacementParityTest {
             (
                 ManageItemsTool().execute(
                     params,
-                    ToolExecutionContext(OverrideProvider(provider, repo))
+                    ToolExecutionContext(OverrideProvider(provider, repo), unitOfWork = hookedUnitOfWork(repo))
                 ) as JsonObject
             )["data"]!!.jsonObject
         val ok = data["created"]!!.jsonPrimitive.int == 1

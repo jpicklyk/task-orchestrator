@@ -160,7 +160,7 @@ class McpToolAdapterIntegrationTest {
             ): JsonElement = throw RuntimeException("Intentional test failure")
         }
 
-    private val dummyContext by lazy { ToolExecutionContext(repositoryProvider = db.repositoryProvider()) }
+    private val dummyContext by lazy { ToolExecutionContext(repositoryProvider = db.repositoryProvider(), unitOfWork = db.unitOfWork()) }
 
     // ──────────────────────────────────────────────
     // Tool listing through MCP protocol

@@ -16,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseReposit
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
 import io.mockk.Called
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -57,9 +58,6 @@ class AdvanceServiceLeaseGateTest {
 
         coEvery { workItemRepo.dbNow() } returns Instant.now()
         coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
-        }
         coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
         coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
         every { depRepo.findByToItemId(any()) } returns emptyList()
@@ -111,7 +109,8 @@ class AdvanceServiceLeaseGateTest {
                 requirementsByItem?.get(item.id) ?: requirements
             },
             resourceRegistryResolver = { registry },
-            resourceLeasesEnforced = resourceLeasesEnforced
+            resourceLeasesEnforced = resourceLeasesEnforced,
+            unitOfWork = unscopedUnitOfWork()
         )
 
     /** Captures the [RoleTransition] audit row written by the primary transition. */

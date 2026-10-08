@@ -92,7 +92,7 @@ class ActorProofEvidencePersistenceTest {
     fun setUp() {
         database = db.database
         repositoryProvider = db.repositoryProvider()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         manageNotesTool = ManageNotesTool()
         advanceItemTool = AdvanceItemTool()
     }
@@ -147,7 +147,7 @@ class ActorProofEvidencePersistenceTest {
     }
 
     private fun contextWithVerifier(verifier: ActorVerifier): ToolExecutionContext =
-        ToolExecutionContext(repositoryProvider = repositoryProvider, actorVerifier = verifier)
+        ToolExecutionContext(repositoryProvider = repositoryProvider, actorVerifier = verifier, unitOfWork = db.unitOfWork())
 
     private fun actorJson(
         id: String,

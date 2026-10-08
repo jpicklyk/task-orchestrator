@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
@@ -77,7 +78,7 @@ class ConfigUnavailableRoutesTest {
             val failable = FailableProjectConfigRepository(sqlite.projectConfigRepository())
             failable.failFingerprint = true
             val provider = FailableRepositoryProvider(sqlite, failable)
-            application { configureAdvanceApp(provider, NoSchemaWorkItemSchemaService) }
+            application { configureAdvanceApp(provider, NoSchemaWorkItemSchemaService, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -128,6 +129,7 @@ class ConfigUnavailableRoutesTest {
                             provider,
                             NoSchemaWorkItemSchemaService,
                             perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                            unitOfWork = db.unitOfWork(),
                         ).configResolver,
                     )
                 }
@@ -181,7 +183,8 @@ private object NoSchemaWorkItemSchemaService : WorkItemSchemaService {
 /** Registers only [itemWriteRoutes], mirroring [AdvanceRouteResourceLeaseTest]'s `configureLeaseTestApp`. */
 private fun Application.configureAdvanceApp(
     provider: RepositoryProvider,
-    schemaService: WorkItemSchemaService
+    schemaService: WorkItemSchemaService,
+    unitOfWork: UnitOfWork
 ) {
     install(ContentNegotiation) { json(McpJson) }
     install(SSE)
@@ -201,7 +204,9 @@ private fun Application.configureAdvanceApp(
                     schemaService,
                     statusLabelService = NoOpStatusLabelService,
                     perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                    unitOfWork = unitOfWork
                 ).advanceServiceFactory(),
+                unitOfWork,
             )
         }
     }

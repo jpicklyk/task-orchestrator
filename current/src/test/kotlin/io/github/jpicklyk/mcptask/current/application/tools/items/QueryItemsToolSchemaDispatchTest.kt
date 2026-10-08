@@ -88,7 +88,7 @@ class QueryItemsToolSchemaDispatchTest {
                         ),
                     resourcesByTrait = mapOf("delegated" to listOf(ResourceRequirement(key = "db")))
                 )
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaService)
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaService, unitOfWork = db.unitOfWork())
 
             val result =
                 tool.execute(
@@ -131,7 +131,7 @@ class QueryItemsToolSchemaDispatchTest {
                         ),
                     resourcesByTrait = mapOf("delegated" to listOf(ResourceRequirement(key = "db")))
                 )
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaService)
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaService, unitOfWork = db.unitOfWork())
 
             val item = WorkItem(id = UUID.randomUUID(), title = "Tagged item", type = "feature-task", depth = 0)
             val created = schemaContext.workItemRepository().create(item)
@@ -164,7 +164,7 @@ class QueryItemsToolSchemaDispatchTest {
         runBlocking {
             val schema = WorkItemSchema(type = "plain-task", notes = emptyList(), defaultTraits = emptyList())
             val schemaService = schemaServiceWith(schema)
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaService)
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaService, unitOfWork = db.unitOfWork())
 
             val result =
                 tool.execute(
@@ -193,7 +193,7 @@ class QueryItemsToolSchemaDispatchTest {
                     dispatchByTrait =
                         mapOf("delegated" to mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer")))
                 )
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaService)
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaService, unitOfWork = db.unitOfWork())
 
             val result =
                 tool.execute(
