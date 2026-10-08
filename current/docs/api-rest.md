@@ -1737,7 +1737,7 @@ compare-and-set precondition the caller supplied for this request is still enfor
 7. optional `If-Match` (see below) is compared against `{rootId}`'s fingerprint -
 
    guards 6 and 7 are evaluated **atomically with the write itself**, inside the SAME transaction
-   `ProjectConfigRepository.upsertGuarded` uses to persist the row: both guards read the row once,
+   `ProjectConfigStore.upsertGuarded` uses to persist the row: both guards read the row once,
    decide, and the write applies to that SAME row version, closing the read-then-write race a
    separate guard-read followed by a separate write would leave open (a concurrent writer between
    the read and the write can no longer cause a silently lost update or a silently reverted push -

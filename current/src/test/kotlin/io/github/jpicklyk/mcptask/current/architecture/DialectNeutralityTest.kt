@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
  * Dialect-neutrality guard (item b094eb86, charter D20): SQLite and Exposed are confined to
  * `infrastructure/sqlite/`. Outside that prefix, production code must not
  * - R1: import or fully-qualify anything from `org.sqlite.` or `org.jetbrains.exposed.`, or
- * - R2: carry a SQLite-dialect token inside a string literal (simple or raw multi-line).
+ * - R2: carry a SQLite-dialect token (or an `org.sqlite.` / `org.jetbrains.exposed.` reflection name) inside a string literal
  * Comments and KDoc are excluded. Violations are counted per file against the two-way ratcheted baseline
  * `dialect-neutrality-baseline.txt` (`<path> <count>`), which holds only `DeferredEventPublisher.kt` until P15 deletes it.
  */
@@ -26,7 +26,21 @@ class DialectNeutralityTest {
 
         val R1 = Regex("""\borg\.(sqlite|jetbrains\.exposed)\.""")
 
-        val R2 = Regex("""datetime\(|julianday|strftime|PRAGMA|\bMATCH\b|randomblob|INSERT OR""")
+        /** One sample per R2 token; every one must be flagged. */
+        val TOKEN_SAMPLES =
+            listOf(
+                "datetime(x)",
+                "julianday",
+                "strftime",
+                "PRAGMA foreign_keys",
+                "a MATCH b",
+                "randomblob(8)",
+                "INSERT OR IGNORE",
+                "sqlite_master",
+                "jdbc:sqlite:x.db"
+            )
+
+        val R2 = Regex("""datetime\(|julianday|strftime|PRAGMA|\bMATCH\b|randomblob|INSERT OR|sqlite_master|jdbc:sqlite:""")
 
         /** True when [path] lies under the SQLite root (trailing slash, so `infrastructure/sqlitex/` is not exempt). */
         fun isExempt(path: String): Boolean = path.startsWith(SQLITE_ROOT)
@@ -116,7 +130,7 @@ class DialectNeutralityTest {
         fun violations(text: String): Int {
             val lexed = lex(text)
             val r1 = lexed.code.lineSequence().count { R1.containsMatchIn(it) }
-            val r2 = lexed.literals.count { R2.containsMatchIn(it) }
+            val r2 = lexed.literals.count { R2.containsMatchIn(it) || R1.containsMatchIn(it) }
             return r1 + r2
         }
     }
@@ -149,15 +163,7 @@ class DialectNeutralityTest {
 
     @Test
     fun `R2 flags each dialect token in a simple literal`() {
-        for (token in listOf(
-            "datetime(x)",
-            "julianday",
-            "strftime",
-            "PRAGMA foreign_keys",
-            "a MATCH b",
-            "randomblob(8)",
-            "INSERT OR IGNORE"
-        )) {
+        for (token in TOKEN_SAMPLES) {
             assertEquals(1, violations("val q = \"$token\""), token)
         }
     }
@@ -167,6 +173,17 @@ class DialectNeutralityTest {
         val q = "\"\"\""
         assertEquals(1, violations("val q = $q\n  SELECT 1\n  PRAGMA table_info(t)\n$q\nval y = 1"))
         assertEquals(2, violations("val a = $q\n x MATCH y\n$q\nval b = \"INSERT OR REPLACE\""))
+        for (token in TOKEN_SAMPLES) {
+            assertEquals(1, violations("val q = $q\n  SELECT 1\n  $token\n$q"), token)
+        }
+    }
+
+    @Test
+    fun `R1 also flags org sqlite and exposed names inside string literals`() {
+        assertEquals(1, violations("Class.forName(\"org.sqlite.JDBC\")"))
+        assertEquals(1, violations("val n = \"org.jetbrains.exposed.sql.Table\""))
+        assertEquals(0, violations("val n = \"org.sqlitefoo.X\""))
+        assertEquals(0, violations("// Class.forName(\"org.sqlite.JDBC\")"))
     }
 
     @Test

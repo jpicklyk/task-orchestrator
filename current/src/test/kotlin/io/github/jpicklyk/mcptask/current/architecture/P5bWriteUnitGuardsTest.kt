@@ -52,15 +52,15 @@ class P5bWriteUnitGuardsTest {
                 "readResult" to Regex("""\breadResult\b"""),
                 "writeResult" to Regex("""\bwriteResult\b"""),
                 "RepositoryError import" to
-                    Regex("""import\s+io\.github\.jpicklyk\.mcptask\.current\.domain\.repository\.RepositoryError\b"""),
+                    Regex("""import\s+io\.github\.jpicklyk\.mcptask\.current\.(domain\.repository|application\.port)\.RepositoryError\b"""),
                 "DBError" to Regex("""\bDBError\b"""),
                 "PassthroughUnitOfWork" to Regex("""\bPassthroughUnitOfWork\b"""),
                 "application.port.Result import" to
-                    Regex("""import\s+io\.github\.jpicklyk\.mcptask\.current\.domain\.repository\.Result\b""")
+                    Regex("""import\s+io\.github\.jpicklyk\.mcptask\.current\.(domain\.repository|application\.port)\.Result\b""")
             )
         val offenders = retired.mapValues { (_, token) -> occurrences(sources, token) }.filterValues { it.isNotEmpty() }
         assertEquals(emptyMap(), offenders, "retired P5b constructs still referenced by production code")
-        val deletedFiles = sources.map { it.path }.filter { it == "domain/repository/Result.kt" }
+        val deletedFiles = sources.map { it.path }.filter { it == "domain/repository/Result.kt" || it == "application/port/Result.kt" }
         assertEquals(emptyList(), deletedFiles, "task-scope D1: Result.kt (with RepositoryError) is deleted")
     }
 

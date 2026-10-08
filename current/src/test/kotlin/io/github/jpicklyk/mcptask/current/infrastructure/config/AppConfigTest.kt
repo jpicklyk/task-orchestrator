@@ -251,4 +251,23 @@ class AppConfigTest {
         // Fallback equals the JVM user.dir property.
         assertEquals(System.getProperty("user.dir"), AppConfig.resolveConfigBaseDir(unset.agentConfigDir))
     }
+
+    // ------------------------------------------------------------------
+    // USE_FLYWAY / SCHEMA_MODE (typed settings read by DatabaseManager)
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `USE_FLYWAY presence maps to ignoredUseFlywaySet and SCHEMA_MODE to schemaModeRaw`() {
+        val unset = AppConfig.fromEnv { null }
+        assertFalse(unset.ignoredUseFlywaySet)
+        assertNull(unset.schemaModeRaw)
+
+        val set = AppConfig.fromEnv(env("USE_FLYWAY" to "false", "SCHEMA_MODE" to " Validate "))
+        assertTrue(set.ignoredUseFlywaySet)
+        assertEquals(" Validate ", set.schemaModeRaw)
+
+        val typo = AppConfig.fromEnv(env("USE_FLYWAYS" to "1", "SCHEMA_MODES" to "validate"))
+        assertFalse(typo.ignoredUseFlywaySet)
+        assertNull(typo.schemaModeRaw)
+    }
 }

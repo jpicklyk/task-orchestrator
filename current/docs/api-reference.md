@@ -2352,7 +2352,7 @@ Validates, in order:
 3. That WorkItem must be depth 0 (a project root) — plan documents anchor to roots only.
 4. If a document already exists at `rootId`+`slug` and its `status` is `"adopted"`, the stash
    is rejected — adoption is a one-way transition (see the materialization tooling that calls
-   `PlanDocumentRepository.markAdopted`) and cannot be undone by stashing over it. A `"pending"`
+   `PlanDocumentStore.markAdopted`) and cannot be undone by stashing over it. A `"pending"`
    document at that slug is overwritten in place (`contentHash`, `body`, and `updatedAt` replaced;
    `id` and `createdAt` preserved).
 
