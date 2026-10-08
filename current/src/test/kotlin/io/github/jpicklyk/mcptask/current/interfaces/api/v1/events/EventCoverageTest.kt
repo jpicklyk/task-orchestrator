@@ -933,6 +933,164 @@ class EventCoverageTest {
         }
 
     // ---------------------------------------------------------------------------------------------
+    // Round 2 -- plan-document adoption through create_work_tree; rejection rows under idempotency keys
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    fun `create_work_tree with a docRef records exactly one plan document adopted row plus the item created rows`(
+        @TempDir dir: Path,
+    ): Unit =
+        runBlocking {
+            val rig = rig(dir)
+            val project = rig.seed("adoption project root")
+            val (_, stashRows) =
+                rig.written {
+                    rig.callOk(
+                        ManagePlanDocumentsTool(),
+                        "operation" to JsonPrimitive("stash"),
+                        "rootId" to JsonPrimitive(project.id.toString()),
+                        "slug" to JsonPrimitive("r2-plan"),
+                        "body" to JsonPrimitive("# Overview - a plan body."),
+                    )
+                }
+            val stashed = stashRows.single { it.type == "plan_document.stashed" }
+
+            val (result, rows) =
+                rig.written {
+                    rig.callOk(
+                        CreateWorkTreeTool(),
+                        "root" to buildJsonObject { put("title", "adopting root") },
+                        "parentId" to JsonPrimitive(project.id.toString()),
+                        "children" to
+                            buildJsonArray {
+                                add(
+                                    buildJsonObject {
+                                        put("ref", "c1")
+                                        put("title", "adopting child")
+                                    },
+                                )
+                            },
+                        "docRef" to
+                            buildJsonObject {
+                                put("rootId", project.id.toString())
+                                put("slug", "r2-plan")
+                            },
+                    )
+                }
+            val createdRootId =
+                result["data"]!!
+                    .jsonObject["root"]!!
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
+
+            val adopted = rows.ofType("plan_document.adopted")
+            assertEquals(1, adopted.size, "exactly one adoption row: $rows")
+            assertEquals(2, rows.ofType("item.created").size, "root and child created rows: $rows")
+            assertEquals(3, rows.size, "nothing else is recorded for the adoption call: $rows")
+            val row = adopted.single()
+            assertEquals("r2-plan", row.str("slug"))
+            assertEquals(createdRootId, row.str("adoptedByItemId"))
+            assertEquals(stashed.entityId, row.entityId, "the adoption row is about the document that was stashed")
+            assertEquals(project.id, row.rootId)
+            rows.assertContiguous("create_work_tree with docRef")
+        }
+
+    @Test
+    fun `a gate-blocked advance sent with a requestId and a trusted actor still records exactly one transition rejected row`(
+        @TempDir dir: Path,
+    ): Unit =
+        runBlocking {
+            val rig = rig(dir, EventLogRig.GATED_CONFIG)
+            val item = rig.seed("keyed gated", tags = EventLogRig.GATED_TAG)
+
+            val (response, rows) =
+                rig.written {
+                    rig.call(
+                        AdvanceItemTool(),
+                        "transitions" to
+                            buildJsonArray {
+                                add(
+                                    buildJsonObject {
+                                        put("itemId", item.id.toString())
+                                        put("trigger", "start")
+                                        put(
+                                            "actor",
+                                            buildJsonObject {
+                                                put("id", "keyed-agent")
+                                                put("kind", "subagent")
+                                            },
+                                        )
+                                    },
+                                )
+                            },
+                        "requestId" to JsonPrimitive(UUID.randomUUID().toString()),
+                    )
+                }
+
+            val result =
+                response["data"]!!
+                    .jsonObject["results"]!!
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals(
+                "gate_blocked",
+                result["errorCode"]!!.jsonPrimitive.content,
+                "fixture: the keyed start must be gate blocked: $response"
+            )
+            assertEquals(
+                listOf("transition.rejected"),
+                rows.types(),
+                "per plan 3.9 a rejection row is recorded even though the keyed element fails: $rows"
+            )
+            assertEquals("gate_blocked", rows.single().str("code"))
+            assertEquals(item.id, rows.single().entityId)
+        }
+
+    @Test
+    fun `an AlreadyClaimed claim_item sent with a requestId records exactly one claim rejected row`(
+        @TempDir dir: Path,
+    ): Unit =
+        runBlocking {
+            val rig = rig(dir)
+            val item = rig.seed("keyed claim contention")
+            assertIs<ClaimResult.Success>(rig.raw.workItemRepository().claim(item.id, "holder-agent", 600))
+
+            val (response, rows) =
+                rig.written {
+                    rig.call(
+                        ClaimItemTool(),
+                        "claims" to buildJsonArray { add(buildJsonObject { put("itemId", item.id.toString()) }) },
+                        "actor" to
+                            buildJsonObject {
+                                put("id", "challenger-agent")
+                                put("kind", "subagent")
+                            },
+                        "requestId" to JsonPrimitive(UUID.randomUUID().toString()),
+                    )
+                }
+
+            assertTrue(
+                response.toString().contains("already_claimed"),
+                "fixture: the keyed claim must lose to the live holder: $response"
+            )
+            assertEquals(
+                "holder-agent",
+                rig.raw
+                    .workItemRepository()
+                    .getById(item.id)
+                    ?.claimedBy,
+                "control: the original holder keeps the item"
+            )
+            assertEquals(
+                listOf("claim.rejected"),
+                rows.types(),
+                "per plan 3.9 a rejection row is recorded even though the keyed element fails: $rows"
+            )
+            assertEquals(item.id, rows.single().entityId)
+        }
+
+    // ---------------------------------------------------------------------------------------------
     // S17 -- every MCP write tool is covered or read-only allow-listed
     // ---------------------------------------------------------------------------------------------
 
@@ -1037,7 +1195,13 @@ class EventCoverageTest {
                     "query_items" to arrayOf("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(root.id.toString())),
                     "query_notes" to arrayOf("operation" to JsonPrimitive("list"), "itemId" to JsonPrimitive(child.id.toString())),
                     "get_context" to arrayOf("itemId" to JsonPrimitive(root.id.toString())),
+                    "query_dependencies" to arrayOf("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(child.id.toString())),
+                    "get_next_status" to arrayOf("itemId" to JsonPrimitive(root.id.toString())),
+                    "get_next_item" to emptyArray(),
+                    "get_blocked_items" to emptyArray(),
+                    "query_rules" to arrayOf("operation" to JsonPrimitive("list"), "rootId" to JsonPrimitive(root.id.toString())),
                 )
+            assertEquals(READ_ONLY_TOOLS, reads.keys, "every read-only tool is exercised with VALID arguments, never a bare call")
             for ((name, params) in reads) {
                 val result = rig.call(tools.getValue(name), *params)
                 assertTrue(
@@ -1045,10 +1209,11 @@ class EventCoverageTest {
                     "read tool $name must succeed so its zero rows mean something: $result"
                 )
             }
-            for (name in READ_ONLY_TOOLS - reads.keys) {
-                runCatching { rig.call(tools.getValue(name)) }
-            }
+            assertEquals(mark, rig.maxSeq(), "read-only tools must append zero rows (maxSeq unchanged)")
             assertEquals(emptyList(), rig.rowsAfter(mark), "read-only tools must record no event rows")
+            // Control: a write on the same rig does append a row, so the zero-row assertions above can fail.
+            val (_, control) = rig.written { rig.callOk(ManageItemsTool(), *itemsCreate("S17 read control")) }
+            assertEquals(listOf("item.created"), control.types(), "control: the same rig does append a row for a write")
         }
 
     @Test
