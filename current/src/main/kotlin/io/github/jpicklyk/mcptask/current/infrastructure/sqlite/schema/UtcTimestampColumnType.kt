@@ -86,7 +86,8 @@ class UtcTimestampColumnType(
             is Instant -> value
             is java.sql.Timestamp -> value.toInstant()
             is String -> UtcTimestamp.parse(value)
-            is Number -> Instant.ofEpochMilli(value.toLong())
+            // Integers are not a timestamp format any writer produces; refuse rather than guess epoch millis.
+            is Number -> throw IllegalArgumentException("Unparseable timestamp (integer value): $value")
             else -> delegate.valueFromDB(value)
         }
 

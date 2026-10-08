@@ -194,6 +194,7 @@ class CompleteTreeToolConfigUnavailableTest {
 
             coEvery { workItemRepo.getById(failingId) } returns failingItem
             coEvery { workItemRepo.getById(healthyId) } returns healthyItem
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
 

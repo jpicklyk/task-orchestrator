@@ -379,7 +379,7 @@ class AdvanceService(
         val previousRole = item.role
         val itemSchema = schemaResolver(item)
 
-        // One instant for this advance: claim freshness and roleChangedAt agree with every unit step.
+        // One instant read here, outside the transition unit, shared by the ownership pre-check and roleChangedAt; store-side claim and lease decisions use the unit's own instant.
         val now = clock.unitNow()
 
         // 1. Ownership pre-check (only when enforced).

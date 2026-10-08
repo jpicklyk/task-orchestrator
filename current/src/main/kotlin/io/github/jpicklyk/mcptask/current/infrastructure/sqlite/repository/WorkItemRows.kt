@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
+import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.ColumnType
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
@@ -16,6 +17,7 @@ import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.statements.jdbc.JdbcResult
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.slf4j.LoggerFactory
+import java.time.Instant
 import java.util.UUID
 
 /*
@@ -28,6 +30,7 @@ private val rowLogger = LoggerFactory.getLogger("io.github.jpicklyk.mcptask.curr
 /** Total mapping from a `work_items` row to a [WorkItem]: every row is returned, violations ride in `diagnostics`. */
 internal object WorkItemRows {
     fun toWorkItem(row: ResultRow): WorkItem {
+        val unreadable = mutableListOf<String>()
         val item =
             WorkItem(
                 id = row[WorkItemsTable.id].value,
@@ -47,22 +50,39 @@ internal object WorkItemRows {
                 tags = row[WorkItemsTable.tags],
                 type = row[WorkItemsTable.type],
                 properties = row[WorkItemsTable.properties],
-                createdAt = row[WorkItemsTable.createdAt],
-                modifiedAt = row[WorkItemsTable.modifiedAt],
-                roleChangedAt = row[WorkItemsTable.roleChangedAt],
+                createdAt = readInstant(row, WorkItemsTable.createdAt, unreadable) ?: Instant.EPOCH,
+                modifiedAt = readInstant(row, WorkItemsTable.modifiedAt, unreadable) ?: Instant.EPOCH,
+                roleChangedAt = readInstant(row, WorkItemsTable.roleChangedAt, unreadable) ?: Instant.EPOCH,
                 version = row[WorkItemsTable.version],
                 claimedBy = row[WorkItemsTable.claimedBy],
-                claimedAt = row[WorkItemsTable.claimedAt],
-                claimExpiresAt = row[WorkItemsTable.claimExpiresAt],
-                originalClaimedAt = row[WorkItemsTable.originalClaimedAt],
+                claimedAt = readInstant(row, WorkItemsTable.claimedAt, unreadable),
+                claimExpiresAt = readInstant(row, WorkItemsTable.claimExpiresAt, unreadable),
+                originalClaimedAt = readInstant(row, WorkItemsTable.originalClaimedAt, unreadable),
                 diagnostics = emptyList()
             )
-        val violations = item.violations()
+        val violations = unreadable + item.violations()
         // A valid row carries no diagnostics, so later copy() calls validate exactly like an application-built item.
         if (violations.isEmpty()) return item.copy(diagnostics = null)
         rowLogger.warn("Stored WorkItem row {} violates domain invariants: {}", item.id, violations)
         return item.copy(diagnostics = violations)
     }
+
+    /**
+     * Reads a timestamp column without throwing: text [UtcTimestamp] cannot parse (and any integer value, which
+     * is deliberately NOT read as epoch millis) yields null plus a diagnostic naming the column. A non-null
+     * column falls back to [Instant.EPOCH] at the call site so the row still rehydrates.
+     */
+    private fun <T : Instant?> readInstant(
+        row: ResultRow,
+        column: Column<T>,
+        unreadable: MutableList<String>
+    ): Instant? =
+        try {
+            row[column]
+        } catch (e: IllegalArgumentException) {
+            unreadable += "Unreadable timestamp in column '${column.name}': ${e.message}"
+            null
+        }
 
     /** Loads rows for [ids] in chunks, all inside the caller's transaction. Result order is unspecified. */
     fun loadByIds(ids: Collection<UUID>): List<WorkItem> =

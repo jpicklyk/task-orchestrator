@@ -1627,7 +1627,7 @@ Each entry in the `schema` array is keys-only: `key`, `role`, `required`, `exist
 | `claimedAt` | ISO 8601 UTC | When the current claim was placed (refreshed on re-claim) |
 | `claimExpiresAt` | ISO 8601 UTC | TTL-based expiry (claim time plus TTL, computed server-side). Passive: the claim is not auto-released; expired claims are filtered at read time. |
 | `originalClaimedAt` | ISO 8601 UTC | First claim timestamp by the current agent. Preserved across re-claims (heartbeats). Reset when a different agent claims the item. |
-| `isExpired` | boolean | `true` when `claimExpiresAt` is in the past at the time of the query |
+| `isExpired` | boolean | `true` when the item has a claim holder (`claimedBy`) and the claim is not active: `claimExpiresAt` is at or before the time of the query, or the claim has no usable timestamps (a partial claim) |
 
 **`resourceLeases`** (array, optional) — present only when the item declares at least one
 `resources:` requirement (via its resolved traits) or actively holds at least one lease; omitted

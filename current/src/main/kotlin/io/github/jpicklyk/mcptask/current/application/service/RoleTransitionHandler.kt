@@ -722,6 +722,9 @@ class RoleTransitionHandler(
         // guard). This is the single site every advance_item / complete_tree / REST advance /
         // cascade path funnels through.
         val releasingClaim = (targetRole == Role.TERMINAL || previousRole == Role.TERMINAL) && item.claimedBy != null
+        // Entering TERMINAL clears UNCONDITIONALLY in the unit: claims no longer bump version, so a claim landing
+        // between the snapshot read and the update would otherwise survive on a terminal item.
+        val clearsClaim = targetRole == Role.TERMINAL || releasingClaim
         if (releasingClaim) {
             logger.info(
                 "Releasing claim on transition to terminal state: itemId={}, trigger={}, previousHolder={}",
@@ -785,7 +788,7 @@ class RoleTransitionHandler(
                     }) {
                         workItemRepository.update(updatedItem)?.also {
                             // update() never writes the claim columns: release the claim explicitly, in this unit.
-                            if (releasingClaim) workItemRepository.clear(item.id)
+                            if (clearsClaim) workItemRepository.clear(item.id)
                         }
                     }
                 when (updated) {

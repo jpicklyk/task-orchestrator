@@ -164,6 +164,7 @@ class AdvanceItemToolConfigUnavailableTest {
     private fun extractSummary(result: kotlinx.serialization.json.JsonElement): JsonObject = extractData(result)["summary"]!!.jsonObject
 
     private fun stubHealthyTransition(itemId: UUID) {
+        coEvery { workItemRepo.clear(any()) } returns true
         coEvery { workItemRepo.update(any()) } answers { firstArg() }
         coEvery { roleTransitionRepo.create(any()) } returns mockk()
         every { depRepo.findByToItemId(itemId) } returns emptyList()
@@ -379,6 +380,7 @@ class AdvanceItemToolConfigUnavailableTest {
 
             coEvery { workItemRepo.getById(idA) } returns itemA
             coEvery { workItemRepo.getById(idB) } returns itemB
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()
@@ -419,6 +421,7 @@ class AdvanceItemToolConfigUnavailableTest {
 
             coEvery { workItemRepo.getById(childId) } returns childItem
             coEvery { workItemRepo.getById(parentId) } returns parentItem
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()

@@ -318,7 +318,8 @@ class AdvanceServiceTerminalClaimClearTest {
             // is the only way to observe it without touching src/main.
             val persistedParent = updatedItems.first { it.id == parentId }
             assertAllClaimFieldsNull(persistedParent)
-            assertEquals(listOf(parentId), clearedIds, "only the claimed parent has its claim columns released")
+            // Entering TERMINAL clears unconditionally (a claim can land after the snapshot), so the unclaimed child is cleared too.
+            assertEquals(listOf(childId, parentId), clearedIds, "every item entering terminal has its claim columns released")
         }
 
     // ──────────────────────────────────────────────

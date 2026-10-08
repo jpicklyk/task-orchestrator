@@ -286,8 +286,8 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
     fun `findAncestorChainsDetailed on a mutual cycle reports truncated with reason cycle`(): Unit =
         runBlocking {
-            // Both items are created at depth 1 (the retired in-memory original set depth = 1 in its update): a depth-0 row
-            // with a parent would fail domain validation on read and be reported as a missing ancestor.
+            // Both items are created at depth 1, matching the retired in-memory original (which set depth = 1 in
+            // its update); a domain-invalid row would still be returned (with diagnostics), not treated as missing.
             val root = createItem("S6 root")
             val a = createItem("S6 A", parentId = root.id, depth = 1)
             val b = createItem("S6 B", parentId = root.id, depth = 1)

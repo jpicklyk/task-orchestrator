@@ -149,6 +149,7 @@ class CompleteTreeToolTest {
             val item = makeItem(id = itemId, title = "Simple Item", role = Role.QUEUE)
 
             coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
@@ -282,6 +283,7 @@ class CompleteTreeToolTest {
             coEvery { workItemRepo.getById(idC) } returns itemC
             // Construction-only: AdvanceService re-reads a blocker's role from the repository, so a
             // persisted update must be visible to later getById calls (a real DB does this itself).
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers {
                 val u = firstArg<WorkItem>()
                 coEvery { workItemRepo.getById(u.id) } returns u
@@ -342,6 +344,7 @@ class CompleteTreeToolTest {
             val item = makeItem(id = itemId, title = "Item to Cancel", role = Role.WORK)
 
             coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
@@ -434,6 +437,7 @@ class CompleteTreeToolTest {
 
             coEvery { workItemRepo.getById(idA) } returns itemA
             coEvery { workItemRepo.getById(idB) } returns itemB
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
 
@@ -669,6 +673,7 @@ class CompleteTreeToolTest {
 
             coEvery { workItemRepo.findDescendants(rootId) } returns listOf(child)
             coEvery { workItemRepo.getById(childId) } returns child
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(childId) } returns emptyList()
@@ -699,6 +704,7 @@ class CompleteTreeToolTest {
             coEvery { workItemRepo.findDescendants(rootId) } returns listOf(child)
             coEvery { workItemRepo.getById(rootId) } returns root
             coEvery { workItemRepo.getById(childId) } returns child
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(childId) } returns emptyList()
@@ -749,6 +755,7 @@ class CompleteTreeToolTest {
 
             coEvery { workItemRepo.findDescendants(rootId) } returns listOf(child)
             coEvery { workItemRepo.getById(childId) } returns child
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(childId) } returns emptyList()
@@ -781,6 +788,7 @@ class CompleteTreeToolTest {
             coEvery { workItemRepo.findDescendants(rootId) } returns listOf(child)
             coEvery { workItemRepo.getById(rootId) } returns root
             coEvery { workItemRepo.getById(childId) } returns child
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(childId) } returns emptyList()
@@ -847,6 +855,7 @@ class CompleteTreeToolTest {
             coEvery { workItemRepo.findDescendants(rootId) } returns listOf(child)
             coEvery { workItemRepo.getById(rootId) } returns root
             coEvery { workItemRepo.getById(childId) } returns child
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(childId) } returns emptyList()
@@ -928,6 +937,7 @@ class CompleteTreeToolTest {
             coEvery { workItemRepo.getById(itemId) } returns item
             coEvery { noteRepo.findByItemId(itemId) } returns listOf(note)
             coEvery { noteRepo.findByItemId(itemId, any()) } returns listOf(note)
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
@@ -988,6 +998,7 @@ class CompleteTreeToolTest {
             coEvery { workItemRepo.getById(itemId) } returns item
             coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
             coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
@@ -1043,6 +1054,7 @@ class CompleteTreeToolTest {
             val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
 
             coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
@@ -1071,6 +1083,7 @@ class CompleteTreeToolTest {
 
             coEvery { workItemRepo.findDescendants(rootId) } returns emptyList()
             coEvery { workItemRepo.getById(rootId) } returns root
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
 
@@ -1100,6 +1113,7 @@ class CompleteTreeToolTest {
             val item = makeItem(id = itemId, title = "Custom Label Item", role = Role.QUEUE)
 
             coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
@@ -1128,6 +1142,7 @@ class CompleteTreeToolTest {
             val item = makeItem(id = itemId, title = "Cancel Precedence Item", role = Role.WORK)
 
             coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
@@ -1156,6 +1171,7 @@ class CompleteTreeToolTest {
             coEvery { workItemRepo.findByIdPrefix(prefix, any()) } returns listOf(item)
             coEvery { workItemRepo.findDescendants(item.id) } returns emptyList()
             coEvery { workItemRepo.getById(item.id) } returns item
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(item.id) } returns emptyList()
@@ -1196,6 +1212,7 @@ class CompleteTreeToolTest {
 
             coEvery { workItemRepo.findByIdPrefix(prefix, any()) } returns listOf(item)
             coEvery { workItemRepo.getById(item.id) } returns item
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(item.id) } returns emptyList()
@@ -1310,6 +1327,7 @@ class CompleteTreeToolTest {
                 coEvery { workItemRepo.getById(itemId) } returns item
                 coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
                 coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
+                coEvery { workItemRepo.clear(any()) } returns true
                 coEvery { workItemRepo.update(any()) } answers { firstArg() }
                 coEvery { roleTransitionRepo.create(any()) } returns mockk()
                 every { depRepo.findByToItemId(itemId) } returns emptyList()
@@ -1479,6 +1497,7 @@ class CompleteTreeToolTest {
             val leaseContext = ToolExecutionContext(leaseRepoProvider)
 
             coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
@@ -1509,6 +1528,7 @@ class CompleteTreeToolTest {
             val leaseContext = ToolExecutionContext(leaseRepoProvider)
 
             coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()

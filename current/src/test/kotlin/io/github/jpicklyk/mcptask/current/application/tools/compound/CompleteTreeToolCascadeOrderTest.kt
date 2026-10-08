@@ -113,6 +113,7 @@ class CompleteTreeToolCascadeOrderTest {
 
             coEvery { workItemRepo.getById(childId) } returns childItem
             coEvery { workItemRepo.getById(parentId) } returns parentItem
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(childId) } returns emptyList()
@@ -155,6 +156,7 @@ class CompleteTreeToolCascadeOrderTest {
             val applyOrder = mutableListOf<UUID>()
             coEvery { workItemRepo.getById(idA) } answers { currentA }
             coEvery { workItemRepo.getById(idB) } returns itemB
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers {
                 val updated = firstArg<WorkItem>()
                 applyOrder.add(updated.id)
@@ -240,6 +242,7 @@ class CompleteTreeToolCascadeOrderTest {
             coEvery { workItemRepo.findDescendants(rootId) } returns listOf(childItem)
             coEvery { workItemRepo.getById(childId) } returns childItem
             coEvery { workItemRepo.getById(rootId) } answers { currentRoot }
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers {
                 val updated = firstArg<WorkItem>()
                 if (updated.id == rootId) currentRoot = updated
