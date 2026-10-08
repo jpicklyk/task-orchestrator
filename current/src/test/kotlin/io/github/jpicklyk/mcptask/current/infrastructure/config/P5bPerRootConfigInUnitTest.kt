@@ -1,9 +1,13 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.infrastructure.database.countRows
+import io.github.jpicklyk.mcptask.current.infrastructure.database.createProbeTables
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.repository.writeTx
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
@@ -13,6 +17,7 @@ import java.sql.DriverManager
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 
 /**
@@ -79,18 +84,30 @@ class P5bPerRootConfigInUnitTest {
         }
 
     @Test
-    fun `S11 inside a write unit the same read fault raises PerRootConfigUnavailableException`(): Unit =
+    fun `S11 inside a write unit the config read throws and the unit ends in the cause-translated Err, nothing committed`(): Unit =
         runBlocking {
             val (service, rootId) = warmService()
+            db.createProbeTables()
             breakConfigReads()
-            val e =
-                assertFailsWith<PerRootConfigUnavailableException> {
-                    db.unitOfWork().write("S11.write") {
+            var inBlock: Throwable? = null
+
+            val result =
+                db.unitOfWork().write<Unit>("S11.write") {
+                    db.databaseManager.writeTx("S11.probe") { exec("INSERT INTO p5a_probe (id, v) VALUES (1, 1)") }
+                    try {
                         service.layer(rootId)
-                        Outcome.Ok(Unit)
+                    } catch (e: PerRootConfigUnavailableException) {
+                        inBlock = e
+                        throw e
                     }
+                    Outcome.Ok(Unit)
                 }
-            assertEquals(rootId, e.rootId)
+
+            val thrown = assertIs<PerRootConfigUnavailableException>(inBlock, "last-known-good must NOT be served inside a unit")
+            assertEquals(rootId, thrown.rootId)
+            val err = assertIs<Outcome.Err>(result, "$result")
+            assertEquals(ErrorCode.INTERNAL, err.error.code, "translated by its SQL cause (no such table)")
+            assertEquals(0, db.databaseManager.countRows("p5a_probe"), "nothing the block wrote may be committed")
         }
 
     @Test
