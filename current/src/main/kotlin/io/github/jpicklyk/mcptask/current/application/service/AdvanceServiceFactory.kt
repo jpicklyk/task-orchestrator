@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
@@ -29,6 +30,8 @@ class AdvanceServiceFactory(
     /** The transaction boundary every built [AdvanceService] runs its steps in. */
     private val unitOfWork: UnitOfWork,
     private val resourceLeasesEnforced: () -> Boolean = { AdvanceService.resourceLeasesEnforcedFromEnv() },
+    /** The one time source every built [AdvanceService] reads (the ambient unit instant wins inside a unit). */
+    private val clock: Clock = Clock.SYSTEM,
 ) {
     /**
      * Builds the [AdvanceService] for a single advance of [item] via [trigger]. Bound to [item]'s
@@ -55,6 +58,7 @@ class AdvanceServiceFactory(
             resourceRequirementsResolver = { configResolver.resolveResourceRequirements(it) },
             resourceRegistryResolver = { configResolver.resolveResourceRegistry(it) },
             resourceLeasesEnforced = resourceLeasesEnforced(),
-            independencePolicyResolver = { workItem: WorkItem -> configResolver.resolveIndependencePolicy(workItem.rootId) }
+            independencePolicyResolver = { workItem: WorkItem -> configResolver.resolveIndependencePolicy(workItem.rootId) },
+            clock = clock
         )
 }

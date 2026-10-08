@@ -122,8 +122,8 @@ class UpgradeHarnessTest {
 
     @Test
     fun `S12 a migration of version 18 or later without a seed fails coverage`() {
-        val problems = MigrationSeed.coverageProblems((1..18).toList(), seeds)
-        assertTrue(problems.any { "V18" in it && "no MigrationSeed" in it }, "missing SeedV18 not reported: $problems")
+        val problems = MigrationSeed.coverageProblems((1..19).toList(), seeds)
+        assertTrue(problems.any { "V19" in it && "no MigrationSeed" in it }, "missing SeedV19 not reported: $problems")
         assertEquals(
             emptyList(),
             MigrationSeed.coverageProblems(UpgradeHarness.migrationVersions(dir), seeds),

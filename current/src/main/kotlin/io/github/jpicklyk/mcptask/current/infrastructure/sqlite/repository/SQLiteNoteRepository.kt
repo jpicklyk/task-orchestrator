@@ -379,36 +379,19 @@ class SQLiteNoteRepository(
                         LIMIT $FTS_CANDIDATE_ROWS
                         """.trimIndent()
 
-                    // Use ExposedConnection.prepareStatement() + executeQuery() rather than
-                    // Exposed's exec() — when the SQL starts with `WITH RECURSIVE` (the
-                    // subtree CTE for scope.ancestorId), exec() routes through executeUpdate()
-                    // on xerial sqlite-jdbc and rejects SELECT-returning queries with
-                    // "Query returns results". Same fix template as SQLiteWorkItemRepository.findDescendants().
-                    val ps = this.connection.prepareStatement(sql, false)
-                    try {
-                        ps.fillParameters(buildArgs())
-                        val rs = ps.executeQuery()
+                    rawQuery(sql, buildArgs()) { rs ->
                         while (rs.next()) {
-                            // Exposed's JdbcResultSetApi exposes getObject(Int|String) and
-                            // getString(Int), but NOT getLong/getDouble. Use getObject for
-                            // numerics and cast to Number. Select order:
+                            // Exposed's JdbcResult exposes getObject(Int|String) and getString(Int), but NOT
+                            // getLong/getDouble. Use getObject for numerics and cast to Number. Select order:
                             // 1=ft.rowid, 2=ft.rank, 3=snip, 4=note_id, 5=item_id, 6=note_key.
                             val rowid = (rs.getObject(1) as Number).toLong()
                             val rank = (rs.getObject(2) as Number).toDouble()
                             val snippet = rs.getString(3) ?: ""
-                            val rawNoteId = rs.getObject("note_id")
-                            val rawItemId = rs.getObject("item_id")
-
-                            @Suppress("UNCHECKED_CAST")
-                            val noteId = uuidType.valueFromDB(rawNoteId!!) as java.util.UUID
-
-                            @Suppress("UNCHECKED_CAST")
-                            val itemId = uuidType.valueFromDB(rawItemId!!) as java.util.UUID
+                            val noteId = uuidOf(rs.getObject("note_id")!!)
+                            val itemId = uuidOf(rs.getObject("item_id")!!)
                             val noteKey = rs.getString(6) ?: ""
                             hitMap[rowid] = NoteHit(rowid, rank, snippet, tableName, noteId, itemId, noteKey)
                         }
-                    } finally {
-                        ps.closeIfPossible()
                     }
                 }
 

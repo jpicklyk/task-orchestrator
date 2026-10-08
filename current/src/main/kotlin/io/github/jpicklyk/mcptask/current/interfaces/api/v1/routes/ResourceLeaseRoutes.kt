@@ -180,9 +180,9 @@ fun Route.resourceLeaseRoutes(
                     (call.request.queryParameters["limit"]?.toIntOrNull() ?: HISTORY_DEFAULT_LIMIT)
                         .coerceIn(1, HISTORY_MAX_LIMIT)
 
-                val found = if (at != null) leaseRepo.findHoldersAt(key, at) else leaseRepo.findRecentIntervals(key, limit)
+                val found = if (at != null) leaseRepo.findHoldersAt(key, at, limit) else leaseRepo.findRecentIntervals(key, limit)
                 val intervals =
-                    found.take(limit).map { interval ->
+                    found.map { interval ->
                         val dto = interval.toDto()
                         if (isAdmin) dto else dto.copy(acquiredByActorId = null, releasedByActorId = null)
                     }

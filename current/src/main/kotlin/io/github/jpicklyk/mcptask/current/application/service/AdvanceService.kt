@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
@@ -8,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.UnitResult
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
@@ -288,9 +290,11 @@ class AdvanceService(
     private val resourceRequirementsResolver: suspend (WorkItem) -> List<ResourceRequirement> = { emptyList() },
     private val resourceRegistryResolver: suspend (java.util.UUID?) -> Map<String, ResourceDefinition> = { emptyMap() },
     private val resourceLeasesEnforced: Boolean = true,
-    private val independencePolicyResolver: suspend (WorkItem) -> IndependencePolicy = { IndependencePolicy.DEFAULT }
+    private val independencePolicyResolver: suspend (WorkItem) -> IndependencePolicy = { IndependencePolicy.DEFAULT },
+    /** The time source for ownership checks and `roleChangedAt`; the ambient unit instant wins inside a unit. */
+    private val clock: Clock = Clock.SYSTEM
 ) {
-    private val handler = RoleTransitionHandler()
+    private val handler = RoleTransitionHandler(clock)
     private val cascadeDetector = CascadeDetector()
 
     companion object {
@@ -375,14 +379,14 @@ class AdvanceService(
         val previousRole = item.role
         val itemSchema = schemaResolver(item)
 
-        // Use DB-side time so freshness is evaluated on the DB clock, not the JVM clock.
-        val dbNow = workItemRepository.dbNow()
+        // One instant read here, outside the transition unit, shared by the ownership pre-check and roleChangedAt; store-side claim and lease decisions use the unit's own instant.
+        val now = clock.unitNow()
 
         // 1. Ownership pre-check (only when enforced).
         if (enforceOwnership) {
             when (
                 val ownershipResult =
-                    handler.checkOwnershipForTransition(item, actorClaim, verification, degradedModePolicy, dbNow)
+                    handler.checkOwnershipForTransition(item, actorClaim, verification, degradedModePolicy, now)
             ) {
                 is OwnershipCheckResult.Allowed -> {} // proceed
                 is OwnershipCheckResult.Rejected ->
@@ -455,7 +459,7 @@ class AdvanceService(
             }
 
         // 5. Apply — routes through applyTransition (atomic role change + audit row).
-        // roleChangedAt is sourced from the DB clock for consistency with range-filter queries.
+        // roleChangedAt is the same bound instant used for the ownership check above.
         val effectiveLabel = resolution.statusLabel ?: configLabel
         val applyResult =
             handler.applyTransition(
@@ -469,7 +473,7 @@ class AdvanceService(
                 unitOfWork,
                 actorClaim = actorClaim,
                 verification = verification,
-                roleChangedAt = dbNow,
+                roleChangedAt = now,
                 consumedCredentials = effectiveCredentialRefs
             )
         if (!applyResult.success || applyResult.item == null) {

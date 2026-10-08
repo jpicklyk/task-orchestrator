@@ -369,7 +369,6 @@ at 100 entries before the `offset`/`limit` slice is taken. Consequently:
   ],
   "total": 42,
   "returned": 20,
-  "skipped": 1,
   "limit": 20,
   "offset": 0
 }
@@ -378,7 +377,7 @@ at 100 entries before the `offset`/`limit` slice is taken. Consequently:
 List mode returns minimal fields (`id`, `parentId`, `title`, `role`, `statusLabel`, `priority`, `depth`, `tags`, `type`). Nullable fields are omitted when null.
 Use `get` for full item JSON including `description` and `summary`; on `get`, `createdAt`, `modifiedAt`, and `roleChangedAt` are opt-in via `includeTimestamps` (absent by default). List-mode results never include timestamps.
 
-`total` is the raw SQL match count (unaffected by validation), `returned` is `items.length`. `skipped` is present only when > 0: it counts rows in this page's window that failed domain validation (e.g. a corrupt legacy row) and were dropped rather than returned — a WARN log identifies the row. Invariant: `total = returned + skipped + notFetched`, where `notFetched` is any rows beyond `limit`/`offset` never queried.
+`total` is the raw SQL match count, `returned` is `items.length`. Every matching row is returned, including a stored row that fails domain validation (e.g. a corrupt legacy row): the row mapper never drops one, and a WARN log identifies it. `skipped` is therefore always 0 and is omitted. Invariant: `total = returned + notFetched`, where `notFetched` is any rows beyond `limit`/`offset` never queried.
 
 When `claimStatus` filter is provided, each result item includes an additional `isClaimed` boolean:
 
@@ -439,14 +438,13 @@ When `excludeTerminal` is true, terminal-role roots are filtered at the SQL leve
   ],
   "total": 55,
   "truncated": true,
-  "offset": 0,
-  "skipped": 1
+  "offset": 0
 }
 ```
 
 Nullable fields (`parentId`, `statusLabel`, `tags`, `type`) are omitted when null. `traits` is omitted when the item has no traits (never an empty array). `children` is only present when `includeChildren` is true.
 
-`total` is the **true count of matching root items** (via a dedicated `COUNT` query) — the unconditional root count when `excludeTerminal` is false/omitted, or the count of non-terminal roots when `excludeTerminal` is true. Either way it is independent of `limit`/`offset` and of any validation drops, and is **not** the size of the `items` array. `offset` echoes the request's `offset` (0 if omitted). `truncated` is `true` when `offset + items.length < total` for **any** reason — more pages remain, or validation drops shrank this page — which is broader than FTS search's `truncated` (that flag fires only at the FTS hit cap); use `skipped` to disambiguate the cause. `skipped` is present only when > 0: it counts root rows within this page's window that failed domain validation and were dropped rather than returned; a WARN log identifies the row so it can be repaired.
+`total` is the **true count of matching root items** (via a dedicated `COUNT` query) — the unconditional root count when `excludeTerminal` is false/omitted, or the count of non-terminal roots when `excludeTerminal` is true. Either way it is independent of `limit`/`offset` and is **not** the size of the `items` array. `offset` echoes the request's `offset` (0 if omitted). `truncated` is `true` when `offset + items.length < total` (more pages remain), which is broader than FTS search's `truncated` (that flag fires only at the FTS hit cap). A root row that fails domain validation is returned like any other (never dropped), so `skipped` is always 0 and omitted; a WARN log identifies the row so it can be repaired.
 
 `claimSummary` counts are scoped to the direct children of each root item. `active` = live non-expired claims; `expired` = claims past TTL; `unclaimed` = items with no claim record. `claimedBy` identity is never included at this level.
 
@@ -1619,7 +1617,7 @@ Each entry in the `schema` array is keys-only: `key`, `role`, `required`, `exist
 
 `claimDetail` is present only when the item is currently claimed (`claimedBy != null`). This is the **only** tool mode that exposes `claimedBy` identity — use it for operator diagnostics on stalled or contested items.
 
-> **UTC note.** `claimedAt`, `claimExpiresAt`, and `originalClaimedAt` are stored as UTC using SQLite `datetime('now')`. Agents or operators inspecting raw database rows must not assume local timezone; the values are always UTC regardless of the host's system time.
+> **UTC note.** `claimedAt`, `claimExpiresAt`, and `originalClaimedAt` are computed in Kotlin from the server's one bound clock (no database clock is read) and stored as canonical UTC text, `yyyy-MM-dd HH:mm:ss.SSS` (24-hour, millisecond precision). Every persisted timestamp column uses that one shape, so agents or operators inspecting raw database rows can compare them as text and must not assume local timezone, whatever the host's system time. A claim is active only while `claimExpiresAt` is strictly after "now": an expiry equal to now is already expired, on every surface that decides it (claims and resource leases alike).
 
 `claimDetail` fields:
 
@@ -1627,9 +1625,9 @@ Each entry in the `schema` array is keys-only: `key`, `role`, `required`, `exist
 |---|---|---|
 | `claimedBy` | string | Agent identity (opaque string — may be `did:web`, session ID, container hostname, etc.) |
 | `claimedAt` | ISO 8601 UTC | When the current claim was placed (refreshed on re-claim) |
-| `claimExpiresAt` | ISO 8601 UTC | TTL-based expiry (DB-computed). Passive: the claim is not auto-released; expired claims are filtered at read time. |
+| `claimExpiresAt` | ISO 8601 UTC | TTL-based expiry (claim time plus TTL, computed server-side). Passive: the claim is not auto-released; expired claims are filtered at read time. |
 | `originalClaimedAt` | ISO 8601 UTC | First claim timestamp by the current agent. Preserved across re-claims (heartbeats). Reset when a different agent claims the item. |
-| `isExpired` | boolean | `true` when `claimExpiresAt` is in the past at the time of the query |
+| `isExpired` | boolean | `true` when the item has a claim holder (`claimedBy`) and the claim is not active: `claimExpiresAt` is at or before the time of the query, or the claim has no usable timestamps (a partial claim) |
 
 **`resourceLeases`** (array, optional) — present only when the item declares at least one
 `resources:` requirement (via its resolved traits) or actively holds at least one lease; omitted
@@ -1894,7 +1892,7 @@ The selector filter shape is identical to the `get_next_item` filter parameters 
 - **Claims are cleared on reaching terminal.** Any transition that lands an item in TERMINAL — via `advance_item`, `complete_tree`, a REST `advance` call, or a cascade — clears `claimedBy`/`claimedAt`/`claimExpiresAt`/`originalClaimedAt` on that item, regardless of which trigger or path reached TERMINAL. Consequently `reopen` always starts the item unclaimed; a stale pre-terminal claim never resurfaces.
 - **Identity resolution.** `actor.id` is used as the claim identity, subject to `degradedModePolicy`. If JWKS verification succeeds, the verified `actor.id` (from the JWT `sub` claim) is used; otherwise the self-reported `actor.id` is used (unless `degradedModePolicy=reject`, in which case the claim fails with `rejected_by_policy`).
 - **Passive expiry.** There is no background reaper. Expired claims are filtered at read time. Crash recovery happens automatically via TTL.
-- **DB-side time.** All timestamps (`claimedAt`, `claimExpiresAt`) are set via SQLite `datetime('now', ...)` — they are UTC. Operators inspecting raw rows must not assume host-local time.
+- **One clock, UTC.** All claim timestamps (`claimedAt`, `claimExpiresAt`, `originalClaimedAt`) come from the server's bound clock and are stored as canonical UTC text (`yyyy-MM-dd HH:mm:ss.SSS`); expiry equal to now is expired. Claiming, refreshing and releasing a claim do not change the item's `version`. Operators inspecting raw rows must not assume host-local time.
 - **Per-entry `agentId` vs verified `actor.id`.** When the configured verifier resolves a trusted identity from `actor.proof`, that verified id becomes the claim holder and any `agentId` on the individual claim entry is ignored. The server logs a warning when the two disagree. Callers without a verifier configured may still supply `agentId`; it has no special status beyond providing a self-reported identity.
 - **Ancestor-claim filtering in selector mode.** When using selector mode, items whose ancestor chain contains a live claim held by a *different* agent are excluded from the eligible set. Items under an ancestor claimed by the *same* agent (the requesting `actor.id`) are retained — enabling the hybrid fleet pattern: claim a feature at the top level, then orchestrate its child sub-tree. Root items (no parent) are unaffected. This filter is applied *before* dependency-blocking and ordering. Items excluded by this filter appear as absent from selector results; the competing agent's identity is never disclosed. **ID-mode claims bypass this filter entirely** — the per-item `claim()` path goes directly to the item, regardless of ancestor claim state.
 

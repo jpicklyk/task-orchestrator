@@ -26,7 +26,6 @@ import io.mockk.verify
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -55,7 +54,7 @@ class AdvanceServiceLeaseGateTest {
         noteRepo = mockk()
         leaseRepo = mockk()
 
-        coEvery { workItemRepo.dbNow() } returns Instant.now()
+        coEvery { workItemRepo.clear(any()) } returns true
         coEvery { workItemRepo.update(any()) } answers { firstArg() }
         coEvery { roleTransitionRepo.create(any()) } returns mockk()
         coEvery { noteRepo.findByItemId(any()) } returns emptyList()

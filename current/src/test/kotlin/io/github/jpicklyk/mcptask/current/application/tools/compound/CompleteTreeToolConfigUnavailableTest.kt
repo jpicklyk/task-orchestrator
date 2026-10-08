@@ -32,7 +32,6 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
-import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 
@@ -118,7 +117,6 @@ class CompleteTreeToolConfigUnavailableTest {
             every { repoProvider.noteRepository() } returns noteRepo
             every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
             every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
-            coEvery { workItemRepo.dbNow() } returns Instant.now()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
             coEvery { workItemRepo.countChildrenByRole(any()) } returns emptyMap()
@@ -196,6 +194,7 @@ class CompleteTreeToolConfigUnavailableTest {
 
             coEvery { workItemRepo.getById(failingId) } returns failingItem
             coEvery { workItemRepo.getById(healthyId) } returns healthyItem
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
 

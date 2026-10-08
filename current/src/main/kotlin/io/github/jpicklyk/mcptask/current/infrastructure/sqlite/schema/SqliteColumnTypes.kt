@@ -5,19 +5,16 @@ import org.jetbrains.exposed.v1.core.BooleanColumnType
 import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.ColumnType
 import org.jetbrains.exposed.v1.core.Table
-import org.jetbrains.exposed.v1.core.datetime.InstantColumnType
 import org.jetbrains.exposed.v1.core.java.UUIDColumnType
 import org.jetbrains.exposed.v1.core.vendors.SQLiteDialect
 import org.jetbrains.exposed.v1.core.vendors.currentDialect
-import org.jetbrains.exposed.v1.javatime.JavaInstantColumnType
-import java.time.Instant
 import java.util.UUID
 
 // SQLite-conditional column types. These correct ONLY the DDL type NAME SchemaUtils.create(...)
 // emits for the SQLite dialect, so Exposed-generated DDL matches the Flyway migration SQL's
 // declared column type verbatim (SchemaParityTest diffs the two). Read/write behavior is
 // unchanged: every value conversion delegates to Exposed's own column type for the same Kotlin
-// type (JavaInstantColumnType / UUIDColumnType / BooleanColumnType) — only sqlType() differs, and
+// type (UUIDColumnType / BooleanColumnType; timestamps live in UtcTimestampColumnType.kt) — only sqlType() differs, and
 // only on SQLite: sqlType() falls through
 // to the delegate's own sqlType() for every dialect other than SQLite.
 //
@@ -29,24 +26,6 @@ import java.util.UUID
 // default) has no Exposed DSL equivalent regardless of sqlType() text. This is a declared,
 // accepted exception (asserted by the parity test) and a follow-up migration-adjacent item, not
 // an oversight.
-
-/**
- * `sqlType()` "TIMESTAMP" on SQLite, delegating to [JavaInstantColumnType] otherwise. Matches
- * columns whose Flyway declaration is TIMESTAMP (createdAt/modifiedAt/roleChangedAt-shaped
- * columns) — NOT the claim-style TEXT ISO-8601 columns (e.g. WorkItemsTable's claimedAt /
- * claimExpiresAt / originalClaimedAt, and the equivalent ResourceLeasesTable /
- * ResourceLeaseHistoryTable columns), whose own Flyway declaration is already TEXT and which stay
- * on plain `timestamp()`.
- */
-class SqliteInstantColumnType : InstantColumnType<Instant>() {
-    private val delegate = JavaInstantColumnType()
-
-    override fun toInstant(value: Instant): kotlin.time.Instant = delegate.toInstant(value)
-
-    override fun fromInstant(value: kotlin.time.Instant): Instant = delegate.fromInstant(value)
-
-    override fun sqlType(): String = if (currentDialect is SQLiteDialect) "TIMESTAMP" else delegate.sqlType()
-}
 
 /**
  * `sqlType()` "BLOB" on SQLite, delegating to [UUIDColumnType] otherwise. Matches every non-id
@@ -78,8 +57,6 @@ class SqliteBooleanColumnType : ColumnType<Boolean>() {
 
     override fun sqlType(): String = if (currentDialect is SQLiteDialect) "INTEGER" else delegate.sqlType()
 }
-
-fun Table.timestampSqlite(name: String): Column<Instant> = registerColumn(name, SqliteInstantColumnType())
 
 fun Table.javaUuidSqlite(name: String): Column<UUID> = registerColumn(name, SqliteUuidColumnType())
 

@@ -14,7 +14,6 @@ import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -700,7 +699,7 @@ class ItemRoutesTest {
         }
 
     @Test
-    fun `GET items roots unscoped surfaces skipped for a row that fails domain validation`() =
+    fun `GET items roots unscoped returns a row that fails domain validation and omits skipped`() =
         testApplication {
             val repo = db.repositoryProvider()
             val database = db.database
@@ -724,11 +723,11 @@ class ItemRoutesTest {
                 }
             assertEquals(HttpStatusCode.OK, response.status)
             val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
-            assertEquals(3L, json["totalItems"]!!.jsonPrimitive.long, "corrupt row still counted in totalItems")
-            assertEquals(1, json["skipped"]!!.jsonPrimitive.int)
+            assertEquals(3L, json["totalItems"]!!.jsonPrimitive.long)
+            assertNull(json["skipped"], "skipped is always 0 and therefore omitted")
+            assertEquals(3, json["items"]!!.jsonArray.size, "the invalid row is returned like any other")
             val body = response.bodyAsText()
             assertTrue(body.contains(good1.title), "Expected good root present: $body")
-            assertFalse(body.contains("Will be corrupted"), "Corrupt root must be dropped from items: $body")
         }
 
     @Test
@@ -751,7 +750,7 @@ class ItemRoutesTest {
         }
 
     @Test
-    fun `GET items surfaces skipped for a row that fails domain validation`() =
+    fun `GET items returns a row that fails domain validation and omits skipped`() =
         testApplication {
             val repo = db.repositoryProvider()
             val database = db.database
@@ -771,7 +770,8 @@ class ItemRoutesTest {
                 }
             assertEquals(HttpStatusCode.OK, response.status)
             val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
-            assertEquals(2L, json["totalItems"]!!.jsonPrimitive.long, "corrupt row still counted in totalItems")
-            assertEquals(1, json["skipped"]!!.jsonPrimitive.int)
+            assertEquals(2L, json["totalItems"]!!.jsonPrimitive.long)
+            assertNull(json["skipped"], "skipped is always 0 and therefore omitted")
+            assertEquals(2, json["items"]!!.jsonArray.size, "the invalid row is returned like any other")
         }
 }

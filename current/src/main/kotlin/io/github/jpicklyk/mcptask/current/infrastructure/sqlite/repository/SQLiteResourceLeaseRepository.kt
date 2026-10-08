@@ -1,14 +1,17 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
-import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ResourceLeaseHistoryTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ResourceLeasesTable
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.UtcTimestamp
+import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.VarCharColumnType
@@ -27,27 +30,21 @@ import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
-import org.slf4j.LoggerFactory
 import java.time.Instant
-import java.time.LocalDateTime
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
  * SQLite implementation of [LeaseStore], backed by [ResourceLeasesTable].
  *
- * Storage + concurrency primitive only — no gate enforcement, no MCP tool surface (see the
- * interface KDoc). Mirrors [SQLiteWorkItemRepository.claim]'s transaction/DB-clock discipline:
- * every timestamp compared or written for lease-freshness decisions is DB-side (`datetime('now')`
- * in raw SQL, or an [Instant] read from the DB clock via [dbNow] for typed Exposed comparisons) —
- * never [Instant.now].
+ * Storage + concurrency primitive only - no gate enforcement, no MCP tool surface (see the
+ * interface KDoc). Every timestamp compared or written for lease-freshness decisions is the ambient unit instant
+ * ([unitNow]) bound as a canonical UTC text parameter, and expiry (`now + ttl`) is computed in Kotlin - no database
+ * clock is read and no SQL date function is used. A lease whose `expires_at <= now` is expired.
  */
 class SQLiteResourceLeaseRepository(
-    private val databaseManager: DatabaseManager
+    private val databaseManager: DatabaseManager,
+    private val clock: Clock = SystemClock
 ) : LeaseStore {
-    private val logger = LoggerFactory.getLogger(SQLiteResourceLeaseRepository::class.java)
-
     /**
      * v1 hard cap on concurrent active holders per resource key. Matches
      * [io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition.maxHolders]'s own
@@ -58,33 +55,6 @@ class SQLiteResourceLeaseRepository(
      * `V15__Resource_Leases.sql`) is already shaped to support that without a schema change.
      */
     private val maxHoldersPerKey = 1
-
-    /**
-     * Return the database server's current wall-clock time as an [Instant].
-     *
-     * Self-contained twin of [SQLiteWorkItemRepository.dbNow] — see that method's KDoc for the
-     * full string-parsing rationale (SQLite's `CURRENT_TIMESTAMP` has no timezone suffix and is in
-     * UTC; naive `rs.getTimestamp()` would apply the JVM's local zone offset and drift). Used only
-     * to obtain a DB-clock [Instant] for typed Exposed `expiresAt greater now` comparisons in the
-     * `findActive*` read paths — mutating SQL in this class uses `datetime('now')` directly instead.
-     */
-    private suspend fun dbNow(): Instant =
-        try {
-            databaseManager.readTx {
-                exec("SELECT CURRENT_TIMESTAMP") { rs ->
-                    if (rs.next()) rs.getString(1)?.let { parseDbTimestamp(it) } else null
-                }
-            } ?: Instant.now()
-        } catch (e: Exception) {
-            e.rethrowIfCancellation()
-            logger.warn("Failed to fetch DB-side current time, falling back to JVM clock: ${e.message}")
-            Instant.now()
-        }
-
-    private fun parseDbTimestamp(raw: String): Instant =
-        LocalDateTime
-            .parse(raw.replace(" ", "T"), DateTimeFormatter.ISO_LOCAL_DATE_TIME)
-            .toInstant(ZoneOffset.UTC)
 
     override suspend fun acquireAll(
         holderItemId: UUID,
@@ -105,6 +75,9 @@ class SQLiteResourceLeaseRepository(
         actorId: String?,
         requirements: List<Pair<String, Int>>
     ): LeaseAcquireResult {
+        // One instant for the whole call: the ambient unit's, else the store clock. Expiry is now + ttl.
+        val now = clock.unitNow()
+        val nowText = UtcTimestamp.format(now)
         return run {
             if (requirements.isEmpty()) {
                 LeaseAcquireResult.Success(emptyList())
@@ -119,7 +92,7 @@ class SQLiteResourceLeaseRepository(
                     val uuidType = UUIDColumnType()
                     val keyType = VarCharColumnType(255)
                     val actorType = VarCharColumnType(500)
-                    val ttlOffsetType = VarCharColumnType(50)
+                    val textType = VarCharColumnType(40)
 
                     // Pre-pass: check EVERY key for contention before writing anything. This pre-pass
                     // and the writes below run in the SAME transaction — SQLite's single-writer model
@@ -133,9 +106,9 @@ class SQLiteResourceLeaseRepository(
                             SELECT COUNT(*) FROM resource_leases
                              WHERE resource_key = ?
                                AND holder_item_id != ?
-                               AND expires_at > datetime('now')
+                               AND expires_at > ?
                             """.trimIndent(),
-                            args = listOf(keyType to key, uuidType to holderItemId)
+                            args = listOf(keyType to key, uuidType to holderItemId, textType to nowText)
                         ) { rs -> if (rs.next()) activeOtherHolders = rs.getLong(1) }
 
                         if (activeOtherHolders >= maxHoldersPerKey) {
@@ -144,25 +117,23 @@ class SQLiteResourceLeaseRepository(
                     }
 
                     if (contendedKeys.isNotEmpty()) {
-                        // retryAfterMs: milliseconds (computed entirely DB-side via julianday
-                        // arithmetic — never the JVM clock) until the SOONEST of the contending
-                        // leases expires, across every contended key.
-                        var retryAfterMs = 0L
+                        // retryAfterMs: milliseconds until the SOONEST of the contending leases expires, across
+                        // every contended key, computed in Kotlin from the bound instant; at least 1.
+                        var soonest: String? = null
                         exec(
                             """
-                            SELECT CAST(ROUND((julianday(MIN(expires_at)) - julianday('now')) * 86400000) AS INTEGER)
+                            SELECT MIN(expires_at)
                               FROM resource_leases
                              WHERE resource_key IN (${contendedKeys.joinToString(",") { "?" }})
                                AND holder_item_id != ?
-                               AND expires_at > datetime('now')
+                               AND expires_at > ?
                             """.trimIndent(),
-                            args = contendedKeys.map { keyType to it } + listOf(uuidType to holderItemId)
+                            args = contendedKeys.map { keyType to it } + listOf(uuidType to holderItemId, textType to nowText)
                         ) { rs ->
-                            if (rs.next()) {
-                                val value = rs.getLong(1)
-                                if (!rs.wasNull() && value > 0) retryAfterMs = value
-                            }
+                            if (rs.next()) soonest = rs.getString(1)
                         }
+                        val retryAfterMs =
+                            soonest?.let { maxOf(1L, UtcTimestamp.parse(it).toEpochMilli() - now.toEpochMilli()) } ?: 1L
                         return@writeTx LeaseAcquireResult.Contended(contendedKeys, retryAfterMs)
                     }
 
@@ -176,7 +147,7 @@ class SQLiteResourceLeaseRepository(
                     // together.
                     val leases = mutableListOf<ResourceLease>()
                     for ((key, ttlSeconds) in sortedRequirements) {
-                        val ttlOffset = "+$ttlSeconds"
+                        val expiresText = UtcTimestamp.format(now.plusSeconds(ttlSeconds.toLong()))
 
                         // History bookkeeping happens on the SAME row lookups the live upsert below
                         // is about to overwrite — read the pre-write state now, before it changes.
@@ -211,11 +182,11 @@ class SQLiteResourceLeaseRepository(
                                 (id, resource_key, holder_item_id, acquired_by_actor_id,
                                  acquired_at, expires_at, original_acquired_at, version)
                             VALUES
-                                (randomblob(16), ?, ?, ?, datetime('now'), datetime('now', ? || ' seconds'), datetime('now'), 0)
+                                (randomblob(16), ?, ?, ?, ?, ?, ?, 0)
                             ON CONFLICT(resource_key, holder_item_id) DO UPDATE SET
                                 acquired_by_actor_id = excluded.acquired_by_actor_id,
-                                acquired_at = datetime('now'),
-                                expires_at = datetime('now', ? || ' seconds'),
+                                acquired_at = excluded.acquired_at,
+                                expires_at = excluded.expires_at,
                                 version = resource_leases.version + 1
                             """.trimIndent(),
                             args =
@@ -223,8 +194,9 @@ class SQLiteResourceLeaseRepository(
                                     keyType to key,
                                     uuidType to holderItemId,
                                     actorType to actorId,
-                                    ttlOffsetType to ttlOffset,
-                                    ttlOffsetType to ttlOffset,
+                                    textType to nowText,
+                                    textType to expiresText,
+                                    textType to nowText,
                                 )
                         )
 
@@ -270,7 +242,7 @@ class SQLiteResourceLeaseRepository(
      * 2. **Fresh/steal** ([ownRowExisted] false) — a new interval opens.
      *
      * [liveRow] is the freshly-upserted `resource_leases` row, read back after the write — its
-     * `acquiredAt` / `expiresAt` (both DB-computed) are reused verbatim for the history row so the
+     * `acquiredAt` / `expiresAt` (both computed from the bound clock) are reused verbatim for the history row so the
      * two tables can never disagree on the interval's timestamps.
      */
     private fun recordHistoryOnAcquire(
@@ -327,88 +299,84 @@ class SQLiteResourceLeaseRepository(
         }
     }
 
-    override suspend fun releaseAllForItem(holderItemId: UUID): LeaseReleaseResult =
-        run {
-            databaseManager.writeTx("LeaseStore.releaseAllForItem") {
-                val uuidType = UUIDColumnType()
-                // Close every OPEN interval this holder has, across all its keys. releasedAt is
-                // stamped DB-side (datetime('now')) — never the JVM clock — via the raw statement below.
-                //
-                // datetime(expires_at) wrapping is load-bearing, here and in forceReleaseByKey:
-                // Exposed timestamp columns store fractional seconds ('...:49.937') while
-                // datetime('now') is second-precision ('...:49'), and SQLite compares TEXT
-                // lexicographically — so within a shared second the fractional value sorts LATER
-                // and a just-lapsed hold would compare as unexpired (no clamp, reason 'released').
-                // datetime() canonicalizes both sides to second precision.
-                exec(
-                    """
-                    UPDATE resource_lease_history
-                       SET released_at = min(datetime('now'), datetime(expires_at)),
-                           release_reason = CASE WHEN datetime(expires_at) < datetime('now') THEN 'expired' ELSE 'released' END
-                     WHERE holder_item_id = ? AND released_at IS NULL
-                    """.trimIndent(),
-                    args = listOf(uuidType to holderItemId)
-                )
-                val count = ResourceLeasesTable.deleteWhere { ResourceLeasesTable.holderItemId eq holderItemId }
-                LeaseReleaseResult.Success(count)
-            }
+    override suspend fun releaseAllForItem(holderItemId: UUID): LeaseReleaseResult {
+        val nowText = UtcTimestamp.format(clock.unitNow())
+        return databaseManager.writeTx("LeaseStore.releaseAllForItem") {
+            val uuidType = UUIDColumnType()
+            val textType = VarCharColumnType(40)
+            // Close every OPEN interval this holder has, across all its keys. released_at is the bound instant,
+            // clamped to the interval expiry (a hold never outlives its TTL). Reason: 'expired' when the interval
+            // had already lapsed at that instant (expires_at <= now), else 'released'.
+            exec(
+                """
+                UPDATE resource_lease_history
+                   SET released_at = min(?, expires_at),
+                       release_reason = CASE WHEN expires_at <= ? THEN 'expired' ELSE 'released' END
+                 WHERE holder_item_id = ? AND released_at IS NULL
+                """.trimIndent(),
+                args = listOf(textType to nowText, textType to nowText, uuidType to holderItemId)
+            )
+            val count = ResourceLeasesTable.deleteWhere { ResourceLeasesTable.holderItemId eq holderItemId }
+            LeaseReleaseResult.Success(count)
         }
+    }
 
     override suspend fun releaseAllForItems(holderItemIds: Set<UUID>): LeaseReleaseResult {
         if (holderItemIds.isEmpty()) return LeaseReleaseResult.Success(0)
-        return run {
-            databaseManager.writeTx("LeaseStore.releaseAllForItems") {
-                val uuidType = UUIDColumnType()
-                var total = 0
-                // Chunked so the IN list never exceeds SQLite's bound-variable limit; every chunk
-                // runs in this one transaction. Semantics per chunk are identical to
-                // releaseAllForItem (datetime(expires_at) wrapping, expired-vs-released CASE).
-                for (chunk in holderItemIds.chunked(SQL_IN_CHUNK_SIZE)) {
-                    val placeholders = chunk.joinToString(",") { "?" }
-                    exec(
-                        """
-                        UPDATE resource_lease_history
-                           SET released_at = min(datetime('now'), datetime(expires_at)),
-                               release_reason = CASE WHEN datetime(expires_at) < datetime('now') THEN 'expired' ELSE 'released' END
-                         WHERE holder_item_id IN ($placeholders) AND released_at IS NULL
-                        """.trimIndent(),
-                        args = chunk.map { uuidType to it }
-                    )
-                    total += ResourceLeasesTable.deleteWhere { ResourceLeasesTable.holderItemId inList chunk }
-                }
-                LeaseReleaseResult.Success(total)
+        val nowText = UtcTimestamp.format(clock.unitNow())
+        return databaseManager.writeTx("LeaseStore.releaseAllForItems") {
+            val uuidType = UUIDColumnType()
+            val textType = VarCharColumnType(40)
+            var total = 0
+            // Chunked so the IN list never exceeds the bound-variable limit; every chunk runs in this one
+            // transaction. Semantics per chunk are identical to releaseAllForItem.
+            // Two more bound variables (the instant, twice) share each statement with the id list.
+            for (chunk in holderItemIds.chunked(SQL_IN_CHUNK_SIZE - 2)) {
+                val placeholders = chunk.joinToString(",") { "?" }
+                exec(
+                    """
+                    UPDATE resource_lease_history
+                       SET released_at = min(?, expires_at),
+                           release_reason = CASE WHEN expires_at <= ? THEN 'expired' ELSE 'released' END
+                     WHERE holder_item_id IN ($placeholders) AND released_at IS NULL
+                    """.trimIndent(),
+                    args = listOf(textType to nowText, textType to nowText) + chunk.map { uuidType to it }
+                )
+                total += ResourceLeasesTable.deleteWhere { ResourceLeasesTable.holderItemId inList chunk }
             }
+            LeaseReleaseResult.Success(total)
         }
     }
 
     override suspend fun forceReleaseByKey(
         resourceKey: String,
         actorId: String?
-    ): LeaseReleaseResult =
-        run {
-            databaseManager.writeTx("LeaseStore.forceReleaseByKey") {
-                val keyType = VarCharColumnType(255)
-                val actorType = VarCharColumnType(500)
-                // Close every OPEN interval on this key, regardless of holder. released_by_actor_id
-                // records the acting principal (the REST route threads its tokenId through).
-                exec(
-                    """
-                    UPDATE resource_lease_history
-                       SET released_at = min(datetime('now'), datetime(expires_at)),
-                           release_reason = CASE WHEN datetime(expires_at) < datetime('now') THEN 'expired' ELSE 'force_released' END,
-                           released_by_actor_id = ?
-                     WHERE resource_key = ? AND released_at IS NULL
-                    """.trimIndent(),
-                    args = listOf(actorType to actorId, keyType to resourceKey)
-                )
-                val count = ResourceLeasesTable.deleteWhere { ResourceLeasesTable.resourceKey eq resourceKey }
-                LeaseReleaseResult.Success(count)
-            }
+    ): LeaseReleaseResult {
+        val nowText = UtcTimestamp.format(clock.unitNow())
+        return databaseManager.writeTx("LeaseStore.forceReleaseByKey") {
+            val keyType = VarCharColumnType(255)
+            val actorType = VarCharColumnType(500)
+            val textType = VarCharColumnType(40)
+            // Close every OPEN interval on this key, regardless of holder. released_by_actor_id
+            // records the acting principal (the REST route threads its tokenId through).
+            exec(
+                """
+                UPDATE resource_lease_history
+                   SET released_at = min(?, expires_at),
+                       release_reason = CASE WHEN expires_at <= ? THEN 'expired' ELSE 'force_released' END,
+                       released_by_actor_id = ?
+                 WHERE resource_key = ? AND released_at IS NULL
+                """.trimIndent(),
+                args = listOf(textType to nowText, textType to nowText, actorType to actorId, keyType to resourceKey)
+            )
+            val count = ResourceLeasesTable.deleteWhere { ResourceLeasesTable.resourceKey eq resourceKey }
+            LeaseReleaseResult.Success(count)
         }
+    }
 
     override suspend fun findActiveByKeys(keys: List<String>): List<ResourceLease> {
         if (keys.isEmpty()) return emptyList()
-        val now = dbNow()
+        val now = clock.unitNow()
         return databaseManager.readTx {
             ResourceLeasesTable
                 .selectAll()
@@ -418,7 +386,7 @@ class SQLiteResourceLeaseRepository(
     }
 
     override suspend fun findActiveForItem(holderItemId: UUID): List<ResourceLease> {
-        val now = dbNow()
+        val now = clock.unitNow()
         return databaseManager.readTx {
             ResourceLeasesTable
                 .selectAll()
@@ -428,7 +396,7 @@ class SQLiteResourceLeaseRepository(
     }
 
     override suspend fun findAllActive(): List<ResourceLease> {
-        val now = dbNow()
+        val now = clock.unitNow()
         return databaseManager.readTx {
             ResourceLeasesTable
                 .selectAll()
@@ -439,7 +407,8 @@ class SQLiteResourceLeaseRepository(
 
     override suspend fun findHoldersAt(
         resourceKey: String?,
-        at: Instant
+        at: Instant,
+        limit: Int
     ): List<ResourceLeaseInterval> =
         databaseManager.readTx {
             // Held at `at` iff acquiredAt <= at < coalesce(releasedAt, expiresAt) — expressed as an
@@ -457,6 +426,7 @@ class SQLiteResourceLeaseRepository(
                 .selectAll()
                 .where { conditions.reduce { acc, op -> acc and op } }
                 .orderBy(ResourceLeaseHistoryTable.acquiredAt, SortOrder.DESC)
+                .limit(limit)
                 .map { toInterval(it) }
         }
 

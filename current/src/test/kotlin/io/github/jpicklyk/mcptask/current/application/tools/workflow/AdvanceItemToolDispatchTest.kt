@@ -29,7 +29,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -69,7 +68,6 @@ class AdvanceItemToolDispatchTest {
         every { repoProvider.noteRepository() } returns defaultNoteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
         every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
-        coEvery { workItemRepo.dbNow() } returns Instant.now()
 
         context = ToolExecutionContext(repoProvider)
     }
@@ -150,6 +148,7 @@ class AdvanceItemToolDispatchTest {
             val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
 
             coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
@@ -199,6 +198,7 @@ class AdvanceItemToolDispatchTest {
             val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
 
             coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
@@ -247,6 +247,7 @@ class AdvanceItemToolDispatchTest {
             val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
 
             coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
@@ -271,6 +272,7 @@ class AdvanceItemToolDispatchTest {
             val item = WorkItem(id = itemId, title = "Plain item", role = Role.QUEUE)
 
             coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()

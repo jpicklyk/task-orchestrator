@@ -1,7 +1,10 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
+import io.github.jpicklyk.mcptask.current.application.port.ReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.BeforeEach
@@ -9,17 +12,20 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 /**
  * Tests that the four claim fields (claimedBy, claimedAt, claimExpiresAt, originalClaimedAt)
- * round-trip correctly through create and update operations, and default to null on new items.
+ * round-trip through create, are written only by the claim store (never by update), and default to null on new items.
  */
 class SQLiteWorkItemClaimFieldsTest {
+    private val clock = SettableClock()
+
     @RegisterExtension
     @JvmField
-    val sqliteDb = SqliteTestDatabase.perMethod()
+    val sqliteDb = SqliteTestDatabase.perMethod(clock = clock)
 
     private val repositoryProvider get() = sqliteDb.repositoryProvider()
 
@@ -83,12 +89,12 @@ class SQLiteWorkItemClaimFieldsTest {
         }
 
     @Test
-    fun `update can set claim fields on a previously unclaimed item`() =
+    fun `update never writes the claim columns - setting them on the item has no effect`() =
         runBlocking {
-            val item = WorkItem(title = "Will be claimed")
+            val item = WorkItem(title = "Will not be claimed by update")
             repository.create(item)
 
-            val now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS)
+            val now = clock.now()
             val claimed =
                 item.copy(
                     claimedBy = "agent-xyz",
@@ -96,46 +102,42 @@ class SQLiteWorkItemClaimFieldsTest {
                     claimExpiresAt = now.plusSeconds(600),
                     originalClaimedAt = now,
                 )
-            val updateResult = repository.update(claimed)
-            assertNotNull(updateResult)
+            assertNotNull(repository.update(claimed))
 
-            val result = repository.getById(item.id)
-            assertNotNull(result)
-            val retrieved = result
-            assertEquals("agent-xyz", retrieved.claimedBy)
-            assertNotNull(retrieved.claimedAt)
-            assertNotNull(retrieved.claimExpiresAt)
-            assertNotNull(retrieved.originalClaimedAt)
+            val retrieved = repository.getById(item.id)!!
+            assertNull(retrieved.claimedBy, "the claim columns belong to the claim store")
+            assertNull(retrieved.claimedAt)
+            assertNull(retrieved.claimExpiresAt)
+            assertNull(retrieved.originalClaimedAt)
         }
 
     @Test
-    fun `update can clear claim fields (release a claim)`() =
+    fun `update never writes the claim columns - clearing them on the item leaves the claim in place`() =
         runBlocking {
-            val now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS)
-            val item =
-                WorkItem(
-                    title = "Release test item",
-                    claimedBy = "agent-release",
-                    claimedAt = now,
-                    claimExpiresAt = now.plusSeconds(900),
-                    originalClaimedAt = now,
-                )
+            val item = WorkItem(title = "Claim survives update")
             repository.create(item)
+            repository.claim(item.id, "agent-release", 900)
+            val claimed = repository.getById(item.id)!!
 
-            // Release by setting all claim fields to null
-            val released =
-                item.copy(
-                    claimedBy = null,
-                    claimedAt = null,
-                    claimExpiresAt = null,
-                    originalClaimedAt = null,
-                )
-            val updateResult = repository.update(released)
-            assertNotNull(updateResult)
+            val cleared = claimed.copy(claimedBy = null, claimedAt = null, claimExpiresAt = null, originalClaimedAt = null)
+            assertNotNull(repository.update(cleared))
 
-            val result = repository.getById(item.id)
-            assertNotNull(result)
-            val retrieved = result
+            val retrieved = repository.getById(item.id)!!
+            assertEquals("agent-release", retrieved.claimedBy)
+            assertEquals(claimed.claimExpiresAt, retrieved.claimExpiresAt)
+        }
+
+    @Test
+    fun `release clears all four claim fields`() =
+        runBlocking {
+            val item = WorkItem(title = "Release test item")
+            repository.create(item)
+            repository.claim(item.id, "agent-release", 900)
+
+            val released = repository.release(item.id, "agent-release")
+            assertIs<ReleaseResult.Success>(released)
+
+            val retrieved = repository.getById(item.id)!!
             assertNull(retrieved.claimedBy)
             assertNull(retrieved.claimedAt)
             assertNull(retrieved.claimExpiresAt)
@@ -143,69 +145,50 @@ class SQLiteWorkItemClaimFieldsTest {
         }
 
     @Test
-    fun `update preserves originalClaimedAt across TTL refresh (re-claim)`() =
+    fun `same-agent re-claim refreshes the TTL and preserves originalClaimedAt`() =
         runBlocking {
-            val firstClaimTime = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS)
-            val item =
-                WorkItem(
-                    title = "Re-claim test item",
-                    claimedBy = "agent-reclaim",
-                    claimedAt = firstClaimTime,
-                    claimExpiresAt = firstClaimTime.plusSeconds(900),
-                    originalClaimedAt = firstClaimTime,
-                )
+            val item = WorkItem(title = "Re-claim test item")
             repository.create(item)
+            val first = clock.now()
+            repository.claim(item.id, "agent-reclaim", 900)
 
-            // Simulate re-claim (extend TTL): claimedAt and claimExpiresAt refresh, originalClaimedAt stays
-            val refreshTime = firstClaimTime.plusSeconds(450)
-            val reClaimed =
-                item.copy(
-                    claimedAt = refreshTime,
-                    claimExpiresAt = refreshTime.plusSeconds(900),
-                    originalClaimedAt = firstClaimTime, // preserved
-                )
-            val updateResult = repository.update(reClaimed)
-            assertNotNull(updateResult)
+            clock.advanceSeconds(450)
+            val refresh = clock.now()
+            repository.claim(item.id, "agent-reclaim", 900)
 
-            val result = repository.getById(item.id)
-            assertNotNull(result)
-            val retrieved = result
+            val retrieved = repository.getById(item.id)!!
             assertEquals("agent-reclaim", retrieved.claimedBy)
-            assertEquals(refreshTime.toEpochMilli(), retrieved.claimedAt!!.toEpochMilli())
-            // originalClaimedAt preserved from first claim
-            assertEquals(firstClaimTime.toEpochMilli(), retrieved.originalClaimedAt!!.toEpochMilli())
+            assertEquals(refresh, retrieved.claimedAt)
+            assertEquals(refresh.plusSeconds(900), retrieved.claimExpiresAt)
+            assertEquals(first, retrieved.originalClaimedAt, "originalClaimedAt is preserved from the first claim")
         }
 
     @Test
-    fun `update resets originalClaimedAt when different agent takes over`() =
+    fun `a different agent taking over an expired claim resets originalClaimedAt`() =
         runBlocking {
-            val firstClaimTime = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS)
-            val item =
-                WorkItem(
-                    title = "Agent takeover test",
-                    claimedBy = "agent-first",
-                    claimedAt = firstClaimTime,
-                    claimExpiresAt = firstClaimTime.plusSeconds(900),
-                    originalClaimedAt = firstClaimTime,
-                )
+            val item = WorkItem(title = "Agent takeover test")
             repository.create(item)
+            repository.claim(item.id, "agent-first", 900)
 
-            // Different agent takes over: all claim fields reset to new agent's times
-            val newClaimTime = firstClaimTime.plusSeconds(1000)
-            val takenOver =
-                item.copy(
-                    claimedBy = "agent-second",
-                    claimedAt = newClaimTime,
-                    claimExpiresAt = newClaimTime.plusSeconds(900),
-                    originalClaimedAt = newClaimTime, // reset for new agent
-                )
-            val updateResult = repository.update(takenOver)
-            assertNotNull(updateResult)
+            clock.advanceSeconds(1000)
+            val takeover = clock.now()
+            assertIs<ClaimResult.Success>(repository.claim(item.id, "agent-second", 900))
 
-            val result = repository.getById(item.id)
-            assertNotNull(result)
-            val retrieved = result
+            val retrieved = repository.getById(item.id)!!
             assertEquals("agent-second", retrieved.claimedBy)
-            assertEquals(newClaimTime.toEpochMilli(), retrieved.originalClaimedAt!!.toEpochMilli())
+            assertEquals(takeover, retrieved.originalClaimedAt, "a new holder starts its own original claim time")
+        }
+
+    @Test
+    fun `claim and release do not bump the item version`() =
+        runBlocking {
+            val item = WorkItem(title = "Version stays")
+            repository.create(item)
+            val before = repository.getById(item.id)!!.version
+
+            repository.claim(item.id, "agent-v", 900)
+            assertEquals(before, repository.getById(item.id)!!.version, "claim must not bump version")
+            repository.release(item.id, "agent-v")
+            assertEquals(before, repository.getById(item.id)!!.version, "release must not bump version")
         }
 }

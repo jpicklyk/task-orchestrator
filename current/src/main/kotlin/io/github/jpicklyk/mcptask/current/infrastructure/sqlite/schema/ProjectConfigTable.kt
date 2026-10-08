@@ -21,7 +21,7 @@ object ProjectConfigTable : IdTable<UUID>("project_config") {
     val rootItemId = javaUuidSqlite("root_item_id")
     val configYaml = text("config_yaml")
     val fingerprint = text("fingerprint")
-    val updatedAt = timestampSqlite("updated_at")
+    val updatedAt = utcTimestamp("updated_at")
 
     /**
      * JSON array of prior fingerprints for this root (newest first, pruned to 20 by

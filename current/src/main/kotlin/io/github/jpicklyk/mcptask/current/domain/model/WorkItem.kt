@@ -52,8 +52,8 @@ data class WorkItem(
     /** When the current claim was placed (refreshes on re-claim). Stored as UTC in SQLite. */
     val claimedAt: Instant? = null,
     /**
-     * TTL-based expiry for this claim. Computed DB-side via `datetime('now', '+N seconds')` to
-     * keep time semantics consistent. Agents inspecting rows directly should treat this as UTC.
+     * TTL-based expiry for this claim: the claim instant plus the TTL, computed in Kotlin from the bound
+     * clock and stored as canonical UTC text. An instant at or before "now" is expired (see [ClaimState]).
      */
     val claimExpiresAt: Instant? = null,
     /**
@@ -61,46 +61,53 @@ data class WorkItem(
      * agent; reset when a different agent takes over the item.
      */
     val originalClaimedAt: Instant? = null,
+    /**
+     * Domain-invariant violations found when this item was rehydrated from storage (see [violations]);
+     * null for a valid item, whether built by application code or read from a valid row - both validate on
+     * construction. A stored row is never dropped for failing validation: the mapper returns it with its
+     * (non-empty) violations here, copies of it skip construction-time validation, and every write validates
+     * explicitly.
+     */
+    val diagnostics: List<String>? = null,
 ) {
     init {
-        validate()
+        // A row rehydrated from storage arrives with [diagnostics] set (possibly empty): the total row
+        // mapper must return every stored row, so it never throws here. Writes validate explicitly.
+        if (diagnostics == null) validate()
     }
 
+    /** Throws [ValidationException] for the first violation in [violations], if any. */
     fun validate() {
-        if (title.isBlank()) throw ValidationException("Title must not be blank")
-        if (title.length > 500) throw ValidationException("Title must not exceed 500 characters")
-        complexity?.let { if (it !in 1..10) throw ValidationException("complexity must be between 1 and 10 if provided") }
-        if (summary.length > 2000) throw ValidationException("Summary must not exceed 2000 characters")
-        if (depth < 0) throw ValidationException("Depth must be non-negative")
-        if (parentId == null && depth != 0) throw ValidationException("Root items must have depth 0")
-        if (parentId != null && depth < 1) throw ValidationException("Child items must have depth >= 1")
+        violations().firstOrNull()?.let { throw ValidationException(it) }
+    }
+
+    /** Every domain-invariant violation of this item, in check order; empty when valid. */
+    fun violations(): List<String> {
+        val out = mutableListOf<String>()
+        if (title.isBlank()) out += "Title must not be blank"
+        if (title.length > 500) out += "Title must not exceed 500 characters"
+        complexity?.let { if (it !in 1..10) out += "complexity must be between 1 and 10 if provided" }
+        if (summary.length > 2000) out += "Summary must not exceed 2000 characters"
+        if (depth < 0) out += "Depth must be non-negative"
+        if (parentId == null && depth != 0) out += "Root items must have depth 0"
+        if (parentId != null && depth < 1) out += "Child items must have depth >= 1"
         description?.let {
-            if (it.isBlank()) throw ValidationException("Description, if provided, must not be blank")
+            if (it.isBlank()) out += "Description, if provided, must not be blank"
         }
-        tags?.let { validateTags(it) }
+        tags?.let { out += tagViolations(it) }
 
         // --- Claim-field invariants ---
         claimedBy?.let {
-            if (it.isBlank()) throw ValidationException("claimedBy must not be blank when set")
-            if (it.length > 500) throw ValidationException("claimedBy must not exceed 500 characters")
+            if (it.isBlank()) out += "claimedBy must not be blank when set"
+            if (it.length > 500) out += "claimedBy must not exceed 500 characters"
         }
-        if (claimedAt != null && claimExpiresAt != null) {
-            if (claimedAt.isAfter(claimExpiresAt)) {
-                throw ValidationException("claimedAt must not be after claimExpiresAt")
-            }
-        }
-        if (originalClaimedAt != null && claimedAt != null) {
-            if (originalClaimedAt.isAfter(claimedAt)) {
-                throw ValidationException("originalClaimedAt must not be after claimedAt")
-            }
-        }
+        out += ClaimState.orderingViolations(claimedAt, claimExpiresAt, originalClaimedAt)
         // All-or-nothing coherence: all four claim fields must be null together or non-null together
         val claimFieldNullCount = listOf(claimedBy, claimedAt, claimExpiresAt, originalClaimedAt).count { it == null }
         if (claimFieldNullCount != 0 && claimFieldNullCount != 4) {
-            throw ValidationException(
-                "Claim fields (claimedBy, claimedAt, claimExpiresAt, originalClaimedAt) must all be set or all be null"
-            )
+            out += "Claim fields (claimedBy, claimedAt, claimExpiresAt, originalClaimedAt) must all be set or all be null"
         }
+        return out
     }
 
     /**
@@ -125,13 +132,12 @@ data class WorkItem(
     companion object {
         private val TAG_PATTERN = Regex("^[a-z0-9][a-z0-9-]*$")
 
-        private fun validateTags(tagString: String) {
-            val parsed = tagString.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            parsed.forEach { tag ->
-                if (!TAG_PATTERN.matches(tag)) {
-                    throw ValidationException("Tag '$tag' is invalid. Tags must be lowercase alphanumeric with hyphens only.")
-                }
-            }
-        }
+        private fun tagViolations(tagString: String): List<String> =
+            tagString
+                .split(",")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .filterNot { TAG_PATTERN.matches(it) }
+                .map { "Tag '$it' is invalid. Tags must be lowercase alphanumeric with hyphens only." }
     }
 }

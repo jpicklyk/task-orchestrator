@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
@@ -366,7 +367,7 @@ Call when choosing what to work on next — at session start or after finishing 
                     candidatesResult
 
                 // Apply new filters in-memory for the includeClaimed=true path.
-                // Tag matching mirrors the DB-side semantics in SQLiteWorkItemRepository.buildTagFilter:
+                // Tag matching mirrors the DB-side semantics in ItemQueries.tagFilter:
                 // exact-token match against comma-separated tags (NOT substring match).
                 // Uses isNotBlank to reject whitespace-only tokens (consistent with ClaimItemTool's selector path).
                 val filtered =
@@ -424,10 +425,9 @@ Call when choosing what to work on next — at session start or after finishing 
                 emptyMap()
             }
 
-        // Fetch DB-side time once (only needed when includeClaimed=true so isClaimed is accurate).
-        // Using DB clock avoids false positives/negatives when JVM and SQLite clocks skew.
-        val dbNowForClaimed: Instant? =
-            if (includeClaimed && recommendations.any { it.claimedBy != null }) workItemRepo.dbNow() else null
+        // Read the bound clock once (only needed when includeClaimed=true so isClaimed is accurate).
+        val claimedCheckAt: Instant? =
+            if (includeClaimed && recommendations.any { it.claimedBy != null }) context.clock.unitNow() else null
 
         // Build response
         val data =
@@ -449,12 +449,8 @@ Call when choosing what to work on next — at session start or after finishing 
                                 }
                                 // Tiered claim disclosure: expose only boolean isClaimed, never claimedBy/claimedAt.
                                 // An item is "actively claimed" when claimedBy is set and claimExpiresAt is in the future.
-                                // Use DB-side now so isClaimed reflects the DB clock.
                                 if (includeClaimed) {
-                                    val now = dbNowForClaimed ?: Instant.now()
-                                    val activelyClaimedNow =
-                                        item.claimedBy != null &&
-                                            item.claimExpiresAt?.isAfter(now) == true
+                                    val activelyClaimedNow = claimedCheckAt != null && ClaimState.isActive(item, claimedCheckAt)
                                     put("isClaimed", JsonPrimitive(activelyClaimedNow))
                                 }
                                 if (includeAncestors) {

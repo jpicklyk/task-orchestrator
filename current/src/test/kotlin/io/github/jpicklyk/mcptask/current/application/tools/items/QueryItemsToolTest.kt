@@ -668,7 +668,7 @@ class QueryItemsToolTest {
         }
 
     @Test
-    fun `global overview reports skipped and true total when a root fails validation`(): Unit =
+    fun `global overview returns a root that fails validation and omits skipped`(): Unit =
         runBlocking {
             createItem("Good Root 1")
             createItem("Good Root 2")
@@ -683,15 +683,15 @@ class QueryItemsToolTest {
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean)
             val data = result["data"] as JsonObject
-            // Corrupt row is dropped from the returned page but still counted in `total`.
-            assertEquals(2, data["items"]!!.jsonArray.size)
+            // The mapper is total: the invalid row is returned like any other, nothing is skipped or truncated.
+            assertEquals(3, data["items"]!!.jsonArray.size)
             assertEquals(3, data["total"]!!.jsonPrimitive.int)
-            assertEquals(1, data["skipped"]!!.jsonPrimitive.int)
-            assertEquals(true, data["truncated"]!!.jsonPrimitive.boolean)
+            assertNull(data["skipped"], "skipped is always 0 and therefore omitted")
+            assertEquals(false, data["truncated"]!!.jsonPrimitive.boolean)
         }
 
     @Test
-    fun `list mode search reports skipped and unchanged total when a row fails validation`(): Unit =
+    fun `list mode search returns a row that fails validation and omits skipped`(): Unit =
         runBlocking {
             createItem("Good Item 1")
             createItem("Good Item 2")
@@ -706,11 +706,11 @@ class QueryItemsToolTest {
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean)
             val data = result["data"] as JsonObject
-            // total is the raw SQL count (still includes the corrupt row); returned/items exclude it.
+            // total is the raw SQL count and every row is returned, including the invalid one.
             assertEquals(3, data["total"]!!.jsonPrimitive.int)
-            assertEquals(2, data["returned"]!!.jsonPrimitive.int)
-            assertEquals(2, data["items"]!!.jsonArray.size)
-            assertEquals(1, data["skipped"]!!.jsonPrimitive.int)
+            assertEquals(3, data["returned"]!!.jsonPrimitive.int)
+            assertEquals(3, data["items"]!!.jsonArray.size)
+            assertNull(data["skipped"], "skipped is always 0 and therefore omitted")
         }
 
     @Test
