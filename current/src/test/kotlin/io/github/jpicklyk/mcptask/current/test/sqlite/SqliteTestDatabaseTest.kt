@@ -70,7 +70,8 @@ class SqliteTestDatabaseTest {
         assertEquals("wal", productionPragma(db, "journal_mode").lowercase())
         assertEquals("wal", pragma(db, "journal_mode")?.lowercase())
         assertEquals("1", productionPragma(db, "foreign_keys"))
-        assertEquals("5000", productionPragma(db, "busy_timeout"))
+        // Oracle: P5a carry-in decision 4 - the pools use a fixed 1 s busy_timeout (DATABASE_BUSY_TIMEOUT_MS governs only Flyway/compaction).
+        assertEquals("1000", productionPragma(db, "busy_timeout"))
     }
 
     @Test

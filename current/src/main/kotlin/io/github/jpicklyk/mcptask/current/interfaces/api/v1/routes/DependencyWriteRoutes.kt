@@ -1,12 +1,17 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.port.Clock
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.EventActor
+import io.github.jpicklyk.mcptask.current.application.support.UnscopedUnitOfWork
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.validation.DuplicateDependencyException
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
@@ -26,8 +31,8 @@ import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.slf4j.LoggerFactory
+import java.time.Instant
 import java.util.UUID
 
 private val depWriteLogger = LoggerFactory.getLogger("DependencyWriteRoutes")
@@ -61,6 +66,7 @@ private val JSON_WRITE_CONTENT_TYPES = setOf("application/json", "*/*")
 fun Route.dependencyWriteRoutes(
     repositoryProvider: RepositoryProvider,
     @Suppress("UNUSED_PARAMETER") degradedModePolicy: DegradedModePolicy,
+    unitOfWork: UnitOfWork = UnscopedUnitOfWork(repositoryProvider, Clock { Instant.now() }),
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
     val depRepo = repositoryProvider.dependencyRepository()
@@ -173,17 +179,33 @@ fun Route.dependencyWriteRoutes(
 
             val created: Dependency? =
                 try {
-                    withContext(Dispatchers.IO + EventActor(ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey]))) {
-                        // suspendTransaction, not transaction: the repo methods below are suspend and
-                        // cannot be called from Exposed's non-suspend transaction lambda. The outer
-                        // transaction is still ONE transaction — each repo method opens its own
-                        // suspendTransaction, which JOINS this one — so the cycle check and the
-                        // insert stay atomic against a concurrent writer, as before.
-                        suspendTransaction(db = repositoryProvider.database()) {
-                            // RELATES_TO has no blocking edge, so it skips the cycle pre-check.
-                            val edge = dep.blockingEdge()
-                            val hasCycle = edge != null && depRepo.hasCyclicDependency(edge.first, edge.second)
-                            if (hasCycle) null else depRepo.create(dep)
+                    val outcome =
+                        withContext(Dispatchers.IO + EventActor(ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey]))) {
+                            // ONE unit: the repo methods below join it, so the cycle check and the insert
+                            // stay atomic against a concurrent writer.
+                            unitOfWork.write("dependency.create") {
+                                // RELATES_TO has no blocking edge, so it skips the cycle pre-check.
+                                val edge = dep.blockingEdge()
+                                val hasCycle = edge != null && depRepo.hasCyclicDependency(edge.first, edge.second)
+                                Outcome.Ok(if (hasCycle) null else depRepo.create(dep))
+                            }
+                        }
+                    when (outcome) {
+                        is Outcome.Ok -> outcome.value
+                        is Outcome.Err -> {
+                            val error = outcome.error
+                            when (error.code) {
+                                ErrorCode.DUPLICATE ->
+                                    call.respond(
+                                        HttpStatusCode.Conflict,
+                                        ErrorDto("duplicate_dependency", "A dependency of this type already exists between these items"),
+                                    )
+                                ErrorCode.UNAVAILABLE ->
+                                    call.respond(HttpStatusCode.ServiceUnavailable, ErrorDto("unavailable", error.message))
+                                else ->
+                                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("internal", error.message))
+                            }
+                            return@post
                         }
                     }
                 } catch (e: DuplicateDependencyException) {

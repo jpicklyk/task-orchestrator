@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.infrastructure.repository
+package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
@@ -27,8 +27,6 @@ interface RepositoryProvider {
     fun planDocumentRepository(): PlanDocumentRepository
 
     fun resourceLeaseRepository(): ResourceLeaseRepository
-
-    fun database(): org.jetbrains.exposed.v1.jdbc.Database?
 
     fun workTreeExecutor(): WorkTreeExecutor
 }

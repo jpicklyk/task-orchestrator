@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParse
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
+import io.github.jpicklyk.mcptask.current.application.port.UnitElement
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
@@ -14,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import org.slf4j.LoggerFactory
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.coroutines.coroutineContext
 
 /**
  * Parses and caches per-root config YAML documents (stored via [ProjectConfigRepository]),
@@ -208,17 +210,21 @@ class PerRootConfigService(
      * cache), since silently falling back to "no per-root config" would let the global layer's
      * gates/traits/leases apply where this root's config should have governed instead.
      */
-    private fun lastKnownGoodOrThrow(
+    private suspend fun lastKnownGoodOrThrow(
         rootItemId: UUID,
         error: RepositoryError
     ): ConfigDocument? {
+        val insideUnit = coroutineContext[UnitElement] != null
         logger.warn("Per-root config read failed for root {}: {}", rootItemId, error)
-        cache[rootItemId]?.let { return it.parsed }
+        // Inside a unit the last-known-good fallback is disabled: serving a cached parse would hide a read
+        // fault that the unit boundary translates (and retries) instead of masking it.
+        if (!insideUnit) cache[rootItemId]?.let { return it.parsed }
         // The full repository error (which may carry SQL/driver text) stays in the server log above;
         // the exception message reaches MCP and REST clients, so it names only the root.
         throw PerRootConfigUnavailableException(
             rootItemId,
-            "Per-root config for root $rootItemId is temporarily unavailable (read failed; no last-known-good config cached)",
+            "Per-root config for root $rootItemId is temporarily unavailable " +
+                if (insideUnit) "(read failed inside a unit of work)" else "(read failed; no last-known-good config cached)",
             (error as? RepositoryError.DatabaseError)?.cause
         )
     }

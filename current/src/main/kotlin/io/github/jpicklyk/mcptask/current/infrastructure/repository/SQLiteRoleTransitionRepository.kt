@@ -34,7 +34,7 @@ class SQLiteRoleTransitionRepository(
     private val databaseManager: DatabaseManager
 ) : RoleTransitionRepository {
     override suspend fun create(transition: RoleTransition): Result<RoleTransition> =
-        databaseManager.suspendedTransaction("Failed to create RoleTransition") {
+        databaseManager.writeResult("RoleTransitionRepository.create", "Failed to create RoleTransition") {
             RoleTransitionsTable.insert {
                 it[id] = transition.id
                 it[itemId] = transition.itemId
@@ -69,7 +69,7 @@ class SQLiteRoleTransitionRepository(
         limit: Int,
         offset: Int
     ): Result<List<RoleTransition>> =
-        databaseManager.suspendedTransaction("Failed to find RoleTransitions by itemId") {
+        databaseManager.readResult("Failed to find RoleTransitions by itemId") {
             val transitions =
                 RoleTransitionsTable
                     .selectAll()
@@ -89,7 +89,7 @@ class SQLiteRoleTransitionRepository(
         role: String?,
         limit: Int
     ): Result<List<RoleTransition>> =
-        databaseManager.suspendedTransaction("Failed to find RoleTransitions by time range") {
+        databaseManager.readResult("Failed to find RoleTransitions by time range") {
             var query =
                 RoleTransitionsTable.selectAll().where {
                     (RoleTransitionsTable.transitionedAt greaterEq startTime) and
@@ -115,7 +115,7 @@ class SQLiteRoleTransitionRepository(
         since: Instant,
         limit: Int
     ): Result<List<RoleTransition>> =
-        databaseManager.suspendedTransaction("Failed to find transitions since $since") {
+        databaseManager.readResult("Failed to find transitions since $since") {
             val results =
                 RoleTransitionsTable
                     .selectAll()
@@ -129,7 +129,7 @@ class SQLiteRoleTransitionRepository(
         }
 
     override suspend fun deleteByItemId(itemId: UUID): Result<Int> =
-        databaseManager.suspendedTransaction("Failed to delete RoleTransitions by itemId") {
+        databaseManager.writeResult("RoleTransitionRepository.deleteByItemId", "Failed to delete RoleTransitions by itemId") {
             val deletedCount = RoleTransitionsTable.deleteWhere { RoleTransitionsTable.itemId eq itemId }
             Result.Success(deletedCount)
         }

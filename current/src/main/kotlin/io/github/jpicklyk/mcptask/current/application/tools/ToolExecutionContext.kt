@@ -6,6 +6,9 @@ import io.github.jpicklyk.mcptask.current.application.config.LayeredConfig
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
 import io.github.jpicklyk.mcptask.current.application.config.ServiceBackedGlobalLookup
+import io.github.jpicklyk.mcptask.current.application.port.Clock
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
@@ -16,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelSer
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
+import io.github.jpicklyk.mcptask.current.application.support.UnscopedUnitOfWork
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
@@ -30,7 +34,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+import java.time.Instant
 import java.util.UUID
 
 /**
@@ -64,6 +68,13 @@ class ToolExecutionContext(
             ServiceBackedGlobalLookup(noteSchemaService, statusLabelService),
             perRootConfigService
         ),
+    /** Time source for units of work; production wires the system clock. */
+    val clock: Clock = Clock { Instant.now() },
+    /**
+     * The transaction boundary. Production wires the SQLite implementation; the default runs blocks
+     * without a transaction so tests with mocked stores keep constructing the context unchanged.
+     */
+    val unitOfWork: UnitOfWork = UnscopedUnitOfWork(repositoryProvider, clock),
 ) {
     /**
      * Lazy so 17+ test files that strict-mock [RepositoryProvider] are unaffected by an eager

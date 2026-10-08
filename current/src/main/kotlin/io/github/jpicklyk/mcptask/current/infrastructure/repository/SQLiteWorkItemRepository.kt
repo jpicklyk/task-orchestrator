@@ -53,7 +53,6 @@ import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import org.slf4j.LoggerFactory
 import java.time.Instant
@@ -89,7 +88,7 @@ class SQLiteWorkItemRepository(
             //   - H2's CURRENT_TIMESTAMP returns "YYYY-MM-DD HH:MM:SS.fffffff-HH" (with a non-
             //     standard offset like "-04" missing the minute portion); we normalize that and
             //     parse via OffsetDateTime.
-            suspendTransaction(db = databaseManager.getDatabase()) {
+            databaseManager.readTx {
                 exec("SELECT CURRENT_TIMESTAMP") { rs ->
                     if (rs.next()) {
                         rs.getString(1)?.let { parseDbTimestamp(it) }
@@ -104,7 +103,7 @@ class SQLiteWorkItemRepository(
         }
 
     override suspend fun inTransaction(block: suspend () -> Unit) {
-        suspendTransaction(db = databaseManager.getDatabase()) {
+        databaseManager.writeTx("WorkItemRepository.inTransaction") {
             block()
         }
     }
@@ -142,7 +141,7 @@ class SQLiteWorkItemRepository(
     }
 
     override suspend fun getById(id: UUID): Result<WorkItem> =
-        databaseManager.suspendedTransaction("Failed to get WorkItem by id") {
+        databaseManager.readResult("Failed to get WorkItem by id") {
             val row = WorkItemsTable.selectAll().where { WorkItemsTable.id eq id }.singleOrNull()
             if (row != null) {
                 Result.Success(toWorkItem(row))
@@ -190,12 +189,12 @@ class SQLiteWorkItemRepository(
     }
 
     override suspend fun create(item: WorkItem): Result<WorkItem> =
-        databaseManager.suspendedTransaction("Failed to create WorkItem") {
+        databaseManager.writeResult("WorkItemRepository.create", "Failed to create WorkItem") {
             insertRow(item)
         }
 
     override suspend fun update(item: WorkItem): Result<WorkItem> =
-        databaseManager.suspendedTransaction("Failed to update WorkItem") {
+        databaseManager.writeResult("WorkItemRepository.update", "Failed to update WorkItem") {
             item.validate()
             val updatedCount =
                 WorkItemsTable.update({
@@ -239,7 +238,7 @@ class SQLiteWorkItemRepository(
         }
 
     override suspend fun delete(id: UUID): Result<Boolean> =
-        databaseManager.suspendedTransaction("Failed to delete WorkItem") {
+        databaseManager.writeResult("WorkItemRepository.delete", "Failed to delete WorkItem") {
             val deletedCount = WorkItemsTable.deleteWhere { WorkItemsTable.id eq id }
             Result.Success(deletedCount > 0)
         }
@@ -248,7 +247,7 @@ class SQLiteWorkItemRepository(
         parentId: UUID,
         limit: Int
     ): Result<List<WorkItem>> =
-        databaseManager.suspendedTransaction("Failed to find WorkItems by parent") {
+        databaseManager.readResult("Failed to find WorkItems by parent") {
             val items =
                 WorkItemsTable
                     .selectAll()
@@ -263,13 +262,13 @@ class SQLiteWorkItemRepository(
         limit: Int,
         rootIds: Set<UUID>?
     ): Result<List<WorkItem>> =
-        databaseManager.suspendedTransaction("Failed to find WorkItems by role") {
+        databaseManager.readResult("Failed to find WorkItems by role") {
             val conditions = mutableListOf<Op<Boolean>>()
             conditions.add(WorkItemsTable.role eq role.name.lowercase())
 
             if (rootIds != null) {
                 val scope = resolveScope(rootIds)
-                if (scope == ResolvedScope.Empty) return@suspendedTransaction Result.Success(emptyList())
+                if (scope == ResolvedScope.Empty) return@readResult Result.Success(emptyList())
                 conditions.add(scope.toCondition())
             }
 
@@ -286,7 +285,7 @@ class SQLiteWorkItemRepository(
         depth: Int,
         limit: Int
     ): Result<List<WorkItem>> =
-        databaseManager.suspendedTransaction("Failed to find WorkItems by depth") {
+        databaseManager.readResult("Failed to find WorkItems by depth") {
             val items =
                 WorkItemsTable
                     .selectAll()
@@ -297,7 +296,7 @@ class SQLiteWorkItemRepository(
         }
 
     override suspend fun findProjectRoots(): Result<List<WorkItem>> =
-        databaseManager.suspendedTransaction("Failed to find project root WorkItems") {
+        databaseManager.readResult("Failed to find project root WorkItems") {
             val items =
                 WorkItemsTable
                     .selectAll()
@@ -313,7 +312,7 @@ class SQLiteWorkItemRepository(
         query: String,
         limit: Int
     ): Result<List<WorkItem>> =
-        databaseManager.suspendedTransaction("Failed to search WorkItems") {
+        databaseManager.readResult("Failed to search WorkItems") {
             val pattern = "%$query%"
             val items =
                 WorkItemsTable
@@ -326,13 +325,13 @@ class SQLiteWorkItemRepository(
         }
 
     override suspend fun count(): Result<Long> =
-        databaseManager.suspendedTransaction("Failed to count WorkItems") {
+        databaseManager.readResult("Failed to count WorkItems") {
             val count = WorkItemsTable.selectAll().count()
             Result.Success(count)
         }
 
     override suspend fun findChildren(parentId: UUID): Result<List<WorkItem>> =
-        databaseManager.suspendedTransaction("Failed to find children of WorkItem") {
+        databaseManager.readResult("Failed to find children of WorkItem") {
             val items =
                 WorkItemsTable
                     .selectAll()
@@ -422,7 +421,7 @@ class SQLiteWorkItemRepository(
         // avoid a nested transaction/savepoint (dbNow() opens its own suspendTransaction).
         val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
 
-        return databaseManager.suspendedTransaction("Failed to find WorkItems by filters") {
+        return databaseManager.readResult("Failed to find WorkItems by filters") {
             val baseQuery =
                 buildFilteredQuery(
                     parentId,
@@ -475,7 +474,7 @@ class SQLiteWorkItemRepository(
         // nested transaction/savepoint from dbNow().
         val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
 
-        return databaseManager.suspendedTransaction("Failed to count WorkItems by filters") {
+        return databaseManager.readResult("Failed to count WorkItems by filters") {
             val count =
                 buildFilteredQuery(
                     parentId,
@@ -500,7 +499,7 @@ class SQLiteWorkItemRepository(
     }
 
     override suspend fun countChildrenByRole(parentId: UUID): Result<Map<Role, Int>> =
-        databaseManager.suspendedTransaction("Failed to count children by role") {
+        databaseManager.readResult("Failed to count children by role") {
             val counts =
                 WorkItemsTable
                     .selectAll()
@@ -516,7 +515,7 @@ class SQLiteWorkItemRepository(
         offset: Int,
         excludeTerminal: Boolean,
     ): Result<ItemFetchResult> =
-        databaseManager.suspendedTransaction("Failed to find root items") {
+        databaseManager.readResult("Failed to find root items") {
             // Ordered newest-first for deterministic, dashboard-relevant pagination — previously
             // relied on SQLite's unordered natural (oldest-first) row order, which meant the
             // oldest `limit` roots were always returned regardless of how many existed. `id` is a
@@ -536,7 +535,7 @@ class SQLiteWorkItemRepository(
         }
 
     override suspend fun countRootItems(excludeTerminal: Boolean): Result<Long> =
-        databaseManager.suspendedTransaction("Failed to count root items") {
+        databaseManager.readResult("Failed to count root items") {
             Result.Success(WorkItemsTable.selectAll().where { rootItemsCondition(excludeTerminal) }.count())
         }
 
@@ -548,7 +547,7 @@ class SQLiteWorkItemRepository(
 
     override suspend fun findDescendants(id: UUID): Result<List<WorkItem>> =
         try {
-            suspendTransaction(db = databaseManager.getDatabase()) {
+            databaseManager.readTx {
                 // currentDialect is only accessible within an active transaction.
                 // H2 (test environment): the recursive CTE exec() path uses parameterised
                 // UUID binding that is incompatible with H2's native UUID type, and H2
@@ -571,7 +570,7 @@ class SQLiteWorkItemRepository(
                         val (current, level) = queue.removeFirst()
                         if (level >= MAX_TRAVERSAL_DEPTH) {
                             logger.error("Descendant traversal of $id exceeded maximum depth $MAX_TRAVERSAL_DEPTH")
-                            return@suspendTransaction Result.Error(
+                            return@readTx Result.Error(
                                 RepositoryError.DatabaseError(
                                     "Failed to find descendants: traversal exceeded the maximum " +
                                         "depth of $MAX_TRAVERSAL_DEPTH levels (item hierarchy may be cyclic)",
@@ -586,7 +585,7 @@ class SQLiteWorkItemRepository(
                         for (child in children) {
                             if (!visited.add(child.id)) {
                                 logger.error("Cycle detected in item hierarchy under $id at ${child.id}")
-                                return@suspendTransaction Result.Error(
+                                return@readTx Result.Error(
                                     RepositoryError.DatabaseError(
                                         "Failed to find descendants: cycle detected in the item " +
                                             "hierarchy under $id at ${child.id} (traversal bounded at " +
@@ -658,7 +657,7 @@ class SQLiteWorkItemRepository(
 
                     if (boundExceeded) {
                         logger.error("Descendant traversal of $id exceeded maximum depth $MAX_TRAVERSAL_DEPTH")
-                        return@suspendTransaction Result.Error(
+                        return@readTx Result.Error(
                             RepositoryError.DatabaseError(
                                 "Failed to find descendants: traversal exceeded the maximum depth of " +
                                     "$MAX_TRAVERSAL_DEPTH levels (item hierarchy may be cyclic)",
@@ -667,7 +666,7 @@ class SQLiteWorkItemRepository(
                     }
 
                     if (descendantIds.isEmpty()) {
-                        return@suspendTransaction Result.Success(emptyList())
+                        return@readTx Result.Success(emptyList())
                     }
 
                     // Chunked: the id set scales with the subtree, so a single IN list could exceed
@@ -722,11 +721,11 @@ class SQLiteWorkItemRepository(
         val effectiveLimit = limit.coerceIn(1, MAX_FTS_RESULTS)
 
         return try {
-            suspendTransaction(db = databaseManager.getDatabase()) {
+            databaseManager.readTx {
                 // currentDialect is only accessible within an active transaction.
                 // FTS5 is SQLite-only — return empty for H2 (test environment).
                 if (currentDialect is H2Dialect) {
-                    return@suspendTransaction SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
+                    return@readTx SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
                 }
                 val uuidType = UUIDColumnType()
 
@@ -886,7 +885,7 @@ class SQLiteWorkItemRepository(
                 // Collect all rowids (union of both maps).
                 val allRowIds = (trigramHits.keys + textHits.keys).toSet()
                 if (allRowIds.isEmpty()) {
-                    return@suspendTransaction SearchResult(
+                    return@readTx SearchResult(
                         hits = emptyList(),
                         totalHits = 0,
                         nextOffset = null,
@@ -1027,7 +1026,7 @@ class SQLiteWorkItemRepository(
 
     override suspend fun findByIds(ids: Set<UUID>): Result<List<WorkItem>> {
         if (ids.isEmpty()) return Result.Success(emptyList())
-        return databaseManager.suspendedTransaction("Failed to find items by IDs") {
+        return databaseManager.readResult("Failed to find items by IDs") {
             Result.Success(
                 ids.chunked(SQL_IN_CHUNK_SIZE).flatMap { chunk ->
                     val entityIds = chunk.map { EntityID(it, WorkItemsTable) }
@@ -1042,7 +1041,7 @@ class SQLiteWorkItemRepository(
 
     override suspend fun deleteAll(ids: Set<UUID>): Result<Int> {
         if (ids.isEmpty()) return Result.Success(0)
-        return databaseManager.suspendedTransaction("Failed to bulk-delete WorkItems") {
+        return databaseManager.writeResult("WorkItemRepository.deleteAll", "Failed to bulk-delete WorkItems") {
             val count =
                 ids.chunked(SQL_IN_CHUNK_SIZE).sumOf { chunk ->
                     val entityIds = chunk.map { EntityID(it, WorkItemsTable) }
@@ -1057,7 +1056,7 @@ class SQLiteWorkItemRepository(
         limit: Int
     ): Result<List<WorkItem>> {
         val normalizedPrefix = prefix.lowercase()
-        return databaseManager.suspendedTransaction("Failed to find WorkItems by ID prefix") {
+        return databaseManager.readResult("Failed to find WorkItems by ID prefix") {
             // Convert UUID id column to lowercase hex string (no dashes) for prefix matching.
             // H2 uses RAWTOHEX() for native UUID columns; SQLite uses HEX() for BLOB columns.
             // Both produce uppercase hex without dashes — wrap in LOWER for case-insensitive match.
@@ -1088,7 +1087,7 @@ class SQLiteWorkItemRepository(
             // the claim SQL itself uses datetime('now') exclusively for DB-side timestamps.
             val dbNowInstant = dbNow()
 
-            suspendTransaction(db = databaseManager.getDatabase()) {
+            databaseManager.writeTx("WorkItemRepository.claim") {
                 // All parameters are bound as typed JDBC parameters — no string interpolation.
                 // itemId binds via UUIDColumnType so the WHERE id = ? predicate uses the primary-key
                 // index directly (the prior HEX(id) = ? form wrapped the column in a function call,
@@ -1209,7 +1208,7 @@ class SQLiteWorkItemRepository(
         agentId: String
     ): ReleaseResult =
         try {
-            suspendTransaction(db = databaseManager.getDatabase()) {
+            databaseManager.writeTx("WorkItemRepository.release") {
                 // Both agentId and itemId are bound as typed JDBC parameters — no string interpolation.
                 // itemId binds via UUIDColumnType so the WHERE id = ? predicate uses the primary-key
                 // index directly.
@@ -1247,7 +1246,7 @@ class SQLiteWorkItemRepository(
                         // Release succeeded — read back the updated state.
                         val updatedRow =
                             WorkItemsTable.selectAll().where { WorkItemsTable.id eq itemId }.singleOrNull()
-                                ?: return@suspendTransaction ReleaseResult.NotFound(itemId)
+                                ?: return@writeTx ReleaseResult.NotFound(itemId)
                         ReleaseResult.Success(toWorkItem(updatedRow))
                     }
                     else -> {
@@ -1274,7 +1273,7 @@ class SQLiteWorkItemRepository(
         // transaction/savepoint (dbNow() opens its own suspendTransaction internally).
         val dbNowInstant = if (excludeActiveClaims) dbNow() else null
 
-        return databaseManager.suspendedTransaction("Failed to find next items by role") {
+        return databaseManager.readResult("Failed to find next items by role") {
             val conditions = mutableListOf<Op<Boolean>>()
 
             // Role filter
@@ -1286,7 +1285,7 @@ class SQLiteWorkItemRepository(
             // Optional subtree scope — expand rootIds to the full descendant set (roots included).
             if (rootIds != null) {
                 val scope = resolveScope(rootIds)
-                if (scope == ResolvedScope.Empty) return@suspendedTransaction Result.Success(emptyList())
+                if (scope == ResolvedScope.Empty) return@readResult Result.Success(emptyList())
                 conditions.add(scope.toCondition())
             }
 
@@ -1336,7 +1335,7 @@ class SQLiteWorkItemRepository(
         // transaction/savepoint (dbNow() opens its own suspendTransaction internally).
         val dbNowInstant = dbNow()
 
-        return databaseManager.suspendedTransaction("Failed to find claimable items") {
+        return databaseManager.readResult("Failed to find claimable items") {
             val conditions = mutableListOf<Op<Boolean>>()
 
             // Role filter — always required
@@ -1348,7 +1347,7 @@ class SQLiteWorkItemRepository(
             // Optional subtree scope — expand rootIds to the full descendant set (roots included).
             if (rootIds != null) {
                 val scope = resolveScope(rootIds)
-                if (scope == ResolvedScope.Empty) return@suspendedTransaction Result.Success(emptyList())
+                if (scope == ResolvedScope.Empty) return@readResult Result.Success(emptyList())
                 conditions.add(scope.toCondition())
             }
 
@@ -1432,7 +1431,7 @@ class SQLiteWorkItemRepository(
             val candidatesWithParents = candidates.filter { it.parentId != null }
             if (candidatesWithParents.isEmpty()) {
                 // No candidates have ancestors — skip the BFS entirely.
-                return@suspendedTransaction Result.Success(candidates)
+                return@readResult Result.Success(candidates)
             }
 
             // BFS: batch-fetch all ancestors for all candidates in minimal round-trips.
@@ -1500,12 +1499,12 @@ class SQLiteWorkItemRepository(
         // Use DB-side clock so counts are consistent with the DB's view of claim freshness.
         val now = dbNow()
 
-        return databaseManager.suspendedTransaction("Failed to count WorkItems by claim status") {
+        return databaseManager.readResult("Failed to count WorkItems by claim status") {
             // Optional subtree scope — expand rootIds to the full descendant set (roots included).
             // Resolved once and reused across all three claim-status conditions below.
             val scope = rootIds?.let { resolveScope(it) }
             if (scope == ResolvedScope.Empty) {
-                return@suspendedTransaction Result.Success(ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0))
+                return@readResult Result.Success(ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0))
             }
             val scopeCondition = scope?.toCondition()
 
@@ -1578,7 +1577,7 @@ class SQLiteWorkItemRepository(
         // transaction/savepoint (dbNow() opens its own suspendTransaction internally).
         val dbNowInstant = dbNow()
 
-        return databaseManager.suspendedTransaction("Failed to count selector matches") {
+        return databaseManager.readResult("Failed to count selector matches") {
             // Same condition builder as findClaimable, minus orderBy/limit/requestingAgentId and
             // minus the active-claim exclusion findClaimable always applies — this method counts
             // matches WITH claim status broken out, not eligible-to-claim rows.
@@ -1589,7 +1588,7 @@ class SQLiteWorkItemRepository(
             if (rootIds != null) {
                 val scope = resolveScope(rootIds)
                 if (scope == ResolvedScope.Empty) {
-                    return@suspendedTransaction Result.Success(SelectorMatchCounts(matched = 0, activelyClaimed = 0))
+                    return@readResult Result.Success(SelectorMatchCounts(matched = 0, activelyClaimed = 0))
                 }
                 conditions.add(scope.toCondition())
             }
@@ -1655,9 +1654,9 @@ class SQLiteWorkItemRepository(
         val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
 
         return try {
-            suspendTransaction(db = databaseManager.getDatabase()) {
+            databaseManager.readTx {
                 val scope = resolveScope(rootIds)
-                if (scope == ResolvedScope.Empty) return@suspendTransaction Result.Success(emptyList())
+                if (scope == ResolvedScope.Empty) return@readTx Result.Success(emptyList())
 
                 val base =
                     buildScopedQuery(
@@ -1716,9 +1715,9 @@ class SQLiteWorkItemRepository(
         val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
 
         return try {
-            suspendTransaction(db = databaseManager.getDatabase()) {
+            databaseManager.readTx {
                 val scope = resolveScope(rootIds)
-                if (scope == ResolvedScope.Empty) return@suspendTransaction Result.Success(0)
+                if (scope == ResolvedScope.Empty) return@readTx Result.Success(0)
 
                 val count =
                     buildScopedQuery(
@@ -1751,9 +1750,9 @@ class SQLiteWorkItemRepository(
         if (rootIds.isEmpty()) return Result.Success(emptyMap())
 
         return try {
-            suspendTransaction(db = databaseManager.getDatabase()) {
+            databaseManager.readTx {
                 val scope = resolveScope(rootIds)
-                if (scope == ResolvedScope.Empty) return@suspendTransaction Result.Success(emptyMap())
+                if (scope == ResolvedScope.Empty) return@readTx Result.Success(emptyMap())
 
                 val scopeCondition = scope.toCondition()
                 val counts =
@@ -1963,7 +1962,7 @@ class SQLiteWorkItemRepository(
 
     override suspend fun findAncestorChainsDetailed(itemIds: Set<UUID>): Result<Map<UUID, AncestorChain>> {
         if (itemIds.isEmpty()) return Result.Success(emptyMap())
-        return databaseManager.suspendedTransaction("Failed to find ancestor chains") {
+        return databaseManager.readResult("Failed to find ancestor chains") {
             // Cache all fetched items by UUID string
             val cache = mutableMapOf<String, WorkItem>()
 
