@@ -466,9 +466,9 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                 return errorResponse(e.message ?: "Invalid search query", ErrorCodes.VALIDATION_ERROR)
             }
 
-        // Delegate to repository — dispatched via the NoteStore interface so this works
-        // whether the tool context holds the concrete SQLite repo or a decorator (e.g.
-        // EventPublishingNoteRepository, when the REST API is enabled).
+        // Delegate to repository, dispatched via the NoteStore interface: the tool context
+        // holds the event-recording decorator (EventPublishingNoteRepository, installed always
+        // since P8), which forwards reads to the concrete SQLite repo.
         val repo = context.noteRepository()
         val searchResult: SearchResult =
             try {

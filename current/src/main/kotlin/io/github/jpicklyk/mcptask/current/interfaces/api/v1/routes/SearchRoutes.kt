@@ -90,9 +90,9 @@ fun Route.searchRoutes(repositoryProvider: RepositoryProvider) {
                     else -> SearchScope(role = role, tags = tags)
                 }
 
-            // Dispatched via the WorkItemRepository interface so this works whether workItemRepo
-            // is the concrete SQLite repo or a decorator (e.g. EventPublishingWorkItemRepository —
-            // always the case when the REST API is enabled).
+            // Dispatched via the WorkItemRepository interface: workItemRepo is the event-recording
+            // decorator (EventPublishingWorkItemRepository, installed always since P8), which
+            // forwards reads.
             val result =
                 workItemRepo.ftsSearch(
                     sanitizedFtsQuery = sanitizedQuery,

@@ -182,9 +182,8 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
                     else -> SearchScope()
                 }
 
-            // Dispatched via the NoteStore interface so this works whether noteRepo is the
-            // concrete SQLite repo or a decorator (e.g. EventPublishingNoteRepository — always the
-            // case when the REST API is enabled).
+            // Dispatched via the NoteStore interface: noteRepo is the event-recording decorator
+            // (EventPublishingNoteRepository, installed always since P8), which forwards reads.
             val result =
                 noteRepo.ftsSearch(
                     sanitizedFtsQuery = sanitizedQuery,

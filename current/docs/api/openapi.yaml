@@ -3501,18 +3501,21 @@ paths:
         Use a fetch-based SSE library (e.g. @microsoft/fetch-event-source) with
         Authorization: Bearer, or enable API_ALLOW_QUERY_TOKEN_FOR_SSE=true for ?token= access.
 
+        The stream is a projection of the durable events table (4.0, V20): event ids are the
+        table's seq (above 10^12, monotonic, durable across restarts), writes from other processes
+        sharing the database stream within about one second, and nothing a rolled-back write did
+        is ever streamed. Rejections, lease, config and plan-document rows are table-only.
+
         Scope filtering: root scope (?root= intersected with principal.scope.rootIds) is applied
-        identically to the live stream and to Last-Event-ID replay — ring-buffer entries carry
-        affectedRoots metadata so replay is not unfiltered. A root-scoped principal (non-null
+        identically to the live stream and to Last-Event-ID replay -- every row carries its root_id,
+        so replay is not unfiltered. A root-scoped principal (non-null
         scope.rootIds) whose ?root= values do not intersect that scope gets 403 insufficient_scope
         before the SSE stream opens; ?root= present with zero valid UUIDs gets 400 validation_error
         (mixed valid/invalid values narrow and are accepted). A principal with scope.tags_include set
         is additionally filtered per event (live and replay alike), using the same allowsItemTags
         predicate as the REST collection endpoints; see api-rest.md §21/§3. KNOWN LIMITATION:
         item.deleted is dropped for a tag-scoped connection (its tags can no longer be resolved once
-        the item is gone), and dependency.* events on an ancestor-cache miss now fail CLOSED — they
-        reach only unrestricted subscribers (no ?root= filter, no scope.rootIds), never a root-scoped
-        one — see api-rest.md §25.
+        the item is gone) -- see api-rest.md section 25.
 
         A tags_include-scoped token additionally requires the route's WorkItemRepository wiring;
         if that is unavailable the pre-flight plugin rejects the connection with 403
@@ -3544,16 +3547,17 @@ paths:
           schema:
             type: string
           description: >-
-            Resume from this event ID; replay is filtered by root and tags_include the same way
-            the live stream is. When the id is no longer replayable — older than the retained
-            ring buffer, above the current high-water mark (e.g. after a server restart, since
-            the id counter restarts at 0), or unparsable — the server emits a sync.lost event
-            with a reason (buffer_evicted or unknown_event_id) as the first frame, then
-            immediately replays the FULL retained buffer after it (replay resumes from the
-            sentinel's own id, not the client's cursor — no second reconnect needed). A blank or
-            absent header is not a resume attempt and never triggers sync.lost.
-            API_SSE_BUFFER_SIZE=0 legally retains nothing, so every resume attempt that carries a
-            Last-Event-ID yields buffer_evicted with no events to replay.
+            Resume from this event ID (a seq); replay is read from the events table and filtered
+            by root and tags_include the same way the live stream is, deduplicated against live
+            delivery by id. API_SSE_BUFFER_SIZE (default 1000) is the replay window. When the id
+            is not replayable -- more than the window behind the newest event (buffer_evicted),
+            above the newest event, at or below the 10^12 seq floor (any pre-4.0 ring-buffer id),
+            or unparsable (unknown_event_id) -- the server emits a sync.lost event with that reason
+            as the first frame, then immediately replays the whole window after it (replay resumes
+            from the sentinel's own id, max(10^12, newest - window), not the client's cursor -- no
+            second reconnect needed). A blank or absent header is not a resume attempt and never
+            triggers sync.lost. API_SSE_BUFFER_SIZE=0 means no replay: every resume behind the
+            newest event yields buffer_evicted with no events to replay.
       responses:
         "200":
           description: SSE stream (text/event-stream)
@@ -3571,12 +3575,12 @@ paths:
                   modifiedAt, newRole (item.advanced only), actor ({id, kind, parent?}, the writer;
                   domain events only; omitted when unknown, or for a non-admin caller when
                   API_REDACT_NOTE_ATTRIBUTION is true; never proof/verification), rootId (depth-0
-                  ancestor of the item; domain events only; omitted when unresolved, e.g. events
-                  published while no client was connected, live and on replay; never redacted), and reason — set only on sync.lost,
+                  ancestor of the item; present on every domain event since 4.0, live and on
+                  replay; never redacted), and reason -- set only on sync.lost,
                   one of queue_overflow (per-connection queue overflowed), buffer_evicted
-                  (resumed Last-Event-ID older than the retained ring buffer), or
-                  unknown_event_id (resumed Last-Event-ID above the high-water mark or
-                  unparsable); null/absent on every other event type.
+                  (resumed Last-Event-ID further behind than the replay window), or
+                  unknown_event_id (resumed Last-Event-ID above the newest event, at or below the
+                  seq floor, or unparsable); null/absent on every other event type.
 
                   auth.expired: sent and the stream closed when the connection's token expires
                   (checked every API_SSE_AUTH_CHECK_INTERVAL_SECONDS). Fires for every JWKS session

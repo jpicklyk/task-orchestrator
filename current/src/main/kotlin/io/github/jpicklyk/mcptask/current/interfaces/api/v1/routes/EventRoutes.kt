@@ -386,15 +386,17 @@ private val sseInlineAuthPlugin =
  * credential) with no signal.
  *
  * ## Resume and gap reporting
- * `Last-Event-ID` replays buffered events with a higher id. When the requested id is no longer
- * replayable — evicted from the ring buffer, above the high-water mark (the counter restarts at 0
- * on restart), or present but unparsable — the bus emits a `sync.lost` event carrying a
+ * Event ids are `seq` values of the durable `events` table. `Last-Event-ID` replays the stored
+ * events with a higher seq (within the replay window). When the requested id is not replayable --
+ * older than the replay window (`API_SSE_BUFFER_SIZE`), above the newest seq, at or below the seq
+ * floor (every id the pre-4.0 in-memory ring buffer issued), or present but unparsable -- the bus
+ * emits a `sync.lost` event carrying a
  * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.SyncLostReason] as the first frame
  * of the connection, before any replayed event. A blank header counts as no resume attempt.
  *
  * ## Event-ID namespace separation
- * IDs from [ApiEventBus] are INDEPENDENT of `/mcp`'s `EventStore`. Do NOT mix
- * `Last-Event-ID` values across the two SSE channels.
+ * IDs from [ApiEventBus] (the events table's seq) are INDEPENDENT of `/mcp`'s `EventStore`. Do NOT
+ * mix `Last-Event-ID` values across the two SSE channels.
  *
  * @param eventBus The shared [ApiEventBus] instance.
  * @param tokenEntries Pre-loaded bearer token entries with expiry metadata.
@@ -565,8 +567,8 @@ fun Route.eventRoutes(
                                 ) {
                                     return@collect
                                 }
-                                // Attribution redaction, on egress only (the ring buffer keeps the
-                                // unredacted event), so live and Last-Event-ID replay are identical.
+                                // Attribution redaction, on egress only (the events table keeps the
+                                // unredacted principal), so live and Last-Event-ID replay are identical.
                                 // Same rule as AttributionRedactor: hidden only when the flag is on
                                 // AND the caller is not ADMIN. rootId is never redacted.
                                 val outbound =

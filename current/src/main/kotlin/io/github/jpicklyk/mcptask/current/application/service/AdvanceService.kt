@@ -249,8 +249,10 @@ data class AdvanceResult(
  * it. See [applyCascadeEvents]'s `enforceNoteGate` parameter, which encodes exactly this split.
  *
  * Returns a structured [AdvanceResult] on success, or a structured [AdvanceFailure] on any
- * rejection. It produces NO JSON. The repository `update()` event-decorator mechanism (which emits
- * `ITEM_ADVANCED` on role change) is unchanged — this service never publishes events explicitly.
+ * rejection. It produces NO JSON. Events: the applied transition's `item.transitioned` row is recorded
+ * by the event-recording decorator on the transition store, in the apply unit; the one row this
+ * service records itself is `transition.rejected`, for a gate or dependency rejection, in a short
+ * follow-up unit ([recordRejection]), since the rejected advance writes nothing.
  *
  * The handler's [RoleTransitionHandler.cascadeTransition] is `internal`; this service lives in the
  * same `application/service` module, so it can drive cascades through that internal entry point

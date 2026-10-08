@@ -178,8 +178,11 @@ class EventPublishingRepositoryProvider(
         }
 
         override suspend fun clear(itemId: UUID): Boolean {
+            // clear() reports true for any existing row (every terminal transition calls it), so a row is recorded
+            // only when a claim was actually held.
+            val held = inner.getById(itemId)?.claimedBy != null
             val result = inner.clear(itemId)
-            if (result) record(DomainEvent.ClaimReleased(itemId, rootOfItem(itemId), ClaimReleaseReason.CLEARED))
+            if (result && held) record(DomainEvent.ClaimReleased(itemId, rootOfItem(itemId), ClaimReleaseReason.CLEARED))
             return result
         }
     }
