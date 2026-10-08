@@ -840,7 +840,7 @@ class StartupCompactionTest {
             CompactionOutcome.SKIPPED_NOT_FILE_DB,
             StartupCompaction.runOnce("jdbc:sqlite:file:x?mode=memory")
         )
-        assertEquals(CompactionOutcome.SKIPPED_NOT_FILE_DB, StartupCompaction.runOnce("jdbc:h2:mem:t"))
+        assertEquals(CompactionOutcome.SKIPPED_NOT_FILE_DB, StartupCompaction.runOnce("jdbc:postgresql://localhost/t"))
     }
 
     @Test

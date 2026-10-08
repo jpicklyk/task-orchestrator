@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -13,6 +14,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -48,12 +50,15 @@ import kotlin.test.assertTrue
  *   only path parameter on either route is a UUID-guarded item id.
  */
 class DependencyScopeReadRoutesTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     // ─── S1 + S2: backlinks, tagsInclude={alpha} keeps the alpha row, drops the beta row ────
 
     @Test
     fun `S1 S2 backlinks with tagsInclude alpha exposes only the alpha counterpart and nothing else`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (subjectA, betaB, alphaC) =
                 runBlocking {
                     val a =
@@ -109,7 +114,7 @@ class DependencyScopeReadRoutesTest {
     @Test
     fun `S3 backlinks with rootIds only drops a backlink from a different root`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (rootR1, subjectA, otherRootB) =
                 runBlocking {
                     val r1 = repo.workItemRepository().create(WorkItem(title = "RootR1S3", depth = 0)).getOrNull()!!
@@ -146,7 +151,7 @@ class DependencyScopeReadRoutesTest {
     @Test
     fun `S4 backlinks with rootIds and tagsInclude combined keeps only the doubly-in-scope counterpart`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (rootR1, subjectA, inScopeD, wrongTagE, wrongRootF) =
                 runBlocking {
                     val r1 = repo.workItemRepository().create(WorkItem(title = "RootR1S4", depth = 0)).getOrNull()!!
@@ -204,7 +209,7 @@ class DependencyScopeReadRoutesTest {
     @Test
     fun `S5 regression - unscoped token still sees both backlink rows with full titles`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (subjectA, betaB, alphaC) =
                 runBlocking {
                     val a =
@@ -257,7 +262,7 @@ class DependencyScopeReadRoutesTest {
     @Test
     fun `S6 dependencies blockedBy bucket surfaces the alpha blocker and drops the beta blocker from every bucket`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (subjectA, betaB, alphaC) =
                 runBlocking {
                     val a =
@@ -312,7 +317,7 @@ class DependencyScopeReadRoutesTest {
     @Test
     fun `S7 regression - unscoped token still sees both blockers in blockedBy unchanged`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (subjectA, betaB, alphaC) =
                 runBlocking {
                     val a =
@@ -360,7 +365,7 @@ class DependencyScopeReadRoutesTest {
     @Test
     fun `S8 subject itself out of scope returns scope_forbidden 403 on both routes`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val subjectA =
                 runBlocking {
                     repo
@@ -398,7 +403,7 @@ class DependencyScopeReadRoutesTest {
     @Test
     fun `S9 backlinks with every counterpart out of scope returns 200 empty array not 403 or 500`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (subjectA, betaB) =
                 runBlocking {
                     val a =
@@ -436,7 +441,7 @@ class DependencyScopeReadRoutesTest {
     @Test
     fun `P1 backlinks drops counterparts with null or empty tags under tagsInclude scope`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (subjectA, nullTagsG, emptyTagsH, alphaControlI) =
                 runBlocking {
                     val a =
@@ -491,7 +496,7 @@ class DependencyScopeReadRoutesTest {
     @Test
     fun `P3 dependencies filters an out-of-scope counterpart consistently across edge types`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (subjectA, betaB) =
                 runBlocking {
                     val a =

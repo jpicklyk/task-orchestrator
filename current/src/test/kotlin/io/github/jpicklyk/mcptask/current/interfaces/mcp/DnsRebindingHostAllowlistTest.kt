@@ -11,8 +11,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
@@ -22,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.HttpClient
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -48,11 +47,11 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.slf4j.LoggerFactory
 import java.util.UUID
 
@@ -76,6 +75,9 @@ import java.util.UUID
  * from the machine running them.
  */
 class DnsRebindingHostAllowlistTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private val rpc = Json { ignoreUnknownKeys = true }
 
     private val acceptBoth = "application/json, text/event-stream"
@@ -102,15 +104,7 @@ class DnsRebindingHostAllowlistTest {
                 ),
         )
 
-    private fun inMemoryProvider(): DefaultRepositoryProvider =
-        DefaultRepositoryProvider(
-            DatabaseManager(
-                Database.connect(
-                    "jdbc:h2:mem:dnsrebind_${System.nanoTime()};DB_CLOSE_DELAY=-1",
-                    driver = "org.h2.Driver",
-                ),
-            ).also { DirectDatabaseSchemaManager().updateSchema() },
-        )
+    private fun inMemoryProvider(): DefaultRepositoryProvider = db.repositoryProvider()
 
     /** An [AppConfig] built from an explicit env map -- never [System.getenv] -- for isolation. */
     private fun cfg(vararg env: Pair<String, String>): AppConfig = AppConfig.fromEnv(env = mapOf(*env)::get)

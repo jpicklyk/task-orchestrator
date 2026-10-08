@@ -31,7 +31,7 @@ import kotlin.test.assertTrue
  * and scoped overview (`itemId`) ignoring the parameter entirely.
  *
  * Harness mirrors [QueryItemsToolFtsDecoratorDispatchTest] — [MockRepositoryProvider] + MockK
- * `coEvery`/`coVerify`/`slot`, no FTS5/H2 dependency. Every scenario is EXISTING-SURFACE per the
+ * `coEvery`/`coVerify`/`slot`, no FTS5 or database dependency. Every scenario is EXISTING-SURFACE per the
  * frozen `test-plan` note; S1-S8 pin the per-mode default/cap behaviour (already correct at HEAD —
  * the fix here is documentation-only, so these are contract-pinning, not regression, tests). S9 is
  * the one scenario that is red on a plain revert of the `limit` description string.

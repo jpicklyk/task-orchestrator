@@ -17,7 +17,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigSer
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -38,6 +38,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -122,8 +123,8 @@ private fun Application.configureDeleteRouteFailTestApp(provider: RepositoryProv
  * Independent test authorship for item fc8f3748 (needs-test-author) -- REST DELETE /items/{id}
  * recursive/409 parity fixes.
  *
- * Runs on real SQLite (SQLiteRepositoryTestBase) per the item's declared harness requirement:
- * the H2 database used by the other route tests in this package has no parent_id foreign key,
+ * Runs on real SQLite (the SQLite test fixture) per the item's declared harness requirement:
+ * the SQLite database used by the other route tests in this package has no parent_id foreign key,
  * which would hide the original 500 this item fixes.
  *
  * Oracles (frozen in test-plan note 826560f2 / diagnosis note 5237085a, before this file was
@@ -137,7 +138,12 @@ private fun Application.configureDeleteRouteFailTestApp(provider: RepositoryProv
  *
  * S-ids below are the test-plan note's numbering; probes are the note's Probes section.
  */
-class ItemDeleteRecursiveSqliteRouteTest : SQLiteRepositoryTestBase() {
+class ItemDeleteRecursiveSqliteRouteTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
+    private val repositoryProvider get() = db.repositoryProvider()
+
     private suspend fun createRoot(title: String): WorkItem {
         val created = repositoryProvider.workItemRepository().create(WorkItem(title = title, depth = 0)).getOrNull()!!
         return repositoryProvider.workItemRepository().update(created.copy(rootId = created.id)).getOrNull()!!

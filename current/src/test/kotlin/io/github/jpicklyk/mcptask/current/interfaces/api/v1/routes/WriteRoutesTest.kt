@@ -20,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepos
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -46,6 +47,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -119,10 +121,13 @@ fun Application.configureWriteTestApp(
 // ─────────────────────────────────────────────────────────────────────────────
 
 class ItemCreateRouteTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `POST items creates item and returns 201 with persisted data`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureWriteTestApp(repo) }
 
             val response =
@@ -149,7 +154,7 @@ class ItemCreateRouteTest {
     @Test
     fun `POST items without WRITE_ITEMS capability returns 403`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureWriteTestApp(repo) }
 
             val response =
@@ -172,7 +177,7 @@ class ItemCreateRouteTest {
     @Test
     fun `POST items with validation error returns 400`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureWriteTestApp(repo) }
 
             val response =
@@ -189,7 +194,7 @@ class ItemCreateRouteTest {
     @Test
     fun `POST items with parentId stamps rootId inherited from the parent`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val parent =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Root", depth = 0)).getOrNull()!!
@@ -216,7 +221,7 @@ class ItemCreateRouteTest {
     @Test
     fun `POST items without parentId stamps rootId as its own id`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureWriteTestApp(repo) }
 
             val response =
@@ -240,10 +245,13 @@ class ItemCreateRouteTest {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class ItemPatchRouteTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `PATCH items id updates title and returns 200 with new ETag`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Original", depth = 0)).getOrNull()!!
@@ -272,7 +280,7 @@ class ItemPatchRouteTest {
     @Test
     fun `PATCH items id without If-Match returns 400`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "No ETag", depth = 0)).getOrNull()!!
@@ -295,7 +303,7 @@ class ItemPatchRouteTest {
     @Test
     fun `PATCH items id with stale ETag returns 412`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Stale ETag Test", depth = 0)).getOrNull()!!
@@ -317,7 +325,7 @@ class ItemPatchRouteTest {
     @Test
     fun `PATCH items id with disallowed field returns 400 field_not_patchable`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Protected Fields", depth = 0)).getOrNull()!!
@@ -345,7 +353,7 @@ class ItemPatchRouteTest {
     @Test
     fun `PATCH items id with wrong Content-Type returns 415 with Accept-Patch header`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Content Type Test", depth = 0)).getOrNull()!!
@@ -370,7 +378,7 @@ class ItemPatchRouteTest {
     @Test
     fun `PATCH items null field in patch body removes field value`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo
@@ -402,7 +410,7 @@ class ItemPatchRouteTest {
     @Test
     fun `PATCH items absent field in patch body leaves field unchanged`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo
@@ -435,7 +443,7 @@ class ItemPatchRouteTest {
     @Test
     fun `PATCH items invalid priority returns 400`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Priority Test", depth = 0)).getOrNull()!!
@@ -456,7 +464,7 @@ class ItemPatchRouteTest {
     @Test
     fun `PATCH items parentId null moves item to root`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (parent, child) =
                 runBlocking {
                     val p = repo.workItemRepository().create(WorkItem(title = "Parent", depth = 0)).getOrNull()!!
@@ -483,7 +491,7 @@ class ItemPatchRouteTest {
     @Test
     fun `PATCH items parentId change cascades depth to descendants`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             // root A(0) -> b(1) -> c(2), plus sibling target d(1) under root A.
             val (_, b, c, d) =
                 runBlocking {
@@ -516,7 +524,7 @@ class ItemPatchRouteTest {
     @Test
     fun `PATCH items parentId change to a different root restamps rootId for item and descendants`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             // Root A -> B -> C, plus an independent Root D — both created directly via the
             // repository with an explicit rootId, mirroring what the create route would stamp.
             val (_, b, c, rootD) =
@@ -565,7 +573,7 @@ class ItemPatchRouteTest {
     @Test
     fun `PATCH items parentId null restamps rootId to the item's own id`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (parent, child) =
                 runBlocking {
                     val p = repo.workItemRepository().create(WorkItem(title = "Parent", depth = 0)).getOrNull()!!
@@ -597,7 +605,7 @@ class ItemPatchRouteTest {
     @Test
     fun `PATCH items with nested object in properties merges recursively`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo
@@ -630,7 +638,7 @@ class ItemPatchRouteTest {
     @Test
     fun `PATCH items post-merge domain validation failure returns 400`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Validation Test", depth = 0)).getOrNull()!!
@@ -663,7 +671,7 @@ class ItemPatchRouteTest {
     @Test
     fun `PATCH items with role field returns 400 field_not_patchable`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Role Test", depth = 0)).getOrNull()!!
@@ -690,10 +698,13 @@ class ItemPatchRouteTest {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class ItemDeleteRouteTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `DELETE items id deletes and returns 204`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "To Delete", depth = 0)).getOrNull()!!
@@ -714,7 +725,7 @@ class ItemDeleteRouteTest {
     @Test
     fun `DELETE items id without WRITE_ITEMS returns 403`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Protected", depth = 0)).getOrNull()!!
@@ -735,7 +746,7 @@ class ItemDeleteRouteTest {
     @Test
     fun `DELETE items id with mismatched ETag returns 412`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "ETag Guard", depth = 0)).getOrNull()!!
@@ -760,10 +771,13 @@ class ItemDeleteRouteTest {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class AdvanceRouteTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `POST items id advance starts item and returns 200 with new role`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Advance Me", depth = 0)).getOrNull()!!
@@ -795,7 +809,7 @@ class AdvanceRouteTest {
     @Test
     fun `POST items id advance stamps a config-driven statusLabel (bug 80e48e55 REST-MCP parity)`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Label Parity", depth = 0)).getOrNull()!!
@@ -829,7 +843,7 @@ class AdvanceRouteTest {
     @Test
     fun `POST items id advance start on WORK with no review phase stamps the terminal label (bug 100da214 + 80e48e55)`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             // 'flat-type' has no REVIEW-phase note -> hasReviewPhase() false -> start from WORK
             // resolves straight to TERMINAL. Before the fix this stamped "in-progress" (bug
             // 100da214) via a NoOpStatusLabelService that REST never even consulted (bug 80e48e55).
@@ -869,7 +883,7 @@ class AdvanceRouteTest {
     @Test
     fun `POST items id advance creates role_transitions row with API actor`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Audit Test", depth = 0)).getOrNull()!!
@@ -908,7 +922,7 @@ class AdvanceRouteTest {
     @Test
     fun `POST items id advance without ADVANCE capability returns 403`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Protected Advance", depth = 0)).getOrNull()!!
@@ -936,7 +950,7 @@ class AdvanceRouteTest {
     @Test
     fun `POST items id advance with invalid trigger returns 400`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Bad Trigger", depth = 0)).getOrNull()!!
@@ -955,11 +969,11 @@ class AdvanceRouteTest {
     @Test
     fun `POST advance on item CLAIMED by another MCP agent SUCCEEDS and records API actor`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             // Create the item ALREADY claimed by a fleet MCP agent (different identity than the API).
             // Construct the claim fields directly instead of calling repo.claim() — claim() uses
-            // SQLite-specific SQL that does not run on the H2 test fixture, whereas create() persists
-            // claim fields on H2 (see SQLiteWorkItemClaimFieldsTest). Capture `now` ONCE so the
+            // SQLite-specific SQL with its own coverage, whereas create() persists
+            // claim fields on SQLite (see SQLiteWorkItemClaimFieldsTest). Capture `now` ONCE so the
             // WorkItem.validate() invariant originalClaimedAt <= claimedAt holds.
             val item =
                 runBlocking {
@@ -1020,7 +1034,7 @@ class AdvanceRouteTest {
     @Test
     fun `POST advance on gate-incomplete item is REJECTED 422 instead of silently advancing`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             // Item typed 'gated-type' with a REQUIRED queue-phase note that is NOT filled.
             val item =
                 runBlocking {
@@ -1058,7 +1072,7 @@ class AdvanceRouteTest {
     @Test
     fun `POST advance on gate-complete item SUCCEEDS and includes parity fields`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     val i =
@@ -1157,10 +1171,13 @@ private class ReviewPhaseSchemaService : WorkItemSchemaService {
 }
 
 class AdvanceReviewPhaseTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `advance from WORK on item whose schema HAS review phase lands in REVIEW not terminal`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             // Item typed 'review-type' (has REVIEW phase), starting in WORK.
             val item =
                 runBlocking {
@@ -1194,7 +1211,7 @@ class AdvanceReviewPhaseTest {
     @Test
     fun `advance from WORK on item whose schema has NO review phase goes to terminal`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             // Item typed 'flat-type' (no REVIEW phase), starting in WORK.
             val item =
                 runBlocking {
@@ -1231,10 +1248,13 @@ class AdvanceReviewPhaseTest {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class NoteWriteRouteTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `PUT note creates new note and persists with api actor`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Note Target", depth = 0)).getOrNull()!!
@@ -1275,7 +1295,7 @@ class NoteWriteRouteTest {
     @Test
     fun `PUT note updates existing note`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Update Note Item", depth = 0)).getOrNull()!!
@@ -1313,7 +1333,7 @@ class NoteWriteRouteTest {
     @Test
     fun `PUT note with stale ETag on update returns 412`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Note ETag", depth = 0)).getOrNull()!!
@@ -1341,7 +1361,7 @@ class NoteWriteRouteTest {
     @Test
     fun `PUT note without WRITE_NOTES capability returns 403`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Notes Forbidden", depth = 0)).getOrNull()!!
@@ -1364,7 +1384,7 @@ class NoteWriteRouteTest {
     @Test
     fun `DELETE note deletes it and returns 204`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Delete Note Item", depth = 0)).getOrNull()!!
@@ -1391,10 +1411,13 @@ class NoteWriteRouteTest {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class DependencyWriteRouteTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `POST dependencies creates edge and returns 201`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (from, to) =
                 runBlocking {
                     val a = repo.workItemRepository().create(WorkItem(title = "From", depth = 0)).getOrNull()!!
@@ -1428,7 +1451,7 @@ class DependencyWriteRouteTest {
     @Test
     fun `POST dependencies with same fromItemId and toItemId returns 400`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Self Dep", depth = 0)).getOrNull()!!
@@ -1447,7 +1470,7 @@ class DependencyWriteRouteTest {
     @Test
     fun `POST dependencies cycle detection returns 400 cycle_detected`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (a, b) =
                 runBlocking {
                     val a = repo.workItemRepository().create(WorkItem(title = "A", depth = 0)).getOrNull()!!
@@ -1474,7 +1497,7 @@ class DependencyWriteRouteTest {
     @Test
     fun `DELETE dependencies id deletes edge and returns 204`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (from, to) =
                 runBlocking {
                     val a = repo.workItemRepository().create(WorkItem(title = "From Del", depth = 0)).getOrNull()!!
@@ -1510,7 +1533,7 @@ class DependencyWriteRouteTest {
     @Test
     fun `DELETE dependencies enforces scope on BOTH endpoints not just from`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             // 'from' is a root inside the caller's scope; 'to' is a separate root OUTSIDE it.
             val (from, to) =
                 runBlocking {
@@ -1550,7 +1573,7 @@ class DependencyWriteRouteTest {
     @Test
     fun `POST dependencies without MANAGE_DEPENDENCIES returns 403`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (from, to) =
                 runBlocking {
                     val a = repo.workItemRepository().create(WorkItem(title = "From Forbidden", depth = 0)).getOrNull()!!
@@ -1574,10 +1597,13 @@ class DependencyWriteRouteTest {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class IdempotencyTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `same Idempotency-Key on POST items returns cached response and creates item exactly once`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val cache = IdempotencyCache()
             application { configureWriteTestApp(repo, idempotencyCache = cache) }
 
@@ -1606,7 +1632,7 @@ class IdempotencyTest {
     @Test
     fun `different Idempotency-Key on POST items re-executes and creates separate item`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val cache = IdempotencyCache()
             application { configureWriteTestApp(repo, idempotencyCache = cache) }
 
@@ -1632,7 +1658,7 @@ class IdempotencyTest {
     @Test
     fun `malformed Idempotency-Key returns 400`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureWriteTestApp(repo) }
 
             val response =
@@ -1651,10 +1677,13 @@ class IdempotencyTest {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class WriteScopeEnforcementTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `PATCH item outside scope returns 403`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val scopeRootId = UUID.randomUUID()
             val item =
                 runBlocking {

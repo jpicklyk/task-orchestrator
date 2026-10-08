@@ -4,10 +4,10 @@ import io.github.jpicklyk.mcptask.current.application.support.UnscopedUnitOfWork
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.SqliteUnitOfWork
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
-import org.jetbrains.exposed.v1.jdbc.Database
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertSame
@@ -19,11 +19,11 @@ import kotlin.test.assertSame
  * effectiveProvider, SystemClock)` handed to both CompositionResult and ToolExecutionContext.
  */
 class ServerCompositionUnitOfWorkTest {
-    private fun buildDatabaseManager(): DatabaseManager {
-        val database = Database.connect("jdbc:h2:mem:composition_uow_${System.nanoTime()};DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DatabaseManager(database)
-    }
+    @RegisterExtension
+    @JvmField
+    val sqlite = SqliteTestDatabase.perMethod()
+
+    private fun buildDatabaseManager(): DatabaseManager = sqlite.db.databaseManager
 
     @Test
     fun `the composition wires a SqliteUnitOfWork shared by the result and the tool context`() {

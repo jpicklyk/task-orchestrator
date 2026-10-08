@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors.configureCors
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventPublishingRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -32,6 +33,7 @@ import io.ktor.server.sse.SSE
 import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
 
 /**
@@ -49,6 +51,9 @@ import kotlin.test.assertEquals
  * surface fails to wire, the very first request below throws at application setup.
  */
 class FullApiWiringSmokeTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     /** Mirrors CurrentMcpServer's production `/api/v1` registration (same plugins + route order). */
     private fun Application.configureFullApi(repo: DefaultRepositoryProvider) {
         install(ContentNegotiation) { json(McpJson) }
@@ -110,7 +115,7 @@ class FullApiWiringSmokeTest {
     @Test
     fun `full api v1 surface boots and gates are active across the combined routing tree`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureFullApi(repo) }
 
             // Reaching ANY route proves the full surface wired without a DuplicatePluginException

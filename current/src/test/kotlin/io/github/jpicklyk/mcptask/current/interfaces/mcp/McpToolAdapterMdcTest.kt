@@ -9,9 +9,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -28,10 +26,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.slf4j.LoggerFactory
 import org.slf4j.MDC
 import java.util.UUID
@@ -57,6 +55,9 @@ import kotlin.test.assertTrue
  * synchronously on the logging call's own thread while its MDC context is still live.
  */
 class McpToolAdapterMdcTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var server: Server
     private lateinit var client: Client
     private lateinit var adapter: McpToolAdapter
@@ -103,18 +104,7 @@ class McpToolAdapterMdcTest {
         arguments(JsonObject(mapOf("actor" to JsonObject(mapOf("id" to JsonPrimitive(actorId))))))
     }
 
-    private val dummyContext =
-        ToolExecutionContext(
-            repositoryProvider =
-                DefaultRepositoryProvider(
-                    DatabaseManager(
-                        Database.connect(
-                            "jdbc:h2:mem:mcpadapter_mdc_${System.nanoTime()};DB_CLOSE_DELAY=-1",
-                            driver = "org.h2.Driver"
-                        )
-                    ).also { DirectDatabaseSchemaManager().updateSchema() }
-                )
-        )
+    private val dummyContext by lazy { ToolExecutionContext(repositoryProvider = db.repositoryProvider()) }
 
     /** A tool whose `execute` logs one INFO line, optionally hopping to [Dispatchers.IO] first. */
     private fun mdcProbeTool(hopDispatcher: Boolean): ToolDefinition =

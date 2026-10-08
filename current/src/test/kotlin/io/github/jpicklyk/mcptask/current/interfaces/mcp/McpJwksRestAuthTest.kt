@@ -16,14 +16,13 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvid
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEvent
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -44,10 +43,10 @@ import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.withTimeout
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.security.Security
 import java.time.Instant
 import java.util.Date
@@ -67,6 +66,9 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  * weakened by the wiring.
  */
 class McpJwksRestAuthTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     companion object {
         init {
             // RSA signing/verification needs no BouncyCastle, but match the sibling test's setup.
@@ -136,15 +138,7 @@ class McpJwksRestAuthTest {
                 ),
         )
 
-    private fun inMemoryProvider(): DefaultRepositoryProvider =
-        DefaultRepositoryProvider(
-            DatabaseManager(
-                Database.connect(
-                    "jdbc:h2:mem:jwksrest_${System.nanoTime()};DB_CLOSE_DELAY=-1",
-                    driver = "org.h2.Driver",
-                ),
-            ).also { DirectDatabaseSchemaManager().updateSchema() },
-        )
+    private fun inMemoryProvider(): DefaultRepositoryProvider = db.repositoryProvider()
 
     /**
      * Installs the production wiring with the API enabled in jwks mode. The [eventBus] is wired so

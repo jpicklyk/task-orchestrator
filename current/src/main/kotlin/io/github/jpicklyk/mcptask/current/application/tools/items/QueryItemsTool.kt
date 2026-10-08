@@ -839,8 +839,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
 
         // Delegate to repository — dispatched via the WorkItemRepository interface so this
         // works whether the tool context holds the concrete SQLite repo or a decorator
-        // (e.g. EventPublishingWorkItemRepository, when the REST API is enabled). Non-FTS
-        // dialects (H2 tests) are handled inside ftsSearch, which returns an empty result.
+        // (e.g. EventPublishingWorkItemRepository, when the REST API is enabled).
         val repo = context.workItemRepository()
         val searchResult =
             try {

@@ -48,8 +48,8 @@ The project uses Exposed ORM with SQLite. Key patterns to be aware of:
 - All database operations must run inside `transaction {}` blocks
 - Repository methods that are called from suspend contexts need appropriate coroutine
   handling
-- H2 in-memory database is used for repository tests, which may behave differently
-  from SQLite in edge cases (e.g., case sensitivity, type coercion)
+- Repository and route tests run on a real, file-backed SQLite database (the `SqliteTestDatabase`
+  fixture), so SQL behaves as in production, including FTS5, triggers and foreign keys
 
 ## Repository Interface Contracts
 

@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
 import io.ktor.client.request.setBody
@@ -19,6 +20,7 @@ import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -54,6 +56,9 @@ import kotlin.test.assertTrue
  * implementer's changed PATCH new-parent branch body, `implementation-notes`, or `session-tracking`.
  */
 class PatchReparentScopeTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     // ─────────────────────────────────────────────────────────────────────
     // S1 — happy: rootIds scope, old and new parent both inside scope
     // ─────────────────────────────────────────────────────────────────────
@@ -61,7 +66,7 @@ class PatchReparentScopeTest {
     @Test
     fun `S1 reparent within rootIds scope succeeds and recomputes depth and rootId`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (root, x, p) =
                 runBlocking {
                     val r0 = repo.workItemRepository().create(WorkItem(title = "Root R", depth = 0)).getOrNull()!!
@@ -106,7 +111,7 @@ class PatchReparentScopeTest {
     @Test
     fun `S2 reparent with unscoped principal succeeds regardless of new parent`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (x, q) =
                 runBlocking {
                     val xItem = repo.workItemRepository().create(WorkItem(title = "X Unscoped", depth = 0)).getOrNull()!!
@@ -141,7 +146,7 @@ class PatchReparentScopeTest {
     @Test
     fun `S3 title-only patch under rootIds scope succeeds without a parent scope check`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val x =
                 runBlocking {
                     val r0 = repo.workItemRepository().create(WorkItem(title = "Root For S3", depth = 0)).getOrNull()!!
@@ -171,7 +176,7 @@ class PatchReparentScopeTest {
     @Test
     fun `S4 reparent to a new parent outside rootIds scope is rejected 403 scope_forbidden`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (root, x, q) =
                 runBlocking {
                     val r0 = repo.workItemRepository().create(WorkItem(title = "Root R S4", depth = 0)).getOrNull()!!
@@ -217,7 +222,7 @@ class PatchReparentScopeTest {
     @Test
     fun `S5 reparent to a new parent outside tagsInclude scope is rejected 403 scope_forbidden`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (x, q) =
                 runBlocking {
                     val xItem =
@@ -282,7 +287,7 @@ class PatchReparentScopeTest {
     @Test
     fun `S6 reparent to a nonexistent new parent returns 400 not_found before any scope check`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val x = runBlocking { repo.workItemRepository().create(WorkItem(title = "X S6", depth = 0)).getOrNull()!! }
             application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig()) }
 
@@ -309,7 +314,7 @@ class PatchReparentScopeTest {
     @Test
     fun `S7 reparent parentId null under rootIds scope where the item's own id is out of scope is rejected 403 scope_forbidden`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (root, x) =
                 runBlocking {
                     val r0 = repo.workItemRepository().create(WorkItem(title = "Root S7", depth = 0)).getOrNull()!!
@@ -358,7 +363,7 @@ class PatchReparentScopeTest {
     @Test
     fun `S8a reparent to itself is rejected with a 4xx client error`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val x = runBlocking { repo.workItemRepository().create(WorkItem(title = "X S8a", depth = 0)).getOrNull()!! }
             application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig()) }
 
@@ -383,7 +388,7 @@ class PatchReparentScopeTest {
     @Test
     fun `S8b reparent to its own descendant is rejected with a 4xx client error`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (x, child) =
                 runBlocking {
                     val xItem = repo.workItemRepository().create(WorkItem(title = "X S8b", depth = 0)).getOrNull()!!
@@ -425,7 +430,7 @@ class PatchReparentScopeTest {
     @Test
     fun `S9 reparent rejected for scope does not touch modifiedAt or cascade descendant depth`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (root, x, descendant, q) =
                 runBlocking {
                     val r0 = repo.workItemRepository().create(WorkItem(title = "Root S9", depth = 0)).getOrNull()!!
@@ -460,7 +465,11 @@ class PatchReparentScopeTest {
 
             val persistedX = runBlocking { repo.workItemRepository().getById(x.id) }
             assertIs<Result.Success<WorkItem>>(persistedX)
-            assertEquals(x.modifiedAt, persistedX.data.modifiedAt, "A 403-rejected PATCH must not touch X's modifiedAt")
+            assertEquals(
+                x.modifiedAt.toEpochMilli(),
+                persistedX.data.modifiedAt.toEpochMilli(),
+                "A 403-rejected PATCH must not touch X's modifiedAt"
+            )
 
             val persistedDescendant = runBlocking { repo.workItemRepository().getById(descendant.id) }
             assertIs<Result.Success<WorkItem>>(persistedDescendant)
@@ -475,7 +484,7 @@ class PatchReparentScopeTest {
     @Test
     fun `S10 reparent rejected for scope replays the same 403 on Idempotency-Key replay`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (root, x, q) =
                 runBlocking {
                     val r0 = repo.workItemRepository().create(WorkItem(title = "Root S10", depth = 0)).getOrNull()!!

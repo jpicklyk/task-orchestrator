@@ -409,7 +409,7 @@ class WorkTreeServiceIntegrationTest {
         }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // Test H2: Happy path with notes — items, dependency, AND notes all committed
+    // Test H-2: Happy path with notes — items, dependency, AND notes all committed
     //
     // Exercises the full execute() path including the note upsert phase.
     // ──────────────────────────────────────────────────────────────────────────

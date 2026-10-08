@@ -3,9 +3,9 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureTestApp
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -14,6 +14,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -29,6 +30,9 @@ import kotlin.test.assertTrue
  * - `If-None-Match` with stale ETag → 200 (full response)
  */
 class EtagSupportTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `etagFor produces deterministic string from epoch millis`() {
         val ts = Instant.ofEpochMilli(1716910000000L)
@@ -50,7 +54,7 @@ class EtagSupportTest {
     @Test
     fun `same item read twice returns identical ETag`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "ETag stable", depth = 0)).getOrNull()!!
@@ -76,7 +80,7 @@ class EtagSupportTest {
     @Test
     fun `If-None-Match with current ETag returns 304`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "ETag cache test", depth = 0)).getOrNull()!!
@@ -102,7 +106,7 @@ class EtagSupportTest {
     @Test
     fun `If-None-Match with stale ETag returns 200`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Stale ETag test", depth = 0)).getOrNull()!!
@@ -126,7 +130,7 @@ class EtagSupportTest {
     @Test
     fun `include=notes ignores If-None-Match and sees a note upserted after the item last changed`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Include notes", depth = 0)).getOrNull()!!
@@ -149,7 +153,7 @@ class EtagSupportTest {
     @Test
     fun `include=children ignores If-None-Match and inlines a child added after the parent last changed`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val parent =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Include parent", depth = 0)).getOrNull()!!
@@ -172,7 +176,7 @@ class EtagSupportTest {
     @Test
     fun `include=deps ignores If-None-Match and carries no ETag header`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Include deps", depth = 0)).getOrNull()!!
@@ -190,7 +194,7 @@ class EtagSupportTest {
     @Test
     fun `no include or unrecognized-only include keeps ETag and 304 behavior`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Preserve 304", depth = 0)).getOrNull()!!
@@ -215,7 +219,7 @@ class EtagSupportTest {
     @Test
     fun `body etag field on an include response still equals the modifiedAt validator`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Body etag", depth = 0)).getOrNull()!!

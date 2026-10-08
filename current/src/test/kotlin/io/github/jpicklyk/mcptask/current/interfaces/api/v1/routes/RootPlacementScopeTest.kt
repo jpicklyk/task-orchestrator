@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
@@ -25,6 +26,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -79,6 +81,9 @@ import kotlin.test.assertTrue
  * tag `"alpha"` — this still exercises O1's case-sensitive exact match, the property P2 names.
  */
 class RootPlacementScopeTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private fun parseId(body: String): UUID =
         UUID.fromString(
             Json
@@ -122,7 +127,7 @@ class RootPlacementScopeTest {
     @Test
     fun `S1 unscoped POST items creates root with depth 0 and self rootId`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig()) }
 
             val response =
@@ -147,7 +152,7 @@ class RootPlacementScopeTest {
     @Test
     fun `S2 rootIds scoped POST items with in-scope parentId succeeds`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root =
                 runBlocking {
                     val r0 = repo.workItemRepository().create(WorkItem(title = "S2 Root", depth = 0)).getOrNull()!!
@@ -175,7 +180,7 @@ class RootPlacementScopeTest {
     @Test
     fun `S3 tag-only scoped POST items creating a root with an allowed tag succeeds`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val tagToken = "integration-write-token-s3"
             val principal = writeScopedPrincipal("test-write-s3", rootIds = null, tagsInclude = setOf("alpha"))
             application { configureWriteTestApp(repo, authConfig = authConfigWith(tagToken, principal)) }
@@ -207,7 +212,7 @@ class RootPlacementScopeTest {
     @Test
     fun `S4 reparent to root succeeds when the item's own id is the rootIds scope member`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val x =
                 runBlocking {
                     val p0 = repo.workItemRepository().create(WorkItem(title = "S4 Out-of-scope P", depth = 0)).getOrNull()!!
@@ -253,7 +258,7 @@ class RootPlacementScopeTest {
     @Test
     fun `S5 tag-only scoped reparent to root succeeds when the item's own tags are allowed`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val x =
                 runBlocking {
                     val p0 = repo.workItemRepository().create(WorkItem(title = "S5 P", depth = 0, tags = "alpha")).getOrNull()!!
@@ -295,7 +300,7 @@ class RootPlacementScopeTest {
     @Test
     fun `S6 rootIds scoped POST items with parentId absent is rejected 403 scope_forbidden`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root =
                 runBlocking {
                     val r0 = repo.workItemRepository().create(WorkItem(title = "S6 Root Anchor", depth = 0)).getOrNull()!!
@@ -329,7 +334,7 @@ class RootPlacementScopeTest {
     @Test
     fun `S7 rootIds scoped POST items with explicit parentId null is rejected 403 scope_forbidden`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root =
                 runBlocking {
                     val r0 = repo.workItemRepository().create(WorkItem(title = "S7 Root Anchor", depth = 0)).getOrNull()!!
@@ -365,7 +370,7 @@ class RootPlacementScopeTest {
     @Test
     fun `S8 rootIds plus tagsInclude scoped POST items creating a root is rejected 403 despite an allowed tag`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root =
                 runBlocking {
                     val r0 = repo.workItemRepository().create(WorkItem(title = "S8 Root Anchor", depth = 0)).getOrNull()!!
@@ -402,7 +407,7 @@ class RootPlacementScopeTest {
     @Test
     fun `S9a tag-only scoped POST items creating a root with a disallowed tag is rejected 403`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val token = "integration-write-token-s9a"
             val principal = writeScopedPrincipal("test-write-s9a", rootIds = null, tagsInclude = setOf("alpha"))
             application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
@@ -431,7 +436,7 @@ class RootPlacementScopeTest {
     @Test
     fun `S9b tag-only scoped POST items creating a root with no tags is rejected 403`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val token = "integration-write-token-s9b"
             val principal = writeScopedPrincipal("test-write-s9b", rootIds = null, tagsInclude = setOf("alpha"))
             application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
@@ -465,7 +470,7 @@ class RootPlacementScopeTest {
     @Test
     fun `S10 rootIds scoped move-to-root PATCH is rejected 403 leaving X and its descendant untouched`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (root, x, d) =
                 runBlocking {
                     val r0 = repo.workItemRepository().create(WorkItem(title = "S10 Root", depth = 0)).getOrNull()!!
@@ -506,7 +511,11 @@ class RootPlacementScopeTest {
             assertEquals(1, persistedX.data.depth, "X's depth must be unchanged")
             assertEquals(root.id, persistedX.data.rootId, "X's rootId must be unchanged")
             assertEquals("S10 X", persistedX.data.title, "X's title must be unchanged (rejected patch touches nothing)")
-            assertEquals(x.modifiedAt, persistedX.data.modifiedAt, "A rejected PATCH must not touch modifiedAt")
+            assertEquals(
+                x.modifiedAt.toEpochMilli(),
+                persistedX.data.modifiedAt.toEpochMilli(),
+                "A rejected PATCH must not touch modifiedAt"
+            )
 
             val persistedD = runBlocking { repo.workItemRepository().getById(d.id) }
             assertIs<Result.Success<WorkItem>>(persistedD)
@@ -521,7 +530,7 @@ class RootPlacementScopeTest {
     @Test
     fun `P1a tag-only scoped POST items with empty tags list is rejected 403`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val token = "integration-write-token-p1a"
             val principal = writeScopedPrincipal("test-write-p1a", rootIds = null, tagsInclude = setOf("alpha"))
             application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
@@ -544,7 +553,7 @@ class RootPlacementScopeTest {
     @Test
     fun `P1b tag-only scoped POST items with blank-only tags is rejected 403`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val token = "integration-write-token-p1b"
             val principal = writeScopedPrincipal("test-write-p1b", rootIds = null, tagsInclude = setOf("alpha"))
             application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
@@ -573,7 +582,7 @@ class RootPlacementScopeTest {
     @Test
     fun `P2 tagsInclude case mismatch against a validly-lowercase item tag is rejected 403`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val token = "integration-write-token-p2"
             val principal = writeScopedPrincipal("test-write-p2", rootIds = null, tagsInclude = setOf("ALPHA"))
             application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
@@ -600,7 +609,7 @@ class RootPlacementScopeTest {
     @Test
     fun `P3 tag-only scoped POST items with a whitespace-padded matching tag succeeds`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val token = "integration-write-token-p3"
             val principal = writeScopedPrincipal("test-write-p3", rootIds = null, tagsInclude = setOf("alpha"))
             application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
@@ -626,7 +635,7 @@ class RootPlacementScopeTest {
     @Test
     fun `P4 tag-only scoped POST items with the allowed tag not first in the list succeeds`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val token = "integration-write-token-p4"
             val principal = writeScopedPrincipal("test-write-p4", rootIds = null, tagsInclude = setOf("alpha"))
             application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
@@ -653,7 +662,7 @@ class RootPlacementScopeTest {
     @Test
     fun `P5a Idempotency-Key replay of a rejected root create replays 403 with zero writes`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root =
                 runBlocking {
                     val r0 = repo.workItemRepository().create(WorkItem(title = "P5a Root Anchor", depth = 0)).getOrNull()!!
@@ -691,7 +700,7 @@ class RootPlacementScopeTest {
     @Test
     fun `P5b Idempotency-Key replay of a rejected move-to-root PATCH replays 403 leaving X untouched`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (root, x) =
                 runBlocking {
                     val r0 = repo.workItemRepository().create(WorkItem(title = "P5b Root", depth = 0)).getOrNull()!!
@@ -743,7 +752,7 @@ class RootPlacementScopeTest {
     @Test
     fun `P6 rootIds scoped PATCH re-affirming an already-root item as parentId null succeeds`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val x =
                 runBlocking {
                     val x0 = repo.workItemRepository().create(WorkItem(title = "P6 Root", depth = 0)).getOrNull()!!

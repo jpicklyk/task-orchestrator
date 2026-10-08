@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.take
@@ -14,6 +14,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 
@@ -25,6 +26,9 @@ import kotlin.time.Duration.Companion.seconds
  * Leak #2 from the scope-isolation bug fix.
  */
 class EventPublishingRepositoryProviderTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     // -------------------------------------------------------------------------
     // Leak 2 — dependency event scoping via cache
     // -------------------------------------------------------------------------
@@ -39,7 +43,7 @@ class EventPublishingRepositoryProviderTest {
     @Test
     fun `non-suspend dependency create is scoped to cached root - out-of-scope subscriber does not receive event`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -110,7 +114,7 @@ class EventPublishingRepositoryProviderTest {
     @Test
     fun `non-suspend dependency create delivers event to in-scope subscriber`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -172,7 +176,7 @@ class EventPublishingRepositoryProviderTest {
     fun `non-suspend dependency create on a cold root cache fails closed - unrestricted subscriber only`(): Unit =
         runBlocking {
             // Use an undecorated delegate to pre-create the items (bypasses cache population)
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val uncachedItemId = UUID.randomUUID()
             val anotherItemId = UUID.randomUUID()
 

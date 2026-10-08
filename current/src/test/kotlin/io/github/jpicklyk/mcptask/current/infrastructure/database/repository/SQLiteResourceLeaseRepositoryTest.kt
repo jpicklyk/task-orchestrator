@@ -19,8 +19,8 @@ import kotlin.test.assertTrue
 /**
  * Integration tests for [ResourceLeaseRepository] (SQLite implementation), using a real SQLite
  * file-backed database (via SqliteTestDatabase) since the acquire path uses SQLite-specific
- * `datetime('now', '+N seconds')` / `ON CONFLICT ... DO UPDATE` / `julianday()` syntax that H2
- * does not support.
+ * `datetime('now', '+N seconds')` / `ON CONFLICT ... DO UPDATE` / `julianday()` syntax
+ * only SQLite supports.
  */
 class SQLiteResourceLeaseRepositoryTest {
     @RegisterExtension

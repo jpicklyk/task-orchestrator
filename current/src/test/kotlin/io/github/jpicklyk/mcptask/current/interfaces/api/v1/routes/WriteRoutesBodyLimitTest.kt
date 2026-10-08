@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
@@ -21,6 +22,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -85,13 +87,16 @@ private fun createRoot(repo: io.github.jpicklyk.mcptask.current.infrastructure.r
     }
 
 class WriteRoutesBodyLimitTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     // ── S2 / S5 / S7 (NEW-SURFACE except where noted): an overstated Content-Length is rejected
     // 413 before the (single-byte) real body is inspected, one test per call site. ──
 
     @Test
     fun `POST items with an overstated Content-Length is rejected 413`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureWriteTestApp(repo) }
 
             val response =
@@ -118,7 +123,7 @@ class WriteRoutesBodyLimitTest {
     @Test
     fun `PATCH items id with an overstated Content-Length is rejected 413`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Patch Target", depth = 0)).getOrNull()!! }
             application { configureWriteTestApp(repo) }
 
@@ -144,7 +149,7 @@ class WriteRoutesBodyLimitTest {
     @Test
     fun `POST items id advance with an overstated Content-Length is rejected 413`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Advance Target", depth = 0)).getOrNull()!! }
             application { configureWriteTestApp(repo) }
 
@@ -170,7 +175,7 @@ class WriteRoutesBodyLimitTest {
     @Test
     fun `PUT note with an overstated Content-Length is rejected 413`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Note Target", depth = 0)).getOrNull()!! }
             application { configureWriteTestApp(repo) }
 
@@ -196,7 +201,7 @@ class WriteRoutesBodyLimitTest {
     @Test
     fun `POST dependencies with an overstated Content-Length is rejected 413`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val from = runBlocking { repo.workItemRepository().create(WorkItem(title = "From", depth = 0)).getOrNull()!! }
             runBlocking { repo.workItemRepository().create(WorkItem(title = "To", depth = 0)).getOrNull()!! }
             application { configureWriteTestApp(repo) }
@@ -230,7 +235,7 @@ class WriteRoutesBodyLimitTest {
     @Test
     fun `PUT roots rootId config with an overstated Content-Length is rejected 413`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configureProjectConfigTestApp(repo) }
 
@@ -255,7 +260,7 @@ class WriteRoutesBodyLimitTest {
     @Test
     fun `PUT roots rootId plans slug with an overstated Content-Length is rejected 413`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRoot(repo)
             application { configurePlanDocumentTestApp(repo) }
 
@@ -284,7 +289,7 @@ class WriteRoutesBodyLimitTest {
     @Test
     fun `POST items with a body of exactly MAX_JSON_WRITE_BODY_BYTES is not rejected as too large`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureWriteTestApp(repo) }
 
             val prefix = "{\"title\":\""
@@ -327,7 +332,7 @@ class WriteRoutesBodyLimitTest {
     @Test
     fun `POST items rejects a chunked body exceeding the 1 MiB cap via the bounded-read path`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureWriteTestApp(repo) }
 
             val totalBytes = MAX_JSON_WRITE_BODY_BYTES + (256 * 1024) // ~256 KiB over cap, not gigabytes

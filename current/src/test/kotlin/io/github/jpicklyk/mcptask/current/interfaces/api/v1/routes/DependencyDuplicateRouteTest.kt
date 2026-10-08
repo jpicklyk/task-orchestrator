@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -13,6 +14,7 @@ import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -20,8 +22,8 @@ import kotlin.test.assertTrue
  * Independent test authorship for item fc8f3748 (needs-test-author) -- REST
  * `POST /api/v1/dependencies` duplicate-edge parity fix.
  *
- * Uses H2 (buildH2RepositoryProvider) + configureWriteTestApp, per the test-plan note's Harness
- * section ("Dependency tests: buildH2RepositoryProvider()").
+ * Uses the SQLite fixture (SqliteTestDatabase.repositoryProvider) + configureWriteTestApp, per the test-plan note's Harness
+ * section ("Dependency tests: SqliteTestDatabase.repositoryProvider()").
  *
  * Oracles (frozen in test-plan note 826560f2 / diagnosis note 5237085a, before this file was
  * written):
@@ -30,6 +32,9 @@ import kotlin.test.assertTrue
  *       reverse RELATES_TO is unrelated to blocking semantics and succeeds.
  */
 class DependencyDuplicateRouteTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private suspend fun createPair(
         repo: io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider,
         titleA: String = "A",
@@ -47,7 +52,7 @@ class DependencyDuplicateRouteTest {
     @Test
     fun `S4 POST blocks A to B twice returns 201 then 409 duplicate_dependency, exactly one edge exists`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (a, b) = runBlocking { createPair(repo) }
             application { configureWriteTestApp(repo) }
 
@@ -81,7 +86,7 @@ class DependencyDuplicateRouteTest {
     @Test
     fun `S11 POST relates_to A to B twice returns 201 then 409 duplicate_dependency`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (a, b) = runBlocking { createPair(repo, "A11", "B11") }
             application { configureWriteTestApp(repo) }
 
@@ -110,7 +115,7 @@ class DependencyDuplicateRouteTest {
     @Test
     fun `S16a given A blocks B, reverse blocks is a cycle but same-direction relates_to succeeds`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (a, b) = runBlocking { createPair(repo, "A16a", "B16a") }
             runBlocking {
                 repo.dependencyRepository().create(Dependency(fromItemId = a.id, toItemId = b.id, type = DependencyType.BLOCKS))
@@ -146,7 +151,7 @@ class DependencyDuplicateRouteTest {
     @Test
     fun `S16b given A relates_to B, reverse relates_to succeeds`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (a, b) = runBlocking { createPair(repo, "A16b", "B16b") }
             runBlocking {
                 repo.dependencyRepository().create(Dependency(fromItemId = a.id, toItemId = b.id, type = DependencyType.RELATES_TO))
@@ -170,7 +175,7 @@ class DependencyDuplicateRouteTest {
     @Test
     fun `probe duplicate dependency with type BLOCKS returns 409`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (a, b) = runBlocking { createPair(repo, "Aprobe", "Bprobe") }
             runBlocking {
                 repo.dependencyRepository().create(Dependency(fromItemId = a.id, toItemId = b.id, type = DependencyType.BLOCKS))

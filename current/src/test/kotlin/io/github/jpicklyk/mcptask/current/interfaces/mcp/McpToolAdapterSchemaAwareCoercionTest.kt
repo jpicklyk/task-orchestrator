@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.notes.QueryNotesTool
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -20,6 +21,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -41,6 +43,9 @@ import kotlin.test.assertTrue
  *  O4 `BaseToolDefinition.requireString` rejects a non-string `JsonPrimitive`.
  */
 class McpToolAdapterSchemaAwareCoercionTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private val adapter = McpToolAdapter()
 
     private fun stringSchema(propName: String): ToolSchema =
@@ -306,23 +311,7 @@ class McpToolAdapterSchemaAwareCoercionTest {
                 closeInMemoryPair(client, server)
             }
 
-        private val dummyContext =
-            ToolExecutionContext(
-                repositoryProvider =
-                    io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider(
-                        io.github.jpicklyk.mcptask.current.infrastructure.database
-                            .DatabaseManager(
-                                org.jetbrains.exposed.v1.jdbc.Database.connect(
-                                    "jdbc:h2:mem:coercion_${System.nanoTime()};DB_CLOSE_DELAY=-1",
-                                    driver = "org.h2.Driver"
-                                )
-                            ).also {
-                                io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management
-                                    .DirectDatabaseSchemaManager()
-                                    .updateSchema()
-                            }
-                    )
-            )
+        private val dummyContext by lazy { ToolExecutionContext(repositoryProvider = db.repositoryProvider()) }
 
         @Test
         fun `S6 - query_notes search with query false does not surface a validation error`(): Unit =

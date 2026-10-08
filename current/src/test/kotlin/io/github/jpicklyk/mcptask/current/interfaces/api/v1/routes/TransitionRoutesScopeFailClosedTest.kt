@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -19,6 +20,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -64,6 +66,9 @@ private class TransitionScopeFailingRepositoryProvider(
 }
 
 class TransitionRoutesScopeFailClosedTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private class Fixture(
         val rootR: WorkItem,
         val rootQ: WorkItem,
@@ -120,7 +125,7 @@ class TransitionRoutesScopeFailClosedTest {
     // S1 (red on base): findByIds failure must not leak out-of-scope rows.
     @Test
     fun `S1 root-scoped token with failing findByIds sees no out-of-scope row`() {
-        val repo = buildH2RepositoryProvider()
+        val repo = db.repositoryProvider()
         val f = buildFixture(repo)
         runGet(failing(repo, failFindByIds = true, failFindAncestorChains = false), makeTestAuthConfig(setOf(f.rootR.id))) { status, body ->
             assertEquals(HttpStatusCode.OK, status, body)
@@ -133,7 +138,7 @@ class TransitionRoutesScopeFailClosedTest {
     // S2: ancestor-chain lookup failure denies everything.
     @Test
     fun `S2 root-scoped token with failing findAncestorChains sees zero rows`() {
-        val repo = buildH2RepositoryProvider()
+        val repo = db.repositoryProvider()
         val f = buildFixture(repo)
         runGet(failing(repo, failFindByIds = false, failFindAncestorChains = true), makeTestAuthConfig(setOf(f.rootR.id))) { status, body ->
             assertEquals(HttpStatusCode.OK, status, body)
@@ -144,7 +149,7 @@ class TransitionRoutesScopeFailClosedTest {
     // S3: root + tag scope, findByIds failing (tag evaluation cannot run) -> zero rows.
     @Test
     fun `S3 root and tag scope with failing findByIds sees zero rows`() {
-        val repo = buildH2RepositoryProvider()
+        val repo = db.repositoryProvider()
         val f = buildFixture(repo, tags = "alpha")
         runGet(
             failing(repo, failFindByIds = true, failFindAncestorChains = false),
@@ -158,7 +163,7 @@ class TransitionRoutesScopeFailClosedTest {
     // S4: happy path, no failures.
     @Test
     fun `S4 root-scoped token sees only in-scope rows when lookups succeed`() {
-        val repo = buildH2RepositoryProvider()
+        val repo = db.repositoryProvider()
         val f = buildFixture(repo)
         runGet(repo, makeTestAuthConfig(setOf(f.rootR.id))) { status, body ->
             assertEquals(HttpStatusCode.OK, status, body)
@@ -169,7 +174,7 @@ class TransitionRoutesScopeFailClosedTest {
     // S5: root + tag combined narrows to the one item satisfying both.
     @Test
     fun `S5 root and tag scope combine to the single matching item`() {
-        val repo = buildH2RepositoryProvider()
+        val repo = db.repositoryProvider()
         val items =
             runBlocking {
                 val w = repo.workItemRepository()
@@ -190,7 +195,7 @@ class TransitionRoutesScopeFailClosedTest {
     // S6 (red on base): filtering must precede pagination when the lookup fails.
     @Test
     fun `S6 failing findByIds with pageSize 1 yields an empty page when only out-of-scope rows exist`() {
-        val repo = buildH2RepositoryProvider()
+        val repo = db.repositoryProvider()
         val rootR =
             runBlocking {
                 val w = repo.workItemRepository()
@@ -220,7 +225,7 @@ class TransitionRoutesScopeFailClosedTest {
     // S7: unrestricted token needs no scope lookups, so failing lookups do not matter.
     @Test
     fun `S7 unrestricted token is unaffected by failing lookups`() {
-        val repo = buildH2RepositoryProvider()
+        val repo = db.repositoryProvider()
         val f = buildFixture(repo)
         runGet(failing(repo, failFindByIds = true, failFindAncestorChains = true), makeTestAuthConfig()) { status, body ->
             assertEquals(HttpStatusCode.OK, status, body)
@@ -231,7 +236,7 @@ class TransitionRoutesScopeFailClosedTest {
     // S8: nothing in the window, both lookups failing -> still a clean empty 200.
     @Test
     fun `S8 empty window with failing lookups returns 200 and no rows`() {
-        val repo = buildH2RepositoryProvider()
+        val repo = db.repositoryProvider()
         val f = buildFixture(repo)
         runGet(
             failing(repo, failFindByIds = true, failFindAncestorChains = true),
@@ -246,7 +251,7 @@ class TransitionRoutesScopeFailClosedTest {
     // Probe: a scope root that is itself the item id makes that item visible.
     @Test
     fun `probe rootIds containing the item own id makes it visible`() {
-        val repo = buildH2RepositoryProvider()
+        val repo = db.repositoryProvider()
         val f = buildFixture(repo)
         runGet(repo, makeTestAuthConfig(setOf(f.b.id))) { status, body ->
             assertEquals(HttpStatusCode.OK, status, body)
@@ -257,7 +262,7 @@ class TransitionRoutesScopeFailClosedTest {
     // Probe: empty-but-non-null rootIds is a scope that matches nothing.
     @Test
     fun `probe empty non-null rootIds yields zero rows`() {
-        val repo = buildH2RepositoryProvider()
+        val repo = db.repositoryProvider()
         buildFixture(repo)
         runGet(repo, makeTestAuthConfig(emptySet())) { status, body ->
             assertEquals(HttpStatusCode.OK, status, body)
@@ -268,7 +273,7 @@ class TransitionRoutesScopeFailClosedTest {
     // Probe: duplicate transitions for one in-scope item are all retained.
     @Test
     fun `probe duplicate transitions for one in-scope item are all kept`() {
-        val repo = buildH2RepositoryProvider()
+        val repo = db.repositoryProvider()
         val f = buildFixture(repo)
         runBlocking { repo.roleTransitionRepository().create(transition(f.a.id)) }
         runGet(repo, makeTestAuthConfig(setOf(f.rootR.id))) { status, body ->

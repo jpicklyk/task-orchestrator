@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -10,6 +11,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -23,10 +25,13 @@ import kotlin.test.assertTrue
  * - Scope filter applied on item-level access check
  */
 class DependencyRoutesTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `GET items id dependencies returns empty buckets when no deps`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Isolated", depth = 0)).getOrNull()!!
@@ -48,7 +53,7 @@ class DependencyRoutesTest {
     @Test
     fun `GET items id dependencies blocks bucket populated when item blocks another`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (blocker, blocked) =
                 runBlocking {
                     val a = repo.workItemRepository().create(WorkItem(title = "Blocker", depth = 0)).getOrNull()!!
@@ -73,7 +78,7 @@ class DependencyRoutesTest {
     @Test
     fun `GET items id dependencies blockedBy bucket populated`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (blocker, blocked) =
                 runBlocking {
                     val a = repo.workItemRepository().create(WorkItem(title = "Blocker", depth = 0)).getOrNull()!!
@@ -98,7 +103,7 @@ class DependencyRoutesTest {
     @Test
     fun `GET items id dependencies related bucket populated`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (a, b) =
                 runBlocking {
                     val x = repo.workItemRepository().create(WorkItem(title = "Item A", depth = 0)).getOrNull()!!
@@ -123,7 +128,7 @@ class DependencyRoutesTest {
     @Test
     fun `GET items id backlinks returns referencing items`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (referencing, target) =
                 runBlocking {
                     val t = repo.workItemRepository().create(WorkItem(title = "Target", depth = 0)).getOrNull()!!
@@ -149,7 +154,7 @@ class DependencyRoutesTest {
     @Test
     fun `GET items id dependencies returns 404 for missing item`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application {
                 configureTestApp { dependencyRoutes(repo) }
             }
@@ -163,7 +168,7 @@ class DependencyRoutesTest {
     @Test
     fun `GET items id dependencies returns 403 outside scope`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Out of scope dep", depth = 0)).getOrNull()!!

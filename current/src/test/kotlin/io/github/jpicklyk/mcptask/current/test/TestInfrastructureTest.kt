@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
-import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.*
@@ -337,60 +336,5 @@ class TestInfrastructureTest {
     @Test
     fun `schema service returns null for unrecognized tags`() {
         assertNull(TestNoteSchemaService.FEATURE_IMPLEMENTATION.getSchemaForTags(listOf("unrelated-tag")))
-    }
-
-    // ── BaseRepositoryTest ──
-
-    @Nested
-    inner class BaseRepositoryTestValidation : BaseRepositoryTest() {
-        @Test
-        fun `can create and read back items`(): Unit =
-            runBlocking {
-                val item = createPersistedItem(title = "Persisted Item")
-                assertEquals("Persisted Item", item.title)
-                assertEquals(Role.QUEUE, item.role)
-
-                // Read back via repository
-                val result = repositoryProvider.workItemRepository().getById(item.id)
-                assertIs<Result.Success<*>>(result)
-                assertEquals("Persisted Item", (result as Result.Success).data.title)
-            }
-
-        @Test
-        fun `can create item with parent`(): Unit =
-            runBlocking {
-                val parent = createPersistedItem(title = "Parent")
-                val child = createPersistedItem(title = "Child", parentId = parent.id)
-                assertEquals(parent.id, child.parentId)
-                assertEquals(1, child.depth)
-            }
-
-        @Test
-        fun `can create and read back notes`(): Unit =
-            runBlocking {
-                val item = createPersistedItem(title = "Item with note")
-                val note = createPersistedNote(itemId = item.id, key = "design", role = "work", body = "Design doc")
-                assertEquals("design", note.key)
-                assertEquals("work", note.role)
-                assertEquals("Design doc", note.body)
-
-                val result = repositoryProvider.noteRepository().findByItemId(item.id)
-                assertIs<Result.Success<*>>(result)
-                assertEquals(1, (result as Result.Success).data.size)
-            }
-
-        @Test
-        fun `can create and read back dependencies`(): Unit =
-            runBlocking {
-                val item1 = createPersistedItem(title = "Item 1")
-                val item2 = createPersistedItem(title = "Item 2")
-                val dep = createPersistedDependency(fromItemId = item1.id, toItemId = item2.id)
-                assertEquals(item1.id, dep.fromItemId)
-                assertEquals(item2.id, dep.toItemId)
-                assertEquals(DependencyType.BLOCKS, dep.type)
-
-                val deps = repositoryProvider.dependencyRepository().findByItemId(item1.id)
-                assertEquals(1, deps.size)
-            }
     }
 }

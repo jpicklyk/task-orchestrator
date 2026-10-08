@@ -16,11 +16,10 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvid
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
@@ -37,11 +36,11 @@ import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import kotlinx.coroutines.test.runTest
 import org.bouncycastle.jce.provider.BouncyCastleProvider
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.security.Security
 import java.time.Instant
 import java.util.Date
@@ -64,6 +63,9 @@ import java.util.Date
  * duplicated as a flaky assertion on library-internal serialization behaviour.
  */
 class JwksApiVerifierExpiryTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     companion object {
         init {
             if (Security.getProvider("BC") == null) {
@@ -244,15 +246,7 @@ class JwksApiVerifierExpiryTest {
                 ),
         )
 
-    private fun inMemoryRepositoryProvider(): DefaultRepositoryProvider =
-        DefaultRepositoryProvider(
-            DatabaseManager(
-                Database.connect(
-                    "jdbc:h2:mem:jwksexpiryrest_${System.nanoTime()};DB_CLOSE_DELAY=-1",
-                    driver = "org.h2.Driver",
-                ),
-            ).also { DirectDatabaseSchemaManager().updateSchema() },
-        )
+    private fun inMemoryRepositoryProvider(): DefaultRepositoryProvider = db.repositoryProvider()
 
     private fun io.ktor.server.application.Application.installJwksRestApp(verifier: JwksApiVerifier) {
         installMcpStreamableHttp(emptyMcpServer())

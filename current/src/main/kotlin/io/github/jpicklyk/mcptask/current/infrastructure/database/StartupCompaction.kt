@@ -12,7 +12,7 @@ import java.sql.DriverManager
  *   `PRAGMA user_version` was advanced to [StartupCompaction.COMPACTED_USER_VERSION].
  * - [ALREADY_COMPACTED] - `PRAGMA user_version` was already `>= 1`; nothing was done.
  * - [SKIPPED_NOT_FILE_DB] - the JDBC URL does not resolve to an on-disk SQLite file (an
- *   in-memory database, or a non-SQLite driver such as H2 used by tests); no connection was
+ *   in-memory database, or a non-SQLite driver); no connection was
  *   opened.
  * - [SKIPPED_INSUFFICIENT_DISK] - the free-disk precheck failed (fewer than 2x the current
  *   database + WAL size available); compaction was not attempted.
@@ -89,7 +89,7 @@ internal object StartupCompaction {
      *
      * @param jdbcUrl the JDBC URL DatabaseManager connected with. Only `jdbc:sqlite:` URLs that
      *   resolve to an on-disk file are eligible; in-memory SQLite URLs and non-SQLite URLs
-     *   (e.g. `jdbc:h2:mem:...` used by tests) are skipped.
+     *   (e.g. `jdbc:postgresql:...`) are skipped.
      * @param busyTimeoutMs `PRAGMA busy_timeout` set on the raw compaction connection, so a
      *   concurrent writer causes a bounded wait-then-fail instead of an indefinite block.
      * @param usableSpaceBytes injectable free-disk-space probe for the precheck, defaulting to

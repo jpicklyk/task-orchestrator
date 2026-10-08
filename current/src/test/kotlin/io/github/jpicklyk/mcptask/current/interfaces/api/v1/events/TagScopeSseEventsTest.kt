@@ -10,8 +10,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -37,6 +37,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
@@ -66,6 +67,9 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  * replay-idempotency probe (reconnecting twice with the same `Last-Event-ID` yields the same set).
  */
 class TagScopeSseEventsTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     companion object {
         private const val TOKEN = "tag-scope-test-token-abc123"
 
@@ -159,7 +163,7 @@ class TagScopeSseEventsTest {
     @Test
     fun `S1 - a write to an in-scope item is delivered to a tags_include-scoped subscription`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
+            val provider = db.repositoryProvider()
             val bus = ApiEventBus()
             val itemA = createItem(provider, tags = "alpha")
             application { wireEventsRoute(bus, tokenEntries(TOKEN, tagsInclude = setOf("alpha")), provider.workItemRepository()) }
@@ -190,7 +194,7 @@ class TagScopeSseEventsTest {
     @Test
     fun `S2 - an out-of-scope write produces no event, and a follow-up in-scope write proves the connection is live`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
+            val provider = db.repositoryProvider()
             val bus = ApiEventBus()
             val itemA = createItem(provider, tags = "alpha")
             val itemB = createItem(provider, tags = "beta")
@@ -231,7 +235,7 @@ class TagScopeSseEventsTest {
     @Test
     fun `S3 - replay includes only the in-scope buffered event, and reconnecting is idempotent`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
+            val provider = db.repositoryProvider()
             val bus = ApiEventBus()
             val itemA = createItem(provider, tags = "alpha")
             val itemB = createItem(provider, tags = "beta")
@@ -352,7 +356,7 @@ class TagScopeSseEventsTest {
     @Test
     fun `S6a - adding the in-scope tag mid-stream makes the item's next event deliverable`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
+            val provider = db.repositoryProvider()
             val bus = ApiEventBus()
             val itemB = createItem(provider, tags = "beta")
             application { wireEventsRoute(bus, tokenEntries(TOKEN, tagsInclude = setOf("alpha")), provider.workItemRepository()) }
@@ -386,7 +390,7 @@ class TagScopeSseEventsTest {
     @Test
     fun `S6b - removing the in-scope tag mid-stream makes the item's next event non-deliverable`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
+            val provider = db.repositoryProvider()
             val bus = ApiEventBus()
             val itemA = createItem(provider, tags = "alpha")
             application { wireEventsRoute(bus, tokenEntries(TOKEN, tagsInclude = setOf("alpha")), provider.workItemRepository()) }
@@ -426,7 +430,7 @@ class TagScopeSseEventsTest {
     @Test
     fun `S7a - a whitespace-padded csv tag element matches by exact trimmed value`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
+            val provider = db.repositoryProvider()
             val bus = ApiEventBus()
             val itemSpaced = createItem(provider, tags = " alpha , beta ")
             bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemSpaced.id, modifiedAt = Instant.now()), emptySet())
@@ -457,7 +461,7 @@ class TagScopeSseEventsTest {
     @Test
     fun `S7b - null, empty, and superstring tags are all excluded from a tag-scoped subscription`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
+            val provider = db.repositoryProvider()
             val bus = ApiEventBus()
             val itemNull = createItem(provider, tags = null)
             val itemEmpty = createItem(provider, tags = "")
@@ -500,7 +504,7 @@ class TagScopeSseEventsTest {
     @Test
     fun `S8 - bus-level events with no itemId reach a tag-scoped connection, live and replayed`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
+            val provider = db.repositoryProvider()
             val bus = ApiEventBus()
             // Pre-buffer one bus-level sentinel so Last-Event-ID=0 must replay it.
             bus.publish(bus.buildEvent(ApiEventType.SYNC_LOST), emptySet())
@@ -594,7 +598,7 @@ class TagScopeSseEventsTest {
     @Test
     fun `S10 - combined rootIds and tags_include scope requires both dimensions to match`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
+            val provider = db.repositoryProvider()
             val bus = ApiEventBus()
             val root1 = UUID.randomUUID()
             val root2 = UUID.randomUUID()
@@ -658,7 +662,7 @@ class TagScopeSseEventsTest {
     @Test
     fun `S11 - item_deleted for an item that was in scope before deletion is dropped (documented gap)`(): Unit =
         testApplication {
-            val provider = buildH2RepositoryProvider()
+            val provider = db.repositoryProvider()
             val bus = ApiEventBus()
             val itemA = createItem(provider, tags = "alpha")
             application { wireEventsRoute(bus, tokenEntries(TOKEN, tagsInclude = setOf("alpha")), provider.workItemRepository()) }

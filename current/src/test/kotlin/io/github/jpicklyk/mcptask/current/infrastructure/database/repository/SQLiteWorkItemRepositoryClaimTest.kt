@@ -34,7 +34,7 @@ import kotlin.test.assertTrue
  * Uses a real file-backed SQLite database (via SqliteTestDatabase) to verify the
  * canonical SQL claim pattern, auto-release, re-claim, expiry filtering, and release
  * semantics. SQLite is required because the claim SQL uses SQLite-specific
- * `datetime('now', '+N seconds')` syntax that H2 does not support.
+ * `datetime('now', '+N seconds')` syntax, which only SQLite supports.
  */
 class SQLiteWorkItemRepositoryClaimTest {
     @RegisterExtension
@@ -636,7 +636,7 @@ class SQLiteWorkItemRepositoryClaimTest {
      *
      * Two related contracts converge here:
      *  - C2 (parameterized SQL) ensures whitespace agentIds bind safely without injection risk.
-     *  - H2 (`WorkItem.validate()` invariants) requires `claimedBy` to be non-blank when set,
+     *  - The `WorkItem.validate()` invariants require `claimedBy` to be non-blank when set,
      *    as defense-in-depth so the claim round-trip cannot leave the row in an unclaimable
      *    state where ownership comparisons silently match an empty string.
      *
@@ -653,7 +653,7 @@ class SQLiteWorkItemRepositoryClaimTest {
             val whitespaceAgent = "   "
 
             val result = repository.claim(item.id, whitespaceAgent, 900)
-            // H2's validate() rejects blank claimedBy; the repository's catch block wraps
+            // validate() rejects blank claimedBy; the repository's catch block wraps
             // the ValidationException as ClaimResult.DBError per H1.
             assertIs<ClaimResult.DBError>(result)
             assertNotNull(result.cause, "DBError should carry the underlying ValidationException as cause")

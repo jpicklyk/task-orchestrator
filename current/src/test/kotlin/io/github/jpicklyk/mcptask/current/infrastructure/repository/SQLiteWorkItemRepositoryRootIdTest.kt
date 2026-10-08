@@ -17,7 +17,7 @@ import kotlin.test.assertIs
 
 /**
  * Integration tests for the denormalized `root_id` column against a real in-memory SQLite
- * database (pattern: [SQLiteWorkItemRepositoryFindInScopeTest] — SQLite rather than H2, since
+ * database (pattern: [SQLiteWorkItemRepositoryFindInScopeTest] — real SQLite, since
  * these exercises go through [ItemHierarchyValidator.recomputeDescendantDepths]'s
  * [WorkItemRepository.findDescendants] which relies on a SQLite-specific recursive CTE).
  *

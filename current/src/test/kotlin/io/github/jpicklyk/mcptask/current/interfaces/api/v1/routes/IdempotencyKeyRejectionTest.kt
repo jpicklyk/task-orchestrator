@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
@@ -15,6 +16,7 @@ import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -34,10 +36,13 @@ import kotlin.test.assertTrue
  * `return@put`) before the write path ever runs.
  */
 class IdempotencyKeyRejectionTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `POST items with malformed Idempotency-Key returns 400 validation_error and creates nothing`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureWriteTestApp(repo) }
 
             val response =
@@ -64,7 +69,7 @@ class IdempotencyKeyRejectionTest {
     @Test
     fun `PATCH items id with malformed Idempotency-Key returns 400 validation_error and leaves item unmodified`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Untouched Title", depth = 0)).getOrNull()!!
@@ -97,7 +102,7 @@ class IdempotencyKeyRejectionTest {
     @Test
     fun `PUT note with malformed Idempotency-Key returns 400 validation_error and creates no note`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Note Host", depth = 0)).getOrNull()!!

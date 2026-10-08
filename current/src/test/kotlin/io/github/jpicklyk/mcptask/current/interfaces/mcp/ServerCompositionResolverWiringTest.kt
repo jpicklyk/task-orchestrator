@@ -2,11 +2,10 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
-import org.jetbrains.exposed.v1.jdbc.Database
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertIs
 import kotlin.test.assertSame
 
@@ -25,13 +24,8 @@ import kotlin.test.assertSame
  * instance from the composition's local `configResolver`, reddening the identity assertions below.
  */
 class ServerCompositionResolverWiringTest {
-    /** Builds an H2-backed DatabaseManager with schema created (no live env reads), mirroring [ServerCompositionTest]. */
-    private fun buildDatabaseManager(): DatabaseManager {
-        val dbName = "resolver_wiring_test_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DatabaseManager(database)
-    }
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
 
     /** A test snapshot with the REST API disabled (the default), built from an empty environment. */
     private fun disabledApiConfig(): AppConfig = AppConfig.fromEnv { null }
@@ -41,7 +35,7 @@ class ServerCompositionResolverWiringTest {
         val composition =
             ServerComposition(
                 appConfig = disabledApiConfig(),
-                databaseManager = buildDatabaseManager(),
+                databaseManager = db.databaseManager,
                 shutdownCoordinator = ShutdownCoordinator(),
             ).build()
 

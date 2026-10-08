@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.delete
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -39,6 +40,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 
 /**
  * TEST-AUTHOR INDEPENDENT SUITE for item `59989657` (test-plan S15, S16).
@@ -58,6 +60,9 @@ import org.junit.jupiter.api.Test
  * routes, never actor-resolution).
  */
 class WriteRouteAuthInvariantTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private fun jwksAuthConfig(): ApiAuthConfig.Jwks =
         ApiAuthConfig.Jwks(
             url = "https://idp.example/.well-known/jwks.json",
@@ -157,7 +162,7 @@ class WriteRouteAuthInvariantTest {
     @Test
     fun `S16 - JWKS principal with write caps under REJECT policy never 401s across item, note, and dependency writes`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val writePrincipal =
                 jwksPrincipal(
                     tokenId = "s16-writer",
@@ -238,7 +243,7 @@ class WriteRouteAuthInvariantTest {
     @Test
     fun `S16 - no Authorization header still 401s on the same write routes`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val verifier = mockk<JwksApiVerifier>()
             application { wireJwksWriteApp(repo, verifier, DegradedModePolicy.REJECT) }
 
@@ -258,7 +263,7 @@ class WriteRouteAuthInvariantTest {
     @Test
     fun `S16 - JWKS principal with READ-only capability gets 403 on a write route, not 401`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val readPrincipal = jwksPrincipal(tokenId = "s16-reader", capabilities = setOf(ApiCapability.READ))
             val verifier = mockk<JwksApiVerifier>()
             coEvery { verifier.verify("s16-read-jwt") } returns readPrincipal

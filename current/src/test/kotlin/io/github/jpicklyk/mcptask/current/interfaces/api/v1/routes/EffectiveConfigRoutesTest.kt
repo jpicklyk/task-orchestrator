@@ -30,6 +30,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.EffectiveConfigDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.StatusGraphDto
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -44,6 +45,7 @@ import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.decodeFromString
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
@@ -65,7 +67,7 @@ import kotlin.test.assertTrue
 // enumeration param, so global-layer drift between the two params — R1 in the test-plan's
 // red-proof table — cannot occur by construction), mirroring
 // EffectiveConfigResolverTest/AvailableTraitsOrderTest's proven pattern. Per-root layers use
-// PerRootConfigService over a real H2-backed ProjectConfigRepository (mirroring
+// PerRootConfigService over a real SQLite-backed ProjectConfigRepository (mirroring
 // ProjectConfigRoutesTest/ConfigUnavailableRoutesTest), except where a scenario needs a fixed
 // or instrumented PerRootConfigSource fake, per that scenario's own note.
 
@@ -194,6 +196,9 @@ private fun globalLayerFixture(yaml: String): Pair<WorkItemSchemaService, Global
 // ───────────────────────────── Happy path: S1-S6 ─────────────────────────────
 
 class EffectiveConfigRoutesHappyPathTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     companion object {
         // No review-phase note anywhere in the global layer.
         private val GLOBAL_S1 =
@@ -232,7 +237,7 @@ class EffectiveConfigRoutesHappyPathTest {
     fun `S1 - per-root override and global-only type are both listed with correct source, fingerprint and layer echoes`() =
         testApplication {
             val (schemaService, global) = globalFixture(GLOBAL_S1)
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             runBlocking { repo.projectConfigRepository().upsert(root.id, PER_ROOT_S1) }
             val rowFingerprint = runBlocking { repo.projectConfigRepository().getFingerprint(root.id).getOrNull() }
@@ -292,7 +297,7 @@ class EffectiveConfigRoutesHappyPathTest {
                         required: false
                 """.trimIndent()
             val (schemaService, global) = globalFixture(globalYaml)
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             runBlocking { repo.projectConfigRepository().upsert(root.id, perRootYaml) }
 
@@ -319,7 +324,7 @@ class EffectiveConfigRoutesHappyPathTest {
     fun `S3 - every entry's matchedType, configSource, configFingerprint and note keys equal a direct resolveTypeSchema call`() =
         testApplication {
             val (schemaService, global) = globalFixture(GLOBAL_S1)
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             runBlocking { repo.projectConfigRepository().upsert(root.id, PER_ROOT_S1) }
 
@@ -347,7 +352,7 @@ class EffectiveConfigRoutesHappyPathTest {
     fun `S4 - the effective status graph reflects the per-root review note while the legacy config route stays global-only`() =
         testApplication {
             val (schemaService, global) = globalFixture(GLOBAL_S1)
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             runBlocking { repo.projectConfigRepository().upsert(root.id, PER_ROOT_S1) }
 
@@ -406,7 +411,7 @@ class EffectiveConfigRoutesHappyPathTest {
                         required: false
                 """.trimIndent()
             val (schemaService, global) = globalFixture(globalYaml)
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             runBlocking { repo.projectConfigRepository().upsert(root.id, perRootYaml) }
 
@@ -435,7 +440,7 @@ class EffectiveConfigRoutesHappyPathTest {
     fun `S6 - with no per-root row, the view is entirely global with no perRootFingerprint`() =
         testApplication {
             val (schemaService, global) = globalFixture(GLOBAL_S1)
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             // Deliberately no upsert() — no per-root config row exists for this root.
 
@@ -459,6 +464,9 @@ class EffectiveConfigRoutesHappyPathTest {
 // ───────────────────────────── ETag: S7-S10 ─────────────────────────────
 
 class EffectiveConfigRoutesEtagTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private val globalYaml =
         """
         work_item_schemas:
@@ -488,7 +496,7 @@ class EffectiveConfigRoutesEtagTest {
     fun `S7 - repeat GET returns a stable eff- ETag, and If-None-Match round-trips to 304 with an empty body`() =
         testApplication {
             val (schemaService, global) = globalFixture(globalYaml)
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             runBlocking { repo.projectConfigRepository().upsert(root.id, perRootYamlA) }
             val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
@@ -516,7 +524,7 @@ class EffectiveConfigRoutesEtagTest {
     fun `S8 - pushing a new per-root config changes the ETag, and the old ETag no longer matches`() =
         testApplication {
             val (schemaService, global) = globalFixture(globalYaml)
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             runBlocking { repo.projectConfigRepository().upsert(root.id, perRootYamlA) }
             val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
@@ -543,7 +551,7 @@ class EffectiveConfigRoutesEtagTest {
 
     @Test
     fun `S9 - the same per-root row under two different global fingerprints yields two different ETags`() {
-        val repo = buildH2RepositoryProvider()
+        val repo = db.repositoryProvider()
         val root = createRootItem(repo)
         runBlocking { repo.projectConfigRepository().upsert(root.id, perRootYamlA) }
 
@@ -597,7 +605,7 @@ class EffectiveConfigRoutesEtagTest {
             // with the "eff-" prefix, so an effective ETag can never be replayed as a stale
             // /config If-Match.
             val (schemaService, global) = globalFixture(globalYaml)
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             runBlocking { repo.projectConfigRepository().upsert(root.id, perRootYamlA) }
             val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
@@ -622,6 +630,9 @@ class EffectiveConfigRoutesEtagTest {
 // ───────────────────────────── Authz / failure: S11-S17 ─────────────────────────────
 
 class EffectiveConfigRoutesAuthzTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private val emptyGlobalYaml = "work_item_schemas: {}"
 
     private fun buildBareApp(
@@ -635,7 +646,7 @@ class EffectiveConfigRoutesAuthzTest {
 
     @Test
     fun `S11 - a bearer app rejects a missing Authorization header with 401, but Unauthenticated mode allows it through with 200`() {
-        val repo = buildH2RepositoryProvider()
+        val repo = db.repositoryProvider()
         val root = createRootItem(repo)
         val (resolver, schemaService) = buildBareApp(repo)
 
@@ -657,7 +668,7 @@ class EffectiveConfigRoutesAuthzTest {
     @Test
     fun `S12 - a token scoped to a different root is rejected 403 scope_forbidden with zero per-root reads`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             val otherRoot = createRootItem(repo, title = "Other Root")
             val counting = CountingPerRootConfigSource(NULL_PER_ROOT_SOURCE)
@@ -684,7 +695,7 @@ class EffectiveConfigRoutesAuthzTest {
     @Test
     fun `S13 - a tagsInclude-scoped token is rejected for an untagged root but allowed for a tagged one`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val taggedRoot = createRootItem(repo, title = "Tagged Root", tags = "x")
             val untaggedRoot = createRootItem(repo, title = "Untagged Root")
             val (resolver, schemaService) = buildBareApp(repo)
@@ -712,7 +723,7 @@ class EffectiveConfigRoutesAuthzTest {
 
     @Test
     fun `S14 - an unknown root is 403 under a restricted scope but 404 not_found under an unrestricted one`() {
-        val repo = buildH2RepositoryProvider()
+        val repo = db.repositoryProvider()
         val realRoot = createRootItem(repo)
         val unknownId = UUID.randomUUID()
         val (resolver, schemaService) = buildBareApp(repo)
@@ -748,7 +759,7 @@ class EffectiveConfigRoutesAuthzTest {
     @Test
     fun `S15 - a non-depth-0 root returns 422 validation_error naming depth-0`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val parent = createRootItem(repo, title = "Parent")
             val child =
                 runBlocking {
@@ -770,7 +781,7 @@ class EffectiveConfigRoutesAuthzTest {
     @Test
     fun `S16 - a malformed rootId path segment returns 400 bad_request`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (resolver, schemaService) = buildBareApp(repo)
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
 
@@ -785,7 +796,7 @@ class EffectiveConfigRoutesAuthzTest {
     @Test
     fun `S17 - a PerRootConfigUnavailableException from the resolver yields 503 config_unavailable with no ETag and no Retry-After`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             val (schemaService, global) = globalFixture(emptyGlobalYaml)
             val resolver = EffectiveConfigResolver(global, throwingPerRootSource("boom"))
@@ -808,11 +819,14 @@ class EffectiveConfigRoutesAuthzTest {
 // ───────────────────────────── Edge cases: S18-S22 ─────────────────────────────
 
 class EffectiveConfigRoutesEdgeTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `S18 - exactly one per-root read occurs on the 200 request and exactly one more on the 304 request`() =
         testApplication {
             val (schemaService, global) = globalFixture("work_item_schemas: {}")
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             runBlocking { repo.projectConfigRepository().upsert(root.id, "work_item_schemas:\n  t:\n    notes: []\n") }
             val counting = CountingPerRootConfigSource(PerRootConfigService(repo.projectConfigRepository()))
@@ -837,7 +851,7 @@ class EffectiveConfigRoutesEdgeTest {
     fun `S19 - a per-root layer naming a type absent from the DB row is still listed, sourced per-root`() =
         testApplication {
             val (schemaService, global) = globalFixture("work_item_schemas: {}")
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             // No row is ever pushed to the DB — the fake resolver is entirely self-contained.
             val ghostSchema = WorkItemSchema(type = "ghost", notes = listOf(NoteSchemaEntry(key = "ghost-note", role = Role.QUEUE)))
@@ -868,7 +882,7 @@ class EffectiveConfigRoutesEdgeTest {
                         notes: []
                     """.trimIndent(),
                 )
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
             application { configureEffectiveAndLegacyConfigTestApp(repo, resolver, schemaService) }
@@ -893,7 +907,7 @@ class EffectiveConfigRoutesEdgeTest {
     fun `S21 - with neither layer configured, the response is 200 with empty collections, no fingerprints, and a stable ETag`() =
         testApplication {
             val (schemaService, global) = absentGlobalFixture()
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
@@ -925,7 +939,7 @@ class EffectiveConfigRoutesEdgeTest {
     @Test
     fun `S22 - the route is reachable through the real installRestApiRoutes production wiring`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             val (schemaService, _) = globalFixture("work_item_schemas:\n  bug:\n    notes: []\n")
             runBlocking {
@@ -973,6 +987,9 @@ class EffectiveConfigRoutesEdgeTest {
 // ───────────────────────────── Probes ─────────────────────────────
 
 class EffectiveConfigRoutesProbeTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private val globalYaml =
         """
         work_item_schemas:
@@ -984,7 +1001,7 @@ class EffectiveConfigRoutesProbeTest {
     fun `probe - an upper-case rootId still resolves (UUID parsing is case-insensitive)`() =
         testApplication {
             val (schemaService, global) = globalFixture(globalYaml)
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
@@ -1000,7 +1017,7 @@ class EffectiveConfigRoutesProbeTest {
     fun `probe - a padded If-None-Match value still matches (304), a weak W- validator does not (200)`() =
         testApplication {
             val (schemaService, global) = globalFixture(globalYaml)
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
@@ -1029,7 +1046,7 @@ class EffectiveConfigRoutesProbeTest {
     fun `probe - a type present in both layers appears exactly once, sourced per-root`() =
         testApplication {
             val (schemaService, global) = globalFixture(globalYaml)
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             runBlocking {
                 repo.projectConfigRepository().upsert(
@@ -1069,40 +1086,42 @@ class EffectiveConfigRoutesProbeTest {
                     required: false
             """.trimIndent()
         val (schemaServiceA, globalA) = globalFixture(globalWithTrait)
-        val repoA = buildH2RepositoryProvider()
+        val repoA = db.repositoryProvider()
         val rootA = createRootItem(repoA)
         runBlocking { repoA.projectConfigRepository().upsert(rootA.id, "work_item_schemas: {}\ntraits: {}\n") }
         val resolverA = EffectiveConfigResolver(globalA, PerRootConfigService(repoA.projectConfigRepository()))
 
-        val (schemaServiceB, globalB) = globalFixture(globalWithTrait)
-        val repoB = buildH2RepositoryProvider()
-        val rootB = createRootItem(repoB)
-        runBlocking { repoB.projectConfigRepository().upsert(rootB.id, "work_item_schemas: {}\n") }
-        val resolverB = EffectiveConfigResolver(globalB, PerRootConfigService(repoB.projectConfigRepository()))
+        SqliteTestDatabase.open().use { dbB ->
+            val (schemaServiceB, globalB) = globalFixture(globalWithTrait)
+            val repoB = dbB.repositoryProvider()
+            val rootB = createRootItem(repoB)
+            runBlocking { repoB.projectConfigRepository().upsert(rootB.id, "work_item_schemas: {}\n") }
+            val resolverB = EffectiveConfigResolver(globalB, PerRootConfigService(repoB.projectConfigRepository()))
 
-        lateinit var namesWithExplicitEmpty: List<String>
-        testApplication {
-            application { configureEffectiveConfigTestApp(repoA, resolverA, schemaServiceA) }
-            val body =
-                client
-                    .get("/api/v1/roots/${rootA.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
-                    .bodyAsText()
-            namesWithExplicitEmpty = decodeEffective(body).traits.map { it.name }
-        }
+            lateinit var namesWithExplicitEmpty: List<String>
+            testApplication {
+                application { configureEffectiveConfigTestApp(repoA, resolverA, schemaServiceA) }
+                val body =
+                    client
+                        .get("/api/v1/roots/${rootA.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
+                        .bodyAsText()
+                namesWithExplicitEmpty = decodeEffective(body).traits.map { it.name }
+            }
 
-        testApplication {
-            application { configureEffectiveConfigTestApp(repoB, resolverB, schemaServiceB) }
-            val body =
-                client
-                    .get("/api/v1/roots/${rootB.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
-                    .bodyAsText()
-            val namesWithAbsentKey = decodeEffective(body).traits.map { it.name }
-            assertEquals(
-                namesWithExplicitEmpty,
-                namesWithAbsentKey,
-                "explicit empty traits map and an absent traits key must behave identically"
-            )
-            assertEquals(listOf("only-global"), namesWithAbsentKey)
+            testApplication {
+                application { configureEffectiveConfigTestApp(repoB, resolverB, schemaServiceB) }
+                val body =
+                    client
+                        .get("/api/v1/roots/${rootB.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
+                        .bodyAsText()
+                val namesWithAbsentKey = decodeEffective(body).traits.map { it.name }
+                assertEquals(
+                    namesWithExplicitEmpty,
+                    namesWithAbsentKey,
+                    "explicit empty traits map and an absent traits key must behave identically"
+                )
+                assertEquals(listOf("only-global"), namesWithAbsentKey)
+            }
         }
     }
 }
@@ -1137,12 +1156,15 @@ class EffectiveConfigRoutesProbeTest {
 // arbitration record.
 
 class EffectiveConfigRoutesSchemaResolutionTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `S15 - schemaResolution reflects per-root, falls back to global, defaults legacy, downgrades isolated`() {
         // Case 1: a per-root schema_resolution wins outright, regardless of the (absent) global value.
         testApplication {
             val (schemaService, global) = globalFixture("work_item_schemas: {}")
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo, title = "S15 per-root layered")
             runBlocking {
                 repo.projectConfigRepository().upsert(root.id, "schema_resolution: layered\nwork_item_schemas: {}\n")
@@ -1162,7 +1184,7 @@ class EffectiveConfigRoutesSchemaResolutionTest {
         // Case 2: no schema_resolution key anywhere (no per-root row, global YAML omits it) -> legacy.
         testApplication {
             val (schemaService, global) = globalFixture("work_item_schemas: {}")
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo, title = "S15 absent everywhere")
             val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
@@ -1179,7 +1201,7 @@ class EffectiveConfigRoutesSchemaResolutionTest {
         // Case 3: global layered, per-root document present but WITHOUT the key -> inherits layered.
         testApplication {
             val (schemaService, global) = globalLayerFixture("schema_resolution: layered\nwork_item_schemas: {}\n")
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo, title = "S15 global layered, per-root silent")
             runBlocking { repo.projectConfigRepository().upsert(root.id, "work_item_schemas: {}\n") }
             val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
@@ -1198,7 +1220,7 @@ class EffectiveConfigRoutesSchemaResolutionTest {
         // meaning at the global level: nothing to isolate FROM).
         testApplication {
             val (schemaService, global) = globalLayerFixture("schema_resolution: isolated\nwork_item_schemas: {}\n")
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo, title = "S15 global isolated")
             val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
@@ -1215,6 +1237,9 @@ class EffectiveConfigRoutesSchemaResolutionTest {
 }
 
 class EffectiveConfigRoutesOrderingTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `S16 - types and schemas are listed in ascending natural key order regardless of insertion order`() =
         testApplication {
@@ -1236,7 +1261,7 @@ class EffectiveConfigRoutesOrderingTest {
                     notes: []
                 """.trimIndent()
             val (schemaService, global) = globalFixture(globalYaml)
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             runBlocking { repo.projectConfigRepository().upsert(root.id, perRootYaml) }
             val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
@@ -1257,6 +1282,9 @@ class EffectiveConfigRoutesOrderingTest {
 }
 
 class EffectiveConfigRoutesDefaultSchemaTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `S17 - a per-root default type populates defaultSchema sourced per-root`() =
         testApplication {
@@ -1271,7 +1299,7 @@ class EffectiveConfigRoutesDefaultSchemaTest {
                         required: false
                 """.trimIndent()
             val (schemaService, global) = globalFixture(globalYaml)
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             runBlocking { repo.projectConfigRepository().upsert(root.id, perRootYaml) }
             val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
@@ -1299,7 +1327,7 @@ class EffectiveConfigRoutesDefaultSchemaTest {
                     notes: []
                 """.trimIndent()
             val (schemaService, global) = globalFixture(globalYaml)
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             // Deliberately no upsert() — no per-root row, so the default must come from global.
             val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
@@ -1316,6 +1344,9 @@ class EffectiveConfigRoutesDefaultSchemaTest {
 }
 
 class EffectiveConfigRoutesEntryFieldsTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `S18 - a manual-lifecycle schema surfaces default_traits, and a trait's resources are present or omitted per declaration`() =
         testApplication {
@@ -1338,7 +1369,7 @@ class EffectiveConfigRoutesEntryFieldsTest {
                     notes: []
                 """.trimIndent()
             val (schemaService, global) = globalFixture(globalYaml)
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
@@ -1398,10 +1429,13 @@ private class EffectiveConfigFailingRepositoryProvider(
 }
 
 class EffectiveConfigRoutesRootLookupFailureTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `S19 - a non-not-found root-lookup repository error yields 500 db_error, an unknown root still 404s`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             val unknownId = UUID.randomUUID()
             val failingProvider =
@@ -1448,6 +1482,9 @@ class EffectiveConfigRoutesRootLookupFailureTest {
 // authored against that doc section; not derived from route source.
 
 class EffectiveConfigRoutesTypesMatchSchemasTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private val globalYaml =
         """
         work_item_schemas:
@@ -1461,7 +1498,7 @@ class EffectiveConfigRoutesTypesMatchSchemasTest {
     fun `types equals the type values of schemas, and isolated omits a global-only type with no per-root default`() =
         testApplication {
             val (schemaService, global) = globalFixture(globalYaml)
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             runBlocking {
                 repo.projectConfigRepository().upsert(
@@ -1501,7 +1538,7 @@ class EffectiveConfigRoutesTypesMatchSchemasTest {
     fun `LAYERED control - the identical fixture under schema_resolution layered lists both types, in order`() =
         testApplication {
             val (schemaService, global) = globalFixture(globalYaml)
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             runBlocking {
                 repo.projectConfigRepository().upsert(

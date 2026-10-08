@@ -24,8 +24,6 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.java.UUIDColumnType
-import org.jetbrains.exposed.v1.core.vendors.H2Dialect
-import org.jetbrains.exposed.v1.core.vendors.currentDialect
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.upsert
@@ -62,10 +60,8 @@ class SQLiteNoteRepository(
      * on (work_item_id, key) and its write would be silently dropped. Using a single atomic
      * statement eliminates the race — the DB resolves the conflict in one serialised operation.
      *
-     * **Dialect handling:** On SQLite (production) Exposed emits
-     * `INSERT … ON CONFLICT(work_item_id, key) DO UPDATE SET …`.
-     * On H2 (test environment) Exposed emits `MERGE INTO … USING (VALUES …) AS excluded ON …`.
-     * Both are single atomic statements; no dialect branching is needed here.
+     * **Statement shape:** Exposed emits `INSERT … ON CONFLICT(work_item_id, key) DO UPDATE SET …`,
+     * a single atomic statement.
      *
      * **Row identity / immutability:** On the conflict (update) path, the `onUpdate` block
      * below enumerates ONLY the mutable columns. The immutable `id` (primary key) and
@@ -261,9 +257,6 @@ class SQLiteNoteRepository(
     /**
      * Full-text search on note bodies using the V7 FTS5 virtual tables.
      *
-     * **H2 (test environment):** FTS5 is SQLite-only. When the current dialect is H2,
-     * this method returns an empty [SearchResult] immediately.
-     *
      * **Pagination:** see [SearchResult] for the contract. A fixed [FTS_CANDIDATE_ROWS] rows are
      * fetched per FTS table regardless of [offset], fused into a total order (score descending,
      * ties broken ascending by note id), capped at [MAX_FTS_RESULTS], and only then sliced by
@@ -287,11 +280,6 @@ class SQLiteNoteRepository(
 
         return try {
             databaseManager.readTx {
-                // currentDialect is only accessible within an active transaction.
-                // FTS5 is SQLite-only — return empty for H2 (test environment).
-                if (currentDialect is H2Dialect) {
-                    return@readTx SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
-                }
                 val uuidType = UUIDColumnType()
                 val varcharType = VarCharColumnType(4000)
 

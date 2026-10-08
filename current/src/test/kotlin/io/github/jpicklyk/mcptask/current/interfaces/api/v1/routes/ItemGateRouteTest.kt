@@ -20,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -41,6 +42,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertAll
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -59,12 +61,15 @@ import kotlin.test.assertTrue
  * required WORK notes, `p-first` (no guidance) and `p-second` (has guidance), for P2/P3.
  */
 class ItemGateRouteTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     // ─── S1/S2 — happy path, single required WORK note ─────────────────────
 
     @Test
     fun `S1 GET items id gate returns missing w1 with guidance and skill when WORK item has no notes`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val svc = GateFixtureSchemaService()
             val item =
                 runBlocking {
@@ -102,7 +107,7 @@ class ItemGateRouteTest {
     @Test
     fun `S2 GET items id gate returns canAdvance true and omits guidanceKey and skillPointer when w1 is filled`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val svc = GateFixtureSchemaService()
             val item =
                 runBlocking {
@@ -142,7 +147,7 @@ class ItemGateRouteTest {
     @Test
     fun `S4 GET items id gate on a TERMINAL item returns phase terminal canAdvance false and empty missing`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val svc = GateFixtureSchemaService()
             val item =
                 runBlocking {
@@ -177,7 +182,7 @@ class ItemGateRouteTest {
     @Test
     fun `S5 GET items id gate on a schema-free type returns canAdvance true with no guidanceKey`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val svc = GateFixtureSchemaService()
             val item =
                 runBlocking {
@@ -212,7 +217,7 @@ class ItemGateRouteTest {
     @Test
     fun `S6 GET items id gate treats a blank w1 body as missing`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val svc = GateFixtureSchemaService()
             val item =
                 runBlocking {
@@ -248,7 +253,7 @@ class ItemGateRouteTest {
     @Test
     fun `S7 GET items id gate ignores queue-phase and optional work-phase notes when computing WORK missing`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val svc = GateFixtureSchemaService()
             val item =
                 runBlocking {
@@ -281,7 +286,7 @@ class ItemGateRouteTest {
     @Test
     fun `S8 GET items id gate merges a per-item trait note from properties JSON into missing`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val svc = GateFixtureSchemaService()
             val item =
                 runBlocking {
@@ -324,7 +329,7 @@ class ItemGateRouteTest {
     @Test
     fun `S9 GET items id gate uses per-root pushed schema instead of the global schema for the type`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val svc = GateFixtureSchemaService()
             val (root, item) =
                 runBlocking {
@@ -386,7 +391,7 @@ class ItemGateRouteTest {
     @Test
     fun `S10 GET items id gate returns 404 not_found for a random UUID`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureGateApp(repo) }
 
             val response =
@@ -400,7 +405,7 @@ class ItemGateRouteTest {
     @Test
     fun `S11a GET items id gate returns 400 bad_request for a malformed id`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureGateApp(repo) }
 
             val response =
@@ -414,7 +419,7 @@ class ItemGateRouteTest {
     @Test
     fun `S11b GET items id gate returns 400 bad_request for an 8-hex prefix of a real item id (no hex-prefix resolution)`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Gate S11b", depth = 0)).getOrNull()!!
@@ -439,7 +444,7 @@ class ItemGateRouteTest {
     @Test
     fun `S12 GET items id gate returns 401 without an Authorization header`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Gate S12", depth = 0)).getOrNull()!!
@@ -453,7 +458,7 @@ class ItemGateRouteTest {
     @Test
     fun `S13 GET items id gate returns 403 scope_forbidden for a token scoped to a different root`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val outsideScopeItem =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Gate S13", depth = 0)).getOrNull()!!
@@ -472,7 +477,7 @@ class ItemGateRouteTest {
     @Test
     fun `S14 GET items id gate returns 403 insufficient_scope for a principal missing READ capability`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Gate S14", depth = 0)).getOrNull()!!
@@ -501,7 +506,7 @@ class ItemGateRouteTest {
     @Test
     fun `S15 installRestApiRoutes wires the gate route so it is reachable in production topology`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val svc = GateFixtureSchemaService()
             val item =
                 runBlocking {
@@ -562,7 +567,7 @@ class ItemGateRouteTest {
     @Test
     fun `S16 GET items id gate does not mutate item role modifiedAt or notes`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val svc = GateFixtureSchemaService()
             val item =
                 runBlocking {
@@ -599,7 +604,7 @@ class ItemGateRouteTest {
     @Test
     fun `P1 GET items id gate ignores If-None-Match and never returns 304`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val svc = GateFixtureSchemaService()
             val item =
                 runBlocking {
@@ -657,7 +662,7 @@ class ItemGateRouteTest {
     @Test
     fun `P2 P3 GET items id gate lists two missing required notes in schema order with guidance parity`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val svc = GateFixtureSchemaService()
             val item =
                 runBlocking {
@@ -695,7 +700,7 @@ class ItemGateRouteTest {
     @Test
     fun `P4 GET items id gate accepts an uppercase UUID`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Gate P4", depth = 0)).getOrNull()!!
@@ -714,7 +719,7 @@ class ItemGateRouteTest {
     @Test
     fun `P5 GET items id gate on a BLOCKED item matches get_context parity`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val svc = GateFixtureSchemaService()
             val item =
                 runBlocking {
@@ -741,7 +746,7 @@ class ItemGateRouteTest {
     @Test
     fun `P6 GET items id gate returns a 4xx not 500 for a percent-encoded traversal id`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             application { configureGateApp(repo) }
 
             val response =

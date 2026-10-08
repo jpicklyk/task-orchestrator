@@ -11,8 +11,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -44,6 +44,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
@@ -59,6 +60,9 @@ import io.ktor.client.plugins.sse.SSE as ClientSSE
  * that the decorator captures writes made outside the REST layer.
  */
 class EventRoutesTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     companion object {
         private const val READ_TOKEN = "sse-test-read-token-abc123"
         private const val NO_CAP_TOKEN = "sse-test-nocap-token-xyz789"
@@ -240,8 +244,8 @@ class EventRoutesTest {
     @Test
     fun `MCP-path write via repository decorator produces event on bus subscriber`(): Unit =
         runBlocking {
-            // Build a real H2-backed repository provider and wrap it with the decorator
-            val baseRepo = buildH2RepositoryProvider()
+            // Build a real SQLite-backed repository provider and wrap it with the decorator
+            val baseRepo = db.repositoryProvider()
             val bus = ApiEventBus()
             val decorated = EventPublishingRepositoryProvider(baseRepo, bus)
 
@@ -293,7 +297,7 @@ class EventRoutesTest {
     @Test
     fun `role change via decorated update emits item_advanced with newRole not item_updated`(): Unit =
         runBlocking {
-            val baseRepo = buildH2RepositoryProvider()
+            val baseRepo = db.repositoryProvider()
             val bus = ApiEventBus()
             val decorated = EventPublishingRepositoryProvider(baseRepo, bus)
 
@@ -343,7 +347,7 @@ class EventRoutesTest {
         runBlocking {
             // Mirror CurrentMcpServer.run() wiring when API is enabled:
             // raw provider -> EventPublishingRepositoryProvider -> ToolExecutionContext.
-            val baseRepo = buildH2RepositoryProvider()
+            val baseRepo = db.repositoryProvider()
             val bus = ApiEventBus()
             val decorated = EventPublishingRepositoryProvider(baseRepo, bus)
             val toolContext = ToolExecutionContext(decorated)
@@ -604,7 +608,7 @@ class EventRoutesTest {
     @Test
     fun `EventPublishingRepositoryProvider is transparent - read operations unchanged`(): Unit =
         runBlocking {
-            val baseRepo = buildH2RepositoryProvider()
+            val baseRepo = db.repositoryProvider()
             val bus = ApiEventBus()
             val decorated = EventPublishingRepositoryProvider(baseRepo, bus)
 
@@ -635,7 +639,7 @@ class EventRoutesTest {
     @Test
     fun `reparent emits scope_left on old root and scope_entered on new root`(): Unit =
         runBlocking {
-            val baseRepo = buildH2RepositoryProvider()
+            val baseRepo = db.repositoryProvider()
             val bus = ApiEventBus()
             val decorated = EventPublishingRepositoryProvider(baseRepo, bus)
 

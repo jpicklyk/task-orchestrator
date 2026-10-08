@@ -1,3 +1,5 @@
+> **Archived.** This is the historical v2 workflow testing plan, kept for reference only. It no longer describes the test suite (tests now run on a real SQLite fixture) and is not maintained.
+
 # Workflow Testing Plan - Feature & Task Orchestration
 
 **Purpose**: Comprehensive testing of event-driven status progression and orchestration workflows

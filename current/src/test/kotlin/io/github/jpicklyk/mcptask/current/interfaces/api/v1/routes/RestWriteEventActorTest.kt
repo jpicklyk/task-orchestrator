@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventPublishingRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.drainDelivered
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.delete
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
@@ -33,6 +34,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -42,12 +44,15 @@ import kotlin.test.assertTrue
  * `api:<tokenId>`, kind `external`, parent absent. The WRITE token's id is [WRITE_TOKEN_ID].
  *
  * Wiring: the REAL write route functions under the production-style bearer plugin, over an
- * [EventPublishingRepositoryProvider]-decorated H2 provider. Fixtures are seeded through the
+ * [EventPublishingRepositoryProvider]-decorated SQLite provider. Fixtures are seeded through the
  * UNDECORATED provider so the only events on the bus are those the REST write under test produced.
  * A bus subscriber is registered before each write, because the decorator skips root resolution
  * while nobody is subscribed (a rootId assertion needs a subscriber).
  */
 class RestWriteEventActorTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private val expectedActor = ActorClaimDto(id = "api:$WRITE_TOKEN_ID", kind = "external", parent = null)
 
     private fun Application.wire(decorated: EventPublishingRepositoryProvider) {
@@ -97,7 +102,7 @@ class RestWriteEventActorTest {
     @Test
     fun `R1 reparent attributes the moved item and every descendant to the api actor`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val rootA = seed(repo, "Root A")
             val rootB = seed(repo, "Root B")
             val p = seed(repo, "P", rootA)
@@ -141,7 +146,7 @@ class RestWriteEventActorTest {
     @Test
     fun `R2 create root and nested child attribute item created events to the api actor`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val bus = ApiEventBus()
             application { wire(EventPublishingRepositoryProvider(repo, bus)) }
             val flow = bus.subscribe("r2", emptySet(), lastEventId = null)
@@ -173,7 +178,7 @@ class RestWriteEventActorTest {
     @Test
     fun `R3 patch without reparent attributes item updated and bus readback keeps the actor`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item = seed(repo, "R3 item")
             val bus = ApiEventBus()
             application { wire(EventPublishingRepositoryProvider(repo, bus)) }
@@ -201,7 +206,7 @@ class RestWriteEventActorTest {
     @Test
     fun `R4 delete attributes item deleted to the api actor`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item = seed(repo, "R4 item")
             val bus = ApiEventBus()
             application { wire(EventPublishingRepositoryProvider(repo, bus)) }
@@ -222,7 +227,7 @@ class RestWriteEventActorTest {
     @Test
     fun `R5 note delete attributes note deleted to the api actor`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item = seed(repo, "R5 item")
             runBlocking {
                 repo.noteRepository().upsert(Note(itemId = item.id, key = "r5-note", role = "work", body = "bye"))
@@ -248,7 +253,7 @@ class RestWriteEventActorTest {
     @Test
     fun `R6 dependency create attributes dependency added to the api actor`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val from = seed(repo, "R6 from")
             val to = seed(repo, "R6 to")
             val bus = ApiEventBus()
@@ -274,7 +279,7 @@ class RestWriteEventActorTest {
     @Test
     fun `R7 dependency remove attributes dependency removed to the api actor`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val from = seed(repo, "R7 from")
             val to = seed(repo, "R7 to")
             val dep =
@@ -304,7 +309,7 @@ class RestWriteEventActorTest {
     @Test
     fun `read-only token is rejected 403 on a write route and emits no event`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val bus = ApiEventBus()
             application { wire(EventPublishingRepositoryProvider(repo, bus)) }
             val flow = bus.subscribe("ro", emptySet(), lastEventId = null)

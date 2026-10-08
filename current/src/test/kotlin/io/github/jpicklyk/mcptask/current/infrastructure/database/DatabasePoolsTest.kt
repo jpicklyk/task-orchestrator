@@ -198,25 +198,31 @@ class DatabasePoolsTest {
         assertEquals(64, maxConcurrentReads(dir, "999", threads = 66, holdMs = 1_000))
     }
 
-    // ---------------------------------------------------------------- customDatabase (H2) - carry-in 6
+    // ---------------------------------------------------------------- customDatabase (file-backed SQLite) - carry-in 6
     @Test
     @Timeout(value = 20, unit = TimeUnit.SECONDS)
-    fun `customDatabase makes writer and reader the same database and units still join and roll back`(): Unit =
+    fun `customDatabase makes writer and reader the same database and units still join and roll back`(
+        @TempDir dir: File,
+    ): Unit =
         runBlocking {
-            val h2 = Database.connect("jdbc:h2:mem:p5a_${System.nanoTime()};DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            val manager = DatabaseManager(customDatabase = h2, appConfig = AppConfig.fromEnv { null })
+            val custom =
+                Database.connect(
+                    "jdbc:sqlite:" + File(dir, "custom.db").absolutePath.replace(File.separatorChar, '/'),
+                    driver = "org.sqlite.JDBC"
+                )
+            val manager = DatabaseManager(customDatabase = custom, appConfig = AppConfig.fromEnv { null })
             try {
                 assertTrue(manager.initialize("ignored"))
-                assertSame(h2, manager.writer())
-                assertSame(h2, manager.reader())
-                manager.writeTx("H2.ddl") { exec("CREATE TABLE p5a_probe (id INTEGER PRIMARY KEY, v INTEGER)") }
+                assertSame(custom, manager.writer())
+                assertSame(custom, manager.reader())
+                manager.writeTx("Custom.ddl") { exec("CREATE TABLE p5a_probe (id INTEGER PRIMARY KEY, v INTEGER)") }
                 val uow = SqliteUnitOfWork(manager, mockk<RepositoryProvider>(relaxed = true), Clock { Instant.now() })
 
                 val committed =
-                    uow.write("H2.join") {
+                    uow.write("Custom.join") {
                         val tx = TransactionManager.currentOrNull()
-                        manager.writeTx("H2.row") { exec("INSERT INTO p5a_probe (id, v) VALUES (1, 1)") }
-                        uow.write("H2.inner") {
+                        manager.writeTx("Custom.row") { exec("INSERT INTO p5a_probe (id, v) VALUES (1, 1)") }
+                        uow.write("Custom.inner") {
                             assertSame(tx, TransactionManager.currentOrNull(), "inner write joins on a custom database too")
                             Outcome.Ok(Unit)
                         }
@@ -225,8 +231,8 @@ class DatabasePoolsTest {
                 assertEquals(1, manager.countRows("p5a_probe"))
 
                 val rolledBack =
-                    uow.write<Unit>("H2.rollback") {
-                        manager.writeTx("H2.row2") { exec("INSERT INTO p5a_probe (id, v) VALUES (2, 2)") }
+                    uow.write<Unit>("Custom.rollback") {
+                        manager.writeTx("Custom.row2") { exec("INSERT INTO p5a_probe (id, v) VALUES (2, 2)") }
                         Outcome.Err(err("declined"))
                     }
                 assertTrue(rolledBack is Outcome.Err)

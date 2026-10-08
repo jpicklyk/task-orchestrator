@@ -4,15 +4,21 @@ import io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDelete
 import io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDeletion
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /** F-016 T6: level-batched recursive delete still publishes one ITEM_DELETED per row, on commit. */
-class WorkItemDeletionEventsTest : SQLiteRepositoryTestBase() {
+class WorkItemDeletionEventsTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
+    private val repositoryProvider get() = db.repositoryProvider()
+
     @Test
     fun `T6 recursive delete publishes one item deleted per row including the root`(): Unit =
         runBlocking {

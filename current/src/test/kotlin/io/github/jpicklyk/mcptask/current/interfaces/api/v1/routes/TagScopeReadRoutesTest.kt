@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -9,12 +10,13 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Independent regression coverage for the `tags_include` scope gap on H2-backed REST read
+ * Independent regression coverage for the `tags_include` scope gap on SQLite-backed REST read
  * routes: `GET /items`, `GET /items/roots`, and `GET /transitions`.
  *
  * Authored per the item `ffa12a2f-8028-4a46-8882-3f84fa629ee9` `test-plan` note (oracles
@@ -32,12 +34,15 @@ import kotlin.test.assertTrue
  * surface list; also recorded in `test-manifest`.
  */
 class TagScopeReadRoutesTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     // ─── S1: GET /items ────────────────────────────────────────────────────
 
     @Test
     fun `S1 GET items with tagsInclude alpha returns only alpha-tagged item`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             runBlocking {
                 repo.workItemRepository().create(WorkItem(title = "ItemAlphaS1", tags = "alpha", depth = 0))
                 repo.workItemRepository().create(WorkItem(title = "ItemBetaS1", tags = "beta", depth = 0))
@@ -61,7 +66,7 @@ class TagScopeReadRoutesTest {
     @Test
     fun `S2 GET items roots with tagsInclude alpha returns only alpha-tagged root`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             runBlocking {
                 repo.workItemRepository().create(WorkItem(title = "RootAlphaS2", tags = "alpha", depth = 0))
                 repo.workItemRepository().create(WorkItem(title = "RootBetaS2", tags = "beta", depth = 0))
@@ -85,7 +90,7 @@ class TagScopeReadRoutesTest {
     @Test
     fun `S3 GET transitions with tagsInclude alpha returns only alpha item's transitions`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (itemA, itemB) =
                 runBlocking {
                     val a = repo.workItemRepository().create(WorkItem(title = "TransAlphaS3", tags = "alpha", depth = 0)).getOrNull()!!
@@ -120,7 +125,7 @@ class TagScopeReadRoutesTest {
     @Test
     fun `S6 regression - empty tagsInclude returns both tags across items, roots and transitions`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (itemA, itemB) =
                 runBlocking {
                     val a = repo.workItemRepository().create(WorkItem(title = "RegAlphaS6", tags = "alpha", depth = 0)).getOrNull()!!
@@ -176,7 +181,7 @@ class TagScopeReadRoutesTest {
     @Test
     fun `S7 GET items with tagsInclude gamma and no matching items returns 200 with empty list`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             runBlocking {
                 repo.workItemRepository().create(WorkItem(title = "NoMatchAlphaS7", tags = "alpha", depth = 0))
                 repo.workItemRepository().create(WorkItem(title = "NoMatchBetaS7", tags = "beta", depth = 0))
@@ -206,7 +211,7 @@ class TagScopeReadRoutesTest {
     @Test
     fun `S8 GET items with tagsInclude and rootIds excludes wrong-tag-in-scope and right-tag-out-of-scope`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val rootR =
                 runBlocking {
                     val r = repo.workItemRepository().create(WorkItem(title = "RootRS8", depth = 0)).getOrNull()!!
@@ -238,7 +243,7 @@ class TagScopeReadRoutesTest {
     @Test
     fun `S9 GET items excludes items with null or empty tags under tagsInclude`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             runBlocking {
                 // No tags argument -- tags column is null.
                 repo.workItemRepository().create(WorkItem(title = "NullTagsS9", depth = 0))
@@ -267,7 +272,7 @@ class TagScopeReadRoutesTest {
     @Test
     fun `S10 GET items includes item whose tags CSV has surrounding whitespace`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             runBlocking {
                 repo.workItemRepository().create(WorkItem(title = "SpacedTagsS10", tags = " alpha , beta ", depth = 0))
             }
@@ -289,7 +294,7 @@ class TagScopeReadRoutesTest {
     @Test
     fun `S11 GET items excludes tag that is a superstring of the scope tag`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             runBlocking {
                 repo.workItemRepository().create(WorkItem(title = "SuperstringTagS11", tags = "alpha-beta", depth = 0))
                 // Positive control -- must still appear so the exclusion check is meaningful.

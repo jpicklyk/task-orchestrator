@@ -145,7 +145,7 @@ default, and an unrecognized non-empty value either falls back to the default wi
 ## Testing
 
 - Tests mirror source under `current/src/test/kotlin/`
-- JUnit 5 + MockK; H2 in-memory database for repository tests
+- JUnit 5 + MockK; real file-backed SQLite (`SqliteTestDatabase` fixture) for repository and route tests
 - **Never pipe `./gradlew` output to `tail`** — run directly and read full output
 
 ## Claude Code Plugin Discovery

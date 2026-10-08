@@ -29,9 +29,6 @@ import io.ktor.server.routing.get
  * - `role` (optional) — filter by item role
  * - `tag` (optional) — filter by tag (comma-separated OR match)
  *
- * **FTS5 caveat:** Returns empty results when the repository is H2-backed (test env).
- * Use real SQLite fixtures for integration tests of this endpoint.
- *
  * Scope filtering: when the principal has `root_ids`, results are filtered to descendants of
  * ALL roots (multi-root). An optional `?ancestorId=` further narrows to a single subtree;
  * if the requested ancestorId is outside the principal's scope, 403 is returned.
@@ -95,8 +92,7 @@ fun Route.searchRoutes(repositoryProvider: RepositoryProvider) {
 
             // Dispatched via the WorkItemRepository interface so this works whether workItemRepo
             // is the concrete SQLite repo or a decorator (e.g. EventPublishingWorkItemRepository —
-            // always the case when the REST API is enabled). Non-FTS dialects (H2 tests) are
-            // handled inside ftsSearch, which returns an empty result.
+            // always the case when the REST API is enabled).
             val result =
                 workItemRepo.ftsSearch(
                     sanitizedFtsQuery = sanitizedQuery,

@@ -46,8 +46,6 @@ import org.jetbrains.exposed.v1.core.lessEq
 import org.jetbrains.exposed.v1.core.like
 import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.core.or
-import org.jetbrains.exposed.v1.core.vendors.H2Dialect
-import org.jetbrains.exposed.v1.core.vendors.currentDialect
 import org.jetbrains.exposed.v1.jdbc.Query
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
@@ -57,7 +55,6 @@ import org.jetbrains.exposed.v1.jdbc.update
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.time.LocalDateTime
-import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.UUID
@@ -85,9 +82,6 @@ class SQLiteWorkItemRepository(
             //   - Parsing as LocalDateTime + ZoneOffset.UTC explicitly treats the string as UTC,
             //     which matches the Exposed 1.0.0-beta-5+ timestamp() column behavior (post the
             //     EXPOSED-731 SQLite timestamp fix).
-            //   - H2's CURRENT_TIMESTAMP returns "YYYY-MM-DD HH:MM:SS.fffffff-HH" (with a non-
-            //     standard offset like "-04" missing the minute portion); we normalize that and
-            //     parse via OffsetDateTime.
             databaseManager.readTx {
                 exec("SELECT CURRENT_TIMESTAMP") { rs ->
                     if (rs.next()) {
@@ -109,36 +103,12 @@ class SQLiteWorkItemRepository(
     }
 
     /**
-     * Parse a CURRENT_TIMESTAMP-style string from either SQLite or H2 into an [Instant] (UTC).
-     *
-     * Accepted forms:
-     *  - "YYYY-MM-DD HH:MM:SS" — SQLite, treat as UTC
-     *  - "YYYY-MM-DD HH:MM:SS.fffffff" — H2 (no offset), treat as UTC
-     *  - "YYYY-MM-DD HH:MM:SS.fffffff-HH" — H2 with non-standard short offset; normalized
-     *  - "YYYY-MM-DD HH:MM:SS-HH:MM" or "...Z" — full ISO offset, parse directly
+     * Parse SQLite's CURRENT_TIMESTAMP string ("YYYY-MM-DD HH:MM:SS", UTC with no zone suffix) into an [Instant].
      */
-    private fun parseDbTimestamp(raw: String): Instant {
-        val isoCandidate = raw.replace(" ", "T")
-        // Detect whether a timezone suffix is present.
-        val tzPattern = Regex("([+-]\\d{2}(:\\d{2})?|Z)$")
-        val tzMatch = tzPattern.find(isoCandidate)
-        return if (tzMatch != null) {
-            val tz = tzMatch.value
-            // Normalize H2's short "-04" form to "-04:00" so OffsetDateTime accepts it.
-            val normalized =
-                if (tz.startsWith("Z") || tz.contains(":")) {
-                    isoCandidate
-                } else {
-                    isoCandidate.dropLast(tz.length) + tz + ":00"
-                }
-            OffsetDateTime.parse(normalized, DateTimeFormatter.ISO_OFFSET_DATE_TIME).toInstant()
-        } else {
-            // No offset → treat as UTC (SQLite stores CURRENT_TIMESTAMP in UTC).
-            LocalDateTime
-                .parse(isoCandidate, DateTimeFormatter.ISO_LOCAL_DATE_TIME)
-                .toInstant(ZoneOffset.UTC)
-        }
-    }
+    private fun parseDbTimestamp(raw: String): Instant =
+        LocalDateTime
+            .parse(raw.replace(" ", "T"), DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+            .toInstant(ZoneOffset.UTC)
 
     override suspend fun getById(id: UUID): Result<WorkItem> =
         databaseManager.readResult("Failed to get WorkItem by id") {
@@ -548,139 +518,84 @@ class SQLiteWorkItemRepository(
     override suspend fun findDescendants(id: UUID): Result<List<WorkItem>> =
         try {
             databaseManager.readTx {
-                // currentDialect is only accessible within an active transaction.
-                // H2 (test environment): the recursive CTE exec() path uses parameterised
-                // UUID binding that is incompatible with H2's native UUID type, and H2
-                // interprets the SELECT-returning exec() call as executeUpdate, throwing
-                // "Method is not allowed for a query". Fall back to a dialect-agnostic
-                // BFS loop using Exposed DSL instead.
-                // Production SQLite uses the single-query recursive CTE (faster at depth).
-                if (currentDialect is H2Dialect) {
-                    // Cycle guard: `visited` is seeded with the start id and gates BOTH the result
-                    // list and the queue — the shape resolveScopeIds() already uses. Every item has
-                    // at most one parent, so a node can only be reached twice if the parent_id graph
-                    // is cyclic; that is corruption, and this traversal feeds cascade deletes and
-                    // subtree restamps, so it fails loud rather than returning a partial subtree.
-                    // The level counter bounds the descent identically to the SQLite CTE below.
-                    val results = mutableListOf<WorkItem>()
-                    val visited = mutableSetOf(id)
-                    val queue = ArrayDeque<Pair<UUID, Int>>()
-                    queue.add(id to 0)
-                    while (queue.isNotEmpty()) {
-                        val (current, level) = queue.removeFirst()
-                        if (level >= MAX_TRAVERSAL_DEPTH) {
-                            logger.error("Descendant traversal of $id exceeded maximum depth $MAX_TRAVERSAL_DEPTH")
-                            return@readTx Result.Error(
-                                RepositoryError.DatabaseError(
-                                    "Failed to find descendants: traversal exceeded the maximum " +
-                                        "depth of $MAX_TRAVERSAL_DEPTH levels (item hierarchy may be cyclic)",
-                                ),
-                            )
-                        }
-                        val children =
-                            WorkItemsTable
-                                .selectAll()
-                                .where { WorkItemsTable.parentId eq current }
-                                .mapNotNull { toWorkItemOrNull(it) }
-                        for (child in children) {
-                            if (!visited.add(child.id)) {
-                                logger.error("Cycle detected in item hierarchy under $id at ${child.id}")
-                                return@readTx Result.Error(
-                                    RepositoryError.DatabaseError(
-                                        "Failed to find descendants: cycle detected in the item " +
-                                            "hierarchy under $id at ${child.id} (traversal bounded at " +
-                                            "$MAX_TRAVERSAL_DEPTH levels)",
-                                    ),
-                                )
-                            }
-                            results.add(child)
-                            queue.add(child.id to level + 1)
-                        }
+                // Single-query recursive CTE.
+                //
+                // The root item itself is excluded (the CTE seeds with children of :id).
+                // UUIDs are stored as BLOBs in SQLite. We use connection.prepareStatement()
+                // + executeQuery() on the Exposed ExposedConnection instead of exec(sql, args, transform)
+                // because Exposed's exec() routes through executeUpdate() on the xerial/sqlite-jdbc
+                // JDBC driver, which rejects SELECT-returning CTEs with "Query returns results".
+                val uuidType = UUIDColumnType()
+
+                // Collect matching IDs via recursive CTE, then load full rows via Exposed
+                // so that WorkItem mapping stays in one place (toWorkItemOrNull).
+                //
+                // Cycle guard: the `lvl` column bounds the recursive member. Without it a single
+                // cyclic parent_id edge makes the UNION ALL produce rows forever, hanging the
+                // connection while it holds a SERIALIZABLE transaction.
+                //
+                // The boundary: direct children are lvl 1, the recursive arm stops expanding at lvl
+                // MAX_TRAVERSAL_DEPTH, and reaching that level is an ERROR rather than a truncated Success.
+                // So root + (MAX-1) descendants succeeds, root + MAX descendants fails. Truncating
+                // silently here is not an option: this traversal feeds cascade deletes and subtree restamps.
+                val descendantIds = mutableListOf<UUID>()
+                var boundExceeded = false
+                val sql =
+                    """
+                    WITH RECURSIVE descendants(id, lvl) AS (
+                        SELECT id, 1 FROM work_items WHERE parent_id = ?
+                        UNION ALL
+                        SELECT wi.id, d.lvl + 1 FROM work_items wi
+                        JOIN descendants d ON wi.parent_id = d.id
+                        WHERE d.lvl < $MAX_TRAVERSAL_DEPTH
+                    )
+                    SELECT id, lvl FROM descendants
+                    """.trimIndent()
+
+                // Use ExposedConnection.prepareStatement() to get a JdbcPreparedStatementApi,
+                // then call executeQuery() on it — bypassing Exposed's exec() routing issue.
+                val ps = this.connection.prepareStatement(sql, false)
+                try {
+                    // fillParameters binds the UUID arg using UUIDColumnType (→ ByteArray for SQLite).
+                    ps.fillParameters(listOf(uuidType to id))
+                    val rs = ps.executeQuery()
+                    while (rs.next()) {
+                        val rawId = rs.getObject("id")
+
+                        @Suppress("UNCHECKED_CAST")
+                        val uuid = (uuidType.valueFromDB(rawId!!)) as UUID
+                        descendantIds.add(uuid)
+                        if ((rs.getObject("lvl") as Number).toInt() >= MAX_TRAVERSAL_DEPTH) boundExceeded = true
                     }
-                    Result.Success(results)
-                } else {
-                    // Single-query recursive CTE — the production SQLite path.
-                    //
-                    // The root item itself is excluded (the CTE seeds with children of :id).
-                    // UUIDs are stored as BLOBs in SQLite. We use connection.prepareStatement()
-                    // + executeQuery() on the Exposed ExposedConnection instead of exec(sql, args, transform)
-                    // because Exposed's exec() routes through executeUpdate() on the xerial/sqlite-jdbc
-                    // JDBC driver, which rejects SELECT-returning CTEs with "Query returns results".
-                    val uuidType = UUIDColumnType()
+                } finally {
+                    ps.closeIfPossible()
+                }
 
-                    // Collect matching IDs via recursive CTE, then load full rows via Exposed
-                    // so that WorkItem mapping stays in one place (toWorkItemOrNull).
-                    //
-                    // Cycle guard: the `lvl` column bounds the recursive member. Without it a single
-                    // cyclic parent_id edge makes the UNION ALL produce rows forever, hanging the
-                    // connection while it holds a SERIALIZABLE transaction.
-                    //
-                    // The boundary matches the H2 branch above exactly: direct children are lvl 1
-                    // (H2 level 1), the recursive arm stops expanding at lvl MAX_TRAVERSAL_DEPTH,
-                    // and reaching that level is an ERROR rather than a truncated Success — the same
-                    // outcome H2 produces when it dequeues a node at level >= MAX_TRAVERSAL_DEPTH.
-                    // So root + (MAX-1) descendants succeeds, root + MAX descendants fails, in both
-                    // dialects. Truncating silently here is not an option: this traversal feeds
-                    // cascade deletes and subtree restamps.
-                    val descendantIds = mutableListOf<UUID>()
-                    var boundExceeded = false
-                    val sql =
-                        """
-                        WITH RECURSIVE descendants(id, lvl) AS (
-                            SELECT id, 1 FROM work_items WHERE parent_id = ?
-                            UNION ALL
-                            SELECT wi.id, d.lvl + 1 FROM work_items wi
-                            JOIN descendants d ON wi.parent_id = d.id
-                            WHERE d.lvl < $MAX_TRAVERSAL_DEPTH
-                        )
-                        SELECT id, lvl FROM descendants
-                        """.trimIndent()
-
-                    // Use ExposedConnection.prepareStatement() to get a JdbcPreparedStatementApi,
-                    // then call executeQuery() on it — bypassing Exposed's exec() routing issue.
-                    val ps = this.connection.prepareStatement(sql, false)
-                    try {
-                        // fillParameters binds the UUID arg using UUIDColumnType (→ ByteArray for SQLite).
-                        ps.fillParameters(listOf(uuidType to id))
-                        val rs = ps.executeQuery()
-                        while (rs.next()) {
-                            val rawId = rs.getObject("id")
-
-                            @Suppress("UNCHECKED_CAST")
-                            val uuid = (uuidType.valueFromDB(rawId!!)) as UUID
-                            descendantIds.add(uuid)
-                            if ((rs.getObject("lvl") as Number).toInt() >= MAX_TRAVERSAL_DEPTH) boundExceeded = true
-                        }
-                    } finally {
-                        ps.closeIfPossible()
-                    }
-
-                    if (boundExceeded) {
-                        logger.error("Descendant traversal of $id exceeded maximum depth $MAX_TRAVERSAL_DEPTH")
-                        return@readTx Result.Error(
-                            RepositoryError.DatabaseError(
-                                "Failed to find descendants: traversal exceeded the maximum depth of " +
-                                    "$MAX_TRAVERSAL_DEPTH levels (item hierarchy may be cyclic)",
-                            ),
-                        )
-                    }
-
-                    if (descendantIds.isEmpty()) {
-                        return@readTx Result.Success(emptyList())
-                    }
-
-                    // Chunked: the id set scales with the subtree, so a single IN list could exceed
-                    // SQLite's bound-variable limit. All chunks run in this same transaction.
-                    Result.Success(
-                        descendantIds.chunked(SQL_IN_CHUNK_SIZE).flatMap { chunk ->
-                            val entityIds = chunk.map { EntityID(it, WorkItemsTable) }
-                            WorkItemsTable
-                                .selectAll()
-                                .where { WorkItemsTable.id inList entityIds }
-                                .mapNotNull { toWorkItemOrNull(it) }
-                        },
+                if (boundExceeded) {
+                    logger.error("Descendant traversal of $id exceeded maximum depth $MAX_TRAVERSAL_DEPTH")
+                    return@readTx Result.Error(
+                        RepositoryError.DatabaseError(
+                            "Failed to find descendants: traversal exceeded the maximum depth of " +
+                                "$MAX_TRAVERSAL_DEPTH levels (item hierarchy may be cyclic)",
+                        ),
                     )
                 }
+
+                if (descendantIds.isEmpty()) {
+                    return@readTx Result.Success(emptyList())
+                }
+
+                // Chunked: the id set scales with the subtree, so a single IN list could exceed
+                // SQLite's bound-variable limit. All chunks run in this same transaction.
+                Result.Success(
+                    descendantIds.chunked(SQL_IN_CHUNK_SIZE).flatMap { chunk ->
+                        val entityIds = chunk.map { EntityID(it, WorkItemsTable) }
+                        WorkItemsTable
+                            .selectAll()
+                            .where { WorkItemsTable.id inList entityIds }
+                            .mapNotNull { toWorkItemOrNull(it) }
+                    },
+                )
             }
         } catch (e: Exception) {
             logger.error("Failed to find descendants of $id: ${e.message}", e)
@@ -693,10 +608,6 @@ class SQLiteWorkItemRepository(
 
     /**
      * Full-text search on work items using the V7 FTS5 virtual tables.
-     *
-     * **H2 (test environment):** FTS5 is SQLite-only. When the current dialect is H2,
-     * this method returns an empty [SearchResult] immediately — unit tests that exercise
-     * the search path must use a real SQLite DB (see `Fts5MigrationTest`).
      *
      * **Pagination:** see [SearchResult] for the contract. A fixed [FTS_CANDIDATE_ROWS] rows are
      * fetched per FTS table regardless of [offset], fused into a total order (score descending,
@@ -722,11 +633,6 @@ class SQLiteWorkItemRepository(
 
         return try {
             databaseManager.readTx {
-                // currentDialect is only accessible within an active transaction.
-                // FTS5 is SQLite-only — return empty for H2 (test environment).
-                if (currentDialect is H2Dialect) {
-                    return@readTx SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
-                }
                 val uuidType = UUIDColumnType()
 
                 // RRF scoring delegated to RrfFusion utility (application.service.search.RrfFusion).
@@ -1058,12 +964,10 @@ class SQLiteWorkItemRepository(
         val normalizedPrefix = prefix.lowercase()
         return databaseManager.readResult("Failed to find WorkItems by ID prefix") {
             // Convert UUID id column to lowercase hex string (no dashes) for prefix matching.
-            // H2 uses RAWTOHEX() for native UUID columns; SQLite uses HEX() for BLOB columns.
-            // Both produce uppercase hex without dashes — wrap in LOWER for case-insensitive match.
-            val hexFunctionName = if (currentDialect is H2Dialect) "RAWTOHEX" else "HEX"
+            // SQLite HEX() on the BLOB id column yields uppercase hex without dashes — wrap in LOWER for case-insensitive match.
             val hexId =
                 LowerCase(
-                    CustomFunction(hexFunctionName, VarCharColumnType(32), WorkItemsTable.id),
+                    CustomFunction("HEX", VarCharColumnType(32), WorkItemsTable.id),
                 )
             val items =
                 WorkItemsTable
@@ -1389,7 +1293,7 @@ class SQLiteWorkItemRepository(
                 when (orderBy) {
                     NextItemOrder.PRIORITY_THEN_COMPLEXITY -> {
                         // Sort priority HIGH > MEDIUM > LOW via CASE expression, then complexity ASC.
-                        // Items with null complexity sort last (NULL sorts last in ASC for SQLite/H2).
+                        // Items with null complexity sort last (NULL sorts last in ASC for SQLite).
                         val priorityOrder =
                             Case()
                                 .When(
@@ -1774,7 +1678,7 @@ class SQLiteWorkItemRepository(
      * The resolved WHERE-clause form of a caller-supplied root set (see [resolveScope]).
      *
      * [ByRoot] is the fast path: it binds ONE parameter per requested root and lets SQLite use
-     * `idx_work_items_root_id`. [ByIds] is the historical path: the recursive CTE (or the H2 BFS)
+     * `idx_work_items_root_id`. [ByIds] is the historical path: the recursive CTE
      * expands the scope to every descendant id and binds them all, which is O(subtree) bound
      * variables and fails outright above SQLite's SQLITE_MAX_VARIABLE_NUMBER (250,000 in the bundled xerial build).
      */
@@ -1837,7 +1741,7 @@ class SQLiteWorkItemRepository(
      * they were handed, never an expanded subtree. A missing id fails the count check, so a
      * scope naming a non-existent root falls back to the CTE and keeps its existing behaviour.
      *
-     * Exposed DSL (not raw SQL) so H2 and SQLite take the same branch.
+     * Exposed DSL (not raw SQL).
      */
     private fun allAreStampedRoots(rootIds: Set<UUID>): Boolean {
         val entityIds = rootIds.map { EntityID(it, WorkItemsTable) }
@@ -1856,50 +1760,14 @@ class SQLiteWorkItemRepository(
     /**
      * Resolve a set of root UUIDs into the full set of UUIDs (roots + all descendants).
      *
-     * On SQLite (production), uses a single recursive CTE. On H2 (test environment),
-     * falls back to a BFS loop using Exposed DSL (H2's CTE + xerial exec() combination
-     * has the same SELECT-returning issue as findDescendants).
+     * Uses a single recursive CTE.
      *
      * The roots themselves are included in the returned set.
      *
      * Must be called from within an active Exposed transaction (uses [TransactionManager.current]).
      */
     private fun resolveScopeIds(rootIds: Set<UUID>): Set<UUID> {
-        // currentDialect is only valid inside a transaction — this private method must be
-        // called from within a suspendTransaction block.
-        if (currentDialect is H2Dialect) {
-            // H2 BFS fallback: expand the subtree using Exposed DSL instead of a raw CTE.
-            // `result` doubles as the visited set — a node already in scope is never re-queued, so a
-            // cyclic parent_id edge terminates instead of spinning. Overlapping roots (a root and one
-            // of its own descendants) legitimately collide here, so a repeat visit is NOT treated as
-            // corruption; only the level bound is. Unlike findDescendants this method is not a
-            // Result-returning API — the throw is mapped to Result.Error by every caller's
-            // suspendedTransaction / catch block.
-            val result = rootIds.toMutableSet()
-            val queue = ArrayDeque(rootIds.map { it to 0 })
-            while (queue.isNotEmpty()) {
-                val (current, level) = queue.removeFirst()
-                if (level >= MAX_TRAVERSAL_DEPTH) {
-                    throw IllegalStateException(
-                        "Scope resolution exceeded the maximum traversal depth of $MAX_TRAVERSAL_DEPTH " +
-                            "levels under $current (item hierarchy may be cyclic)",
-                    )
-                }
-                val children =
-                    WorkItemsTable
-                        .selectAll()
-                        .where { WorkItemsTable.parentId eq current }
-                        .mapNotNull { toWorkItemOrNull(it) }
-                for (child in children) {
-                    if (result.add(child.id)) {
-                        queue.add(child.id to level + 1)
-                    }
-                }
-            }
-            return result
-        }
-
-        // SQLite: single recursive CTE — all roots + their full subtrees in one query.
+        // Single recursive CTE — all roots + their full subtrees in one query.
         // Roots are seeded by id = any of rootIds; the UNION ALL branch walks children.
         // UUIDs are stored as BLOBs in SQLite — bind via UUIDColumnType.
         // Use connection.prepareStatement() + executeQuery() to avoid exec() routing

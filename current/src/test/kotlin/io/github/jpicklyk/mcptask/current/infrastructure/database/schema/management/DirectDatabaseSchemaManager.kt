@@ -8,17 +8,16 @@ import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.Resourc
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.ResourceLeasesTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.RoleTransitionsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
-import org.jetbrains.exposed.v1.core.vendors.H2Dialect
-import org.jetbrains.exposed.v1.core.vendors.currentDialect
+import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.SchemaUtils
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.slf4j.LoggerFactory
 
 /**
- * Test-only fixture bridge; production schema is Flyway-only (P2a). Removed when P4 migrates tests to SqliteTestDatabase.
- *
- * Development mode schema manager that creates tables directly via Exposed ORM.
- * Tables are created in foreign-key dependency order.
+ * Test-only helper that builds a Direct-mode (Exposed DDL, no Flyway) SQLite database on an EXPLICIT
+ * [database]; production schema is Flyway-only. It exists solely so the Direct-mode refusal and
+ * baseline paths of [FlywayDatabaseSchemaManager] can be exercised (DirectModeUpgradeGuardTest,
+ * FlywayOnlyMigrationTest). It touches no global Exposed default.
  *
  * Table dependency graph:
  * 1. WorkItemsTable (no external dependencies, self-referencing parentId)
@@ -43,7 +42,9 @@ import org.slf4j.LoggerFactory
  * - work_items_fts_trigram_ai/ad/au, work_items_fts_text_ai/ad/au (FTS sync for work_items)
  * - notes_fts_trigram_ai/ad/au, notes_fts_text_ai/ad/au (FTS sync for notes)
  */
-class DirectDatabaseSchemaManager : DatabaseSchemaManager {
+class DirectDatabaseSchemaManager(
+    private val database: Database
+) : DatabaseSchemaManager {
     private val logger = LoggerFactory.getLogger(DirectDatabaseSchemaManager::class.java)
 
     // Tables in foreign-key dependency order
@@ -187,21 +188,13 @@ class DirectDatabaseSchemaManager : DatabaseSchemaManager {
         try {
             logger.info("Creating/updating database schema via Direct mode...")
 
-            transaction {
+            transaction(database) {
                 SchemaUtils.create(*tables)
-
-                // H2 (test environment) does not support FTS5 virtual tables or the
-                // SQLite-specific RECURSIVE CTE trigger syntax used for cycle detection.
-                // Production SQLite databases receive these structures via the V7 Flyway
-                // migration. H2 in-memory tests skip these statements and rely on the
-                // base work_items / notes schema only.
-                if (currentDialect !is H2Dialect) {
-                    ftsVirtualTables.forEach { exec(it) }
-                    triggers.forEach { exec(it) }
-                }
+                ftsVirtualTables.forEach { exec(it) }
+                triggers.forEach { exec(it) }
             }
 
-            // SchemaUtils.create never adds columns to an existing table. Outside H2, fail fast when
+            // SchemaUtils.create never adds columns to an existing table. Fail fast when
             // an older Direct-mode file lacks columns the current tables declare, rather than
             // reporting success over a DB that will fail on insert.
             if (!columnsMatch()) return false
@@ -216,8 +209,7 @@ class DirectDatabaseSchemaManager : DatabaseSchemaManager {
     /** Returns false (after one ERROR) if any Exposed-declared column is missing from the live SQLite table. */
     private fun columnsMatch(): Boolean {
         val missing = mutableListOf<String>()
-        transaction {
-            if (currentDialect is H2Dialect) return@transaction
+        transaction(database) {
             tables.forEach { table ->
                 val tableName = table.tableName
                 val existing = mutableSetOf<String>()

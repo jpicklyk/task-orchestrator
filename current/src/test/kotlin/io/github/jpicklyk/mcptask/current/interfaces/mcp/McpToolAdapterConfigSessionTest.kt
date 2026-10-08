@@ -6,9 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -19,10 +17,10 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -45,6 +43,9 @@ import kotlin.test.assertTrue
  * substitute is "drop withConfigSession at call sites", an orchestrator-run mutation.
  */
 class McpToolAdapterConfigSessionTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var server: Server
     private lateinit var client: Client
     private lateinit var adapter: McpToolAdapter
@@ -93,14 +94,7 @@ class McpToolAdapterConfigSessionTest {
     private fun contextWithSource(source: PerRootConfigSource): ToolExecutionContext =
         ToolExecutionContext(
             repositoryProvider =
-                DefaultRepositoryProvider(
-                    DatabaseManager(
-                        Database.connect(
-                            "jdbc:h2:mem:mcpadapter_session_${System.nanoTime()};DB_CLOSE_DELAY=-1",
-                            driver = "org.h2.Driver"
-                        )
-                    ).also { DirectDatabaseSchemaManager().updateSchema() }
-                ),
+                db.repositoryProvider(),
             perRootConfigService = source
         )
 

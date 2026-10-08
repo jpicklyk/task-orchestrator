@@ -39,10 +39,6 @@ private val noteLogger = LoggerFactory.getLogger("NoteRoutes")
  *
  * A principal with `tags_include` sees `/notes/search` hits only for items whose tags it is
  * allowed to read; the per-item routes are already gated by [enforceScopeForItem].
- *
- * **FTS5 search caveat:** the `/notes/search` endpoint delegates to
- * [NoteRepository.ftsSearch] which returns empty results when running against H2
- * (test environment). Use real SQLite fixtures for integration tests of this endpoint.
  */
 fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
     val workItemRepo = repositoryProvider.workItemRepository()
@@ -182,8 +178,7 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
 
             // Dispatched via the NoteRepository interface so this works whether noteRepo is the
             // concrete SQLite repo or a decorator (e.g. EventPublishingNoteRepository — always the
-            // case when the REST API is enabled). Non-FTS dialects (H2 tests) are handled inside
-            // ftsSearch, which returns an empty result.
+            // case when the REST API is enabled).
             val result =
                 noteRepo.ftsSearch(
                     sanitizedFtsQuery = sanitizedQuery,

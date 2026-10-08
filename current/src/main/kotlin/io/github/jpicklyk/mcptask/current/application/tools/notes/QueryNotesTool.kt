@@ -469,8 +469,7 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
 
         // Delegate to repository — dispatched via the NoteRepository interface so this works
         // whether the tool context holds the concrete SQLite repo or a decorator (e.g.
-        // EventPublishingNoteRepository, when the REST API is enabled). Non-FTS dialects
-        // (H2 tests) are handled inside ftsSearch, which returns an empty result.
+        // EventPublishingNoteRepository, when the REST API is enabled).
         val repo = context.noteRepository()
         val searchResult: SearchResult =
             try {

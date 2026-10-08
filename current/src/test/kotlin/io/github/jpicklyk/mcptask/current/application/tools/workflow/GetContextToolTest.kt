@@ -28,7 +28,7 @@ import kotlin.test.*
 // ──────────────────────────────────────────────
 // Note: includeAncestors tests use a real DB instead of mocks because
 // findAncestorChains requires actual parent-child relationships in the DB.
-// Those tests live in GetContextToolAncestorsTest.kt using a real H2 in-memory DB.
+// Those tests live in GetContextToolAncestorsTest.kt using a real SQLite test DB.
 // ──────────────────────────────────────────────
 
 class GetContextToolTest {

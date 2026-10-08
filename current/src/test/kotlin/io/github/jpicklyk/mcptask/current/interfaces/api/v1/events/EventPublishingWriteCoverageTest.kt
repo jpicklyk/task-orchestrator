@@ -6,11 +6,12 @@ import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 
 /**
@@ -18,7 +19,7 @@ import java.util.UUID
  *
  * Oracles: [R] = current/docs/api-rest.md §21 Event Types table; [D] = the item's `diagnosis`
  * note's Fix mapping; [T] = [DeferredEventPublisher] KDoc invariants (rollback publishes nothing).
- * Harness: a decorated provider over a real (H2) [buildH2RepositoryProvider], with an unrestricted
+ * Harness: a decorated provider over a real SQLite-backed `SqliteTestDatabase.repositoryProvider()`, with an unrestricted
  * subscriber (`rootIds = emptySet()`, matches every event regardless of root resolution) connected
  * BEFORE the write under test, per the item's frozen `test-plan`.
  *
@@ -26,6 +27,9 @@ import java.util.UUID
  * see that helper's KDoc for why no fixed wait is needed (O5, item 646b12a6).
  */
 class EventPublishingWriteCoverageTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     // -------------------------------------------------------------------------
     // S1 — createBatch happy path
     // -------------------------------------------------------------------------
@@ -34,7 +38,7 @@ class EventPublishingWriteCoverageTest {
     @Test
     fun `S1 createBatch of two dependencies from the same origin emits two dependency added events`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -68,7 +72,7 @@ class EventPublishingWriteCoverageTest {
     @Test
     fun `S2 dependency deleteByItemId emits dependency removed per pre-read edge`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -100,7 +104,7 @@ class EventPublishingWriteCoverageTest {
     @Test
     fun `S3 note deleteByItemId with multiple notes emits exactly one note deleted event`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -126,7 +130,7 @@ class EventPublishingWriteCoverageTest {
     @Test
     fun `S4 deleteAll emits item deleted only for ids that actually existed`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -156,7 +160,7 @@ class EventPublishingWriteCoverageTest {
     @Test
     fun `S8 work tree creation emits item created root-first plus dependency added and note upserted`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -207,7 +211,7 @@ class EventPublishingWriteCoverageTest {
     @Test
     fun `S9 createBatch with an in-batch duplicate throws and emits no events`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -241,7 +245,7 @@ class EventPublishingWriteCoverageTest {
     @Test
     fun `S11 work tree creation with a cyclic dependency throws and emits no events`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -288,7 +292,7 @@ class EventPublishingWriteCoverageTest {
     @Test
     fun `S12 work tree creation inside a rolled back transaction emits no events and persists no rows`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -337,7 +341,7 @@ class EventPublishingWriteCoverageTest {
     @Test
     fun `S14 no-op writes emit no events`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
@@ -376,7 +380,7 @@ class EventPublishingWriteCoverageTest {
     @Test
     fun `S15 attach-mode work tree does not emit item created for the pre-existing root`(): Unit =
         runBlocking {
-            val delegate = buildH2RepositoryProvider()
+            val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 

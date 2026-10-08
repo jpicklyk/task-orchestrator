@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -13,6 +14,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -28,6 +30,9 @@ import kotlin.test.assertTrue
  * - Scope enforcement: 403 when item outside caller scope
  */
 class NoteRoutesTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private fun makeItemAndNote(
         repo: io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider,
         noteKey: String = "spec",
@@ -62,7 +67,7 @@ class NoteRoutesTest {
     @Test
     fun `GET items id notes returns 200 with note list`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (item, _) = makeItemAndNote(repo)
             application {
                 configureTestApp { noteRoutes(repo) }
@@ -79,7 +84,7 @@ class NoteRoutesTest {
     @Test
     fun `GET items id notes returns empty list when no notes`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Empty notes item", depth = 0)).getOrNull()!!
@@ -99,7 +104,7 @@ class NoteRoutesTest {
     @Test
     fun `GET items id notes filters by role`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     val i = repo.workItemRepository().create(WorkItem(title = "Multi-role", depth = 0)).getOrNull()!!
@@ -123,7 +128,7 @@ class NoteRoutesTest {
     @Test
     fun `GET items id notes filters by key`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     val i = repo.workItemRepository().create(WorkItem(title = "Multi-key", depth = 0)).getOrNull()!!
@@ -149,7 +154,7 @@ class NoteRoutesTest {
     @Test
     fun `GET items id notes key returns 200 for existing note`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val (item, _) = makeItemAndNote(repo, "spec")
             application {
                 configureTestApp { noteRoutes(repo) }
@@ -166,7 +171,7 @@ class NoteRoutesTest {
     @Test
     fun `GET items id notes key returns 404 when key absent`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "No notes item", depth = 0)).getOrNull()!!
@@ -186,7 +191,7 @@ class NoteRoutesTest {
     @Test
     fun `GET notes redacts attribution for non-admin caller`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val actor = ActorClaim(id = "agent-1", kind = ActorKind.ORCHESTRATOR, parent = "parent-1")
             val (item, _) = makeItemAndNote(repo, actorClaim = actor)
             // Set API_REDACT_NOTE_ATTRIBUTION=true (default in test env via AttributionRedactor.fromEnv())
@@ -206,7 +211,7 @@ class NoteRoutesTest {
     @Test
     fun `GET notes shows attribution for admin caller`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val actor = ActorClaim(id = "orchestrator-abc", kind = ActorKind.ORCHESTRATOR)
             val (item, _) = makeItemAndNote(repo, actorClaim = actor)
             application {
@@ -231,7 +236,7 @@ class NoteRoutesTest {
     @Test
     fun `GET items id notes returns 403 for item outside scope`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Out of scope", depth = 0)).getOrNull()!!
@@ -250,7 +255,7 @@ class NoteRoutesTest {
     @Test
     fun `GET items id notes returns 401 without auth`() =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Auth required", depth = 0)).getOrNull()!!

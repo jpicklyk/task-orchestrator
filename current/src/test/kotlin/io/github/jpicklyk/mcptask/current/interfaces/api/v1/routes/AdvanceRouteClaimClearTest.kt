@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -13,6 +14,7 @@ import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import kotlin.test.assertEquals
@@ -35,16 +37,19 @@ import kotlin.test.assertNull
  * [WriteRoutesTest]'s `POST advance on item CLAIMED by another MCP agent` test, which stays green
  * here because that test advances QUEUE->WORK (non-terminal) and this one advances WORK->TERMINAL.
  *
- * Fixture note: claim fields are set directly via `create()` (H2 supports persisting them; only
- * `claim()`'s SQLite-dialect SQL does not run on H2 — see [SQLiteWorkItemClaimFieldsTest] /
+ * Fixture note: claim fields are set directly via `create()` (persisting them needs no claim SQL;
+ * `claim()`'s SQLite-dialect SQL is covered separately — see [SQLiteWorkItemClaimFieldsTest] /
  * [WriteRoutesTest]'s identical fixture technique), truncated to millisecond precision so the
  * persisted round-trip equality check is exact.
  */
 class AdvanceRouteClaimClearTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     @Test
     fun `S9 REST complete on an item claimed by a different MCP agent clears the claim and discloses nothing`(): Unit =
         testApplication {
-            val repo = buildH2RepositoryProvider()
+            val repo = db.repositoryProvider()
             val now = Instant.now().truncatedTo(ChronoUnit.MILLIS)
             val item =
                 runBlocking {

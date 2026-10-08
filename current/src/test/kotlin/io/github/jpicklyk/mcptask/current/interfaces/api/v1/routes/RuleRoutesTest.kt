@@ -6,8 +6,6 @@ import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
@@ -16,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.put
@@ -40,8 +39,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -62,18 +61,14 @@ import kotlin.test.assertTrue
  *
  * Harness (contract "Public-API rule" / "Harness rule"): every REST call runs through the REAL
  * [installRestApiRoutes] with `ContentNegotiation` installed first, wired from a REAL
- * [ServerComposition.build] over an H2 in-memory DB -- mirrors [ItemSchemaRouteTest] /
+ * [ServerComposition.build] over a SQLite test DB -- mirrors [ItemSchemaRouteTest] /
  * [SeatGateParityRestTest]'s production-topology pattern; never a bare `ruleRoutes(...)` call.
  */
 class RuleRoutesTest {
-    // --- Shared composition wiring (own copy) ---
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
 
-    private fun buildDatabaseManager(): DatabaseManager {
-        val dbName = "rule_routes_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DatabaseManager(database)
-    }
+    // --- Shared composition wiring (own copy) ---
 
     private fun materializeGlobalConfig(tempDir: Path) {
         val configDir = tempDir.resolve(".taskorchestrator")
@@ -86,7 +81,7 @@ class RuleRoutesTest {
         val appConfig = AppConfig.fromEnv { key -> if (key == "AGENT_CONFIG_DIR") tempDir.toString() else null }
         return ServerComposition(
             appConfig = appConfig,
-            databaseManager = buildDatabaseManager(),
+            databaseManager = db.databaseManager,
             shutdownCoordinator = ShutdownCoordinator()
         ).build()
     }
@@ -556,12 +551,8 @@ class RuleRoutesTest {
  * this package).
  */
 class RuleRoutesRootLookupFailureTest {
-    private fun buildDatabaseManager(): DatabaseManager {
-        val dbName = "rule_routes_root_lookup_failure_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        DirectDatabaseSchemaManager().updateSchema()
-        return DatabaseManager(database)
-    }
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
 
     private fun materializeEmptyGlobalConfig(tempDir: Path) {
         val configDir = tempDir.resolve(".taskorchestrator")
@@ -574,7 +565,7 @@ class RuleRoutesRootLookupFailureTest {
         val appConfig = AppConfig.fromEnv { key -> if (key == "AGENT_CONFIG_DIR") tempDir.toString() else null }
         return ServerComposition(
             appConfig = appConfig,
-            databaseManager = buildDatabaseManager(),
+            databaseManager = db.databaseManager,
             shutdownCoordinator = ShutdownCoordinator()
         ).build()
     }

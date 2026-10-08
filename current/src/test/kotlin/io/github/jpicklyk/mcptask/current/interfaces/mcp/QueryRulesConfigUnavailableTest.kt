@@ -8,10 +8,8 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigReposit
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -21,10 +19,10 @@ import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -51,6 +49,9 @@ import kotlin.test.assertNull
  * rootId+key mode never touches per-root config at all.
  */
 class QueryRulesConfigUnavailableTest {
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
+
     private lateinit var server: Server
     private lateinit var client: Client
     private lateinit var adapter: McpToolAdapter
@@ -81,22 +82,18 @@ class QueryRulesConfigUnavailableTest {
         }
 
     private fun buildFailingContext(): Triple<ToolExecutionContext, WorkItem, FailableProjectConfigRepository> {
-        val dbName = "query_rules_config_unavailable_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-        val databaseManager = DatabaseManager(database)
-        DirectDatabaseSchemaManager().updateSchema()
-        val h2 = DefaultRepositoryProvider(databaseManager)
+        val sqlite = db.repositoryProvider()
 
         val (root, item) =
             runBlocking {
-                val r = h2.workItemRepository().create(WorkItem(title = "S9 Root", depth = 0)).getOrNull()!!
+                val r = sqlite.workItemRepository().create(WorkItem(title = "S9 Root", depth = 0)).getOrNull()!!
                 // A real row must exist so getFingerprint succeeds with a non-null value first --
                 // resolve() only reaches the .get() read (the one failGet intercepts) once the
                 // fingerprint check has NOT short-circuited on Success(null)/absence. Mirrors
                 // ConfigUnavailableRoutesTest's S11 / ItemSchemaRouteTest's S11b 503 fixtures.
-                h2.projectConfigRepository().upsert(r.id, "work_item_schemas:\n  s9-type:\n    notes: []\n")
+                sqlite.projectConfigRepository().upsert(r.id, "work_item_schemas:\n  s9-type:\n    notes: []\n")
                 val i =
-                    h2
+                    sqlite
                         .workItemRepository()
                         .create(
                             WorkItem(
@@ -111,9 +108,9 @@ class QueryRulesConfigUnavailableTest {
                 r to i
             }
 
-        val failable = FailableProjectConfigRepository(h2.projectConfigRepository())
+        val failable = FailableProjectConfigRepository(sqlite.projectConfigRepository())
         failable.failGet = true
-        val provider = FailableRepositoryProvider(h2, failable)
+        val provider = FailableRepositoryProvider(sqlite, failable)
         val context =
             ToolExecutionContext(
                 provider,
@@ -197,7 +194,7 @@ private class FailableProjectConfigRepository(
     override suspend fun get(rootItemId: UUID) = if (failGet) Result.Error(RepositoryError.DatabaseError("x")) else delegate.get(rootItemId)
 }
 
-/** An H2-backed provider with only [projectConfigRepository] swapped. */
+/** An SQLite-backed provider with only [projectConfigRepository] swapped. */
 private class FailableRepositoryProvider(
     private val delegate: RepositoryProvider,
     private val failable: FailableProjectConfigRepository,

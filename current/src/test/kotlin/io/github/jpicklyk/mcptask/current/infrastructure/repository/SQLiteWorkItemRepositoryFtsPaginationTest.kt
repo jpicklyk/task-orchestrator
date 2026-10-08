@@ -40,8 +40,8 @@ import kotlin.test.assertTrue
  * 1/(60+rank)`, with `rank` the 1-indexed position of the doc within that table's own match
  * ordering — independently computed here, never read back from the implementation.
  *
- * Runs on a migrated SQLite database (SqliteTestDatabase): FTS5 is SQLite-only and `ftsSearch` returns an empty
- * [SearchResult] on H2, so an H2-backed harness would make every scenario below vacuously green.
+ * Runs on a migrated SQLite database (SqliteTestDatabase) so `ftsSearch` exercises the real FTS5 index and
+ * returns genuine ranked hits; every pagination assertion below therefore guards non-empty, fused results.
  */
 class SQLiteWorkItemRepositoryFtsPaginationTest {
     @RegisterExtension
