@@ -127,11 +127,12 @@ class SchemaParityTest {
                 }
                 val exposedNullable = column.columnType.nullable
                 if (dbCol.pk) {
-                    // Accepted pairs: Flyway declares `id BLOB PRIMARY KEY` (SQLite reports notnull=0) or an explicit
-                    // `NOT NULL` key column (notnull=1), while Exposed models every key column as non-null. Exposed
-                    // moving to nullable fails either way.
-                    if (exposedNullable) {
-                        mismatches += "$t.$name: primary-key column is nullable in Exposed (database notnull=${dbCol.notNull})"
+                    // Known, accepted pair: Flyway declares `id BLOB PRIMARY KEY` (SQLite reports notnull=0) while
+                    // Exposed models the key as non-null. idempotency_records alone declares its composite key columns
+                    // `NOT NULL` (notnull=1); every other table is pinned to (database notnull=0, Exposed non-null).
+                    val allowedDbNotNull = t == "idempotency_records"
+                    if ((dbCol.notNull && !allowedDbNotNull) || exposedNullable) {
+                        mismatches += "$t.$name: primary-key nullability pair changed from (database notnull=0, Exposed non-null)"
                     }
                 } else if (dbCol.notNull == exposedNullable) {
                     mismatches += "$t.$name: nullability Exposed nullable=$exposedNullable database notnull=${dbCol.notNull}"

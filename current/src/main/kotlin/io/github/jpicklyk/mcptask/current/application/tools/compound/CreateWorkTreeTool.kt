@@ -192,7 +192,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Client-generated UUID; each element runs once per 24h (keyed by actor+requestId); " +
+                                    "Client-generated UUID; the call runs once per 24h (keyed by actor+requestId, as element 0); " +
                                         "requires actor; malformed values rejected."
                                 )
                             )

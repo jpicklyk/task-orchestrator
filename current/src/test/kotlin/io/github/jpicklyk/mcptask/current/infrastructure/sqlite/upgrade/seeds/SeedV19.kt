@@ -31,8 +31,8 @@ object SeedV19 : MigrationSeed(19) {
             }
         assertTrue("idx_idempotency_records_created_at" in indexes, "created_at index missing: $indexes")
 
+        insert(conn, "dup", FINGERPRINT, "2026-03-01 10:15:30.123")
         assertFailsWith<SQLException>("a duplicate primary key must be rejected") {
-            insert(conn, "dup", FINGERPRINT, "2026-03-01 10:15:30.123")
             insert(conn, "dup", FINGERPRINT, "2026-03-01 10:15:30.123")
         }
         assertFailsWith<SQLException>("a 63-character fingerprint must be rejected") {

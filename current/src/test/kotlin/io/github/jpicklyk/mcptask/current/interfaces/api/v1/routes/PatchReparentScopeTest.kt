@@ -468,11 +468,11 @@ class PatchReparentScopeTest {
         }
 
     // ─────────────────────────────────────────────────────────────────────
-    // S10 — Idempotency-Key replay of a 403'd re-parent replays 403
+    // S10 — Idempotency-Key retry of a 403'd re-parent re-executes and is rejected again
     // ─────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `S10 reparent rejected for scope replays the same 403 on Idempotency-Key replay`(): Unit =
+    fun `S10 reparent rejected for scope is rejected again on Idempotency-Key retry`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
             val (root, x, q) =
@@ -509,11 +509,11 @@ class PatchReparentScopeTest {
             assertEquals(
                 HttpStatusCode.Forbidden,
                 second.status,
-                "Idempotency-Key replay of a 403 must replay 403, not silently succeed: ${second.bodyAsText()}"
+                "Idempotency-Key retry of a 403 must re-execute and 403 again, not silently succeed: ${second.bodyAsText()}"
             )
             assertTrue(
                 second.bodyAsText().contains("scope_forbidden"),
-                "Replayed response should still report scope_forbidden: ${second.bodyAsText()}"
+                "Retried response should still report scope_forbidden: ${second.bodyAsText()}"
             )
 
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }

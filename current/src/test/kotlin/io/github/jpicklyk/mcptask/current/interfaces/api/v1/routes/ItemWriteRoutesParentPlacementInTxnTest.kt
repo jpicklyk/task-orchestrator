@@ -355,6 +355,12 @@ class ItemWriteRoutesParentPlacementInTxnTest {
             val second = makeRequest()
             assertEquals(null, second.headers["Idempotent-Replayed"], "the retry was not served from a record")
             assertTrue(firstBody.contains("not_found"), "the first attempt reported the missing parent: $firstBody")
+            assertEquals(HttpStatusCode.Created, second.status, "the retry re-ran against the restored parent: ${second.bodyAsText()}")
+            val all = runBlocking { repo.workItemRepository().findByFilters() }
+            assertNotNull(all)
+            val children = all.items.filter { it.title == "Orphan Child Probe" }
+            assertEquals(1, children.size, "exactly one child exists after the retry: $children")
+            assertEquals(p.id, children.single().parentId, "the retried child is attached to the restored parent")
         }
 
     // Probe catalog, recorded per skill §6 (every probe attempted, including N/A ones):
