@@ -238,10 +238,12 @@ class UnitRunner internal constructor(
         // Ownership rule (kotlinx "Asynchronous timeout and resources"): once lock() has returned, `locked` is set
         // in straight-line code and this coroutine owns the Mutex however withTimeoutOrNull then exits. A timeout
         // delivered after the grant makes it return null; an outer-job cancellation after the grant makes it
-        // THROW. If this function returns normally, drive's finally unlocks. If it throws while `locked`, the
-        // catch below unlocks before rethrowing; drive's try is never entered, so there is exactly one unlock.
-        // A lock() that itself throws never granted the Mutex, so `locked` stays false and nothing is unlocked.
+        // THROW. If the wait returns (`returned`), this function either returns with the lock held (drive's
+        // finally unlocks) or throws WriterLockTimeout without it. If the wait throws while `locked`, the finally
+        // below unlocks; drive's try is never entered, so there is exactly one unlock. A lock() that itself
+        // throws never granted the Mutex, so `locked` stays false and nothing is unlocked.
         var locked = false
+        var returned = false
         try {
             if (remaining.isPositive()) {
                 withTimeoutOrNull(remaining) {
@@ -249,9 +251,9 @@ class UnitRunner internal constructor(
                     locked = true
                 }
             }
-        } catch (e: Throwable) {
-            if (locked) writerMutex.unlock()
-            throw e
+            returned = true
+        } finally {
+            if (locked && !returned) writerMutex.unlock()
         }
         if (!locked) throw WriterLockTimeout(deadline)
     }
