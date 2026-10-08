@@ -309,6 +309,24 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
             assertEquals(chain.ancestors.map { it.id }, legacy[a.id]?.map { it.id })
         }
 
+    // -- S6b: ancestor row absent from the table --
+
+    @Test
+    @Timeout(value = 10, unit = TimeUnit.SECONDS)
+    fun `findAncestorChainsDetailed reports truncated with reason missing-ancestor when a parent row is absent`(): Unit =
+        runBlocking {
+            val root = createItem("S6b root")
+            val child = createItem("S6b child", parentId = root.id, depth = 1)
+
+            // Point the child at a parent that does not exist (a fresh JDBC connection has foreign_keys off).
+            P7Raw.exec(sqliteDb.jdbcUrl, "UPDATE work_items SET parent_id = ? WHERE id = ?", UUID.randomUUID(), child.id)
+
+            val chain = assertNotNull(repository.findAncestorChainsDetailed(setOf(child.id))[child.id])
+            assertTrue(chain.truncated, "a walk that hits an absent parent must report truncated=true")
+            assertEquals(AncestorChain.REASON_MISSING_ANCESTOR, chain.truncationReason)
+            assertTrue(chain.ancestors.isEmpty())
+        }
+
     // ── S7: domain-invalid ancestor ─────────────────────────────────────────
 
     @Test

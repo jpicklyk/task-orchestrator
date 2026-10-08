@@ -110,7 +110,11 @@ class SqliteClaimStore(
             // Same-agent refresh keeps the original claim time; a take-over (or first claim) starts it now.
             val original =
                 if (prior != null && prior[WorkItemsTable.claimedBy] == agentId) {
-                    prior[WorkItemsTable.originalClaimedAt] ?: now
+                    try {
+                        prior[WorkItemsTable.originalClaimedAt] ?: now
+                    } catch (e: IllegalArgumentException) {
+                        now // unreadable stored text: same fallback as the total row mapper treats it (no usable value)
+                    }
                 } else {
                     now
                 }
