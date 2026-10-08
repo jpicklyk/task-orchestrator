@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
@@ -10,6 +11,8 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItem
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -385,6 +388,11 @@ class KeyedElementToolsTest {
             val firstRes = elements(first, "results")
             assertEquals("true", firstRes[0]["applied"]!!.jsonPrimitive.content)
             assertEquals("false", firstRes[1]["applied"]!!.jsonPrimitive.content, "attempt 1 of the gated item must be blocked: $first")
+            assertEquals(
+                "gate_blocked",
+                firstRes[1]["errorCode"]!!.jsonPrimitive.content,
+                "blocked for the gate, not another reason: $first"
+            )
             assertEquals(1, records(), "only the successful element is recorded")
             assertEquals(1, rawInt("SELECT count(*) FROM role_transitions"))
 
@@ -410,7 +418,9 @@ class KeyedElementToolsTest {
             val params = advanceParams(key, transition(gated.id, AdvanceTrigger.START))
 
             val blocked = AdvanceItemTool().execute(params, ctx)
-            assertEquals("false", elements(blocked, "results").single()["applied"]!!.jsonPrimitive.content, "attempt 1 must fail: $blocked")
+            val blockedEl = elements(blocked, "results").single()
+            assertEquals("false", blockedEl["applied"]!!.jsonPrimitive.content, "attempt 1 must fail: $blocked")
+            assertEquals("gate_blocked", blockedEl["errorCode"]!!.jsonPrimitive.content, "attempt 1 must fail on the gate: $blocked")
             assertEquals(0, records())
             assertEquals(0, rawInt("SELECT count(*) FROM role_transitions"))
             assertEquals(Role.QUEUE, items.getById(gated.id)!!.role)
@@ -462,6 +472,135 @@ class KeyedElementToolsTest {
             assertFalse(elements(release, "releaseResults").single().isReplayed(), "a release is a different operation: $release")
             assertNull(items.getById(item.id)!!.claimedBy, "the release executed and cleared the claim")
             assertEquals(2, records(), "claim and release are recorded under separate operations")
+        }
+
+    // ---------------------------------------------------------------- S5 selector
+
+    @Test
+    fun `S5 a keyed selector claim replays the same itemId instead of claiming another item`(): Unit =
+        runBlocking {
+            val ctx = context()
+            val a = queueItem("Selector first")
+            val b = queueItem("Selector second")
+            val key = UUID.randomUUID().toString()
+            val params =
+                obj(
+                    "claims" to buildJsonArray { add(buildJsonObject { put("selector", buildJsonObject {}) }) },
+                    "actor" to actor("agent-selector"),
+                    "requestId" to JsonPrimitive(key)
+                )
+
+            val firstRes = elements(ClaimItemTool().execute(params, ctx), "claimResults").single()
+            assertEquals("success", firstRes["outcome"]!!.jsonPrimitive.content)
+            val claimedId = firstRes["itemId"]!!.jsonPrimitive.content
+            assertEquals(1, records())
+
+            val replay = elements(ClaimItemTool().execute(params, ctx), "claimResults").single()
+            assertTrue(replay.isReplayed(), "the retried selector claim replays: $replay")
+            assertEquals(claimedId, replay["itemId"]!!.jsonPrimitive.content, "the replay names the item claimed the first time")
+            assertEquals(1, records(), "a replay writes no record")
+            val claimedCount = listOf(a.id, b.id).count { items.getById(it)!!.claimedBy == "agent-selector" }
+            assertEquals(1, claimedCount, "exactly one item is claimed: the replay must not claim a second one")
+        }
+
+    // ---------------------------------------------------------------- S8 tool level
+
+    @Test
+    fun `S8 a non-object element is a stored payload-validation failure that replays on retry with the same key`(): Unit =
+        runBlocking {
+            val ctx = context()
+            val key = UUID.randomUUID().toString()
+
+            fun badParams(element: JsonElement) =
+                obj(
+                    "operation" to JsonPrimitive("create"),
+                    "items" to JsonArray(listOf(element)),
+                    "requestId" to JsonPrimitive(key),
+                    "actor" to actor()
+                )
+
+            val first = ManageItemsTool().execute(badParams(JsonPrimitive("not an object")), ctx)
+            assertTrue("must be a JSON object" in first.toString(), "attempt 1 reports the payload failure: $first")
+            assertEquals(1, records(), "a payload-validation failure IS recorded (every other failure is not)")
+            assertEquals(0, itemRows())
+
+            val retry = ManageItemsTool().execute(badParams(JsonPrimitive("not an object")), ctx)
+            assertTrue("must be a JSON object" in retry.toString(), "the retry returns the same stored failure: $retry")
+            assertFalse("idempotency_mismatch" in retry.toString(), "an identical retry is not a mismatch: $retry")
+            assertEquals(1, records(), "the replay adds no record")
+            assertEquals(0, itemRows())
+
+            val changed = ManageItemsTool().execute(badParams(JsonPrimitive(5)), ctx)
+            assertTrue("idempotency_mismatch" in changed.toString(), "a different bad element under the same key is a mismatch: $changed")
+            assertEquals(1, records())
+        }
+
+    // ---------------------------------------------------------------- S10 tool level
+
+    private val leaseSchema: WorkItemSchemaService =
+        object : WorkItemSchemaService {
+            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
+                if (tags.isNotEmpty()) {
+                    listOf(
+                        NoteSchemaEntry(
+                            key = "acceptance-criteria",
+                            role = Role.QUEUE,
+                            required = true,
+                            description = "Acceptance criteria for this task",
+                            guidance = "List each criterion as a bullet point"
+                        )
+                    )
+                } else {
+                    null
+                }
+
+            override fun getTraitResources(traitName: String): List<ResourceRequirement> =
+                if (traitName == "needs-staging-db") {
+                    listOf(ResourceRequirement("staging-db-credential", ResourceMode.EXCLUSIVE, 600))
+                } else {
+                    emptyList()
+                }
+        }
+
+    @Test
+    fun `S10 a keyed advance that fails its gate leaves no lease, no transition and no record, and the retry executes`(): Unit =
+        runBlocking {
+            val ctx =
+                ToolExecutionContext(
+                    repositoryProvider = db.repositoryProvider(),
+                    noteSchemaService = leaseSchema,
+                    unitOfWork = db.unitOfWork()
+                )
+            val item =
+                items.create(
+                    WorkItem(
+                        title = "Leased and gated",
+                        role = Role.QUEUE,
+                        depth = 0,
+                        tags = "feature-task",
+                        properties = """{"traits":["needs-staging-db"]}"""
+                    )
+                )
+            val leases = db.repositoryProvider().resourceLeaseRepository()
+            val key = UUID.randomUUID().toString()
+            val params = advanceParams(key, transition(item.id, "start"))
+
+            val first = AdvanceItemTool().execute(params, ctx)
+            val firstEl = elements(first, "results").single()
+            assertEquals("false", firstEl["applied"]!!.jsonPrimitive.content, "attempt 1 must fail: $first")
+            assertEquals("gate_blocked", firstEl["errorCode"]!!.jsonPrimitive.content, "attempt 1 must fail on the note gate: $first")
+            assertTrue(leases.findActiveByKeys(listOf("staging-db-credential")).isEmpty(), "no lease may survive the failed attempt")
+            assertEquals(0, rawInt("SELECT count(*) FROM role_transitions"), "no transition row may survive")
+            assertEquals(0, records(), "the failed element must not be recorded as ok")
+            assertEquals(Role.QUEUE, items.getById(item.id)!!.role)
+
+            fillAcceptanceNote(item.id, ctx)
+            val retry = AdvanceItemTool().execute(params, ctx)
+            val retryEl = elements(retry, "results").single()
+            assertEquals("true", retryEl["applied"]!!.jsonPrimitive.content, "the retry with the same key must execute: $retry")
+            assertFalse(retryEl.isReplayed())
+            assertEquals(1, records())
+            assertEquals(1, leases.findActiveByKeys(listOf("staging-db-credential")).size, "the successful retry acquires the lease")
         }
 
     // ---------------------------------------------------------------- S11 / S15

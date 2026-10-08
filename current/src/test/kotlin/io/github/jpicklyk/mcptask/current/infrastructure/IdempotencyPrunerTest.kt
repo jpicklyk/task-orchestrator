@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.IdempotencyRecord
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.Fingerprint
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -152,5 +154,38 @@ class IdempotencyPrunerTest {
             seed(uow, "later", Instant.now().minus(ttl).minusSeconds(60))
             delay(1_000)
             assertEquals(setOf("later"), keys(uow), "nothing may run after stop()")
+        }
+
+    /** Delegates to the real unit of work but fails every write with an exception, counting the attempts. */
+    private class FailingWrites(
+        private val real: UnitOfWork,
+        val attempts: AtomicInteger
+    ) : UnitOfWork by real {
+        override suspend fun <T> write(
+            op: String,
+            block: suspend WriteScope.() -> Outcome<T>
+        ): Outcome<T> {
+            attempts.incrementAndGet()
+            error("simulated store fault")
+        }
+    }
+
+    // task-scope "Pruner": a startup prune failure is non-fatal (WARN) and the hourly loop keeps going
+    @Test
+    fun `S13 a failing prune does not throw out of start, the loop keeps retrying on the interval, and stop completes`(): Unit =
+        runBlocking {
+            val attempts = AtomicInteger(0)
+            val pruner = IdempotencyPruner(FailingWrites(unit(Clock { Instant.now() }), attempts), interval = Duration.ofMillis(50))
+
+            pruner.start() // must not throw although the startup prune fails
+            try {
+                assertTrue(waitUntil { attempts.get() >= 3 }, "the scheduler must survive failures and attempt again: ${attempts.get()}")
+            } finally {
+                pruner.stop()
+            }
+
+            val afterStop = attempts.get()
+            delay(500)
+            assertEquals(afterStop, attempts.get(), "no attempt may run after stop()")
         }
 }
