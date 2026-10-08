@@ -7,7 +7,12 @@ import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import org.slf4j.LoggerFactory
 import java.time.Instant
+
+private val logger = LoggerFactory.getLogger(UnscopedUnitOfWork::class.java)
 
 /**
  * A [UnitOfWork] with NO transaction: it runs the block directly and honours the hook contract
@@ -27,7 +32,7 @@ class UnscopedUnitOfWork(
         val outcome =
             try {
                 scope.block()
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 e.rethrowIfCancellation()
                 scope.rollback(null)
                 throw e
@@ -56,8 +61,29 @@ class UnscopedUnitOfWork(
             rollbackHooks.add(fn)
         }
 
-        suspend fun commit() = commitHooks.forEach { it() }
+        /** Runs non-cancellably; a failing hook is logged at WARN and does not change the outcome. */
+        suspend fun commit() =
+            withContext(NonCancellable) {
+                for (hook in commitHooks) {
+                    try {
+                        hook()
+                    } catch (e: Exception) {
+                        e.rethrowIfCancellation()
+                        logger.warn("afterCommit hook failed; the unit's outcome is unchanged: {}", e.message, e)
+                    }
+                }
+            }
 
-        suspend fun rollback(error: DomainError?) = rollbackHooks.forEach { it(error) }
+        suspend fun rollback(error: DomainError?) =
+            withContext(NonCancellable) {
+                for (hook in rollbackHooks) {
+                    try {
+                        hook(error)
+                    } catch (e: Exception) {
+                        e.rethrowIfCancellation()
+                        logger.warn("afterRollback hook failed: {}", e.message, e)
+                    }
+                }
+            }
     }
 }

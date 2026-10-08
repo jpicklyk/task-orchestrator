@@ -6,13 +6,15 @@ import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.UnitElement
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.JdbcTransaction
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
@@ -24,6 +26,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.random.Random
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
 /**
@@ -82,7 +85,17 @@ class UnitRunner internal constructor(
                 Outcome.Err(driven.error)
             }
             is Driven.Faulted -> {
-                val error = PersistenceFaults.translate(driven.cause)
+                val cause = driven.cause
+                val error =
+                    if (cause is WriterLockTimeout) {
+                        DomainError(
+                            ErrorCode.UNAVAILABLE,
+                            cause.message ?: "Writer lock not available",
+                            ErrorDetail.Unavailable(PersistenceFaults.BUSY_RETRY_AFTER_MS)
+                        )
+                    } else {
+                        PersistenceFaults.translate(cause)
+                    }
                 if (error == null) {
                     fireRollback(driven.unit, null)
                     throw driven.cause
@@ -177,7 +190,12 @@ class UnitRunner internal constructor(
                 val value =
                     if (write) {
                         // Evict inside the lock, so no other writer can check out the poisoned connection first.
-                        writerMutex.withLock { transactEvictingOnFault(dbs.writer(), write = true, unit, freshConfig, body) }
+                        acquireWriter(started)
+                        try {
+                            transactEvictingOnFault(dbs.writer(), write = true, unit, freshConfig, body)
+                        } finally {
+                            writerMutex.unlock()
+                        }
                     } else {
                         transactEvictingOnFault(dbs.reader(), write = false, unit, freshConfig, body)
                     }
@@ -198,9 +216,35 @@ class UnitRunner internal constructor(
     }
 
     /**
-     * Runs one attempt and, when it fails with a persistence fault, evicts the pool's connections.
-     * sqlite-jdbc keeps no usable transaction after a failed BEGIN (e.g. SQLITE_BUSY from another process): the
-     * pooled connection would otherwise fail every later commit with "no transaction is active".
+     * Takes the writer lock, waiting at most the REMAINING unit [deadline] (time since [started]). A lock that
+     * never frees (e.g. a unit whose [UnitElement] was lost and re-entered the writer) becomes [WriterLockTimeout],
+     * which surfaces as `unavailable` instead of hanging.
+     */
+    private suspend fun acquireWriter(started: TimeMark) {
+        if (writerMutex.tryLock()) return
+        val remaining = deadline - started.elapsedNow()
+        val acquired =
+            if (remaining.isPositive()) {
+                withTimeoutOrNull(remaining) {
+                    writerMutex.lock()
+                    true
+                }
+            } else {
+                null
+            }
+        if (acquired == null) throw WriterLockTimeout(deadline)
+    }
+
+    /** The in-process writer lock stayed held past the unit deadline. */
+    private class WriterLockTimeout(
+        deadline: Duration
+    ) : RuntimeException("Writer lock not available within $deadline", null, false, false)
+
+    /**
+     * Runs one attempt and, when it fails with a connection-level persistence fault (BUSY/LOCKED, pool timeout),
+     * evicts the pool's connections. sqlite-jdbc keeps no usable transaction after a failed BEGIN (e.g. SQLITE_BUSY
+     * from another process): the pooled connection would otherwise fail every later commit with "no transaction is
+     * active". Constraint (duplicate/FK) and other SQL faults leave the connection healthy and do not evict.
      */
     private suspend fun <R> transactEvictingOnFault(
         db: Database,
@@ -215,7 +259,8 @@ class UnitRunner internal constructor(
             throw e
         } catch (e: Throwable) {
             e.rethrowIfCancellation()
-            if (PersistenceFaults.classify(e) != null) dbs.evictConnections(write)
+            val fault = PersistenceFaults.classify(e)
+            if (fault == PersistenceFaults.Fault.BUSY || fault == PersistenceFaults.Fault.POOL_TIMEOUT) dbs.evictConnections(write)
             throw e
         }
 

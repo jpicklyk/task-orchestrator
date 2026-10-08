@@ -857,12 +857,13 @@ DATABASE_MAX_CONNECTIONS=4
 
 ### Recommended Values (`DATABASE_BUSY_TIMEOUT_MS`, startup paths only)
 
-| Fleet size | Recommended timeout |
+`DATABASE_BUSY_TIMEOUT_MS` no longer scales with fleet size: request-path contention is handled by the in-process writer lock and the fixed 1 s pool `busy_timeout`. Raise it only when several server processes may run the Flyway migration or startup compaction against the same database file at once.
+
+| Situation | Recommended timeout |
 |---|---|
-| 1–10 agents | 5000ms (default) |
-| 10–30 agents | 10000–15000ms |
-| 30–50 agents | 15000–30000ms |
-| 50+ agents | 30000ms + review architecture (see Capacity Planning below) |
+| One server process (any number of agents) | 5000ms (default) |
+| Several server processes may start together on one file | 10000-15000ms |
+| Many processes migrate/compact one shared file concurrently | 15000-30000ms (see Capacity Planning below) |
 
 ### The 30-Second Ceiling
 
