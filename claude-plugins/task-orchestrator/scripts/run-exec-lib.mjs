@@ -478,7 +478,7 @@ function methodBReturn(core, plan, stage) {
   if (stage.output === 'planner-v1') {
     lines.push('This supersedes the earlier instruction to emit StructuredOutput: do not call StructuredOutput.')
   }
-  lines.push(`Envelope JSON schema: ${JSON.stringify(core.envelopeSchema(stage.output, plan.outputSchemas))}`)
+  lines.push(`Envelope JSON schema: ${JSON.stringify(core.envelopeSchema(stage.output, plan.outputSchemas, { enters: stage.enters }))}`)
   return lines.join('\n')
 }
 
@@ -587,7 +587,7 @@ export function stageResult(core, doc, state, idOrShort, seat, finalText, opts =
 
   let validationErrors = []
   if (!parseError) {
-    const schema = core.envelopeSchema(stage.output, plan.outputSchemas)
+    const schema = core.envelopeSchema(stage.output, plan.outputSchemas, { enters: stage.enters })
     validationErrors = validateAgainst(schema, env)
   }
 
