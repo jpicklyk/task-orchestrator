@@ -5,9 +5,8 @@ import org.jetbrains.exposed.v1.core.Table
 /**
  * Durable idempotency records. Mirrors `V19__Idempotency_Records.sql`.
  *
- * [createdAt] is a plain text column holding the canonical 23-character UTC form
- * (`yyyy-MM-dd HH:mm:ss.SSS`), formatted and parsed by `SqliteIdempotencyStore`; it deliberately does not
- * use an Exposed `timestamp` column type.
+ * [createdAt] is declared `TEXT` and persisted through [UtcTimestampColumnType] as the canonical 23-character
+ * UTC form (`yyyy-MM-dd HH:mm:ss.SSS`), so text order equals time order for the expiry comparison.
  */
 object IdempotencyRecordsTable : Table("idempotency_records") {
     val principalId = text("principal_id")
@@ -15,7 +14,7 @@ object IdempotencyRecordsTable : Table("idempotency_records") {
     val key = text("key")
     val fingerprint = text("fingerprint")
     val resultJson = text("result_json")
-    val createdAt = text("created_at")
+    val createdAt = utcTimestampText("created_at")
 
     override val primaryKey = PrimaryKey(principalId, operation, key)
 

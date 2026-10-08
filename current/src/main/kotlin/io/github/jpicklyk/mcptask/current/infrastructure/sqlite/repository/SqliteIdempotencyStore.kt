@@ -13,15 +13,12 @@ import org.jetbrains.exposed.v1.jdbc.insertIgnore
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.upsert
 import java.time.Instant
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
 
 /**
  * SQLite implementation of [IdempotencyStore] over [IdempotencyRecordsTable].
  *
- * `created_at` is stored as the canonical fixed-width UTC text `yyyy-MM-dd HH:mm:ss.SSS` (millisecond
- * truncation), so text order equals time order and the expiry comparison is a bound-parameter
+ * `created_at` uses the shared UTC column type (canonical fixed-width text `yyyy-MM-dd HH:mm:ss.SSS`,
+ * millisecond truncation), so text order equals time order and the expiry comparison is a bound-parameter
  * comparison against the index.
  */
 class SqliteIdempotencyStore(
@@ -55,7 +52,7 @@ class SqliteIdempotencyStore(
                 onUpdate = {
                     it[IdempotencyRecordsTable.fingerprint] = record.fingerprint
                     it[IdempotencyRecordsTable.resultJson] = record.resultJson
-                    it[IdempotencyRecordsTable.createdAt] = format(record.createdAt)
+                    it[IdempotencyRecordsTable.createdAt] = record.createdAt
                 }
             ) {
                 it[principalId] = record.principalId
@@ -63,7 +60,7 @@ class SqliteIdempotencyStore(
                 it[key] = record.key
                 it[fingerprint] = record.fingerprint
                 it[resultJson] = record.resultJson
-                it[createdAt] = format(record.createdAt)
+                it[createdAt] = record.createdAt
             }
         }
     }
@@ -77,14 +74,14 @@ class SqliteIdempotencyStore(
                     it[key] = record.key
                     it[fingerprint] = record.fingerprint
                     it[resultJson] = record.resultJson
-                    it[createdAt] = format(record.createdAt)
+                    it[createdAt] = record.createdAt
                 }
             stmt.insertedCount > 0
         }
 
     override suspend fun deleteExpired(cutoff: Instant): Int =
         databaseManager.writeTx("IdempotencyStore.deleteExpired") {
-            IdempotencyRecordsTable.deleteWhere { createdAt lessEq format(cutoff) }
+            IdempotencyRecordsTable.deleteWhere { createdAt lessEq cutoff }
         }
 
     private fun toRecord(row: ResultRow): IdempotencyRecord =
@@ -94,16 +91,6 @@ class SqliteIdempotencyStore(
             key = row[IdempotencyRecordsTable.key],
             fingerprint = row[IdempotencyRecordsTable.fingerprint],
             resultJson = row[IdempotencyRecordsTable.resultJson],
-            createdAt = parse(row[IdempotencyRecordsTable.createdAt])
+            createdAt = row[IdempotencyRecordsTable.createdAt]
         )
-
-    internal companion object {
-        /** The canonical persisted timestamp form; replaced by the shared UTC helper when it lands. */
-        private val FORMATTER: DateTimeFormatter =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS").withZone(ZoneOffset.UTC)
-
-        fun format(instant: Instant): String = FORMATTER.format(instant.truncatedTo(ChronoUnit.MILLIS))
-
-        fun parse(text: String): Instant = Instant.from(FORMATTER.parse(text))
-    }
 }
