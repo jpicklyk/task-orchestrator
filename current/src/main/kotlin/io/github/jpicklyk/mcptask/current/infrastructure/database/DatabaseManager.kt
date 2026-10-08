@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.database
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.FlywayDatabaseSchemaManager
@@ -115,6 +116,7 @@ class DatabaseManager(
             )
             return true
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             logger.error("Failed to initialize database: ${e.message}", e)
             closePools()
             return false
@@ -202,6 +204,7 @@ class DatabaseManager(
 
             return result
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             logger.error("Error updating database schema: ${e.message}", e)
             return false
         }
@@ -250,6 +253,7 @@ class DatabaseManager(
                 }
             }
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             logger.warn("Could not run parent-cycle integrity check: ${e.message}")
         }
     }
@@ -265,7 +269,7 @@ class DatabaseManager(
         if (!appConfig.dbCompactOnUpgrade) return
 
         val url = jdbcUrl ?: return
-        runCatching {
+        runCatchingNonCancellation {
             StartupCompaction.runOnce(url, appConfig.databaseBusyTimeoutMs)
         }.onSuccess { outcome ->
             when (outcome) {
@@ -349,6 +353,7 @@ class DatabaseManager(
 
             logger.info("Database shutdown complete")
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             logger.error("Error shutting down database", e)
         }
     }

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import org.jetbrains.exposed.v1.core.Transaction
 import org.jetbrains.exposed.v1.core.statements.StatementInterceptor
@@ -126,6 +127,7 @@ class DeferredEventPublisher(
         try {
             TransactionManager.currentOrNull()
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             logger.debug("No transaction manager available; publishing immediately: {}", e.message)
             null
         }
@@ -168,6 +170,7 @@ class DeferredEventPublisher(
                 publishNow(pending)
             } catch (e: Exception) {
                 // One bad event must not strand the rest of the committed batch.
+                e.rethrowIfCancellation()
                 logger.warn("Failed to publish deferred event {}: {}", pending.eventType, e.message)
             }
         }
