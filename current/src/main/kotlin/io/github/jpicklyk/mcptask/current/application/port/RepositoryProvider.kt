@@ -37,4 +37,7 @@ interface RepositoryProvider {
     fun workTreeExecutor(): WorkTreeExecutor
 
     fun idempotencyStore(): IdempotencyStore
+
+    /** The append-only domain-event log (`events`). Never decorated: its appends are what the decorator records. */
+    fun eventStore(): EventStore
 }

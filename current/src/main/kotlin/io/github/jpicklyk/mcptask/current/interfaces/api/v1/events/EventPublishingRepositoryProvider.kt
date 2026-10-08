@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.application.port.IdempotencyStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
@@ -562,6 +563,8 @@ class EventPublishingRepositoryProvider(
     override fun workTreeExecutor(): WorkTreeExecutor = wrappedWorkTreeExecutor
 
     override fun idempotencyStore(): IdempotencyStore = delegate.idempotencyStore()
+
+    override fun eventStore(): EventStore = delegate.eventStore()
 
     // -------------------------------------------------------------------------
     // Role-transition hook (called by RoleTransitionHandler.applyTransition callers)

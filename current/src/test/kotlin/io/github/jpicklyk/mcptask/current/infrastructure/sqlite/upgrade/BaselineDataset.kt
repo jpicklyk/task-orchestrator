@@ -330,6 +330,27 @@ object BaselineDataset {
             "created_at" to "2026-03-01 10:15:30.123"
         )
 
+        // V20: one event row with every column non-default; root_id != entity_id, principal_id != session_id.
+        insert(
+            conn,
+            "events",
+            "id" to id("event:baseline"),
+            "occurred_at" to "2026-03-02 11:16:31.456",
+            "root_id" to id("root"),
+            "entity_kind" to "item",
+            "entity_id" to id("task1"),
+            "type" to "item.created",
+            "req_id" to "req-baseline-0001",
+            "principal_id" to "actor-one",
+            "principal_kind" to "subagent",
+            "proof_status" to "verified",
+            "host" to "host-baseline",
+            "session_id" to "session-baseline",
+            "run_id" to id("run:baseline"),
+            "seat" to "implementer",
+            "data" to "{\"origin\":\"baseline\"}"
+        )
+
         insert(
             conn,
             "project_config",

@@ -1,0 +1,5 @@
+index|idx_events_entity_seq|events|CREATE INDEX idx_events_entity_seq ON events(entity_id, seq)
+index|idx_events_req_id|events|CREATE INDEX idx_events_req_id ON events(req_id)
+index|idx_events_root_seq|events|CREATE INDEX idx_events_root_seq ON events(root_id, seq)
+index|idx_events_type_occurred|events|CREATE INDEX idx_events_type_occurred ON events(type, occurred_at)
+table|events|events|CREATE TABLE events ( seq INTEGER PRIMARY KEY AUTOINCREMENT, id BLOB NOT NULL UNIQUE, occurred_at TEXT NOT NULL CHECK (length(occurred_at) = 23), root_id BLOB NOT NULL, entity_kind TEXT NOT NULL, entity_id BLOB NOT NULL, type TEXT NOT NULL, req_id TEXT, principal_id TEXT, principal_kind TEXT, proof_status TEXT, host TEXT, session_id TEXT, run_id BLOB, seat TEXT, data TEXT NOT NULL )

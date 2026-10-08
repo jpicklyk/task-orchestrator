@@ -51,11 +51,11 @@ class FlywayMigrationLockTest {
         }
 
         assertEquals(
-            19,
+            20,
             scalarInt(url, "SELECT count(*) FROM flyway_schema_history WHERE success = 1"),
             "each migration applied exactly once"
         )
-        assertEquals(19, scalarInt(url, "SELECT count(DISTINCT version) FROM flyway_schema_history"))
+        assertEquals(20, scalarInt(url, "SELECT count(DISTINCT version) FROM flyway_schema_history"))
         assertTrue(lockFileFor(db).exists(), "the lock file <db>.migrate.lock must exist and is never deleted")
     }
 
@@ -86,7 +86,7 @@ class FlywayMigrationLockTest {
                 pool.shutdownNow()
             }
         }
-        assertEquals(19, scalarInt(url, "SELECT count(*) FROM flyway_schema_history WHERE success = 1"))
+        assertEquals(20, scalarInt(url, "SELECT count(*) FROM flyway_schema_history WHERE success = 1"))
     }
 
     @Test
@@ -100,7 +100,7 @@ class FlywayMigrationLockTest {
         val url = "jdbc:sqlite:file:$name?mode=memory&cache=shared"
         java.sql.DriverManager.getConnection(url).use {
             assertTrue(FlywayDatabaseSchemaManager(url, repair = false).updateSchema())
-            assertEquals(19, scalarInt(url, "SELECT count(*) FROM flyway_schema_history WHERE success = 1"))
+            assertEquals(20, scalarInt(url, "SELECT count(*) FROM flyway_schema_history WHERE success = 1"))
         }
         assertFalse(File("$name.migrate.lock").exists(), "no lock file may be created for an in-memory URL (cwd)")
         assertFalse(File("file:$name.migrate.lock").exists())
