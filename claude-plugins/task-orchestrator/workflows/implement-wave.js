@@ -593,14 +593,17 @@ function overlapDeferral(mine, higher, mode) {
 }
 
 /**
- * envelopeSchema(outputId, extra={}) -> JSON schema for the common envelope.
- * A built-in output id is never overridden by extra.
+ * envelopeSchema(outputId, extra={}, opts={}) -> JSON schema for the common envelope.
+ * A built-in output id is never overridden by extra. A truthy opts.enters appends 'entry' to
+ * required (the entering stage must report the advance result); otherwise the schema is unchanged.
  */
-function envelopeSchema(outputId, extra = {}) {
+function envelopeSchema(outputId, extra = {}, opts = {}) {
   const output = OUTPUT_SCHEMAS[outputId] || extra[outputId] || OUTPUT_SCHEMAS['generic-v1']
   return {
     type: 'object',
-    required: ['status', 'reason', 'notes', 'commits', 'files', 'modelReported', 'output'],
+    required: opts && opts.enters
+      ? ['status', 'reason', 'notes', 'commits', 'files', 'modelReported', 'output', 'entry']
+      : ['status', 'reason', 'notes', 'commits', 'files', 'modelReported', 'output'],
     properties: {
       status: { enum: ['done', 'stopped', 'deferred'] },
       reason: { type: 'string' },
@@ -704,7 +707,16 @@ function mapStageResult(stage, env, entryMode = 'seat') {
   if (env.reason === 'config-unavailable') return { status: 'deferred', reason: 'config-unavailable' }
   if (stage.enters) {
     const entryResult = mapEntry(env, entryMode)
-    if (entryResult.status !== 'done') return entryResult
+    if (entryResult.status !== 'done') {
+      if (
+        entryResult.reason === 'no entry report' &&
+        (env.status === 'stopped' || env.status === 'deferred') &&
+        typeof env.reason === 'string' && env.reason !== ''
+      ) {
+        return { status: env.status, reason: env.reason }
+      }
+      return entryResult
+    }
   }
   if (stage.output === 'planner-v1' && env.output) {
     if (env.output.proceed === false) {
@@ -1037,10 +1049,19 @@ function promptRerunAndEntry(plan, item, stage, actor) {
     lines.push('ENTRY: call get_context(itemId) first.')
     if (plan.entryMode === 'pre-entered') {
       lines.push('entryMode is pre-entered: verify role is already "work" and never call advance_item.')
+      lines.push(
+        'ENTRY REPORT (required): role "work" -> entry {"applied":false,"alreadyInPhase":true}; ' +
+          'else entry {"applied":false,"alreadyInPhase":false} and status "stopped".',
+      )
     } else {
       lines.push('role "work" -> do not advance; report entry.alreadyInPhase.')
       lines.push('role "queue" -> call advance_item(transitions:[{itemId, trigger:"start", actor}]) exactly once.')
       lines.push('Rerun-safe entry: never call start from work — only from queue.')
+      lines.push(
+        'ENTRY REPORT (required): copy the advance_item result into entry (applied, newRole, previousRole, errorCode, ' +
+          'contendedResources; missingNotes as key strings; blockers as fromItemId strings; retried true only after a ' +
+          'config_unavailable retry). Role "work": entry {"applied":false,"alreadyInPhase":true}.',
+      )
     }
   }
   return lines.join('\n')
@@ -1129,7 +1150,7 @@ async function higherPriorityOutputs(plan, item, milestones) {
 
 async function callSeat(plan, item, stage, outs, deps) {
   const prompt = seatPrompt(plan, item, stage, outs)
-  const schema = envelopeSchema(stage.output, plan.outputSchemas)
+  const schema = envelopeSchema(stage.output, plan.outputSchemas, { enters: stage.enters })
   const opts = {
     label: `${stage.seat}:${item.short}`,
     phase: stage.phase === 'queue' ? 'Queue' : 'Work',
