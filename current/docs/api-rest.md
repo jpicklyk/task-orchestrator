@@ -1520,6 +1520,8 @@ Scope check: both `fromItemId` and `toItemId` of the edge must be accessible to 
 - `204 No Content`
 - `404 not_found`
 - `403 scope_forbidden`
+- `500 db_error` - a store fault: `Database query failed` on the edge lookup, `Failed to delete
+  dependency` on the delete itself (the SQL text is logged, not returned)
 
 ---
 
@@ -1777,8 +1779,9 @@ registry key collision, not per-root - see "Per-root honorable settings" in `con
 - `403 scope_forbidden` - capability present but `{rootId}` outside token scope
 - `500 db_error` - a repository failure surfaces here rather than silently skipping a guard -
   guard evaluation is fail-closed, not fail-open. The guarded write runs once inside its unit of
-  work (single writer), so there is no compare-and-set retry budget to exhaust; SQLITE_BUSY is
-  retried by the unit and then surfaces as `unavailable`
+  work (single writer), so there is no compare-and-set retry budget to exhaust. SQLITE_BUSY is
+  retried by the unit; a BUSY that outlasts the unit deadline is reported like any other store
+  fault, as `500 db_error` with `Failed to store project config` (not `unavailable`)
 
 ### GET /roots/{rootId}/config
 

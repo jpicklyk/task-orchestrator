@@ -5,7 +5,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.database.OutsideUnitPolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -21,7 +23,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.assertEquals
-import kotlin.test.assertFails
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -653,7 +655,7 @@ class SQLiteWorkItemRepositoryClaimTest {
 
             // validate() rejects blank claimedBy; the store now THROWS (P5b: stores throw; the fault
             // is mapped at the unit boundary), where it used to wrap it as ClaimResult.DBError (H1).
-            val cause = assertFails { repository.claim(item.id, whitespaceAgent, 900) }
+            val cause = assertFailsWith<ValidationException> { repository.claim(item.id, whitespaceAgent, 900) }
             assertNotNull(cause, "the store fault should carry the underlying ValidationException")
             assertTrue(
                 cause.message?.contains("blank") == true ||
@@ -1005,12 +1007,15 @@ class SQLiteWorkItemRepositoryClaimTest {
 
             // DatabaseManager with no customDatabase and no initialize() call.
             // getDatabase() will throw IllegalStateException("Database has not been initialized").
-            val uninitializedManager = DatabaseManager()
+            // IMPLICIT: under the production FAIL policy the outside-unit write would be refused before the
+            // uninitialized database is ever reached, so the test would not exercise what it names.
+            val uninitializedManager = DatabaseManager(outsideUnitPolicy = OutsideUnitPolicy.IMPLICIT)
             val faultyRepo = SQLiteWorkItemRepository(uninitializedManager)
 
             // P5b: stores throw; the fault is no longer a ClaimResult.DBError variant (no itemId field).
-            val cause = assertFails { faultyRepo.claim(itemId, "agent-h1-test", 900) }
+            val cause = assertFailsWith<IllegalStateException> { faultyRepo.claim(itemId, "agent-h1-test", 900) }
             assertNotNull(cause.message, "the store fault must carry its cause message")
+            assertTrue(cause.message!!.contains("not been initialized"), "the uninitialized-database fault expected: ${cause.message}")
         }
 
     /**
@@ -1024,12 +1029,14 @@ class SQLiteWorkItemRepositoryClaimTest {
         runBlocking {
             val itemId = UUID.randomUUID()
 
-            val uninitializedManager = DatabaseManager()
+            // IMPLICIT: see the claim test above; FAIL would refuse the write before reaching the database.
+            val uninitializedManager = DatabaseManager(outsideUnitPolicy = OutsideUnitPolicy.IMPLICIT)
             val faultyRepo = SQLiteWorkItemRepository(uninitializedManager)
 
             // P5b: stores throw; the fault is no longer a ReleaseResult.DBError variant (no itemId field).
-            val cause = assertFails { faultyRepo.release(itemId, "agent-h1-test") }
+            val cause = assertFailsWith<IllegalStateException> { faultyRepo.release(itemId, "agent-h1-test") }
             assertNotNull(cause.message, "the store fault must carry its cause message")
+            assertTrue(cause.message!!.contains("not been initialized"), "the uninitialized-database fault expected: ${cause.message}")
         }
 
     // -----------------------------------------------------------------------

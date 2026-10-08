@@ -2655,9 +2655,11 @@ on `code`/`kind` without parsing the text summary:
 
 **Storage faults.** A database fault keeps the 3.x `DATABASE_ERROR` code on both reads and writes, and
 is never reported as `RESOURCE_NOT_FOUND` (not-found means only that the row does not exist). A tool
-that already reports storage failures keeps its own message prefix followed by the innermost SQL
-error text (for example `Failed to read project config: <sql text>`). Any other storage fault is
-returned as `DATABASE_ERROR` with the message `Database error in '<tool>': <sql text>`.
+that already reports storage failures keeps its own message prefix. On a read the prefix is followed
+by the innermost SQL error text (for example `Failed to read project config: <sql text>`). On a write
+it is followed by the catalog message for the fault class: `Database error: <sql text>`,
+`Duplicate record: <sql text>` or `Referenced record not found: <sql text>`. Any other storage fault
+is returned as `DATABASE_ERROR` with the message `Database error in '<tool>': <sql text>`.
 
 ### ErrorKind Values
 

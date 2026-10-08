@@ -48,6 +48,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
+import java.sql.DriverManager
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -1565,6 +1566,53 @@ class DependencyWriteRouteTest {
                     withContext(Dispatchers.IO) { repo.dependencyRepository().findById(dep.id) }
                 }
             assertNotNull(remaining, "Dependency must NOT be deleted when toItemId is outside the caller's scope")
+        }
+
+    @Test
+    fun `DELETE dependencies store fault returns 500 db_error with fixed text and no SQL text`(): Unit =
+        testApplication {
+            val repo = db.repositoryProvider()
+            val (from, to) =
+                runBlocking {
+                    val a = repo.workItemRepository().create(WorkItem(title = "From Fault", depth = 0))!!
+                    val b = repo.workItemRepository().create(WorkItem(title = "To Fault", depth = 0))!!
+                    Pair(a, b)
+                }
+            val dep =
+                runBlocking {
+                    withContext(Dispatchers.IO) {
+                        repo.dependencyRepository().create(
+                            Dependency(fromItemId = from.id, toItemId = to.id, type = DependencyType.BLOCKS),
+                        )
+                    }
+                }
+            // A real SQL fault on the delete itself (the edge lookup before it still succeeds).
+            DriverManager.getConnection(db.jdbcUrl).use { conn ->
+                conn.createStatement().use {
+                    it.execute(
+                        "CREATE TRIGGER dep_delete_fault BEFORE DELETE ON dependencies " +
+                            "BEGIN SELECT RAISE(ABORT, 'injected-dep-delete-fault'); END"
+                    )
+                }
+            }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
+
+            val response =
+                client.delete("/api/v1/dependencies/${dep.id}") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                }
+            assertEquals(HttpStatusCode.InternalServerError, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains("\"db_error\""), "legacy write-fault code expected: $body")
+            assertTrue(body.contains("Failed to delete dependency"), "fixed route text expected: $body")
+            assertFalse(body.contains("injected-dep-delete-fault"), "SQL text must not reach the body: $body")
+            assertFalse(body.contains("\"internal\""), "the catalog code must not reach the body: $body")
+
+            val remaining =
+                runBlocking {
+                    withContext(Dispatchers.IO) { repo.dependencyRepository().findById(dep.id) }
+                }
+            assertNotNull(remaining, "the faulted delete must roll back")
         }
 
     @Test

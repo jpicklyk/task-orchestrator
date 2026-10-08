@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
+import io.github.jpicklyk.mcptask.current.infrastructure.database.OutsideUnitPolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
@@ -49,10 +50,21 @@ import kotlin.test.assertEquals
  * installing the same route-scoped plugin onto a merged empty-path child node) which would
  * have failed real server startup but passed every per-route unit test. If the combined
  * surface fails to wire, the very first request below throws at application setup.
+ *
+ * The scenario runs twice: under the test fixture's [OutsideUnitPolicy.IMPLICIT] ([FullApiWiringSmokeTest])
+ * and under the production [OutsideUnitPolicy.FAIL] ([FullApiWiringSmokeFailPolicyTest]), so a route write
+ * made outside a unit of work fails CI instead of only failing in production.
  */
-class FullApiWiringSmokeTest {
+class FullApiWiringSmokeTest : FullApiWiringSmokeScenarios(OutsideUnitPolicy.IMPLICIT)
+
+/** [FullApiWiringSmokeScenarios] under the production [OutsideUnitPolicy.FAIL]. */
+class FullApiWiringSmokeFailPolicyTest : FullApiWiringSmokeScenarios(OutsideUnitPolicy.FAIL)
+
+abstract class FullApiWiringSmokeScenarios(
+    outsideUnitPolicy: OutsideUnitPolicy
+) {
     @RegisterExtension
-    val db = SqliteTestDatabase.perMethod()
+    val db = SqliteTestDatabase.perMethod(outsideUnitPolicy)
 
     /** Mirrors CurrentMcpServer's production `/api/v1` registration (same plugins + route order). */
     private fun Application.configureFullApi(repo: DefaultRepositoryProvider) {

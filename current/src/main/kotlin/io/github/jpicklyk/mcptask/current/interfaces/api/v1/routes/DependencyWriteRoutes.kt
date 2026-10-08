@@ -248,7 +248,11 @@ fun Route.dependencyWriteRoutes(
                     return@delete
                 }
 
-            val existing: Dependency? = withContext(Dispatchers.IO) { depRepo.findById(id) }
+            val existing: Dependency? =
+                legacyRead({
+                    call.respondDbError()
+                    return@delete
+                }) { withContext(Dispatchers.IO) { depRepo.findById(id) } }
             if (existing == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Dependency $id not found"))
                 return@delete
@@ -276,8 +280,10 @@ fun Route.dependencyWriteRoutes(
                 when (deleteOutcome) {
                     is Outcome.Ok -> deleteOutcome.value
                     is Outcome.Err -> {
-                        depWriteLogger.warn("DELETE /dependencies/{} failed: {}", id, deleteOutcome.error.message)
-                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("internal", deleteOutcome.error.message))
+                        // The legacy write-fault shape (F4): 500 db_error with the route's fixed text; the SQL text
+                        // goes to the log only.
+                        depWriteLogger.warn("DELETE /dependencies/{} DB error: {}", id, deleteOutcome.error.message)
+                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to delete dependency"))
                         return@delete
                     }
                 }

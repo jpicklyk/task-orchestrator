@@ -37,7 +37,8 @@ import java.time.Instant
  * Always pass [database] (not a global default) to `transaction(db = ...)`.
  */
 class SqliteTestDatabase private constructor(
-    private val directory: Path
+    private val directory: Path,
+    outsideUnitPolicy: OutsideUnitPolicy
 ) : AutoCloseable {
     /** The database file: `<directory>/test.db` (a copy of the template). */
     val file: File = directory.resolve("test.db").toFile()
@@ -47,11 +48,12 @@ class SqliteTestDatabase private constructor(
 
     /**
      * The production manager, already initialized against [file]. Only its public API is used. Its outside-unit
-     * policy is [OutsideUnitPolicy.IMPLICIT] on purpose: tests may seed through the stores outside a unit (each
-     * such write is still counted in `units.outsideUnitWrites`; see [assertNoOutsideUnitWrites]).
+     * policy defaults to [OutsideUnitPolicy.IMPLICIT] on purpose: tests may seed through the stores outside a unit
+     * (each such write is still counted in `units.outsideUnitWrites`; see [assertNoOutsideUnitWrites]). A test that
+     * opens it with the production [OutsideUnitPolicy.FAIL] must seed its fixtures inside a unit.
      */
     val databaseManager: DatabaseManager =
-        DatabaseManager(appConfig = AppConfig.fromEnv { null }, outsideUnitPolicy = OutsideUnitPolicy.IMPLICIT).also {
+        DatabaseManager(appConfig = AppConfig.fromEnv { null }, outsideUnitPolicy = outsideUnitPolicy).also {
             check(it.initialize(jdbcUrl)) { "SqliteTestDatabase: DatabaseManager.initialize failed for $jdbcUrl" }
         }
 
@@ -73,12 +75,12 @@ class SqliteTestDatabase private constructor(
     }
 
     companion object {
-        /** Opens a fresh copy of the template. The caller owns [close]. */
-        fun open(): SqliteTestDatabase {
+        /** Opens a fresh copy of the template with [outsideUnitPolicy]. The caller owns [close]. */
+        fun open(outsideUnitPolicy: OutsideUnitPolicy = OutsideUnitPolicy.IMPLICIT): SqliteTestDatabase {
             val dir = Files.createTempDirectory("to-sqlite-test-")
             try {
                 Files.copy(SqliteTemplate.file().toPath(), dir.resolve("test.db"), StandardCopyOption.REPLACE_EXISTING)
-                return SqliteTestDatabase(dir)
+                return SqliteTestDatabase(dir, outsideUnitPolicy)
             } catch (e: Throwable) {
                 runCatching { deleteWithRetry(dir) }
                 throw e
@@ -86,10 +88,12 @@ class SqliteTestDatabase private constructor(
         }
 
         /** One database shared by every test of the class; declare on a static (companion) field. */
-        fun perClass(): SqliteTestDatabaseExtension = SqliteTestDatabaseExtension(perMethod = false)
+        fun perClass(outsideUnitPolicy: OutsideUnitPolicy = OutsideUnitPolicy.IMPLICIT): SqliteTestDatabaseExtension =
+            SqliteTestDatabaseExtension(perMethod = false, outsideUnitPolicy = outsideUnitPolicy)
 
         /** A fresh database for every test method; declare on an instance field. */
-        fun perMethod(): SqliteTestDatabaseExtension = SqliteTestDatabaseExtension(perMethod = true)
+        fun perMethod(outsideUnitPolicy: OutsideUnitPolicy = OutsideUnitPolicy.IMPLICIT): SqliteTestDatabaseExtension =
+            SqliteTestDatabaseExtension(perMethod = true, outsideUnitPolicy = outsideUnitPolicy)
 
         private const val DELETE_ATTEMPTS = 5
         private const val DELETE_BACKOFF_MS = 200L
@@ -128,7 +132,8 @@ class SqliteTestDatabase private constructor(
  * the run loudly on a leaked connection) when the owning context ends.
  */
 class SqliteTestDatabaseExtension internal constructor(
-    private val perMethod: Boolean
+    private val perMethod: Boolean,
+    private val outsideUnitPolicy: OutsideUnitPolicy = OutsideUnitPolicy.IMPLICIT
 ) : BeforeAllCallback,
     BeforeEachCallback {
     private class Holder(
@@ -176,7 +181,7 @@ class SqliteTestDatabaseExtension internal constructor(
     }
 
     private fun start(context: ExtensionContext) {
-        val holder = Holder(SqliteTestDatabase.open())
+        val holder = Holder(SqliteTestDatabase.open(outsideUnitPolicy))
         context.getStore(NAMESPACE).put(holder, holder)
         current = holder.db
     }
