@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.test
 
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
 import java.lang.reflect.Modifier
@@ -14,7 +14,7 @@ class MockRepositoryProviderCompletenessTest {
     fun `every RepositoryProvider accessor is stubbed on the shared mock`() {
         val provider = MockRepositoryProvider().provider
         val accessors = RepositoryProvider::class.java.methods.filter { !Modifier.isStatic(it.modifiers) && it.parameterCount == 0 }
-        check(accessors.size >= 9) { "expected the 9 RepositoryProvider accessors, found ${accessors.map { it.name }}" }
+        check(accessors.size >= 8) { "expected at least the 8 RepositoryProvider accessors, found ${accessors.map { it.name }}" }
         for (accessor in accessors) {
             val result =
                 try {
@@ -22,7 +22,7 @@ class MockRepositoryProviderCompletenessTest {
                 } catch (e: java.lang.reflect.InvocationTargetException) {
                     throw AssertionError("RepositoryProvider.${accessor.name}() is not stubbed on MockRepositoryProvider", e.cause)
                 }
-            if (accessor.name != "database") assertNotNull(result, "RepositoryProvider.${accessor.name}() returned null")
+            assertNotNull(result, "RepositoryProvider.${accessor.name}() returned null")
         }
     }
 }
