@@ -32,7 +32,7 @@ fun normalizeConfigForFingerprint(configYaml: String): String = configYaml.remov
  * result, UTF-8 encoded. This is the single server-side definition of the config-fingerprint hash:
  * fingerprints are compared for equality between the client (`config-sync.mjs`'s
  * `configFingerprint`) and the server
- * ([io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository.computeFingerprint]
+ * ([io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository.computeFingerprint]
  * and [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlNoteSchemaService]'s global-config
  * fingerprint) — every server-side config-fingerprint call site MUST route through this function so
  * the two sides can never silently diverge on BOM/CRLF handling (e.g. a Windows checkout with CRLF

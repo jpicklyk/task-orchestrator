@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -113,7 +113,7 @@ private class DeleteFailOnIdRepositoryProvider(
  * read):
  *  [V16] `resource_lease_history` migration: every interval is closed exactly once, on release.
  *  [RK] `ResourceLeaseRepository`/`ResourceLeaseInterval` KDoc + close-reason vocabulary
- *       ("released", "expired") pinned by [io.github.jpicklyk.mcptask.current.infrastructure.database.repository.SQLiteResourceLeaseRepositoryHistoryTest].
+ *       ("released", "expired") pinned by [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteResourceLeaseRepositoryHistoryTest].
  *  [AT] `DeleteItemHandler` KDoc / [DeleteItemHandlerAtomicityTest]: recursive delete is
  *       all-or-nothing per requested root id.
  *  [DX] diagnosis: release-before-delete happens inside the same transaction as the row delete;
@@ -166,7 +166,7 @@ class DeleteItemLeaseReleaseTest {
     /**
      * Backdates the lease for (resourceKey, holderItemId) to an already-expired expires_at in
      * BOTH the live table and the open history interval — mirrors
-     * [io.github.jpicklyk.mcptask.current.infrastructure.database.repository.SQLiteResourceLeaseRepositoryHistoryTest]'s
+     * [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteResourceLeaseRepositoryHistoryTest]'s
      * `expireLease` helper (production keeps the two tables' expiry in agreement, so simulating
      * time-passage must age them together).
      */

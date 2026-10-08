@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.test.sqlite
 
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.FlywayDatabaseSchemaManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.FlywayDatabaseSchemaManager
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path

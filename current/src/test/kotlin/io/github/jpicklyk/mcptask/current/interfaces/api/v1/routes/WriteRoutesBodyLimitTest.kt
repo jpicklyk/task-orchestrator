@@ -80,7 +80,7 @@ private class CountingChunkedJsonContent(
     }
 }
 
-private fun createRoot(repo: io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider): WorkItem =
+private fun createRoot(repo: io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider): WorkItem =
     runBlocking {
         (repo.workItemRepository().create(WorkItem(title = "Root", type = "project", depth = 0))!!)
     }

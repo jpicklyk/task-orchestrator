@@ -3,9 +3,9 @@ package io.github.jpicklyk.mcptask.current.application.tools.compound
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteNoteRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteNoteRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
@@ -21,7 +21,7 @@ import kotlin.test.assertTrue
 /**
  * Integration tests for [CreateWorkTreeTool] using a real SQLite database
  * and the production [DefaultRepositoryProvider] wiring (which constructs
- * [io.github.jpicklyk.mcptask.current.infrastructure.service.SQLiteWorkTreeService]
+ * [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.service.SQLiteWorkTreeService]
  * via the same lazy property used in production).
  *
  * Unlike [CreateWorkTreeToolTest] (which mocks the executor), these tests verify

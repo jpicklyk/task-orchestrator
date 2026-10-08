@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
@@ -11,7 +12,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -144,8 +144,8 @@ class ConfigUnavailableRoutesTest {
 }
 
 /**
- * Wraps a real [ProjectConfigRepository] (the [io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository]
- * a [io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider] hands
+ * Wraps a real [ProjectConfigRepository] (the [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository]
+ * a [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider] hands
  * back from `projectConfigRepository()`) and lets tests force [get]/[getFingerprint] to return
  * `throw IllegalStateException("x")` on demand — the test-plan harness's "test
  * ProjectConfigRepository wrapping SQLiteProjectConfigRepository" fixture, authored here per this

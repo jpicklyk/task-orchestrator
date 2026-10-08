@@ -39,7 +39,7 @@ sealed class PlanDocumentAdoptOutcome {
 }
 
 /**
- * Persists per-root plan documents (see [io.github.jpicklyk.mcptask.current.infrastructure.database.schema.PlanDocumentsTable]).
+ * Persists per-root plan documents (see [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.PlanDocumentsTable]).
  *
  * `(rootItemId, slug)` is unique per root. [stash] is the sole write path for PENDING content —
  * re-stashing an existing PENDING slug overwrites it in place; re-stashing an ADOPTED slug is

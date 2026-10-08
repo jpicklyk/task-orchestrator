@@ -7,7 +7,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
@@ -30,7 +30,7 @@ import kotlin.test.assertTrue
  * accessors, skip RELATES_TO; [Db] decision (b) — restatement as a separate row is not a cycle.
  *
  * Real SQLite + [DefaultRepositoryProvider] throughout (real dependency graph / real
- * [io.github.jpicklyk.mcptask.current.infrastructure.service.SQLiteWorkTreeService]) — the
+ * [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.service.SQLiteWorkTreeService]) — the
  * MockK-based sibling test files in this package are not usable here since S4/S13/S3/S12 need
  * true cycle/topological behavior over real dependency edges.
  */

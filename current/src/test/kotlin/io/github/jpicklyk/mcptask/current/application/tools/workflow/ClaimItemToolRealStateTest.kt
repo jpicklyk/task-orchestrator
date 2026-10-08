@@ -48,7 +48,7 @@ import kotlin.test.assertTrue
  * Uses a real SQLite repository (via [SqliteTestDatabase]) because the claim SQL
  * relies on SQLite-specific `datetime('now', ...)` semantics that a mock cannot exercise
  * faithfully — matching the idiom already proven out in
- * [io.github.jpicklyk.mcptask.current.infrastructure.database.repository.SQLiteWorkItemRepositoryClaimTest]
+ * [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepositoryClaimTest]
  * and [ClaimItemToolSelectorOutcomeTest].
  */
 class ClaimItemToolRealStateTest {

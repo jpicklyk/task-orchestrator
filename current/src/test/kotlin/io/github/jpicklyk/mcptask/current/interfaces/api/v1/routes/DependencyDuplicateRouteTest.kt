@@ -36,7 +36,7 @@ class DependencyDuplicateRouteTest {
     val db = SqliteTestDatabase.perMethod()
 
     private suspend fun createPair(
-        repo: io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider,
+        repo: io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider,
         titleA: String = "A",
         titleB: String = "B",
     ): Pair<WorkItem, WorkItem> {

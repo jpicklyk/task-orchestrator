@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
@@ -34,7 +34,7 @@ import kotlin.test.assertTrue
 /**
  * Integration tests for item-read routes.
  *
- * Uses a SQLite-backed [io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider].
+ * Uses a SQLite-backed [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider].
  *
  * Test coverage:
  * - Happy path for each item endpoint

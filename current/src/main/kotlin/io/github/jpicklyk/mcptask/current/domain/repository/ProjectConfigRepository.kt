@@ -6,7 +6,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.ProjectConfig
 import java.util.UUID
 
 /**
- * Persists per-root config YAML documents (see [io.github.jpicklyk.mcptask.current.infrastructure.database.schema.ProjectConfigTable]).
+ * Persists per-root config YAML documents (see [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ProjectConfigTable]).
  *
  * One row per root: [upsert] replaces the existing row for a given [UUID] root item rather than
  * inserting a second row (`root_item_id` is unique). Deleting the root item cascades to delete

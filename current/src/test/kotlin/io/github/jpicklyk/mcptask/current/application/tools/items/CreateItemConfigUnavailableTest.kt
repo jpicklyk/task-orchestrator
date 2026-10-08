@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.items
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -35,7 +35,7 @@ import kotlin.test.assertTrue
  * (per-item decoration, and the batch's `availableTraits`).
  *
  * Harness mirrors [ManageItemsToolTest]'s real-SQLite-DB setup, adding a real [PerRootConfigService]
- * over a [FailableProjectConfigRepository]-wrapped real [io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository]
+ * over a [FailableProjectConfigRepository]-wrapped real [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository]
  * (via `repositoryProvider.projectConfigRepository()`) for the create call under test, following
  * the same "own copy per file" fixture used by the sibling config-unavailable test files (this
  * item's file-ownership rule forbids a shared harness file).

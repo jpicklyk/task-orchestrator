@@ -43,7 +43,7 @@ sealed class LeaseReleaseResult {
  * Persists server-enforced TTL leases on shared external resources (see
  * [io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement] /
  * [io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition] and
- * [io.github.jpicklyk.mcptask.current.infrastructure.database.schema.ResourceLeasesTable]).
+ * [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ResourceLeasesTable]).
  *
  * This is the storage + concurrency primitive only — no gate enforcement and no MCP tool surface.
  * `acquireAll` / `releaseAllForItem` are wired into the work-phase-entry gate by

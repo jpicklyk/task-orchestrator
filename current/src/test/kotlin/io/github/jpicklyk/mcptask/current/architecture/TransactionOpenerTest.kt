@@ -5,8 +5,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Transaction-opener guard (item 9343ad8d, S10 and S16): outside `infrastructure/database/UnitRunner.kt` and
- * `infrastructure/repository/TransactionHelper.kt` no production code line may open an Exposed transaction, and no
+ * Transaction-opener guard (item 9343ad8d, S10 and S16): outside `infrastructure/sqlite/UnitRunner.kt` and
+ * `infrastructure/sqlite/repository/TransactionHelper.kt` no production code line may open an Exposed transaction, and no
  * file may import `...jdbc.transactions.transaction` or `...suspendTransaction`. Oracle: task-scope section 7
  * (TransactionOpenerTest). No baseline: P5a sweeps every opener site, so the expected violation count is zero.
  * The lookbehind keeps names such as `inTransaction(` and member calls such as `x.transaction(` clean, while a call
@@ -26,7 +26,7 @@ class TransactionOpenerTest {
             )
         val IMPORT = Regex("""^\s*import\s+[\w.]*jdbc\.transactions\.(transaction|suspendTransaction)\s*$""")
         val EXPERIMENTAL_IMPORT = Regex("""^\s*import\s+[\w.]*jdbc\.transactions\.experimental""")
-        val ALLOWED = setOf("infrastructure/database/UnitRunner.kt", "infrastructure/repository/TransactionHelper.kt")
+        val ALLOWED = setOf("infrastructure/sqlite/UnitRunner.kt", "infrastructure/sqlite/repository/TransactionHelper.kt")
 
         fun violations(text: String): List<String> =
             text

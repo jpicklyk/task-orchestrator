@@ -6,7 +6,7 @@ import java.util.UUID
 /**
  * An append-only audit record of one resource-lease HOLD INTERVAL — answers "who held resource R
  * at time T" (see `resource_lease_history` /
- * [io.github.jpicklyk.mcptask.current.infrastructure.database.schema.ResourceLeaseHistoryTable]).
+ * [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ResourceLeaseHistoryTable]).
  *
  * Unlike [ResourceLease] (the live, mutable "current holder" row), this type is immutable audit
  * history: one row per hold interval, appended on acquire and closed exactly once — never deleted

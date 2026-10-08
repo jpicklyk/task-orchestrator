@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.test.sqlite
 
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import kotlin.test.assertEquals
 
 /** Snapshot of `units.outsideUnitWrites` (store writes attempted outside a unit of work), by op. */

@@ -21,7 +21,7 @@ import kotlin.test.assertTrue
  * **MUST use real SQLite.**
  * These tests must exercise the actual FTS5 path.
  *
- * Pattern mirrors [io.github.jpicklyk.mcptask.current.infrastructure.database.Fts5MigrationTest].
+ * Pattern mirrors [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.Fts5MigrationTest].
  *
  * Test coverage:
  * - `GET /search?q=` returns FTS5 item hits

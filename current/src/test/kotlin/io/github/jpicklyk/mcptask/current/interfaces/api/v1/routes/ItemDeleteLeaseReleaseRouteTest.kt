@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
@@ -11,7 +12,6 @@ import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -76,7 +76,7 @@ private class FailOnIdRepositoryProvider(
 
 /**
  * A write-route app wired directly against `itemWriteRoutes` (not [configureWriteTestApp], which
- * is pinned to [io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider])
+ * is pinned to [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider])
  * so a [RepositoryProvider] wrapper — [FailOnIdRepositoryProvider] — can be installed for S8.
  * Mirrors [AdvanceRouteResourceLeaseTest]'s `configureLeaseTestApp`.
  */
