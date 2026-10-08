@@ -19,7 +19,8 @@ class PlacementWriteConfinementTest {
 
         val WRITES =
             listOf(
-                Regex("""\bit\[(WorkItemsTable\.)?(parentId|rootId|depth)]\s*="""),
+                // Any receiver name (it, stmt, row, insert, ...) and any table qualifier; `==` is a comparison, not a write.
+                Regex("""\b\w+\[(\w+\.)*(parentId|rootId|depth)]\s*=(?!=)"""),
                 Regex("""(?i)\bSET\s+(parent_id|root_id|depth)\b"""),
                 Regex("""(?i)^\s*,?\s*(parent_id|root_id|depth)\s*=\s*\?""")
             )
@@ -46,10 +47,19 @@ class PlacementWriteConfinementTest {
                 "            it[parentId] = item.parentId",
                 "            it[WorkItemsTable.rootId] = null",
                 "UPDATE work_items SET parent_id = ? WHERE id = ?",
-                "      parent_id = ?,"
+                "      parent_id = ?,",
+                "            stmt[WorkItemsTable.parentId] = id",
+                "            row[WorkItemsTable.depth] = 2",
+                "            it[WorkItemsTable.parentId] = id",
+                "            insert[io.x.WorkItemsTable.rootId] = id"
             )
         flagged.forEach { assertTrue(violations(it) == 1, "not flagged: $it") }
-        listOf("val p = row[WorkItemsTable.parentId]", "WorkItemsTable.rootId inList ids", "// it[parentId] = x").forEach {
+        listOf(
+            "val p = row[WorkItemsTable.parentId]",
+            "WorkItemsTable.rootId inList ids",
+            "// it[parentId] = x",
+            "if (row[WorkItemsTable.depth] == 1) x()"
+        ).forEach {
             assertEquals(0, violations(it), "wrongly flagged: $it")
         }
     }
