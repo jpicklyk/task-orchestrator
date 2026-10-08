@@ -38,9 +38,9 @@ import kotlin.time.TimeSource
  * - **Retry.** SQLITE_BUSY/LOCKED re-runs the WHOLE unit (fresh Exposed transaction, fresh
  *   [ConfigSession], fresh hooks, `now` re-read) with jittered exponential backoff until [deadline].
  * - **Translation.** An explicit write ([runWrite]) turns persistence faults into [DomainError]s via
- *   [PersistenceFaults]; every other exception rolls back and is rethrown unchanged. Implicit units
- *   (a store call outside any unit) rethrow the final exception so today's `Result.Error` mapping
- *   in the stores is unchanged.
+ *   [PersistenceFaults]; every other exception rolls back and is rethrown unchanged. A store write
+ *   outside any unit fails with [OutsideUnitWriteException] under the production [OutsideUnitPolicy.FAIL];
+ *   the test fixture's IMPLICIT policy runs it as an implicit unit that rethrows the final exception.
  * - **Hooks.** `afterCommit`/`afterRollback` hooks run once, on the outermost unit, never for an
  *   attempt abandoned by a BUSY retry, and never when the coroutine was cancelled.
  */

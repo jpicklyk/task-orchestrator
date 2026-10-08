@@ -32,12 +32,13 @@ import java.sql.Connection
  *   a fresh [AppConfig.fromEnv] snapshot so existing no-arg construction (and tests) keep the prior
  *   env-driven behavior unchanged.
  * @param outsideUnitPolicy what a store write outside any unit of work does (always counted first).
- *   Stays [OutsideUnitPolicy.IMPLICIT] until every write site runs inside a unit; then it becomes FAIL.
+ *   Production uses the default, [OutsideUnitPolicy.FAIL]: every write site runs inside a unit, so an
+ *   outside-unit write is a bug and throws. Only the test fixture opts into IMPLICIT (store-level seeding).
  */
 class DatabaseManager(
     private val customDatabase: Database? = null,
     private val appConfig: AppConfig = AppConfig.fromEnv(),
-    outsideUnitPolicy: OutsideUnitPolicy = OutsideUnitPolicy.IMPLICIT
+    outsideUnitPolicy: OutsideUnitPolicy = OutsideUnitPolicy.FAIL
 ) {
     private val logger = LoggerFactory.getLogger(DatabaseManager::class.java)
     private var writerDb: Database? = customDatabase

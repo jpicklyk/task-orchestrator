@@ -380,7 +380,7 @@ other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability
 | `transition_failed` | 422 | Role transition rejected (invalid trigger, gate failure, dependency blocker) |
 | `resource_unavailable` | 409 | Resource-lease gate contention on `POST /items/{id}/advance` into WORK — transient, retryable. Carries a `Retry-After` header and `details.contendedResources`/`details.retryAfterMs`. Never discloses the current holder. |
 | `config_unavailable` | 503 | Per-root config read failed (a transient database error) and there was no last-known-good cached config to serve for that root — transient, retryable; the caller applies its own backoff (no `Retry-After` header). Returned by `POST /items/{id}/advance`, `GET /items/{id}/gate` (see §9, §10), and `GET /roots/{rootId}/config/effective` (see §18). REST and the MCP tools now read per-root config through the same `EffectiveConfigResolver`/last-known-good cache (one shared instance, built once in `ServerComposition`) — a transient DB error on one surface is absorbed by a cache warmed by the other, so this error is rarer than it was when each surface kept its own cache. |
-| `db_error` | 500 | Database query failed |
+| `db_error` | 500 | A store fault: a read route responds `Database query failed` (or the route's own read text), a write route its existing text (e.g. `Failed to create item`). A store fault on a read is never reported as `404 not_found`; `404` means only that the row does not exist. |
 
 ---
 
@@ -1775,9 +1775,10 @@ registry key collision, not per-root - see "Per-root honorable settings" in `con
   row's actual current fingerprint
 - `413 payload_too_large` - body exceeds 128 KiB; enforced before the body is fully buffered (see §5)
 - `403 scope_forbidden` - capability present but `{rootId}` outside token scope
-- `500 db_error` - a repository failure (including exhausting the bounded compare-and-set retry
-  budget under sustained write contention) surfaces here rather than silently skipping a guard -
-  guard evaluation is fail-closed, not fail-open
+- `500 db_error` - a repository failure surfaces here rather than silently skipping a guard -
+  guard evaluation is fail-closed, not fail-open. The guarded write runs once inside its unit of
+  work (single writer), so there is no compare-and-set retry budget to exhaust; SQLITE_BUSY is
+  retried by the unit and then surfaces as `unavailable`
 
 ### GET /roots/{rootId}/config
 

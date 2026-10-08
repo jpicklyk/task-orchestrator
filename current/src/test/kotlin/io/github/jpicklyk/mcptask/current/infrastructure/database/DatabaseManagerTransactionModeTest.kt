@@ -40,7 +40,7 @@ class DatabaseManagerTransactionModeTest {
         dir: File,
         name: String
     ): DatabaseManager {
-        val manager = DatabaseManager()
+        val manager = DatabaseManager(outsideUnitPolicy = OutsideUnitPolicy.IMPLICIT)
         assertTrue(
             manager.initialize("jdbc:sqlite:${File(dir, name).absolutePath.replace('\\', '/')}"),
             "DatabaseManager should initialize successfully against a file-backed DB",

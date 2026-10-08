@@ -181,7 +181,7 @@ fun Route.projectConfigRoutes(
                 // rootId guard -> THEN this precondition, atomic with the fast-forward guard and
                 // the write itself -- no separate pre-read here, so a fingerprint-read failure can
                 // no longer silently skip If-Match (previously fail-open: a getFingerprint
-                // Result.Error mapped to null and the check was skipped; now a repository error
+                // failure mapped to null and the check was skipped; now a repository error
                 // surfaces as ProjectConfigPushResult.RepositoryError -> 500 db_error, fail-closed).
                 val ifMatch = call.request.headers[HttpHeaders.IfMatch]?.trim()
                 val expectedFingerprint =

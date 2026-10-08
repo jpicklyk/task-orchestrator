@@ -28,7 +28,7 @@ class QueryDependenciesTool : BaseToolDefinition() {
          * boundary test can import it. On hit, traversal stops early and the response sets
          * `graph.truncated = true` instead of failing — this is a read-only query tool, not a
          * cascade/subtree-mutation path, so a soft truncation signal is used instead of the
-         * hard `Result.Error` that `findDescendants` returns.
+         * hard failure `findDescendants` throws.
          */
         const val MAX_DEPENDENCY_GRAPH_NODES: Int = 1000
     }
