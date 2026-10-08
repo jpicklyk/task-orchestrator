@@ -1,0 +1,2 @@
+# Production files outside ClaimState.kt / SqliteClaimStore.kt that compare claim_expires_at, one `<path> <count>` per line.
+# Two-way ratchet (ClaimPredicateConfinementTest). Empty on purpose: "is this claim active" has one definition.

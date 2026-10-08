@@ -25,7 +25,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -68,7 +67,6 @@ class AdvanceItemToolCredentialRefTest {
         // mockk provider must answer it even for items that declare no resources (the resource gate
         // itself short-circuits before touching the repository).
         every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
-        coEvery { workItemRepo.dbNow() } returns Instant.now()
 
         context = ToolExecutionContext(repoProvider)
     }

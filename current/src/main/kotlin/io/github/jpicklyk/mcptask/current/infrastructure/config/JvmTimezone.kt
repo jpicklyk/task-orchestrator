@@ -4,20 +4,21 @@ import org.slf4j.Logger
 import java.util.TimeZone
 
 /**
- * Guards against a non-UTC JVM default timezone corrupting claim-freshness comparisons.
+ * Guards against a non-UTC JVM default timezone leaking into anything the server does with time.
  *
- * Claim TTL/expiry columns are stored via Exposed's `timestamp` type (see `WorkItemsTable.kt`),
- * while some claim SQL uses SQLite's `datetime('now')` (see `SQLiteWorkItemRepository.kt`); both
- * paths assume the JVM default timezone is UTC. The Docker image pins this via a `-Duser.timezone=UTC`
- * JVM flag on the `CMD` (see `Dockerfile`), but a non-Docker launch (`java -jar orchestrator.jar`)
- * has no such flag and would silently run with the host's local timezone, skewing claim-expiry math.
+ * Correctness no longer depends on it: every persisted timestamp is formatted and parsed by
+ * `UtcTimestampColumnType` as canonical UTC text with an explicit UTC offset, and claim and lease
+ * expiry are computed in Kotlin from the bound `Clock` (no database clock is read). The guard stays
+ * as defense in depth, so logs, third-party libraries and any future code that uses the default zone
+ * agree with the stored data. The Docker image pins `-Duser.timezone=UTC` on the `CMD` (see
+ * `Dockerfile`); a non-Docker launch (`java -jar orchestrator.jar`) has no such flag.
  *
- * [enforceUtc] is the runtime backstop for that case: it detects a non-UTC default and overrides it
- * before any Exposed/DB class can cache the zone. Called as the first statements of
- * `CurrentMain.main()`, before `ShutdownCoordinator`/`CurrentMcpServer` construction.
+ * [enforceUtc] detects a non-UTC default and overrides it before any Exposed/DB class can cache the
+ * zone. Called as the first statements of `CurrentMain.main()`, before `ShutdownCoordinator` /
+ * `CurrentMcpServer` construction.
  *
- * Decision: override + WARN, not warn-only (would leave claim freshness wrong indefinitely) and not
- * fail-fast (would break local dev runs for no gain, since we can trivially fix it in-process).
+ * Decision: override + WARN, not warn-only (would leave the process zone inconsistent indefinitely)
+ * and not fail-fast (would break local dev runs for no gain, since we can trivially fix it in-process).
  */
 object JvmTimezone {
     /** Timezone IDs treated as equivalent to UTC — no override or warning for any of these. */
@@ -41,9 +42,8 @@ object JvmTimezone {
             false
         } else {
             logger.warn(
-                "JVM default timezone is '{}', not UTC. Overriding to UTC for claim-freshness " +
-                    "correctness (claim TTL/expiry comparisons assume a UTC JVM default). Set " +
-                    "-Duser.timezone=UTC explicitly to silence this warning.",
+                "JVM default timezone is '{}', not UTC. Overriding to UTC so process-level time handling " +
+                    "agrees with the stored UTC timestamps. Set -Duser.timezone=UTC explicitly to silence this warning.",
                 current.id
             )
             TimeZone.setDefault(utc)

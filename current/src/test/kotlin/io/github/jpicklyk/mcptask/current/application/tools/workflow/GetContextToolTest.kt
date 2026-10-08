@@ -67,8 +67,6 @@ class GetContextToolTest {
         // Default stub for countByClaimStatus (called in health-check mode, additive field)
         coEvery { workItemRepo.countByClaimStatus(any()) } returns
             ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0)
-        // dbNow() is called when building claimDetail.isExpired; default to JVM time for non-clock-skew tests.
-        coEvery { workItemRepo.dbNow() } returns Instant.now()
     }
 
     private fun params(vararg pairs: Pair<String, JsonElement>) = JsonObject(mapOf(*pairs))

@@ -24,7 +24,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -71,7 +70,6 @@ class GetContextToolDispatchTest {
 
         coEvery { workItemRepo.countByClaimStatus(any()) } returns
             ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0)
-        coEvery { workItemRepo.dbNow() } returns Instant.now()
     }
 
     private fun callParams(vararg pairs: Pair<String, JsonElement>) = JsonObject(mapOf(*pairs))

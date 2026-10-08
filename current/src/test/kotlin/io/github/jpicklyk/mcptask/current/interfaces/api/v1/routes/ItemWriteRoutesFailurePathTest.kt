@@ -230,7 +230,8 @@ class ItemWriteRoutesFailurePathTest {
 
         override suspend fun findHoldersAt(
             resourceKey: String?,
-            at: Instant
+            at: Instant,
+            limit: Int
         ): List<ResourceLeaseInterval> = emptyList()
 
         override suspend fun findRecentIntervals(

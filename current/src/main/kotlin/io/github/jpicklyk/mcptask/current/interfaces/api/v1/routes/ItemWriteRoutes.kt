@@ -1,8 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
+import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
@@ -21,6 +23,7 @@ import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCanc
 import io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDeleteOutcome
 import io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDeletion
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers
+import io.github.jpicklyk.mcptask.current.domain.model.ClaimState
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
@@ -333,6 +336,7 @@ fun Route.itemWriteRoutes(
     advanceServiceFactory: AdvanceServiceFactory,
     unitOfWork: UnitOfWork,
     warnOnClaimedAdvance: Boolean = defaultWarnOnClaimedAdvance,
+    clock: Clock = Clock.SYSTEM,
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
 
@@ -1016,11 +1020,7 @@ fun Route.itemWriteRoutes(
             }
 
             // Claimed item: emit WARN but proceed — API callers override MCP claim semantics
-            val dbNow = workItemRepo.dbNow()
-            val isActivelyClaimed =
-                item.claimedBy != null &&
-                    item.claimExpiresAt != null &&
-                    item.claimExpiresAt.isAfter(dbNow)
+            val isActivelyClaimed = ClaimState.isActive(item, clock.unitNow())
 
             if (isActivelyClaimed && warnOnClaimedAdvance) {
                 writeLogger.warn(

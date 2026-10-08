@@ -946,8 +946,8 @@ class RoleTransitionHandlerTest {
 
         @BeforeEach
         fun setUp() {
-            // dbNow() is called by userTransition for ownership checks; return JVM time as a sensible default.
-            coEvery { workItemRepo.dbNow() } returns Instant.now()
+            // update() no longer writes the claim columns: a terminal transition of a claimed item releases it via clear().
+            coEvery { workItemRepo.clear(any()) } returns true
         }
 
         @Test

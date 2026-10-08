@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -45,15 +46,16 @@ import kotlin.test.assertTrue
  * heartbeat re-claim, non-owner release, not-found paths, unresolvable id prefixes, and the
  * entry-level `agentId` field being ignored in favor of `actor.id`.
  *
- * Uses a real SQLite repository (via [SqliteTestDatabase]) because the claim SQL
- * relies on SQLite-specific `datetime('now', ...)` semantics that a mock cannot exercise
- * faithfully — matching the idiom already proven out in
+ * Uses a real SQLite repository (via [SqliteTestDatabase]) over a settable clock, because the claim SQL
+ * is SQLite-specific and a mock cannot exercise it faithfully — matching the idiom already proven out in
  * [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepositoryClaimTest]
  * and [ClaimItemToolSelectorOutcomeTest].
  */
 class ClaimItemToolRealStateTest {
+    private val clock = SettableClock()
+
     @RegisterExtension
-    val db = SqliteTestDatabase.perMethod()
+    val db = SqliteTestDatabase.perMethod(clock = clock)
 
     private val repositoryProvider get() = db.repositoryProvider()
 
@@ -123,6 +125,7 @@ class ClaimItemToolRealStateTest {
             actorVerifier = NoOpActorVerifier,
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
             unitOfWork = db.unitOfWork(),
+            clock = clock,
         )
 
     private fun firstResult(
@@ -183,7 +186,7 @@ class ClaimItemToolRealStateTest {
         runBlocking {
             val item = createItem("Expiring Item")
             assertIs<ClaimResult.Success>(repository.claim(item.id, agentOther, 1))
-            Thread.sleep(2500)
+            clock.advanceSeconds(3)
 
             val result = tool.execute(params(claims = listOf(claimEntry(item.id.toString()))), context())
 
@@ -207,7 +210,7 @@ class ClaimItemToolRealStateTest {
             assertEquals("success", firstEntry["outcome"]!!.jsonPrimitive.content)
             val firstClaimedAt = firstEntry["claimedAt"]!!.jsonPrimitive.content
 
-            Thread.sleep(2100)
+            clock.advanceSeconds(3)
 
             val secondResponse =
                 tool.execute(

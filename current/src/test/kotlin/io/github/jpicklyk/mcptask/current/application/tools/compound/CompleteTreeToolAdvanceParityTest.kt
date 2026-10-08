@@ -48,6 +48,8 @@ class CompleteTreeToolAdvanceParityTest {
     fun setUp() {
         tool = CompleteTreeTool()
         workItemRepo = mockk()
+        // update() no longer writes the claim columns: a terminal transition of a claimed item releases it via clear().
+        coEvery { workItemRepo.clear(any()) } returns true
         depRepo = mockk()
         noteRepo = mockk()
         roleTransitionRepo = mockk()
@@ -58,7 +60,6 @@ class CompleteTreeToolAdvanceParityTest {
         every { repoProvider.noteRepository() } returns noteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
         every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
-        coEvery { workItemRepo.dbNow() } returns Instant.now()
 
         context = ToolExecutionContext(repoProvider)
     }

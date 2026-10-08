@@ -693,6 +693,7 @@ internal fun Application.installRestApiRoutes(
                 toolContext.advanceServiceFactory(),
                 toolContext.unitOfWork,
                 warnOnClaimedAdvance = appConfig.apiWarnOnClaimedAdvance,
+                clock = toolContext.clock,
             )
             noteWriteRoutes(effectiveProvider, degradedModePolicy, idempotencyCache, toolContext.unitOfWork)
             dependencyWriteRoutes(effectiveProvider, degradedModePolicy, toolContext.unitOfWork)

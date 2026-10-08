@@ -111,7 +111,9 @@ class ServerComposition(
      * context.
      */
     fun build(): CompositionResult {
-        val repositoryProvider: RepositoryProvider = DefaultRepositoryProvider(databaseManager)
+        // ONE clock instance for the whole graph: the stores, the unit of work and the tool context all read it.
+        val clock = SystemClock
+        val repositoryProvider: RepositoryProvider = DefaultRepositoryProvider(databaseManager, clock)
 
         // Resolve the single, server-wide global config path ONCE from the typed AppConfig snapshot
         // (rather than each loader independently re-reading AGENT_CONFIG_DIR from the environment)
@@ -159,7 +161,7 @@ class ServerComposition(
         // sharing this instance is the only intended observable behavior change in this item.
         val configResolver = EffectiveConfigResolver(LayerBackedGlobalLookup(globalConfigFile.layer()), perRootConfigService)
         // The unit of work hands scopes the SAME (possibly event-publishing) provider the tools use.
-        val unitOfWork: UnitOfWork = SqliteUnitOfWork(databaseManager, effectiveProvider, SystemClock)
+        val unitOfWork: UnitOfWork = SqliteUnitOfWork(databaseManager, effectiveProvider, clock)
         val toolContext =
             ToolExecutionContext(
                 repositoryProvider = effectiveProvider,
@@ -171,7 +173,7 @@ class ServerComposition(
                 nextItemRecommender = nextItemRecommender,
                 perRootConfigService = perRootConfigService,
                 configResolver = configResolver,
-                clock = SystemClock,
+                clock = clock,
                 unitOfWork = unitOfWork,
             )
         logger.info(

@@ -34,7 +34,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import java.time.Instant
 import java.util.UUID
 
 /**
@@ -69,7 +68,7 @@ class ToolExecutionContext(
             perRootConfigService
         ),
     /** Time source for units of work; production wires the system clock. */
-    val clock: Clock = Clock { Instant.now() },
+    val clock: Clock = Clock.SYSTEM,
     /**
      * The transaction boundary. Production wires the SQLite implementation; the default runs blocks
      * without a transaction so tests with mocked stores keep constructing the context unchanged.
@@ -88,7 +87,8 @@ class ToolExecutionContext(
             noteRepository(),
             repositoryProvider.resourceLeaseRepository(),
             configResolver,
-            unitOfWork
+            unitOfWork,
+            clock = clock
         )
     }
 

@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
+import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.application.service.GatePredicate
 import io.github.jpicklyk.mcptask.current.application.service.buildDispatchBySeatFlatJson
 import io.github.jpicklyk.mcptask.current.application.service.buildDispatchProfileJson
@@ -12,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteCo
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.model.ClaimState
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
@@ -348,9 +350,8 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
                             item.claimedAt?.let { put("claimedAt", JsonPrimitive(it.toString())) }
                             item.claimExpiresAt?.let { put("claimExpiresAt", JsonPrimitive(it.toString())) }
                             item.originalClaimedAt?.let { put("originalClaimedAt", JsonPrimitive(it.toString())) }
-                            // Use DB-side time so isExpired reflects the DB clock, not the JVM clock.
-                            val dbNowInstant = context.workItemRepository().dbNow()
-                            val isExpired = item.claimExpiresAt != null && !item.claimExpiresAt.isAfter(dbNowInstant)
+                            // Same predicate every claim decision uses: expired at or after the expiry instant.
+                            val isExpired = !ClaimState.isActive(item, context.clock.unitNow())
                             put("isExpired", JsonPrimitive(isExpired))
                         }
                     )

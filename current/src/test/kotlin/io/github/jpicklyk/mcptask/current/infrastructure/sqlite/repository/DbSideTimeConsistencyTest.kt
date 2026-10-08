@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHand
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.BeforeEach
@@ -18,33 +19,23 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * H3: DB-side time consistency — verifies that claim-freshness decisions are evaluated against
- * the database clock, not the JVM clock.
+ * H3: claim-freshness consistency - every claim decision is made against the ONE bound clock instant, never a
+ * database clock or a per-call JVM read.
  *
- * ### Test strategy
+ * The repositories are opened over a [SettableClock], so expiry is tested by moving the clock (no sleeping):
  *
- * True clock-skew simulation (mocking `Instant.now()`) is impractical in Kotlin without
- * a `Clock` abstraction. Instead, we use three complementary approaches:
- *
- * 1. **`dbNow()` sanity check** — verify the new method returns an Instant within 5 seconds of
- *    JVM time (regression guard: it's not returning epoch zero or some wildly wrong value).
- *
- * 2. **Proof-by-construction for `findForNextItem`** — demonstrate that claim-freshness
- *    filtering is now delegated to the DB by verifying that an item with an already-expired
- *    claim (claimExpiresAt set via a very short TTL) becomes visible in `findForNextItem`
- *    results once the TTL lapses — confirming the DB-side `claim_expires_at <= datetime('now')`
- *    predicate drives inclusion, not JVM-side filtering.
- *
- * 3. **`checkOwnershipForTransition` clock injection** — verify that the function accepts
- *    an explicit `now` parameter, and that passing a "future" now (simulating JVM-ahead skew)
- *    causes an active claim to be seen as expired (i.e., the DB-time parameter wins).
- *
- * 4. **`countByClaimStatus` regression** — after expiry, expired counts reflect DB-side time.
+ * 1. `findForNextItem`: a claimed item is excluded while the claim is active and returns once the clock passes
+ *    the expiry; an expiry equal to now is already expired.
+ * 2. `checkOwnershipForTransition` takes an explicit `now`: the injected instant wins over any other time source.
+ * 3. `countByClaimStatus`: active/expired counts follow the clock.
+ * 4. `retryAfterMs` is the time left on the bound clock, at least 1.
  */
 class DbSideTimeConsistencyTest {
+    private val clock = SettableClock()
+
     @RegisterExtension
     @JvmField
-    val sqliteDb = SqliteTestDatabase.perMethod()
+    val sqliteDb = SqliteTestDatabase.perMethod(clock = clock)
 
     private val database get() = sqliteDb.database
     private val repositoryProvider get() = sqliteDb.repositoryProvider()
@@ -67,84 +58,39 @@ class DbSideTimeConsistencyTest {
     }
 
     // -----------------------------------------------------------------------
-    // 1. dbNow() sanity check
-    // -----------------------------------------------------------------------
-
-    @Test
-    fun `dbNow returns an Instant within 5 seconds of JVM now`(): Unit =
-        runBlocking {
-            val jvmBefore = Instant.now()
-            val dbNow = repository.dbNow()
-            val jvmAfter = Instant.now()
-
-            // DB time should be between jvmBefore-5s and jvmAfter+5s to allow for clock drift.
-            assertTrue(
-                dbNow.isAfter(jvmBefore.minusSeconds(5)),
-                "dbNow ($dbNow) should be no more than 5 seconds before JVM time ($jvmBefore)"
-            )
-            assertTrue(
-                dbNow.isBefore(jvmAfter.plusSeconds(5)),
-                "dbNow ($dbNow) should be no more than 5 seconds after JVM time ($jvmAfter)"
-            )
-        }
-
-    @Test
-    fun `dbNow is called multiple times without error and returns monotonically non-decreasing values`(): Unit =
-        runBlocking {
-            val t1 = repository.dbNow()
-            Thread.sleep(100)
-            val t2 = repository.dbNow()
-
-            // SQLite datetime resolution is 1-second; allow t2 == t1 but not t2 < t1.
-            assertTrue(
-                !t2.isBefore(t1),
-                "Second dbNow ($t2) should not be before first dbNow ($t1)"
-            )
-        }
-
-    // -----------------------------------------------------------------------
-    // 2. findForNextItem uses DB-side freshness
+    // 1. findForNextItem follows the bound clock
     // -----------------------------------------------------------------------
 
     /**
-     * Claim an item with a 1-second TTL, wait for it to expire (2s), then verify that
-     * findForNextItem (excludeActiveClaims=true) includes the item — proving the freshness
-     * check uses DB-side `claim_expires_at <= datetime('now')` rather than a stale JVM snapshot.
+     * Claim an item with a 2-second TTL, move the clock past the expiry, then verify findForNextItem
+     * (excludeActiveClaims=true) includes the item again. At exactly the expiry instant the claim is already
+     * expired (an expiry equal to now is not active).
      */
     @Test
-    fun `findForNextItem includes item after DB-side claim expiry`(): Unit =
+    fun `findForNextItem includes item once the bound clock passes the claim expiry`(): Unit =
         runBlocking {
             val item = createItem("Claim-expiry item")
 
-            // 2-second TTL with 3.5-second sleep (1.5s safety margin) — see countByClaimStatus
-            // expiry test for rationale; the prior 1s/2.1s margin was flaky on Linux CI.
             val claimResult = repository.claim(item.id, "agent-ttl-test", ttlSeconds = 2)
             assertIs<ClaimResult.Success>(claimResult)
 
             // Immediately after claiming, the item should be excluded from next-item results.
-            val beforeExpiry = repository.findForNextItem(Role.QUEUE, excludeActiveClaims = true)
-            assertNotNull(beforeExpiry)
-            val beforeIds = beforeExpiry.map { it.id }.toSet()
-            assertTrue(
-                item.id !in beforeIds,
-                "Item should be excluded from findForNextItem while claim is active"
-            )
+            val beforeIds = repository.findForNextItem(Role.QUEUE, excludeActiveClaims = true).map { it.id }.toSet()
+            assertTrue(item.id !in beforeIds, "Item should be excluded from findForNextItem while claim is active")
 
-            // Wait for the claim to expire in the DB with a comfortable safety margin.
-            Thread.sleep(3500)
+            // One millisecond before the expiry: still active.
+            clock.advance(java.time.Duration.ofMillis(1999))
+            val almostIds = repository.findForNextItem(Role.QUEUE, excludeActiveClaims = true).map { it.id }.toSet()
+            assertTrue(item.id !in almostIds, "Item should still be excluded 1 ms before the expiry")
 
-            // After expiry, the item should reappear (DB-side comparison now sees it as expired).
-            val afterExpiry = repository.findForNextItem(Role.QUEUE, excludeActiveClaims = true)
-            assertNotNull(afterExpiry)
-            val afterIds = afterExpiry.map { it.id }.toSet()
-            assertTrue(
-                item.id in afterIds,
-                "Item should reappear in findForNextItem once DB-side claim has expired"
-            )
+            // At exactly the expiry instant: expired.
+            clock.advance(java.time.Duration.ofMillis(1))
+            val afterIds = repository.findForNextItem(Role.QUEUE, excludeActiveClaims = true).map { it.id }.toSet()
+            assertTrue(item.id in afterIds, "Item should reappear in findForNextItem at the expiry instant")
         }
 
     // -----------------------------------------------------------------------
-    // 3. checkOwnershipForTransition respects injected `now` parameter
+    // 2. checkOwnershipForTransition respects injected `now` parameter
     // -----------------------------------------------------------------------
 
     /**
@@ -252,56 +198,40 @@ class DbSideTimeConsistencyTest {
         }
 
     // -----------------------------------------------------------------------
-    // 4. countByClaimStatus uses DB-side time
+    // 3. countByClaimStatus follows the bound clock
     // -----------------------------------------------------------------------
 
     @Test
-    fun `countByClaimStatus reflects DB-side expiry after claim TTL elapses`(): Unit =
+    fun `countByClaimStatus follows the bound clock after the claim TTL elapses`(): Unit =
         runBlocking {
             val item = createItem("ClaimStatus count item")
-
-            // Use a 2-second TTL with a 3.5-second sleep (1.5s safety margin) — heavily-loaded
-            // CI runners can stall Thread.sleep by ~1s, which would break a tighter 1s/2.1s
-            // (0.1s margin) timing window. The previous timing was flaky on Linux CI.
             repository.claim(item.id, "agent-count-test", ttlSeconds = 2)
 
             // Immediately: active=1, expired=0.
             val beforeResult = repository.countByClaimStatus()
-            assertNotNull(beforeResult)
-            assertTrue(
-                beforeResult.active >= 1,
-                "There should be at least 1 active claim right after claiming"
-            )
+            assertEquals(1, beforeResult.active, "exactly 1 active claim right after claiming")
+            assertEquals(0, beforeResult.expired)
 
-            // Wait for TTL to expire with a comfortable safety margin.
-            Thread.sleep(3500)
+            clock.advanceSeconds(3)
 
-            // After expiry: active should have decreased, expired should have increased.
             val afterResult = repository.countByClaimStatus()
-            assertNotNull(afterResult)
-            assertEquals(
-                0,
-                afterResult.active,
-                "Active claim count should be 0 after TTL expires (DB-side evaluation)"
-            )
-            assertTrue(
-                afterResult.expired >= 1,
-                "Expired claim count should be >= 1 after TTL expires (DB-side evaluation)"
-            )
+            assertEquals(0, afterResult.active, "Active claim count should be 0 once the clock passes the TTL")
+            assertEquals(1, afterResult.expired, "Expired claim count should be 1 once the clock passes the TTL")
         }
 
     // -----------------------------------------------------------------------
-    // 5. retryAfterMs uses DB clock
+    // 4. retryAfterMs uses the bound clock
     // -----------------------------------------------------------------------
 
     @Test
-    fun `AlreadyClaimed retryAfterMs is positive and reflects remaining DB-side TTL`(): Unit =
+    fun `AlreadyClaimed retryAfterMs is positive and reflects the remaining TTL on the bound clock`(): Unit =
         runBlocking {
             val item = createItem("RetryAfter item")
             val ttlSeconds = 30
 
             // Agent A claims the item.
             repository.claim(item.id, "agent-a-retry", ttlSeconds = ttlSeconds)
+            clock.advanceSeconds(10)
 
             // Agent B tries to claim — should get AlreadyClaimed with positive retryAfterMs.
             val result = repository.claim(item.id, "agent-b-retry", ttlSeconds = 60)
@@ -309,11 +239,8 @@ class DbSideTimeConsistencyTest {
             assertIs<ClaimResult.AlreadyClaimed>(result)
             val retryMs = result.retryAfterMs
             assertNotNull(retryMs, "retryAfterMs should not be null when another agent holds the claim")
-            assertTrue(retryMs > 0, "retryAfterMs should be positive (remaining TTL from DB clock)")
-            // TTL is 30 seconds so remaining should be <= 30000 ms.
-            assertTrue(
-                retryMs <= ttlSeconds * 1000L,
-                "retryAfterMs ($retryMs ms) should not exceed the original TTL (${ttlSeconds * 1000L} ms)"
-            )
+            assertTrue(retryMs > 0, "retryAfterMs should be positive (remaining TTL from the bound clock)")
+            // 10 of the 30 seconds have elapsed on the bound clock, so exactly 20 000 ms remain.
+            assertEquals(20_000L, retryMs, "retryAfterMs must be the exact time left on the bound clock")
         }
 }

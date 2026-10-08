@@ -12,7 +12,7 @@ import java.util.UUID
  * [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ResourceLeasesTable] /
  * `V15__Resource_Leases.sql`). "Active" (not expired) is a lazy, read-time notion — see
  * [io.github.jpicklyk.mcptask.current.application.port.LeaseStore] KDoc — this type
- * itself carries no `isActive` flag; callers compare [expiresAt] against the DB clock, or rely on
+ * itself carries no `isActive` flag; callers compare [expiresAt] against the bound unit instant, or rely on
  * repository methods that already filter to active rows.
  *
  * @property id Stable identifier for this lease row.
@@ -23,7 +23,7 @@ import java.util.UUID
  * @property acquiredByActorId Opaque actor identifier that performed the acquisition, if known.
  *   Audit-only; never used for lease-ownership decisions (ownership is by [holderItemId]).
  * @property acquiredAt When the current lease term began. Refreshed on same-holder re-acquire.
- * @property expiresAt TTL-based expiry, computed DB-side. A lease with `expiresAt <= dbNow()` is
+ * @property expiresAt TTL-based expiry (acquire instant plus TTL, computed from the bound clock). A lease with `expiresAt <= now` is
  *   treated as absent by every repository read path (lazy expiry — no background sweep).
  * @property originalAcquiredAt Timestamp of the FIRST acquisition of this (resourceKey, holderItemId)
  *   pair — preserved across same-holder re-acquires/refreshes; reset only when a different holder

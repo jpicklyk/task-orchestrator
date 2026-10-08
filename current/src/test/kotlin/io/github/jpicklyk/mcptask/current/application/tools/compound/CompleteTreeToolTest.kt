@@ -19,7 +19,6 @@ import kotlinx.serialization.json.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
-import java.time.Instant
 import java.util.UUID
 import kotlin.test.*
 
@@ -46,8 +45,6 @@ class CompleteTreeToolTest {
         every { repoProvider.noteRepository() } returns noteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
         every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
-        // dbNow() is called for ownership checks; default to JVM time for non-clock-skew tests.
-        coEvery { workItemRepo.dbNow() } returns Instant.now()
         // AdvanceService validates dependencies in both directions and inspects children for
         // cascade detection on every transition; default the strict mocks to "no edges / no
         // children" so pre-existing fixtures that never stubbed these calls keep their shape.

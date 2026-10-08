@@ -4,6 +4,8 @@ import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.UtcTimestamp
+import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.VarCharColumnType
@@ -12,7 +14,6 @@ import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
-import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -29,9 +30,11 @@ import kotlin.test.assertTrue
  * [SQLiteResourceLeaseRepositoryTest], which covers the live-row behavior this history mirrors.
  */
 class SQLiteResourceLeaseRepositoryHistoryTest {
+    private val clock = SettableClock()
+
     @RegisterExtension
     @JvmField
-    val sqliteDb = SqliteTestDatabase.perMethod()
+    val sqliteDb = SqliteTestDatabase.perMethod(clock = clock)
 
     private val database get() = sqliteDb.database
     private val repositoryProvider get() = sqliteDb.repositoryProvider()
@@ -63,21 +66,23 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
         transaction(db = database) {
             val uuidType = UUIDColumnType()
             val keyType = VarCharColumnType(255)
+            val textType = VarCharColumnType(40)
+            val backdated = UtcTimestamp.format(clock.now().minusSeconds(10))
             exec(
                 """
                 UPDATE resource_leases
-                   SET expires_at = datetime('now', '-10 seconds')
+                   SET expires_at = ?
                  WHERE resource_key = ? AND holder_item_id = ?
                 """.trimIndent(),
-                args = listOf(keyType to resourceKey, uuidType to holderItemId)
+                args = listOf(textType to backdated, keyType to resourceKey, uuidType to holderItemId)
             )
             exec(
                 """
                 UPDATE resource_lease_history
-                   SET expires_at = datetime('now', '-10 seconds')
+                   SET expires_at = ?
                  WHERE resource_key = ? AND holder_item_id = ? AND released_at IS NULL
                 """.trimIndent(),
-                args = listOf(keyType to resourceKey, uuidType to holderItemId)
+                args = listOf(textType to backdated, keyType to resourceKey, uuidType to holderItemId)
             )
         }
     }
@@ -109,7 +114,7 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
             assertIs<LeaseAcquireResult.Success>(first)
             val firstExpiry = first.leases.single().expiresAt
 
-            Thread.sleep(1100)
+            clock.advanceSeconds(2)
 
             val second = repository.acquireAll(holder, "agent-a", listOf("staging-db" to 1800))
             assertIs<LeaseAcquireResult.Success>(second)
@@ -181,7 +186,7 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
 
             // Even if B's item releases later, the audit must never show two holders at once:
             assertIs<LeaseReleaseResult.Success>(repository.releaseAllForItem(holderB))
-            val now = Instant.now()
+            val now = clock.now()
             val holdersNow = repository.findHoldersAt("staging-db", now)
             assertEquals(1, holdersNow.size, "exactly one holder at T — got: ${holdersNow.map { it.holderItemId }}")
             assertEquals(holderA, holdersNow.single().holderItemId)
@@ -202,37 +207,31 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
             assertEquals("expired", interval.releaseReason, "an already-lapsed hold closes as expired, not released")
             val releasedAt = requireNotNull(interval.releasedAt)
             assertTrue(
-                !releasedAt.isAfter(Instant.now().minusSeconds(5)),
+                !releasedAt.isAfter(clock.now().minusSeconds(5)),
                 "releasedAt must be clamped to the (backdated) expiry, not stamped 'now': $releasedAt",
             )
         }
 
     @Test
-    fun `history close comparisons normalize mixed timestamp shapes via datetime()`(): Unit =
+    fun `canonical timestamp text orders chronologically within a shared second`(): Unit =
         runBlocking {
-            // Constants-only pin of the sub-second cross-shape bug (beta field report, PR #262):
-            // Exposed timestamp columns store fractional seconds; datetime('now') is
-            // second-precision; raw TEXT comparison misorders them within a shared second. The
-            // clamp SQL must therefore normalize both sides with datetime(). No wall clock here —
-            // the boundary cannot be exercised deterministically with real time.
+            // Every persisted timestamp has ONE shape (yyyy-MM-dd HH:mm:ss.SSS UTC), so plain text comparison and
+            // min() order correctly even inside a shared second - the cross-shape misordering that once needed
+            // datetime() normalization cannot occur.
             transaction(db = database) {
-                var sameSecondRaw = ""
-                var normLt = ""
-                var normMin = ""
+                var lt = ""
+                var minText = ""
                 exec(
-                    "SELECT '2026-01-01 00:00:00.937' < '2026-01-01 00:00:00', " +
-                        "datetime('2026-01-01 00:00:00.937') < '2026-01-01 00:00:01', " +
-                        "min('2026-01-01 00:00:01', datetime('2026-01-01 00:00:00.937'))"
+                    "SELECT '2026-01-01 00:00:00.937' < '2026-01-01 00:00:01.000', " +
+                        "min('2026-01-01 00:00:01.000', '2026-01-01 00:00:00.937')"
                 ) { rs ->
                     if (rs.next()) {
-                        sameSecondRaw = rs.getString(1)
-                        normLt = rs.getString(2)
-                        normMin = rs.getString(3)
+                        lt = rs.getString(1)
+                        minText = rs.getString(2)
                     }
                 }
-                assertEquals("0", sameSecondRaw, "raw cross-shape compare within a shared second misorders (the bug shape)")
-                assertEquals("1", normLt, "datetime() normalization restores chronological ordering")
-                assertEquals("2026-01-01 00:00:00", normMin, "the clamp picks the normalized expiry, not 'now'")
+                assertEquals("1", lt, "canonical text orders chronologically")
+                assertEquals("2026-01-01 00:00:00.937", minText, "the clamp picks the earlier canonical text")
             }
         }
 
@@ -318,7 +317,7 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
             // SQLite timestamps are second-precision: a same-second acquire+release produces an
             // empty [S, S) interval where nothing is ever "held". Sleep past the second boundary
             // so acquired_at < released_at and the just-before probe has a real interval to hit.
-            Thread.sleep(1100)
+            clock.advanceSeconds(2)
             assertIs<LeaseReleaseResult.Success>(repository.releaseAllForItem(holder))
             val interval = repository.findRecentIntervals("staging-db", 1).single()
             val releasedAt = requireNotNull(interval.releasedAt)
@@ -350,7 +349,7 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
             assertIs<LeaseAcquireResult.Success>(repository.acquireAll(holderA, "agent-a", listOf("key-a" to 900)))
             assertIs<LeaseAcquireResult.Success>(repository.acquireAll(holderB, "agent-b", listOf("key-b" to 900)))
 
-            val now = Instant.now()
+            val now = clock.now()
             val holders = repository.findHoldersAt(null, now)
             assertEquals(2, holders.size)
             assertEquals(setOf(holderA, holderB), holders.map { it.holderItemId }.toSet())
