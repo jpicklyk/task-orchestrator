@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
-import io.github.jpicklyk.mcptask.current.domain.repository.SearchHit
-import io.github.jpicklyk.mcptask.current.domain.repository.SearchResult
+import io.github.jpicklyk.mcptask.current.application.port.SearchHit
+import io.github.jpicklyk.mcptask.current.application.port.SearchResult
 import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
 import io.mockk.coEvery
 import io.mockk.coVerify

@@ -47,7 +47,7 @@ class SqliteUnitOfWork(
 
 /** The scope of one unit attempt; hooks land on the [ActiveUnit], so joined scopes share the outermost unit's hooks. */
 private class UnitScope(
-    override val repositories: RepositoryProvider,
+    override val stores: RepositoryProvider,
     private val unit: ActiveUnit
 ) : WriteScope {
     override val now: Instant get() = unit.now

@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.domain.repository
+package io.github.jpicklyk.mcptask.current.application.port
 
 // ---------------------------------------------------------------------------
 // Shared sortBy/sortOrder vocabulary for WorkItemRepository.findByFilters /

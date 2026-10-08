@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentAdoptOutcome
+import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStashOutcome
+import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocument
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentSummary
-import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentAdoptOutcome
-import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentStashOutcome
 import io.github.jpicklyk.mcptask.current.infrastructure.security.sha256Hex
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.PlanDocumentsTable
@@ -22,7 +22,7 @@ import java.time.Instant
 import java.util.UUID
 
 /**
- * SQLite implementation of [PlanDocumentRepository], backed by [PlanDocumentsTable].
+ * SQLite implementation of [PlanDocumentStore], backed by [PlanDocumentsTable].
  *
  * [stash] uses the same read-inside-transaction-then-upsert pattern as
  * [SQLiteProjectConfigRepository.upsert]: the ADOPTED-conflict guard needs the row's prior status,
@@ -32,13 +32,13 @@ import java.util.UUID
  */
 class SQLitePlanDocumentRepository(
     private val databaseManager: DatabaseManager
-) : PlanDocumentRepository {
+) : PlanDocumentStore {
     override suspend fun stash(
         rootItemId: UUID,
         slug: String,
         body: String
     ): PlanDocumentStashOutcome =
-        databaseManager.writeTx("PlanDocumentRepository.stash") {
+        databaseManager.writeTx("PlanDocumentStore.stash") {
             val existing =
                 PlanDocumentsTable
                     .selectAll()
@@ -123,7 +123,7 @@ class SQLitePlanDocumentRepository(
         slug: String,
         adoptedByItemId: UUID
     ): PlanDocumentAdoptOutcome =
-        databaseManager.writeTx("PlanDocumentRepository.markAdopted") {
+        databaseManager.writeTx("PlanDocumentStore.markAdopted") {
             markAdoptedRow(rootItemId, slug, adoptedByItemId)
         }
 

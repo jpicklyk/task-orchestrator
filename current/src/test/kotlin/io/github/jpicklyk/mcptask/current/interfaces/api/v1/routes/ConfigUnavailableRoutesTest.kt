@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
@@ -10,7 +11,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
@@ -144,17 +144,17 @@ class ConfigUnavailableRoutesTest {
 }
 
 /**
- * Wraps a real [ProjectConfigRepository] (the [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository]
+ * Wraps a real [ProjectConfigStore] (the [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository]
  * a [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider] hands
  * back from `projectConfigRepository()`) and lets tests force [get]/[getFingerprint] to return
  * `throw IllegalStateException("x")` on demand — the test-plan harness's "test
- * ProjectConfigRepository wrapping SQLiteProjectConfigRepository" fixture, authored here per this
+ * ProjectConfigStore wrapping SQLiteProjectConfigRepository" fixture, authored here per this
  * file's ownership (no shared harness file; see the sibling copies in the tool-level
  * config-unavailable test files for the identical rationale).
  */
 private class FailableProjectConfigRepository(
-    private val delegate: ProjectConfigRepository
-) : ProjectConfigRepository by delegate {
+    private val delegate: ProjectConfigStore
+) : ProjectConfigStore by delegate {
     @Volatile var failFingerprint: Boolean = false
 
     @Volatile var failGet: Boolean = false
@@ -170,7 +170,7 @@ private class FailableRepositoryProvider(
     private val delegate: RepositoryProvider,
     private val failable: FailableProjectConfigRepository
 ) : RepositoryProvider by delegate {
-    override fun projectConfigRepository(): ProjectConfigRepository = failable
+    override fun projectConfigRepository(): ProjectConfigStore = failable
 }
 
 /** No global schema for any type — mirrors the test-plan harness's "Global: no T, no default". */

@@ -1,5 +1,13 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.FTS_CANDIDATE_ROWS
+import io.github.jpicklyk.mcptask.current.application.port.MAX_FTS_RESULTS
+import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.SearchHit
+import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
+import io.github.jpicklyk.mcptask.current.application.port.SearchResult
+import io.github.jpicklyk.mcptask.current.application.port.SearchScope
 import io.github.jpicklyk.mcptask.current.application.service.search.RrfFusion
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
@@ -7,14 +15,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
-import io.github.jpicklyk.mcptask.current.domain.repository.FTS_CANDIDATE_ROWS
-import io.github.jpicklyk.mcptask.current.domain.repository.MAX_FTS_RESULTS
-import io.github.jpicklyk.mcptask.current.domain.repository.MAX_TRAVERSAL_DEPTH
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.SearchHit
-import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
-import io.github.jpicklyk.mcptask.current.domain.repository.SearchResult
-import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.NotesTable
 import org.jetbrains.exposed.v1.core.ResultRow
@@ -31,11 +31,11 @@ import java.time.Instant
 import java.util.UUID
 
 /**
- * SQLite implementation of NoteRepository.
+ * SQLite implementation of NoteStore.
  */
 class SQLiteNoteRepository(
     private val databaseManager: DatabaseManager
-) : NoteRepository {
+) : NoteStore {
     override suspend fun getById(id: UUID): Note? =
         databaseManager.readTx {
             val row = NotesTable.selectAll().where { NotesTable.id eq id }.singleOrNull()
@@ -139,18 +139,18 @@ class SQLiteNoteRepository(
     }
 
     override suspend fun upsert(note: Note): Note =
-        databaseManager.writeTx("NoteRepository.upsert") {
+        databaseManager.writeTx("NoteStore.upsert") {
             upsertRow(note)
         }
 
     override suspend fun delete(id: UUID): Boolean =
-        databaseManager.writeTx("NoteRepository.delete") {
+        databaseManager.writeTx("NoteStore.delete") {
             val deletedCount = NotesTable.deleteWhere { NotesTable.id eq id }
             deletedCount > 0
         }
 
     override suspend fun deleteByItemId(itemId: UUID): Int =
-        databaseManager.writeTx("NoteRepository.deleteByItemId") {
+        databaseManager.writeTx("NoteStore.deleteByItemId") {
             val deletedCount = NotesTable.deleteWhere { NotesTable.itemId eq itemId }
             deletedCount
         }

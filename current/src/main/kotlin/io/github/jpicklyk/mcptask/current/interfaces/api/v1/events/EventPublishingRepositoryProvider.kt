@@ -1,6 +1,15 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
+import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.ReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
@@ -11,15 +20,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
-import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.UUID
@@ -340,8 +340,8 @@ class EventPublishingRepositoryProvider(
     // -------------------------------------------------------------------------
 
     private inner class EventPublishingNoteRepository(
-        private val inner: NoteRepository,
-    ) : NoteRepository by inner {
+        private val inner: NoteStore,
+    ) : NoteStore by inner {
         override suspend fun upsert(note: Note): Note {
             val result = inner.upsert(note)
             val roots = resolveRoots(note.itemId)
@@ -395,8 +395,8 @@ class EventPublishingRepositoryProvider(
     // -------------------------------------------------------------------------
 
     private inner class EventPublishingDependencyRepository(
-        private val inner: DependencyRepository,
-    ) : DependencyRepository by inner {
+        private val inner: DependencyStore,
+    ) : DependencyStore by inner {
         override suspend fun create(dependency: Dependency): Dependency {
             val result = inner.create(dependency)
             // Resolve the from-item's roots through the suspend resolver, which falls back to an
@@ -545,18 +545,18 @@ class EventPublishingRepositoryProvider(
 
     override fun workItemRepository(): WorkItemRepository = wrappedWorkItemRepo
 
-    override fun noteRepository(): NoteRepository = wrappedNoteRepo
+    override fun noteRepository(): NoteStore = wrappedNoteRepo
 
-    override fun dependencyRepository(): DependencyRepository = wrappedDependencyRepo
+    override fun dependencyRepository(): DependencyStore = wrappedDependencyRepo
 
-    override fun roleTransitionRepository(): RoleTransitionRepository = delegate.roleTransitionRepository()
+    override fun roleTransitionRepository(): TransitionStore = delegate.roleTransitionRepository()
 
-    override fun projectConfigRepository(): ProjectConfigRepository = delegate.projectConfigRepository()
+    override fun projectConfigRepository(): ProjectConfigStore = delegate.projectConfigRepository()
 
-    override fun planDocumentRepository(): PlanDocumentRepository = delegate.planDocumentRepository()
+    override fun planDocumentRepository(): PlanDocumentStore = delegate.planDocumentRepository()
 
     // No event publishing for resource leases — pure pass-through decorator.
-    override fun resourceLeaseRepository(): ResourceLeaseRepository = delegate.resourceLeaseRepository()
+    override fun resourceLeaseRepository(): LeaseStore = delegate.resourceLeaseRepository()
 
     override fun workTreeExecutor(): WorkTreeExecutor = wrappedWorkTreeExecutor
 

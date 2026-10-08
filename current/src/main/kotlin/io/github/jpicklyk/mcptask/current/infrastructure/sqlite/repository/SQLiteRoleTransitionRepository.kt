@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.RoleTransitionsTable
 import kotlinx.serialization.builtins.ListSerializer
@@ -28,13 +28,13 @@ import java.time.Instant
 import java.util.UUID
 
 /**
- * SQLite implementation of RoleTransitionRepository.
+ * SQLite implementation of TransitionStore.
  */
 class SQLiteRoleTransitionRepository(
     private val databaseManager: DatabaseManager
-) : RoleTransitionRepository {
+) : TransitionStore {
     override suspend fun create(transition: RoleTransition): RoleTransition =
-        databaseManager.writeTx("RoleTransitionRepository.create") {
+        databaseManager.writeTx("TransitionStore.create") {
             RoleTransitionsTable.insert {
                 it[id] = transition.id
                 it[itemId] = transition.itemId
@@ -129,7 +129,7 @@ class SQLiteRoleTransitionRepository(
         }
 
     override suspend fun deleteByItemId(itemId: UUID): Int =
-        databaseManager.writeTx("RoleTransitionRepository.deleteByItemId") {
+        databaseManager.writeTx("TransitionStore.deleteByItemId") {
             val deletedCount = RoleTransitionsTable.deleteWhere { RoleTransitionsTable.itemId eq itemId }
             deletedCount
         }

@@ -1,14 +1,14 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
+import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.service.SQLiteWorkTreeService
 
@@ -33,17 +33,17 @@ class DefaultRepositoryProvider(
 
     override fun workItemRepository(): WorkItemRepository = workItemRepo
 
-    override fun noteRepository(): NoteRepository = noteRepo
+    override fun noteRepository(): NoteStore = noteRepo
 
-    override fun dependencyRepository(): DependencyRepository = dependencyRepo
+    override fun dependencyRepository(): DependencyStore = dependencyRepo
 
-    override fun roleTransitionRepository(): RoleTransitionRepository = roleTransitionRepo
+    override fun roleTransitionRepository(): TransitionStore = roleTransitionRepo
 
-    override fun projectConfigRepository(): ProjectConfigRepository = projectConfigRepo
+    override fun projectConfigRepository(): ProjectConfigStore = projectConfigRepo
 
-    override fun planDocumentRepository(): PlanDocumentRepository = planDocumentRepo
+    override fun planDocumentRepository(): PlanDocumentStore = planDocumentRepo
 
-    override fun resourceLeaseRepository(): ResourceLeaseRepository = resourceLeaseRepo
+    override fun resourceLeaseRepository(): LeaseStore = resourceLeaseRepo
 
     override fun workTreeExecutor(): WorkTreeExecutor = workTreeExecutorInstance
 }

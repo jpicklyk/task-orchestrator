@@ -28,7 +28,7 @@ private val transitionLogger = LoggerFactory.getLogger("TransitionRoutes")
 
 /**
  * Candidate-row cap for `GET /transitions`'s in-memory scope filtering and pagination. The
- * unfiltered fetch from `RoleTransitionRepository.findSince` must stay bounded independent of
+ * unfiltered fetch from `TransitionStore.findSince` must stay bounded independent of
  * how large `page` is — mirrors `TAG_SCOPE_SCAN_LIMIT` in `ItemRoutes.kt` (same shape, declared
  * separately since the two route files share no base).
  */

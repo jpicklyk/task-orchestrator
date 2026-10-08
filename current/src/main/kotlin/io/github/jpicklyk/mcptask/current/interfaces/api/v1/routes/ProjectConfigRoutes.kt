@@ -34,7 +34,7 @@ private val projectConfigLogger = LoggerFactory.getLogger("ProjectConfigRoutes")
  * ETag format for a stored per-root config, derived from its content fingerprint:
  * `"cfg-<fingerprint>"` (quoted per RFC 7232). Distinct from [io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.etagFor]
  * (which is timestamp-derived, `"v1-<epochMillis>"`) — config rows use a content hash instead of a
- * timestamp because [io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository.upsert]
+ * timestamp because [io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore.upsert]
  * already computes one (needed for hot-reload change-detection) and reusing it keeps a
  * byte-identical re-push naturally idempotent under `If-Match`.
  */

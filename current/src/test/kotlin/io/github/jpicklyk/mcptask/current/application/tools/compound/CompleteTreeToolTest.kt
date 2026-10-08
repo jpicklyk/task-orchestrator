@@ -1,17 +1,17 @@
 package io.github.jpicklyk.mcptask.current.application.tools.compound
 
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.*
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.TestStatusLabelService
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
@@ -28,9 +28,9 @@ class CompleteTreeToolTest {
     private lateinit var context: ToolExecutionContext
     private lateinit var repoProvider: RepositoryProvider
     private lateinit var workItemRepo: WorkItemRepository
-    private lateinit var depRepo: DependencyRepository
-    private lateinit var noteRepo: NoteRepository
-    private lateinit var roleTransitionRepo: RoleTransitionRepository
+    private lateinit var depRepo: DependencyStore
+    private lateinit var noteRepo: NoteStore
+    private lateinit var roleTransitionRepo: TransitionStore
 
     @BeforeEach
     fun setUp() {
@@ -1470,7 +1470,7 @@ class CompleteTreeToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, title = "Working Item", role = Role.WORK)
 
-            val leaseRepo = mockk<ResourceLeaseRepository>()
+            val leaseRepo = mockk<LeaseStore>()
             coEvery { leaseRepo.releaseAllForItem(itemId) } returns LeaseReleaseResult.Success(1)
 
             val leaseRepoProvider = mockk<RepositoryProvider>()
@@ -1501,7 +1501,7 @@ class CompleteTreeToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, title = "Queued Item", role = Role.QUEUE)
 
-            val leaseRepo = mockk<ResourceLeaseRepository>()
+            val leaseRepo = mockk<LeaseStore>()
 
             val leaseRepoProvider = mockk<RepositoryProvider>()
             every { leaseRepoProvider.workItemRepository() } returns workItemRepo

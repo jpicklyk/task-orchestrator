@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
+import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.SchemaSource
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -8,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableE
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService
@@ -567,8 +567,8 @@ class LegacyPrecedenceCharacterizationTest {
     // ──────────────────────────────────────────────
 
     private class FailableProjectConfigRepository(
-        private val delegate: ProjectConfigRepository
-    ) : ProjectConfigRepository by delegate {
+        private val delegate: ProjectConfigStore
+    ) : ProjectConfigStore by delegate {
         @Volatile var failFingerprint: Boolean = false
 
         override suspend fun getFingerprint(rootItemId: UUID) =

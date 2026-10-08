@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
@@ -20,13 +20,13 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 /**
- * Concurrency tests for [ResourceLeaseRepository.acquireAll], mirroring the real-thread race
+ * Concurrency tests for [LeaseStore.acquireAll], mirroring the real-thread race
  * pattern in [SQLiteWorkItemRepositoryClaimTest] (`concurrent claim race with two real threads`).
  *
  * Also covers the gap-#1 regression: a claim ([WorkItemRepository.claim]) and a resource lease
- * ([ResourceLeaseRepository.acquireAll]) on the SAME item are independent lifecycles — acquiring a
+ * ([LeaseStore.acquireAll]) on the SAME item are independent lifecycles — acquiring a
  * lease must never disturb an existing claim, and refreshing a claim must never disturb existing
- * leases (see the "Isolation from claims" section of [ResourceLeaseRepository]'s KDoc).
+ * leases (see the "Isolation from claims" section of [LeaseStore]'s KDoc).
  */
 class SQLiteResourceLeaseRepositoryConcurrencyTest {
     @RegisterExtension
@@ -36,7 +36,7 @@ class SQLiteResourceLeaseRepositoryConcurrencyTest {
     private val database get() = sqliteDb.database
     private val repositoryProvider get() = sqliteDb.repositoryProvider()
 
-    private fun leaseRepository(): ResourceLeaseRepository = repositoryProvider.resourceLeaseRepository()
+    private fun leaseRepository(): LeaseStore = repositoryProvider.resourceLeaseRepository()
 
     private fun workItemRepository(): WorkItemRepository = repositoryProvider.workItemRepository()
 

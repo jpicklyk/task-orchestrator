@@ -47,7 +47,7 @@ class UnscopedUnitOfWork(
     override suspend fun <T> read(block: suspend ReadScope.() -> T): T = HookScope(repositories, clock.now()).block()
 
     private class HookScope(
-        override val repositories: RepositoryProvider,
+        override val stores: RepositoryProvider,
         override val now: Instant
     ) : WriteScope {
         private val commitHooks = ArrayList<suspend () -> Unit>()

@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.domain.repository
+package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.domain.model.BacklinkRow
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
@@ -18,7 +18,7 @@ import java.util.UUID
  * [findByFromItemId] and [findByToItemId] are deliberately still non-suspend; migrating them is
  * tracked as a follow-up.
  */
-interface DependencyRepository {
+interface DependencyStore {
     suspend fun create(dependency: Dependency): Dependency
 
     suspend fun findById(id: UUID): Dependency?

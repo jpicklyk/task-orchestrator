@@ -7,7 +7,11 @@ import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerificationScope
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -16,10 +20,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.CacheState
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
@@ -200,9 +200,9 @@ class ActorVerificationScopeTest {
     /** A mocked [ToolExecutionContext] for [AdvanceItemTool] over the given items, with a real jti-replay-protecting verifier. */
     private fun contextFor(items: Map<UUID, WorkItem>): ToolExecutionContext {
         val workItemRepo = mockk<WorkItemRepository>()
-        val depRepo = mockk<DependencyRepository>()
-        val roleTransitionRepo = mockk<RoleTransitionRepository>()
-        val noteRepo = mockk<NoteRepository>()
+        val depRepo = mockk<DependencyStore>()
+        val roleTransitionRepo = mockk<TransitionStore>()
+        val noteRepo = mockk<NoteStore>()
         coEvery { noteRepo.findByItemId(any()) } returns emptyList()
         coEvery { noteRepo.findByItemId(any(), any()) } returns emptyList()
 

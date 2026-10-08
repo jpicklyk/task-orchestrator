@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.domain.model.BacklinkRow
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.validation.DuplicateDependencyException
 import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
@@ -22,16 +22,16 @@ import org.jetbrains.exposed.v1.jdbc.selectAll
 import java.util.UUID
 
 /**
- * SQLite implementation of DependencyRepository.
+ * SQLite implementation of DependencyStore.
  *
  * All methods except [findByFromItemId] and [findByToItemId] are `suspend` and run in a
  * [suspendTransaction], which joins an enclosing suspend transaction when one is open.
  */
 class SQLiteDependencyRepository(
     private val databaseManager: DatabaseManager
-) : DependencyRepository {
+) : DependencyStore {
     override suspend fun create(dependency: Dependency): Dependency =
-        databaseManager.writeTx("DependencyRepository.create") {
+        databaseManager.writeTx("DependencyStore.create") {
             insertDependencyInTransaction(dependency)
         }
 
@@ -101,19 +101,19 @@ class SQLiteDependencyRepository(
         }
 
     override suspend fun delete(id: UUID): Boolean =
-        databaseManager.writeTx("DependencyRepository.delete") {
+        databaseManager.writeTx("DependencyStore.delete") {
             DependenciesTable.deleteWhere { DependenciesTable.id eq id } > 0
         }
 
     override suspend fun deleteByItemId(itemId: UUID): Int =
-        databaseManager.writeTx("DependencyRepository.deleteByItemId") {
+        databaseManager.writeTx("DependencyStore.deleteByItemId") {
             DependenciesTable.deleteWhere {
                 (DependenciesTable.fromItemId eq itemId) or (DependenciesTable.toItemId eq itemId)
             }
         }
 
     override suspend fun createBatch(dependencies: List<Dependency>): List<Dependency> =
-        databaseManager.writeTx("DependencyRepository.createBatch") {
+        databaseManager.writeTx("DependencyStore.createBatch") {
             if (dependencies.isEmpty()) {
                 return@writeTx emptyList()
             }

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStashOutcome
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
@@ -8,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocument
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentSummary
-import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentStashOutcome
 import java.util.UUID
 
 /**
@@ -21,7 +21,7 @@ import java.util.UUID
  * must converge on identical DB state (and identical `contentHash`) for the same payload.
  *
  * Pipeline, in order: size cap -> root exists -> root is depth-0 ->
- * [io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentRepository.stash] (which itself
+ * [io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore.stash] (which itself
  * guards the ADOPTED-slug case). The pipeline stops at the first failing step; nothing is written
  * on failure.
  */

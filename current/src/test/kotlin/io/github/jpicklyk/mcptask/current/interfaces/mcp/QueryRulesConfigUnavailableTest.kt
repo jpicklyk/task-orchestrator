@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
+import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.config.QueryRulesTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.modelcontextprotocol.kotlin.sdk.client.Client
@@ -39,7 +39,7 @@ import kotlin.test.assertNull
  * [ChannelTransport.createLinkedPair], but drives the REAL [QueryRulesTool] (not an anonymous
  * always-throwing tool) registered via [McpToolAdapter.registerToolWithServer] -- item mode
  * (`itemId`+`noteKey`) forces `ToolExecutionContext.resolveSchema(item)` to perform a per-root
- * config read, which is made to fail cold via a [ProjectConfigRepository] wrapper whose
+ * config read, which is made to fail cold via a [ProjectConfigStore] wrapper whose
  * `getFingerprint`/`get` return `Result.Error`, mirroring [ConfigUnavailableRoutesTest] /
  * [ManageNotesConfigUnavailableTest]'s "own copy per file" `FailableProjectConfigRepository`
  * pattern (this item's file-ownership rule forbids a shared harness file). The second half of S9
@@ -175,14 +175,14 @@ class QueryRulesConfigUnavailableTest {
 }
 
 /**
- * Wraps a real [ProjectConfigRepository] and lets tests force [get]/[getFingerprint] to return
+ * Wraps a real [ProjectConfigStore] and lets tests force [get]/[getFingerprint] to return
  * `throw IllegalStateException("x")` on demand. Own copy for this file -- see the
  * identical class in the sibling config-unavailable test files for the full rationale (no shared
  * harness file per this item's file-ownership rule).
  */
 private class FailableProjectConfigRepository(
-    private val delegate: ProjectConfigRepository,
-) : ProjectConfigRepository by delegate {
+    private val delegate: ProjectConfigStore,
+) : ProjectConfigStore by delegate {
     @Volatile var failFingerprint: Boolean = false
 
     @Volatile var failGet: Boolean = false
@@ -198,5 +198,5 @@ private class FailableRepositoryProvider(
     private val delegate: RepositoryProvider,
     private val failable: FailableProjectConfigRepository,
 ) : RepositoryProvider by delegate {
-    override fun projectConfigRepository(): ProjectConfigRepository = failable
+    override fun projectConfigRepository(): ProjectConfigStore = failable
 }

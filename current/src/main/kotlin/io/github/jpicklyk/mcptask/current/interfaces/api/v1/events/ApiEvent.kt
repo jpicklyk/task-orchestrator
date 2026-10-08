@@ -66,8 +66,8 @@ object SyncLostReason {
  * All event-type string constants emitted by [ApiEventBus].
  *
  * - `ITEM_CREATED`, `ITEM_UPDATED`, `ITEM_DELETED` — work-item CRUD via [WorkItemRepository].
- * - `NOTE_UPSERTED`, `NOTE_DELETED` — note writes via [NoteRepository].
- * - `DEPENDENCY_ADDED`, `DEPENDENCY_REMOVED` — dependency changes via [DependencyRepository].
+ * - `NOTE_UPSERTED`, `NOTE_DELETED` — note writes via [NoteStore].
+ * - `DEPENDENCY_ADDED`, `DEPENDENCY_REMOVED` — dependency changes via [DependencyStore].
  * - `ITEM_ADVANCED` — role transition via [RoleTransitionHandler]; payload carries [ApiEvent.newRole].
  * - `SCOPE_ENTERED` — item moved INTO this root's subtree (reparent or creation).
  * - `SCOPE_LEFT` — item moved OUT OF this root's subtree (reparent).

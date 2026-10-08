@@ -1,9 +1,9 @@
-package io.github.jpicklyk.mcptask.current.domain.repository
+package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import java.util.UUID
 
-interface NoteRepository {
+interface NoteStore {
     suspend fun getById(id: UUID): Note?
 
     suspend fun upsert(note: Note): Note

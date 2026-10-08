@@ -1,11 +1,11 @@
-package io.github.jpicklyk.mcptask.current.domain.repository
+package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocument
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentSummary
 import java.util.UUID
 
-/** Outcome of [PlanDocumentRepository.stash]. */
+/** Outcome of [PlanDocumentStore.stash]. */
 sealed class PlanDocumentStashOutcome {
     /** The document was inserted (fresh slug) or overwritten (existing PENDING slug). */
     data class Stored(
@@ -22,7 +22,7 @@ sealed class PlanDocumentStashOutcome {
     ) : PlanDocumentStashOutcome()
 }
 
-/** Outcome of [PlanDocumentRepository.markAdopted]. */
+/** Outcome of [PlanDocumentStore.markAdopted]. */
 sealed class PlanDocumentAdoptOutcome {
     /** The document transitioned PENDING -> ADOPTED and now records [document.adoptedByItemId]. */
     data class Adopted(
@@ -47,7 +47,7 @@ sealed class PlanDocumentAdoptOutcome {
  * PENDING -> ADOPTED transition, called by the work-item materialization path (not built by this
  * store — see `PlanDocumentService` for the surface this repository backs).
  */
-interface PlanDocumentRepository {
+interface PlanDocumentStore {
     /**
      * Inserts or overwrites the PENDING document at `(rootItemId, slug)` with [body], computing and
      * storing a SHA-256 fingerprint (via [computeContentHash]). A slug already in ADOPTED status is

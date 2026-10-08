@@ -54,12 +54,12 @@ private val JSON_WRITE_CONTENT_TYPES = setOf("application/json", "*/*")
  * - `fromItemId` != `toItemId`
  * - `type` one of "blocks" | "relates_to"
  * - `unblockAt` absent or null for RELATES_TO
- * - Cycle detection via [DependencyRepository.hasCyclicDependency] → 400 `cycle_detected`
+ * - Cycle detection via [DependencyStore.hasCyclicDependency] → 400 `cycle_detected`
  * - Duplicate edge (same `fromItemId`/`toItemId`/`type`) → 409 `duplicate_dependency`, caught from
  *   [io.github.jpicklyk.mcptask.current.domain.validation.DuplicateDependencyException] thrown by
  *   the repository's insert path
  *
- * Note: [DependencyRepository]'s read/write methods are suspend but still JDBC-blocking under
+ * Note: [DependencyStore]'s read/write methods are suspend but still JDBC-blocking under
  * the hood; all calls are wrapped in [withContext(IO)] to keep the Ktor event loop free.
  */
 fun Route.dependencyWriteRoutes(

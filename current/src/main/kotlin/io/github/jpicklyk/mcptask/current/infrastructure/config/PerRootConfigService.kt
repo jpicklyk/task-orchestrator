@@ -5,19 +5,19 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParse
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
+import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitElement
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import org.slf4j.LoggerFactory
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.coroutineContext
 
 /**
- * Parses and caches per-root config YAML documents (stored via [ProjectConfigRepository]),
+ * Parses and caches per-root config YAML documents (stored via [ProjectConfigStore]),
  * exposing the same schema/trait surface as [YamlWorkItemSchemaService] but scoped to a single
  * project root (a depth-0 WorkItem UUID) instead of the single global `.taskorchestrator/config.yaml`.
  *
@@ -30,7 +30,7 @@ import kotlin.coroutines.coroutineContext
  *
  * Every read ([getSchemas], [getSchemaForType], [getTraitNotes], [getAllTraits]) goes through
  * [resolve], which:
- *  1. Issues a cheap fingerprint-only read ([ProjectConfigRepository.getFingerprint]) — this never
+ *  1. Issues a cheap fingerprint-only read ([ProjectConfigStore.getFingerprint]) — this never
  *     touches the `config_yaml` TEXT column.
  *  2. Compares it against this instance's in-memory cache for that root.
  *  3. On a match, returns the cached parse with no further I/O.
@@ -38,7 +38,7 @@ import kotlin.coroutines.coroutineContext
  *     the cache entry.
  *
  * Because step 1 runs on *every* call rather than relying on a push-based invalidation signal, a
- * config pushed by [ProjectConfigRepository.upsert] — from this process or from a different one
+ * config pushed by [ProjectConfigStore.upsert] — from this process or from a different one
  * entirely (e.g. another server instance sharing the same SQLite file) — becomes visible on the
  * very next read. No restart, no explicit cache-bust call, no coordination between instances
  * beyond the shared DB row. This is what "hot-reload" means for this service: it is a property of
@@ -72,7 +72,7 @@ import kotlin.coroutines.coroutineContext
  * the global file: [layer] wraps the same [resolve] pass every other accessor on this class uses.
  */
 class PerRootConfigService(
-    private val repository: ProjectConfigRepository,
+    private val repository: ProjectConfigStore,
     private val parser: ConfigDocumentParser = YamlConfigDocumentParser,
 ) : PerRootConfigSource {
     private val logger = LoggerFactory.getLogger(PerRootConfigService::class.java)
@@ -242,7 +242,7 @@ class PerRootConfigService(
      * failure detail, and this returns `null` (absence — same "fall through to global" contract as
      * every other malformed-document case; see class kdoc "Failure handling"). Parsing itself uses
      * [SafeConstructor][org.yaml.snakeyaml.constructor.SafeConstructor]-based parsing (see
-     * [YamlConfigDocumentParser]): [configYaml] originates from [ProjectConfigRepository], which
+     * [YamlConfigDocumentParser]): [configYaml] originates from [ProjectConfigStore], which
      * stores whatever a caller pushed over the MCP protocol (see `ManageProjectConfigTool`) —
      * attacker-reachable input, not a trusted local file.
      */

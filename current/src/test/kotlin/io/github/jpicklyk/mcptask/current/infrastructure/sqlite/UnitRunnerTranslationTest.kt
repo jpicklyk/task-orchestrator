@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.ServiceBackedGlobalLookup
+import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
@@ -16,7 +17,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorFixTemplates
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
@@ -312,9 +312,9 @@ class UnitRunnerTranslationTest {
         }
 
     private class FailableProjectConfigRepository(
-        private val delegate: ProjectConfigRepository,
+        private val delegate: ProjectConfigStore,
         private val cause: Throwable?
-    ) : ProjectConfigRepository by delegate {
+    ) : ProjectConfigStore by delegate {
         @Volatile var failFingerprint: Boolean = false
 
         override suspend fun getFingerprint(rootItemId: UUID) =
@@ -411,7 +411,7 @@ class UnitRunnerTranslationTest {
             )
 
             db.uow().write("S13.repo") {
-                assertNotNull(repositories.workItemRepository().create(WorkItem(title = "inside")))
+                assertNotNull(stores.workItemRepository().create(WorkItem(title = "inside")))
                 Outcome.Ok(Unit)
             }
             assertEquals(afterOutside, runner.outsideUnitWrites.values.sum(), "a repository write inside a unit is not counted")

@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.domain.repository
+package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.domain.model.AncestorChain
 import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder

@@ -1,10 +1,10 @@
-package io.github.jpicklyk.mcptask.current.domain.repository
+package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import java.time.Instant
 import java.util.UUID
 
-interface RoleTransitionRepository {
+interface TransitionStore {
     suspend fun create(transition: RoleTransition): RoleTransition
 
     suspend fun findByItemId(

@@ -1,14 +1,14 @@
 package io.github.jpicklyk.mcptask.current.application.tools.compound
 
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
@@ -64,9 +64,9 @@ class CompleteTreeToolConfigUnavailableTest {
     private lateinit var context: ToolExecutionContext
     private lateinit var repoProvider: RepositoryProvider
     private lateinit var workItemRepo: WorkItemRepository
-    private lateinit var depRepo: DependencyRepository
-    private lateinit var noteRepo: NoteRepository
-    private lateinit var roleTransitionRepo: RoleTransitionRepository
+    private lateinit var depRepo: DependencyStore
+    private lateinit var noteRepo: NoteStore
+    private lateinit var roleTransitionRepo: TransitionStore
 
     private val rootConfigYaml =
         """
@@ -210,15 +210,15 @@ class CompleteTreeToolConfigUnavailableTest {
 }
 
 /**
- * Wraps a real [ProjectConfigRepository] and lets tests force [get]/[getFingerprint] to return
+ * Wraps a real [ProjectConfigStore] and lets tests force [get]/[getFingerprint] to return
  * `throw IllegalStateException("x")` on demand. Own copy for this file — see
  * [io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemToolConfigUnavailableTest]'s
  * identical class for the full rationale (this item's file-ownership rule forbids extracting a
  * shared harness file for it).
  */
 private class FailableProjectConfigRepository(
-    private val delegate: ProjectConfigRepository
-) : ProjectConfigRepository by delegate {
+    private val delegate: ProjectConfigStore
+) : ProjectConfigStore by delegate {
     @Volatile var failFingerprint: Boolean = false
 
     @Volatile var failGet: Boolean = false

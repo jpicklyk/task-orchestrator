@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.domain.repository
+package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
 import io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome
@@ -12,7 +12,7 @@ import java.util.UUID
  * inserting a second row (`root_item_id` is unique). Deleting the root item cascades to delete
  * its row (FK `ON DELETE CASCADE`) — [delete] here is for explicit config-only removal.
  */
-interface ProjectConfigRepository {
+interface ProjectConfigStore {
     /**
      * Inserts or replaces the config row for [rootItemId] with [configYaml], computing and
      * storing a SHA-256 fingerprint of its bytes. Returns the stored [ProjectConfig] (with the

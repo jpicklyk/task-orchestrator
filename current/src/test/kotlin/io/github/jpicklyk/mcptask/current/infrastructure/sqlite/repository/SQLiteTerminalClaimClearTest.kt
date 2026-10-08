@@ -24,7 +24,7 @@ import kotlin.test.assertNull
 /**
  * Bug `3785f37a`, S12 (integration, SQLite): the terminal claim-clear performed inside
  * [AdvanceService.advance] / [io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler.applyTransition]
- * must actually survive the round trip through [io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository.update]
+ * must actually survive the round trip through [io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository.update]
  * — a plain in-memory mock (as used by `AdvanceServiceTerminalClaimClearTest`) cannot prove that;
  * only a real persisted `update()` + re-fetch can. Uses real SQLite-backed
  * repositories (SqliteTestDatabase) (not mocks), which is why this lives in the repository test package rather than

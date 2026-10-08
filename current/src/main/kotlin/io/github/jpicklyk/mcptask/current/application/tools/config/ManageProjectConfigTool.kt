@@ -20,7 +20,7 @@ import kotlinx.serialization.json.*
  *
  * Supports two operations:
  * - **push**: validates the target root (must exist, must be depth 0), parse-validates the YAML
- *   BEFORE storing it, then upserts via [io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository].
+ *   BEFORE storing it, then upserts via [io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore].
  * - **get**: reads back the stored config + fingerprint for a root, or a not-found error.
  */
 class ManageProjectConfigTool(

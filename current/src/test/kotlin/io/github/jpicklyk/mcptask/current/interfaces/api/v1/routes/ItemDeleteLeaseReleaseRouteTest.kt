@@ -1,5 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
@@ -8,9 +11,6 @@ import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelSer
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
@@ -41,16 +41,16 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 /**
- * Wraps a real [ResourceLeaseRepository], failing [releaseAllForItem] with
+ * Wraps a real [LeaseStore], failing [releaseAllForItem] with
  * [LeaseReleaseResult.DBError] for exactly one holder id; every other member delegates unchanged.
  * Mirrors [io.github.jpicklyk.mcptask.current.application.tools.items.DeleteItemLeaseReleaseTest]'s
  * seam (itself mirroring `DeleteItemHandlerAtomicityTest`'s FailOnId pattern), applied here to the
  * REST delete path.
  */
 private class FailOnIdResourceLeaseRepository(
-    private val delegate: ResourceLeaseRepository,
+    private val delegate: LeaseStore,
     private val failingHolderId: UUID,
-) : ResourceLeaseRepository by delegate {
+) : LeaseStore by delegate {
     override suspend fun releaseAllForItem(holderItemId: UUID): LeaseReleaseResult =
         if (holderItemId == failingHolderId) {
             throw RuntimeException("Simulated lease release failure for $holderItemId")
@@ -69,9 +69,9 @@ private class FailOnIdResourceLeaseRepository(
 /** Wraps a real [RepositoryProvider], substituting [failingLeaseRepo] for [resourceLeaseRepository]. */
 private class FailOnIdRepositoryProvider(
     private val delegate: RepositoryProvider,
-    private val failingLeaseRepo: ResourceLeaseRepository,
+    private val failingLeaseRepo: LeaseStore,
 ) : RepositoryProvider by delegate {
-    override fun resourceLeaseRepository(): ResourceLeaseRepository = failingLeaseRepo
+    override fun resourceLeaseRepository(): LeaseStore = failingLeaseRepo
 }
 
 /**

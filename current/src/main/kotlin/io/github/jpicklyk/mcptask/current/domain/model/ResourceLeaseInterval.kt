@@ -14,7 +14,7 @@ import java.util.UUID
  * readable after the holder work item is deleted.
  *
  * An interval is "held at" instant `T` iff `acquiredAt <= T < coalesce(releasedAt, expiresAt)` —
- * see [io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository.findHoldersAt].
+ * see [io.github.jpicklyk.mcptask.current.application.port.LeaseStore.findHoldersAt].
  *
  * @property id Stable identifier for this history row.
  * @property resourceKey The resource namespace key held during this interval.

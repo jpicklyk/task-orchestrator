@@ -1,13 +1,13 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 
 /**
  * Builds a per-item [AdvanceService], bound to that item's `rootId` (per-root status-label
@@ -21,10 +21,10 @@ import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
  */
 class AdvanceServiceFactory(
     private val workItemRepository: WorkItemRepository,
-    private val roleTransitionRepository: RoleTransitionRepository,
-    private val dependencyRepository: DependencyRepository,
-    private val noteRepository: NoteRepository,
-    private val resourceLeaseRepository: ResourceLeaseRepository?,
+    private val roleTransitionRepository: TransitionStore,
+    private val dependencyRepository: DependencyStore,
+    private val noteRepository: NoteStore,
+    private val resourceLeaseRepository: LeaseStore?,
     val configResolver: EffectiveConfigResolver,
     /** The transaction boundary every built [AdvanceService] runs its steps in. */
     private val unitOfWork: UnitOfWork,

@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.MAX_PAGE
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
@@ -44,7 +44,7 @@ import kotlin.test.assertTrue
  * rule), the verbatim `PageParams`/`PageParamsResult`/`parsePageParams`/`pageParamsOrRespond`/
  * `TRANSITION_SCAN_LIMIT`/route declarations supplied by the orchestrator (bugwave4-2026-09
  * dispatch contract, "DECLARATIONS for c471607b"), a supplementary declaration for
- * `RoleTransitionRepository.findSince` supplied by the orchestrator on request (see
+ * `TransitionStore.findSince` supplied by the orchestrator on request (see
  * `test-manifest` for the exact text), and existing test conventions in this package
  * (`ApiTestHelper.kt`, `TransitionRoutesTest.kt`, `TagScopeReadRoutesTest.kt`,
  * `PatchReparentCycleGuardTest.kt`'s scripted-repository-override pattern, `ItemRoutesTest.kt`'s
@@ -55,15 +55,15 @@ class PaginationBoundsTest {
     val db = SqliteTestDatabase.perMethod()
 
     /**
-     * Wraps a real [RoleTransitionRepository], substituting a scripted result for `findSince`
+     * Wraps a real [TransitionStore], substituting a scripted result for `findSince`
      * that captures the `limit` argument it was called with instead of delegating — this keeps
      * S15 fast and independent of how many rows actually exist, and observable even if a
      * pre-fix unbounded limit would otherwise ask the database for hundreds of millions of rows. Mirrors
      * [PatchReparentCycleGuardTest]'s `ScriptedWorkItemRepository` / `*OverrideProvider` pattern.
      */
     private class ScriptedRoleTransitionRepository(
-        private val delegate: RoleTransitionRepository,
-    ) : RoleTransitionRepository by delegate {
+        private val delegate: TransitionStore,
+    ) : TransitionStore by delegate {
         var capturedLimit: Int? = null
             private set
 
@@ -82,9 +82,9 @@ class PaginationBoundsTest {
      */
     private class RoleTransitionRepoOverrideProvider(
         private val delegate: RepositoryProvider,
-        private val roleTransitionRepo: RoleTransitionRepository,
+        private val roleTransitionRepo: TransitionStore,
     ) : RepositoryProvider by delegate {
-        override fun roleTransitionRepository(): RoleTransitionRepository = roleTransitionRepo
+        override fun roleTransitionRepository(): TransitionStore = roleTransitionRepo
     }
 
     private fun exactValidationError(

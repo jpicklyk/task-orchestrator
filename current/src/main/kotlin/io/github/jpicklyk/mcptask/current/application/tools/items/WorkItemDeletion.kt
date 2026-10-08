@@ -1,14 +1,14 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.UnitResult
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import java.util.UUID
 
 /**
@@ -81,7 +81,7 @@ class WorkItemDeletion(
 
     private suspend fun deleteNonRecursive(
         repo: WorkItemRepository,
-        leaseRepo: ResourceLeaseRepository,
+        leaseRepo: LeaseStore,
         id: UUID
     ): WorkItemDeleteOutcome {
         val children = legacyRead({ return WorkItemDeleteOutcome.Failed(id, "Failed to check children: $it") }) { repo.findChildren(id) }
@@ -100,7 +100,7 @@ class WorkItemDeletion(
 
     private suspend fun deleteRecursive(
         repo: WorkItemRepository,
-        leaseRepo: ResourceLeaseRepository,
+        leaseRepo: LeaseStore,
         id: UUID
     ): WorkItemDeleteOutcome {
         return deleteUnit(id, "WorkItemDeletion.deleteRecursive") {
@@ -207,7 +207,7 @@ class WorkItemDeletion(
      * release throws (same fail-closed contract as [releaseLeases]), or null.
      */
     private suspend fun releaseLeasesBulk(
-        leaseRepo: ResourceLeaseRepository,
+        leaseRepo: LeaseStore,
         rootId: UUID,
         itemIds: Set<UUID>
     ): WorkItemDeleteOutcome.Failed? {
@@ -225,7 +225,7 @@ class WorkItemDeletion(
      * continue), or null.
      */
     private suspend fun releaseLeases(
-        leaseRepo: ResourceLeaseRepository,
+        leaseRepo: LeaseStore,
         itemId: UUID
     ): WorkItemDeleteOutcome.Failed? {
         legacyRead({

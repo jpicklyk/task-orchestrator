@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ResourceLeaseHistoryTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ResourceLeasesTable
@@ -35,7 +35,7 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /**
- * SQLite implementation of [ResourceLeaseRepository], backed by [ResourceLeasesTable].
+ * SQLite implementation of [LeaseStore], backed by [ResourceLeasesTable].
  *
  * Storage + concurrency primitive only — no gate enforcement, no MCP tool surface (see the
  * interface KDoc). Mirrors [SQLiteWorkItemRepository.claim]'s transaction/DB-clock discipline:
@@ -45,7 +45,7 @@ import java.util.UUID
  */
 class SQLiteResourceLeaseRepository(
     private val databaseManager: DatabaseManager
-) : ResourceLeaseRepository {
+) : LeaseStore {
     private val logger = LoggerFactory.getLogger(SQLiteResourceLeaseRepository::class.java)
 
     /**
@@ -115,7 +115,7 @@ class SQLiteResourceLeaseRepository(
                 // diagnostics when the same requirement set is retried.
                 val sortedRequirements = requirements.sortedBy { it.first }
 
-                databaseManager.writeTx("ResourceLeaseRepository.acquireAllOnce") {
+                databaseManager.writeTx("LeaseStore.acquireAllOnce") {
                     val uuidType = UUIDColumnType()
                     val keyType = VarCharColumnType(255)
                     val actorType = VarCharColumnType(500)
@@ -329,7 +329,7 @@ class SQLiteResourceLeaseRepository(
 
     override suspend fun releaseAllForItem(holderItemId: UUID): LeaseReleaseResult =
         run {
-            databaseManager.writeTx("ResourceLeaseRepository.releaseAllForItem") {
+            databaseManager.writeTx("LeaseStore.releaseAllForItem") {
                 val uuidType = UUIDColumnType()
                 // Close every OPEN interval this holder has, across all its keys. releasedAt is
                 // stamped DB-side (datetime('now')) — never the JVM clock — via the raw statement below.
@@ -357,7 +357,7 @@ class SQLiteResourceLeaseRepository(
     override suspend fun releaseAllForItems(holderItemIds: Set<UUID>): LeaseReleaseResult {
         if (holderItemIds.isEmpty()) return LeaseReleaseResult.Success(0)
         return run {
-            databaseManager.writeTx("ResourceLeaseRepository.releaseAllForItems") {
+            databaseManager.writeTx("LeaseStore.releaseAllForItems") {
                 val uuidType = UUIDColumnType()
                 var total = 0
                 // Chunked so the IN list never exceeds SQLite's bound-variable limit; every chunk
@@ -386,7 +386,7 @@ class SQLiteResourceLeaseRepository(
         actorId: String?
     ): LeaseReleaseResult =
         run {
-            databaseManager.writeTx("ResourceLeaseRepository.forceReleaseByKey") {
+            databaseManager.writeTx("LeaseStore.forceReleaseByKey") {
                 val keyType = VarCharColumnType(255)
                 val actorType = VarCharColumnType(500)
                 // Close every OPEN interval on this key, regardless of holder. released_by_actor_id

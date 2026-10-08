@@ -128,7 +128,7 @@ suspend fun ApplicationCall.pageParamsOrRespond(): PageParams? =
  * @param pageParams The parsed page/pageSize pair.
  * @param totalItems Optional exact total count; null when too expensive to compute.
  * @param skipped Optional count of rows dropped from this page's window due to failed domain
- *   validation (see [io.github.jpicklyk.mcptask.current.domain.repository.ItemFetchResult]).
+ *   validation (see [io.github.jpicklyk.mcptask.current.application.port.ItemFetchResult]).
  *   Pass null or 0 when nothing was skipped — either way it is omitted from the serialized DTO.
  */
 fun <T> buildPageDto(

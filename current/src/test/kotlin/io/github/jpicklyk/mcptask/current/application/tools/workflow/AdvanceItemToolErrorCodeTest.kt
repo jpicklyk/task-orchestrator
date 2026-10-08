@@ -1,6 +1,10 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
@@ -8,10 +12,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -60,8 +60,8 @@ class AdvanceItemToolErrorCodeTest {
     private lateinit var context: ToolExecutionContext
     private lateinit var repoProvider: RepositoryProvider
     private lateinit var workItemRepo: WorkItemRepository
-    private lateinit var depRepo: DependencyRepository
-    private lateinit var roleTransitionRepo: RoleTransitionRepository
+    private lateinit var depRepo: DependencyStore
+    private lateinit var roleTransitionRepo: TransitionStore
 
     @BeforeEach
     fun setUp() {
@@ -73,7 +73,7 @@ class AdvanceItemToolErrorCodeTest {
         repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
         every { repoProvider.dependencyRepository() } returns depRepo
-        val defaultNoteRepo = mockk<NoteRepository>()
+        val defaultNoteRepo = mockk<NoteStore>()
         coEvery { defaultNoteRepo.findByItemId(any()) } returns emptyList()
         coEvery { defaultNoteRepo.findByItemId(any(), any()) } returns emptyList()
         every { repoProvider.noteRepository() } returns defaultNoteRepo
@@ -125,7 +125,7 @@ class AdvanceItemToolErrorCodeTest {
         }
 
     private fun contextWithSchema(
-        noteRepo: NoteRepository,
+        noteRepo: NoteStore,
         noteSchemaService: NoteSchemaService
     ): ToolExecutionContext {
         val provider = mockk<RepositoryProvider>()
@@ -159,7 +159,7 @@ class AdvanceItemToolErrorCodeTest {
             val item = makeItem(id = itemId, role = Role.QUEUE, tags = "feature-task")
 
             val noteSchemaService = schemaServiceWith(gateSchemaEntries())
-            val noteRepo = mockk<NoteRepository>()
+            val noteRepo = mockk<NoteStore>()
             coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
             coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
             val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
@@ -266,7 +266,7 @@ class AdvanceItemToolErrorCodeTest {
             val terminalItem = makeItem(id = terminalId, role = Role.TERMINAL)
 
             val noteSchemaService = schemaServiceWith(gateSchemaEntries())
-            val noteRepo = mockk<NoteRepository>()
+            val noteRepo = mockk<NoteStore>()
             coEvery { noteRepo.findByItemId(gateItemId) } returns emptyList()
             coEvery { noteRepo.findByItemId(gateItemId, any()) } returns emptyList()
             val batchContext = contextWithSchema(noteRepo, noteSchemaService)

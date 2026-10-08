@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
 import io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.ProjectConfig
-import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.security.configFingerprint
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ProjectConfigTable
@@ -21,7 +21,7 @@ import java.time.Instant
 import java.util.UUID
 
 /**
- * SQLite implementation of [ProjectConfigRepository], backed by [ProjectConfigTable].
+ * SQLite implementation of [ProjectConfigStore], backed by [ProjectConfigTable].
  *
  * [upsert] uses the same atomic `INSERT ... ON CONFLICT DO UPDATE` pattern as
  * [SQLiteNoteRepository.upsertRow] (keyed on the unique `root_item_id` column here instead of
@@ -42,12 +42,12 @@ import java.util.UUID
 class SQLiteProjectConfigRepository(
     private val databaseManager: DatabaseManager,
     private val beforeGuardedWrite: (suspend (UUID) -> Unit)? = null
-) : ProjectConfigRepository {
+) : ProjectConfigStore {
     override suspend fun upsert(
         rootItemId: UUID,
         configYaml: String
     ): ProjectConfig =
-        databaseManager.writeTx("ProjectConfigRepository.upsert") {
+        databaseManager.writeTx("ProjectConfigStore.upsert") {
             val fingerprint = computeFingerprint(configYaml)
             val now = Instant.now()
 
@@ -103,7 +103,7 @@ class SQLiteProjectConfigRepository(
         // ONE attempt, inside the caller's write unit (IMMEDIATE, single writer): no other writer can
         // commit between the guard read and the conditional write, so a 0-row write is an invariant
         // violation, not a lost race. SQLITE_BUSY is retried by the unit itself.
-        return databaseManager.writeTx("ProjectConfigRepository.upsertGuarded") {
+        return databaseManager.writeTx("ProjectConfigStore.upsertGuarded") {
             attemptGuardedUpsert(rootItemId, configYaml, expectedFingerprint, rejectSuperseded)
         } ?: throw IllegalStateException(
             "Guarded upsert of the project config for root $rootItemId lost its compare-and-set inside one unit"
@@ -218,7 +218,7 @@ class SQLiteProjectConfigRepository(
         }
 
     override suspend fun delete(rootItemId: UUID): Boolean =
-        databaseManager.writeTx("ProjectConfigRepository.delete") {
+        databaseManager.writeTx("ProjectConfigStore.delete") {
             val deletedCount = ProjectConfigTable.deleteWhere { ProjectConfigTable.rootItemId eq rootItemId }
             deletedCount > 0
         }

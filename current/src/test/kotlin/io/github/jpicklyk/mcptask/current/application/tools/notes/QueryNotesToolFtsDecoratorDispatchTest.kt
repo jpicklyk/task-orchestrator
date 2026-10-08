@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.notes
 
-import io.github.jpicklyk.mcptask.current.domain.repository.SearchHit
-import io.github.jpicklyk.mcptask.current.domain.repository.SearchResult
+import io.github.jpicklyk.mcptask.current.application.port.SearchHit
+import io.github.jpicklyk.mcptask.current.application.port.SearchResult
 import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -23,17 +23,17 @@ import kotlin.test.assertTrue
  * result whenever [ToolExecutionContext.noteRepository] was NOT the concrete
  * `SQLiteNoteRepository` type (e.g. the `EventPublishingNoteRepository` decorator used when the
  * REST API is enabled). The tool used to gate FTS dispatch behind an `is SQLiteNoteRepository`
- * check; [MockRepositoryProvider]'s mocked `NoteRepository` is exactly such a non-concrete
+ * check; [MockRepositoryProvider]'s mocked `NoteStore` is exactly such a non-concrete
  * instance, so it reproduces the old failure mode without needing a real decorator or database.
  *
- * After the fix, [QueryNotesTool] dispatches `ftsSearch` directly on the `NoteRepository`
+ * After the fix, [QueryNotesTool] dispatches `ftsSearch` directly on the `NoteStore`
  * interface, so this now succeeds regardless of the concrete repository type.
  */
 class QueryNotesToolFtsDecoratorDispatchTest {
     private fun params(vararg pairs: Pair<String, kotlinx.serialization.json.JsonElement>) = JsonObject(mapOf(*pairs))
 
     @Test
-    fun `search dispatches ftsSearch on the NoteRepository interface regardless of concrete type`() =
+    fun `search dispatches ftsSearch on the NoteStore interface regardless of concrete type`() =
         runBlocking {
             val mocks = MockRepositoryProvider()
             val sentinelItemId = UUID.randomUUID()

@@ -1,6 +1,10 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
@@ -11,10 +15,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -56,7 +56,7 @@ import kotlin.test.assertTrue
  *   `create()` only for a chosen item id — per the dispatch declarations' "Behavioral seams" note,
  *   this is how the apply step (`workItemRepository.update` then `roleTransitionRepository.create`
  *   inside one transaction) is forced to fail.
- * - [SimpleLeaseFakeRepository] is an in-memory [ResourceLeaseRepository] fake, reimplemented in
+ * - [SimpleLeaseFakeRepository] is an in-memory [LeaseStore] fake, reimplemented in
  *   this file per the test-author "own file" rule (mirrors the established pattern in
  *   `AdvanceRouteResourceLeaseTest.LeaseGateFakeRepository` / `AdvanceItemToolLeaseBlockedTest`).
  * - [TraitSchemaService] maps the `needs-staging-db` trait onto one exclusive, 600s-TTL resource —
@@ -71,11 +71,11 @@ class AdvanceItemToolApplyFailureLeaseTest {
     @RegisterExtension
     val db = SqliteTestDatabase.perMethod()
 
-    /** Wraps a real [RoleTransitionRepository]; fails `create()` only for [failFor]'s transitions. */
+    /** Wraps a real [TransitionStore]; fails `create()` only for [failFor]'s transitions. */
     private class FailingRoleTransitionRepository(
-        private val delegate: RoleTransitionRepository,
+        private val delegate: TransitionStore,
         private val failFor: UUID
-    ) : RoleTransitionRepository by delegate {
+    ) : TransitionStore by delegate {
         override suspend fun create(transition: RoleTransition): RoleTransition =
             if (transition.itemId == failFor) {
                 throw IllegalStateException("simulated apply failure for $failFor")
@@ -86,13 +86,13 @@ class AdvanceItemToolApplyFailureLeaseTest {
 
     private class RoleTransitionOverrideProvider(
         private val delegate: RepositoryProvider,
-        private val roleTransitionRepo: RoleTransitionRepository
+        private val roleTransitionRepo: TransitionStore
     ) : RepositoryProvider by delegate {
-        override fun roleTransitionRepository(): RoleTransitionRepository = roleTransitionRepo
+        override fun roleTransitionRepository(): TransitionStore = roleTransitionRepo
     }
 
-    /** In-memory [ResourceLeaseRepository] fake; own-file reimplementation per test-author rule 8. */
-    private class SimpleLeaseFakeRepository : ResourceLeaseRepository {
+    /** In-memory [LeaseStore] fake; own-file reimplementation per test-author rule 8. */
+    private class SimpleLeaseFakeRepository : LeaseStore {
         val leases = mutableListOf<ResourceLease>()
 
         override suspend fun acquireAll(
@@ -151,9 +151,9 @@ class AdvanceItemToolApplyFailureLeaseTest {
 
     private class LeaseOverrideProvider(
         private val delegate: RepositoryProvider,
-        private val leaseRepo: ResourceLeaseRepository
+        private val leaseRepo: LeaseStore
     ) : RepositoryProvider by delegate {
-        override fun resourceLeaseRepository(): ResourceLeaseRepository = leaseRepo
+        override fun resourceLeaseRepository(): LeaseStore = leaseRepo
     }
 
     /** Maps `needs-staging-db` onto one exclusive resource with a 600s TTL. */

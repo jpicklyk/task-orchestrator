@@ -1,15 +1,15 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
@@ -47,7 +47,7 @@ import kotlin.test.assertNull
  *
  * Harness: a REAL [PerRootConfigService] backed by a REAL [SQLiteProjectConfigRepository] (SQLite,
  * schema via [SqliteTestDatabase]) wrapped in [FailableProjectConfigRepository] — the
- * test-plan's "a test ProjectConfigRepository wrapping SQLiteProjectConfigRepository; its reads
+ * test-plan's "a test ProjectConfigStore wrapping SQLiteProjectConfigRepository; its reads
  * can switch to Result.Error" harness line, which no existing src/test fixture provides (per the
  * dispatch's gap callout) and is therefore authored here. [AdvanceItemTool] itself runs against an
  * otherwise fully-mocked [RepositoryProvider], mirroring [AdvanceItemToolTest]'s own setup.
@@ -72,9 +72,9 @@ class AdvanceItemToolConfigUnavailableTest {
     private lateinit var context: ToolExecutionContext
     private lateinit var repoProvider: RepositoryProvider
     private lateinit var workItemRepo: WorkItemRepository
-    private lateinit var depRepo: DependencyRepository
-    private lateinit var noteRepo: NoteRepository
-    private lateinit var roleTransitionRepo: RoleTransitionRepository
+    private lateinit var depRepo: DependencyStore
+    private lateinit var noteRepo: NoteStore
+    private lateinit var roleTransitionRepo: TransitionStore
 
     private val rootConfigYaml =
         """
@@ -517,17 +517,17 @@ class AdvanceItemToolConfigUnavailableTest {
 }
 
 /**
- * Wraps a real [ProjectConfigRepository] (a [SQLiteProjectConfigRepository] in every test above)
+ * Wraps a real [ProjectConfigStore] (a [SQLiteProjectConfigRepository] in every test above)
  * and lets tests force [get]/[getFingerprint] to return `throw IllegalStateException("x")`
- * on demand. This is the test-plan harness's "test ProjectConfigRepository wrapping
+ * on demand. This is the test-plan harness's "test ProjectConfigStore wrapping
  * SQLiteProjectConfigRepository; its reads can switch to Result.Error" fixture — no such fixture
  * exists anywhere under src/test (confirmed gap in the dispatch's declarations), so it is authored
  * here, scoped to this file only (not extracted to a shared harness, per this item's file-ownership
  * rule).
  */
 private class FailableProjectConfigRepository(
-    private val delegate: ProjectConfigRepository
-) : ProjectConfigRepository by delegate {
+    private val delegate: ProjectConfigStore
+) : ProjectConfigStore by delegate {
     @Volatile var failFingerprint: Boolean = false
 
     @Volatile var failGet: Boolean = false

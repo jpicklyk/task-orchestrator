@@ -349,7 +349,7 @@ class SqliteUnitOfWorkTest {
             var outsideSawItem: Boolean? = null
             val result =
                 uow.write("S7.create") {
-                    val repo = repositories.workItemRepository()
+                    val repo = stores.workItemRepository()
                     assertNotNull(repo.create(item))
                     assertNotNull(repo.getById(item.id), "the unit must see its own insert")
                     // A separate thread has no ambient unit: it reads from the reader pool and must not see an uncommitted row.

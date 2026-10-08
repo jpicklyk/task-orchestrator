@@ -1,14 +1,14 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -43,8 +43,8 @@ import kotlin.test.assertTrue
 class GetContextToolClaimTest {
     private lateinit var tool: GetContextTool
     private lateinit var workItemRepo: WorkItemRepository
-    private lateinit var noteRepo: NoteRepository
-    private lateinit var roleTransitionRepo: RoleTransitionRepository
+    private lateinit var noteRepo: NoteStore
+    private lateinit var roleTransitionRepo: TransitionStore
     private lateinit var context: ToolExecutionContext
 
     @BeforeEach

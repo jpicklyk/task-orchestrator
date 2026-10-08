@@ -1,13 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 
 /**
  * Provides access to all repository implementations.
@@ -16,17 +9,17 @@ import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 interface RepositoryProvider {
     fun workItemRepository(): WorkItemRepository
 
-    fun noteRepository(): NoteRepository
+    fun noteRepository(): NoteStore
 
-    fun dependencyRepository(): DependencyRepository
+    fun dependencyRepository(): DependencyStore
 
-    fun roleTransitionRepository(): RoleTransitionRepository
+    fun roleTransitionRepository(): TransitionStore
 
-    fun projectConfigRepository(): ProjectConfigRepository
+    fun projectConfigRepository(): ProjectConfigStore
 
-    fun planDocumentRepository(): PlanDocumentRepository
+    fun planDocumentRepository(): PlanDocumentStore
 
-    fun resourceLeaseRepository(): ResourceLeaseRepository
+    fun resourceLeaseRepository(): LeaseStore
 
     fun workTreeExecutor(): WorkTreeExecutor
 }

@@ -55,7 +55,7 @@ class P5bWriteUnitGuardsTest {
                     Regex("""import\s+io\.github\.jpicklyk\.mcptask\.current\.domain\.repository\.RepositoryError\b"""),
                 "DBError" to Regex("""\bDBError\b"""),
                 "PassthroughUnitOfWork" to Regex("""\bPassthroughUnitOfWork\b"""),
-                "domain.repository.Result import" to
+                "application.port.Result import" to
                     Regex("""import\s+io\.github\.jpicklyk\.mcptask\.current\.domain\.repository\.Result\b""")
             )
         val offenders = retired.mapValues { (_, token) -> occurrences(sources, token) }.filterValues { it.isNotEmpty() }

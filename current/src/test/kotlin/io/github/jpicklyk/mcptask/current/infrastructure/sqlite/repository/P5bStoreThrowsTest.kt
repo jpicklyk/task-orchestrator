@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
@@ -7,7 +8,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.error.VersionConflictException
 import io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.PersistenceFaults
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.RawWriterLock
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
@@ -125,7 +125,7 @@ class P5bStoreThrowsTest {
             val result =
                 RawWriterLock(db.jdbcUrl, 1_500).start().use {
                     uow.write("S7.acquire") {
-                        Outcome.Ok(repositories.resourceLeaseRepository().acquireAll(holder.id, "s7-actor", listOf("s7-key" to 900)))
+                        Outcome.Ok(stores.resourceLeaseRepository().acquireAll(holder.id, "s7-actor", listOf("s7-key" to 900)))
                     }
                 }
 

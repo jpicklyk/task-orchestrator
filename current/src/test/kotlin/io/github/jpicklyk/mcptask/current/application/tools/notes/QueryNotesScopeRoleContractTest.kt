@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.application.tools.notes
 
+import io.github.jpicklyk.mcptask.current.application.port.SearchResult
+import io.github.jpicklyk.mcptask.current.application.port.SearchScope
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.SearchResult
-import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
 import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.coEvery
@@ -46,7 +46,7 @@ import kotlin.test.assertTrue
  * declared `scope` schema (`itemId`/`ancestorId` only, no `role`), and the `scope` schema's own
  * description ("All fields are optional and combined with AND.").
  *
- * S1-S4 and S6 use [MockRepositoryProvider] against the `NoteRepository` interface directly (no
+ * S1-S4 and S6 use [MockRepositoryProvider] against the `NoteStore` interface directly (no
  * FTS5 dependency — mirrors [QueryNotesToolFtsDecoratorDispatchTest]'s harness). S5 exercises
  * the untouched top-level `list` `role` filter against a real SQLite-backed repository, matching
  * [QueryNotesToolTest]'s convention, to guard against an over-broad deletion that also removes the

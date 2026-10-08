@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.domain.repository
+package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
@@ -6,7 +6,7 @@ import java.time.Instant
 import java.util.UUID
 
 /**
- * Outcome of [ResourceLeaseRepository.acquireAll].
+ * Outcome of [LeaseStore.acquireAll].
  *
  * Acquisition is all-or-nothing across every requested key: if any key is held by a different
  * item, NOTHING is written for this call — not even for the keys that were free — and every
@@ -31,7 +31,7 @@ sealed class LeaseAcquireResult {
     ) : LeaseAcquireResult()
 }
 
-/** Outcome of [ResourceLeaseRepository.releaseAllForItem] / [ResourceLeaseRepository.forceReleaseByKey]. A database failure is thrown. */
+/** Outcome of [LeaseStore.releaseAllForItem] / [LeaseStore.forceReleaseByKey]. A database failure is thrown. */
 sealed class LeaseReleaseResult {
     /** The delete succeeded; [releasedCount] rows were removed (0 if none matched — not an error). */
     data class Success(
@@ -65,7 +65,7 @@ sealed class LeaseReleaseResult {
  * claim columns (`claimed_by` / `claimed_at` / `claim_expires_at` / `original_claimed_at`). A
  * lease and a claim on the same item are independent lifecycles.
  */
-interface ResourceLeaseRepository {
+interface LeaseStore {
     /**
      * Atomically acquires (or, for a key already held by [holderItemId], refreshes) a lease on
      * every key in [requirements]. All-or-nothing: if any key is actively held by a DIFFERENT

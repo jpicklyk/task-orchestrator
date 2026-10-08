@@ -80,7 +80,7 @@ class P5bEventsOnRollbackTest {
 
             val result =
                 unitOver(provider).write<Unit>("S10.err") {
-                    repositories.workItemRepository().create(WorkItem(title = "S10 rolled back", depth = 0))
+                    stores.workItemRepository().create(WorkItem(title = "S10 rolled back", depth = 0))
                     Outcome.Err(DomainError(ErrorCode.INTERNAL, "domain failure after the create"))
                 }
 
@@ -101,8 +101,8 @@ class P5bEventsOnRollbackTest {
 
             val result =
                 unitOver(provider).write<Unit>("S10.fault") {
-                    repositories.workItemRepository().create(WorkItem(title = "S10 first", depth = 0))
-                    repositories.workItemRepository().create(WorkItem(title = "S10 boom", depth = 0))
+                    stores.workItemRepository().create(WorkItem(title = "S10 first", depth = 0))
+                    stores.workItemRepository().create(WorkItem(title = "S10 boom", depth = 0))
                     Outcome.Ok(Unit)
                 }
 
@@ -121,7 +121,7 @@ class P5bEventsOnRollbackTest {
 
             val result =
                 unitOver(provider).write("S10.ok") {
-                    val created = repositories.workItemRepository().create(WorkItem(title = "S10 committed", depth = 0))
+                    val created = stores.workItemRepository().create(WorkItem(title = "S10 committed", depth = 0))
                     Outcome.Ok(created.id)
                 }
 
@@ -165,7 +165,7 @@ class P5bEventsOnRollbackTest {
             val baseline = bus.ringBufferSnapshot().size
 
             SqliteUnitOfWork(failing, provider, Clock { Instant.now() }).write("P1.control") {
-                repositories.workItemRepository().create(WorkItem(title = "P1 inside", depth = 0))
+                stores.workItemRepository().create(WorkItem(title = "P1 inside", depth = 0))
                 Outcome.Ok(Unit)
             }
 

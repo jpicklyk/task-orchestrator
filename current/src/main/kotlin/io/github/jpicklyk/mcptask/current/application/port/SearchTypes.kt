@@ -1,11 +1,11 @@
-package io.github.jpicklyk.mcptask.current.domain.repository
+package io.github.jpicklyk.mcptask.current.application.port
 
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import java.util.UUID
 
 // ---------------------------------------------------------------------------
 // FTS5 search types — shared by WorkItemRepository.ftsSearch and
-// NoteRepository.ftsSearch. Defined in the domain layer (not infrastructure)
+// NoteStore.ftsSearch. Defined in the domain layer (not infrastructure)
 // so the repository interfaces can reference them without depending on the
 // concrete SQLite implementation. RRF fusion is delegated to RrfFusion
 // (application.service.search layer). BacklinkRow is in domain.model to

@@ -16,7 +16,7 @@ data class WorkItem(
      *
      * Every one of those write paths resolves this value (together with [depth]) from the
      * parent's CURRENT row via
-     * [io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository.resolveChildPlacement],
+     * [io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository.resolveChildPlacement],
      * called inside the same transaction as the write that stamps it — never from a parent read
      * taken in an earlier, separate transaction. See that method's KDoc for why (AR-19): a parent
      * reparented or deleted between an earlier read and a later write would otherwise leave this
