@@ -37,6 +37,8 @@ does a stale baseline line whose violation was already fixed. Guard tests
 `buildMcpTools()` (`interfaces/mcp/CurrentMcpServer.kt`, `internal`) rather than a hard-coded list, so
 they automatically cover every tool the production server registers.
 
+**Dialect neutrality (enforced by `DialectNeutralityTest`):** SQLite and Exposed code lives only under `infrastructure/sqlite/` (`org.sqlite.*` and `org.jetbrains.exposed.*` imports, plus SQLite dialect tokens such as `PRAGMA` or `datetime(` in string literals, are forbidden elsewhere) against a two-way-ratcheted baseline at `current/src/test/resources/architecture/dialect-neutrality-baseline.txt`. Storage ports (`*Store`) live in `application/port/`.
+
 ## Modes of Operation
 
 - **Orchestration** (default) — orchestrator pushes items through phases via `advance_item`
