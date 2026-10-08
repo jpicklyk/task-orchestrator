@@ -14,9 +14,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
-import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration.Companion.seconds
 
 /**
  * Round-3 regression for item 9343ad8d. Oracle: plan section 7 row 3 ("acquisition recorded ... so a timeout can
@@ -41,55 +39,91 @@ class WriterLockLeakTest {
     fun `writer is free after a bounded wait times out at the instant the holder releases`(): Unit =
         runBlocking {
             val uow = db.uow()
-            val shortDeadlineMs = 5L
-            val iterations = 1_500
-            var okWaiters = 0
-            var shedWaiters = 0
-
-            repeat(iterations) { i ->
-                dm.units.deadline = shortDeadlineMs.milliseconds
-                val held = CompletableDeferred<Unit>()
-                val waiterStart = AtomicLong(0L)
-                // Sweep the release instant from 1.5 ms before to 1.5 ms after the waiter's deadline.
-                val offsetNanos = (-1_500_000L) + (i % 40) * 75_000L
-
-                val holder =
-                    async(Dispatchers.Default) {
-                        uow.write("Leak.hold") {
-                            held.complete(Unit)
-                            while (waiterStart.get() == 0L) Thread.onSpinWait()
-                            val target = waiterStart.get() + shortDeadlineMs * 1_000_000L + offsetNanos
-                            while (System.nanoTime() < target) Thread.onSpinWait()
-                            Outcome.Ok("held")
-                        }
-                    }
-                held.await()
-                val waiter =
-                    async(Dispatchers.Default) {
-                        waiterStart.set(System.nanoTime())
-                        uow.write("Leak.wait") { Outcome.Ok("waited") }
-                    }
-
-                assertEquals(Outcome.Ok("held"), holder.await(), "holder commits (iteration $i)")
-                when (val r = waiter.await()) {
-                    is Outcome.Ok -> okWaiters++
-                    is Outcome.Err -> {
-                        assertEquals(ErrorCode.UNAVAILABLE, r.error.code, "a shed waiter is UNAVAILABLE (iteration $i)")
-                        shedWaiters++
+            // CPU contention stretches the scheduling gap between a grant and the waiter's timeout check, widening the
+            // race window the same way a cold JIT does.
+            val stop =
+                java.util.concurrent.atomic
+                    .AtomicBoolean(false)
+            val noise =
+                List(Runtime.getRuntime().availableProcessors()) {
+                    Thread {
+                        while (!stop.get()) Thread.onSpinWait()
+                    }.apply {
+                        isDaemon = true
+                        start()
                     }
                 }
+            val iterations = 2_800
+            val waiterCount = 128
+            var okWaiters = 0
+            var shedWaiters = 0
+            try {
+                val rnd =
+                    java.util.concurrent.ThreadLocalRandom
+                        .current()
+                val narrowJitterNanos = 20_000L
+                val wideJitterNanos = 800_000L
+                val stepNanos = 10_000L
+                var controlNanos = 400_000L
 
-                // The writer must be free now, whichever way the waiter ended.
-                dm.units.deadline = 1.seconds
-                val t0 = System.nanoTime()
-                val fresh = uow.write("Leak.fresh") { Outcome.Ok("free") }
-                val freshMs = (System.nanoTime() - t0) / 1_000_000
-                val freshOk =
-                    assertIs<Outcome.Ok<String>>(fresh, "writer leaked: a fresh write unit could not get the writer (iteration $i)")
-                assertEquals("free", freshOk.value)
-                assertTrue(freshMs < 500, "a fresh write must not wait on a leaked lock; took ${freshMs}ms (iteration $i)")
+                repeat(iterations) { i ->
+                    // Vary the waiter deadline so the timer tick it lands on differs between iterations.
+                    val shortDeadlineMs = 1L + (i % 3)
+                    dm.units.deadline = shortDeadlineMs.milliseconds
+                    val held = CompletableDeferred<Unit>()
+                    val waiterStart = AtomicLong(0L)
+                    // Feedback control keeps the release instant hugging the waiter's actual deadline: release later after
+                    // a grant, earlier after a timeout, with jitter, so the grant keeps straddling the timeout.
+                    val spread = if (i % 2 == 0) narrowJitterNanos else wideJitterNanos
+                    val offsetNanos = controlNanos + rnd.nextLong(-spread, spread + 1)
+
+                    val holder =
+                        async(Dispatchers.Default) {
+                            uow.write("Leak.hold") {
+                                held.complete(Unit)
+                                while (waiterStart.get() == 0L) Thread.onSpinWait()
+                                val target = waiterStart.get() + shortDeadlineMs * 1_000_000L + offsetNanos
+                                while (System.nanoTime() < target) Thread.onSpinWait()
+                                Outcome.Ok("held")
+                            }
+                        }
+                    held.await()
+                    val waiters =
+                        List(waiterCount) { w ->
+                            async(Dispatchers.Default) {
+                                if (w == 0) waiterStart.set(System.nanoTime())
+                                uow.write("Leak.wait$w") { Outcome.Ok("waited") }
+                            }
+                        }
+
+                    assertEquals(Outcome.Ok("held"), holder.await(), "holder commits (iteration $i)")
+                    for ((w, waiter) in waiters.withIndex()) {
+                        when (val r = waiter.await()) {
+                            is Outcome.Ok -> {
+                                okWaiters++
+                                if (w == 0) controlNanos += stepNanos
+                            }
+                            is Outcome.Err -> {
+                                if (w == 0) controlNanos -= stepNanos
+                                assertEquals(ErrorCode.UNAVAILABLE, r.error.code, "a shed waiter is UNAVAILABLE (iteration $i)")
+                                shedWaiters++
+                            }
+                        }
+                    }
+
+                    // The writer must be free now, whichever way the waiters ended. A leaked lock makes this probe wait
+                    // out its (short) deadline and come back UNAVAILABLE.
+                    dm.units.deadline = 300.milliseconds
+                    val fresh = uow.write("Leak.fresh") { Outcome.Ok("free") }
+                    val freshOk =
+                        assertIs<Outcome.Ok<String>>(fresh, "writer leaked: a fresh write unit could not get the writer (iteration $i)")
+                    assertEquals("free", freshOk.value)
+                }
+            } finally {
+                stop.set(true)
             }
+            noise.forEach { it.join() }
             println("WriterLockLeakTest iterations=$iterations waiterOk=$okWaiters waiterShed=$shedWaiters")
-            assertEquals(iterations, okWaiters + shedWaiters)
+            assertEquals(iterations * waiterCount, okWaiters + shedWaiters)
         }
 }
