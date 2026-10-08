@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
+import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -60,7 +60,7 @@ class RestWriteEventActorTest {
             itemWriteRoutes(
                 decorated,
                 DegradedModePolicy.ACCEPT_CACHED,
-                IdempotencyCache(),
+                IdempotencyService(db.unitOfWork()),
                 ToolExecutionContext(
                     decorated,
                     NoOpNoteSchemaService,
@@ -70,8 +70,8 @@ class RestWriteEventActorTest {
                 ).advanceServiceFactory(),
                 db.unitOfWork(),
             )
-            noteWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyCache(), db.unitOfWork())
-            dependencyWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, db.unitOfWork())
+            noteWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyService(db.unitOfWork()), db.unitOfWork())
+            dependencyWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyService(db.unitOfWork()), db.unitOfWork())
         }
     }
 

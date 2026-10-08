@@ -4,7 +4,6 @@ import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -152,7 +151,6 @@ class DnsRebindingHostAllowlistTest {
                     unitOfWork = db.unitOfWork(),
                 ),
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
-            idempotencyCache = IdempotencyCache(),
             appConfig = appConfig,
         )
     }

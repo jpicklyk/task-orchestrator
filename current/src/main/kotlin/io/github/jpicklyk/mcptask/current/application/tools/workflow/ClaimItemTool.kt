@@ -13,11 +13,15 @@ import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.application.tools.ActorAware
 import io.github.jpicklyk.mcptask.current.application.tools.ActorParseResult
 import io.github.jpicklyk.mcptask.current.application.tools.BaseToolDefinition
+import io.github.jpicklyk.mcptask.current.application.tools.ElementOutcome
+import io.github.jpicklyk.mcptask.current.application.tools.ElementResult
 import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
+import io.github.jpicklyk.mcptask.current.application.tools.KeyedCall
 import io.github.jpicklyk.mcptask.current.application.tools.PolicyResolution
 import io.github.jpicklyk.mcptask.current.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
 import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
@@ -25,7 +29,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import java.time.Instant
 import java.util.UUID
@@ -162,7 +165,7 @@ Call only in claim-mode deployments, to take ownership before working an item.
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Client-generated UUID for idempotency (10 min cache, keyed by actor+requestId). " +
+                                    "Client-generated UUID; each element runs once per 24h (keyed by actor+requestId). " +
                                         "Required — claim_item is fleet-mode; idempotency is a hard contract."
                                 )
                             )
@@ -414,34 +417,39 @@ Call only in claim-mode deployments, to take ownership before working an item.
                 }
             }
 
-        // Atomic getOrCompute: check-compute-store under a single lock to prevent TOCTOU races.
-        // Identity is already resolved above (trustedAgentId) — cache is keyed on the verified identity.
-        // kotlinx.coroutines.runBlocking bridges the suspend execution into the lock-held lambda.
-        // This is safe because the claim/release logic only accesses DB repositories and never
-        // re-acquires the IdempotencyCache lock.
-        return context.idempotencyCache.getOrCompute(trustedAgentId, requestId) {
-            runBlocking { withEventActor(actorClaim) { executeClaimRelease(paramsObj, context, trustedAgentId) } }
-        }
+        // Identity is already resolved above (trustedAgentId): claims and releases are each keyed PER ELEMENT
+        // under that verified identity, "<requestId>:<index>" with each array numbered from 0. Only a
+        // successful claim or release is recorded; any other outcome rolls its element back and re-runs on retry.
+        val shared = KeyedCall.sharedOf(paramsObj, "claims", "releases")
+        val claimCall = KeyedCall(context.idempotency, trustedAgentId, requestId, KeyedCall.op(name, "claim"), shared)
+        val releaseCall = KeyedCall(context.idempotency, trustedAgentId, requestId, KeyedCall.op(name, "release"), shared)
+        return withEventActor(actorClaim) { executeClaimRelease(paramsObj, context, trustedAgentId, claimCall, releaseCall) }
     }
 
     private suspend fun executeClaimRelease(
         paramsObj: JsonObject,
         context: ToolExecutionContext,
-        trustedAgentId: String
+        trustedAgentId: String,
+        claimCall: KeyedCall,
+        releaseCall: KeyedCall
     ): JsonElement {
         val claimsArray = paramsObj["claims"] as? JsonArray ?: JsonArray(emptyList())
         val releasesArray = paramsObj["releases"] as? JsonArray ?: JsonArray(emptyList())
 
         val claimResultsList = mutableListOf<JsonObject>()
-        for (element in claimsArray) {
+        for ((index, element) in claimsArray.withIndex()) {
             val claimObj = element as? JsonObject ?: continue
-            processClaim(claimObj, context, trustedAgentId)?.let { claimResultsList.add(it) }
+            keyedOutcome(claimCall, index, element) { processClaim(claimObj, context, trustedAgentId) }?.let { claimResultsList.add(it) }
         }
 
         val releaseResultsList = mutableListOf<JsonObject>()
-        for (element in releasesArray) {
+        for ((index, element) in releasesArray.withIndex()) {
             val releaseObj = element as? JsonObject ?: continue
-            processRelease(releaseObj, context, trustedAgentId)?.let { releaseResultsList.add(it) }
+            keyedOutcome(
+                releaseCall,
+                index,
+                element
+            ) { processRelease(releaseObj, context, trustedAgentId) }?.let { releaseResultsList.add(it) }
         }
 
         // Summary counters dropped: every count is derivable from claimResults/releaseResults
@@ -454,6 +462,40 @@ Call only in claim-mode deployments, to take ownership before working an item.
 
         return successResponse(data)
     }
+
+    /**
+     * Runs one claim or release element under its key. A `success` outcome commits with its record; any
+     * other outcome (already claimed, not found, a fault) rolls the element back and is returned
+     * unrecorded. Returns null for an entry [work] skips, which produces no result.
+     */
+    private suspend fun keyedOutcome(
+        call: KeyedCall,
+        index: Int,
+        element: JsonElement,
+        work: suspend () -> JsonObject?
+    ): JsonObject? {
+        val outcome =
+            call.element(index, element, onError = { error -> mismatchOutcome(error) }) {
+                val result = work()
+                when {
+                    result == null -> ElementResult.Failed(JsonObject(emptyMap()))
+                    (result["outcome"] as? JsonPrimitive)?.content == "success" -> ElementResult.Done(result)
+                    else -> ElementResult.Failed(result)
+                }
+            }
+        return when (outcome) {
+            is ElementOutcome.Succeeded -> outcome.fragment
+            is ElementOutcome.Failed -> outcome.failure.takeIf { it.isNotEmpty() }
+        }
+    }
+
+    private fun mismatchOutcome(error: DomainError): JsonObject =
+        buildJsonObject {
+            put("outcome", JsonPrimitive(KeyedCall.IDEMPOTENCY_MISMATCH_CODE))
+            put("kind", JsonPrimitive(ErrorKind.PERMANENT.toJsonString()))
+            put("code", JsonPrimitive(KeyedCall.IDEMPOTENCY_MISMATCH_CODE))
+            put("message", JsonPrimitive(error.message))
+        }
 
     /**
      * Processes one `claims[]` entry, dispatching to the selector or ID-based path.

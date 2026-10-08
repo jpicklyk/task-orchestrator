@@ -205,7 +205,6 @@ class SeatlessResponseGoldenTest {
         val repositoryProvider: RepositoryProvider,
         val noteSchemaService: io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService,
         val degradedModePolicy: io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy,
-        val idempotencyCache: io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache,
     )
 
     /**
@@ -299,7 +298,6 @@ class SeatlessResponseGoldenTest {
             repositoryProvider = repo,
             noteSchemaService = composition.noteSchemaService,
             degradedModePolicy = composition.degradedModePolicy,
-            idempotencyCache = composition.idempotencyCache,
         )
     }
 
@@ -609,7 +607,6 @@ class SeatlessResponseGoldenTest {
                     noteSchemaService = fx.noteSchemaService,
                     toolContext = fx.toolContext,
                     degradedModePolicy = fx.degradedModePolicy,
-                    idempotencyCache = fx.idempotencyCache,
                 )
             }
             val response =
@@ -640,7 +637,6 @@ class SeatlessResponseGoldenTest {
                     noteSchemaService = fx.noteSchemaService,
                     toolContext = fx.toolContext,
                     degradedModePolicy = fx.degradedModePolicy,
-                    idempotencyCache = fx.idempotencyCache,
                 )
             }
             val response =
@@ -671,7 +667,6 @@ class SeatlessResponseGoldenTest {
                     noteSchemaService = fx.noteSchemaService,
                     toolContext = fx.toolContext,
                     degradedModePolicy = fx.degradedModePolicy,
-                    idempotencyCache = fx.idempotencyCache,
                 )
             }
             val response =

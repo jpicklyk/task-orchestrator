@@ -583,18 +583,6 @@ data class AdvanceResponseDto(
 )
 
 /**
- * Response DTO returned by idempotency-cached responses.
- *
- * When an `Idempotency-Key` header is present and the request was already processed,
- * the original [ItemDto] / [NoteDto] / [DependencyEdgeDto] is returned from cache.
- * This wrapper is NOT used — the actual DTO types are cached and returned directly.
- *
- * (This comment block documents the idempotency cache replay contract for reviewers.)
- */
-@Suppress("unused")
-private object IdempotencyCacheContract
-
-/**
  * A single FTS5 search hit returned by `/api/v1/search` (items) and `/api/v1/notes/search` (notes).
  *
  * `noteKey` is populated only for note-body hits; it is null/omitted for item hits.

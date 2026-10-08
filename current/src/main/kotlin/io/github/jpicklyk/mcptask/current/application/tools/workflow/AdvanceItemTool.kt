@@ -12,7 +12,9 @@ import io.github.jpicklyk.mcptask.current.application.service.buildMissingBySeat
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
@@ -23,7 +25,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import java.util.UUID
 
@@ -143,7 +144,7 @@ Call to move an item between phases once its work is done — never edit status 
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Client-generated UUID for idempotency (10 min cache), keyed on the first " +
+                                    "Client-generated UUID; each transition runs once per 24h, keyed on the first " +
                                         "transition's actor.id; malformed values rejected."
                                 )
                             )
@@ -357,107 +358,126 @@ Call to move an item between phases once its work is done — never edit status 
                 null
             }
 
-        // Atomic getOrCompute: check-compute-store under a single lock to prevent TOCTOU races.
-        // Cache is only engaged when both requestId and a trusted actor id are available.
-        // The compute lambda is non-suspending (IdempotencyCache uses a JVM write lock, not a
-        // coroutine mutex). kotlinx.coroutines.runBlocking bridges the suspend execution into
-        // the lock-held lambda. This is safe because executeTransitions only accesses DB
-        // repositories and never re-acquires the IdempotencyCache lock.
-        if (requestId != null && trustedActorId != null) {
-            return context.idempotencyCache.getOrCompute(trustedActorId, requestId) {
-                runBlocking { executeTransitions(transitions, context) }
+        // A keyed call (requestId plus a trusted principal) is keyed PER TRANSITION: each runs, and is
+        // recorded, in its own unit. Unkeyed calls never touch the idempotency service.
+        val keyed =
+            if (requestId != null && trustedActorId != null) {
+                KeyedCall(
+                    context.idempotency,
+                    trustedActorId,
+                    requestId,
+                    KeyedCall.op(name),
+                    KeyedCall.sharedOf(normalized, "transitions")
+                )
+            } else {
+                null
             }
-        }
 
-        return executeTransitions(transitions, context)
+        return executeTransitions(transitions, context, keyed)
     }
 
     private suspend fun executeTransitions(
         transitions: JsonArray,
-        context: ToolExecutionContext
+        context: ToolExecutionContext,
+        keyed: KeyedCall?
     ): JsonElement {
         val resultsList = mutableListOf<JsonObject>()
         var successCount = 0
         var failCount = 0
 
-        for (element in transitions) {
+        for ((index, element) in transitions.withIndex()) {
             val obj = element as JsonObject
 
-            val preCheck = performPreChecks(obj, context)
-            val ready =
-                when (preCheck) {
-                    is PreCheckResult.Failed -> {
-                        failCount++
-                        resultsList.add(preCheck.resultJson)
-                        continue
-                    }
-                    is PreCheckResult.Ready -> preCheck
-                }
+            // The transition as prepared by this call; null when a stored result served it (replay).
+            var prepared: Pair<PreCheckResult.Ready, AdvanceResult>? = null
+            val itemIdForFailure = (obj["itemId"] as? JsonPrimitive)?.content ?: "unknown"
+            val triggerForFailure = (obj["trigger"] as? JsonPrimitive)?.content ?: "unknown"
+            val transitionOutcome =
+                runElement(
+                    keyed,
+                    index,
+                    element,
+                    onError = { mismatchResult(itemIdForFailure, triggerForFailure, it) }
+                ) body@{
+                    prepared = null
+                    val preCheck = performPreChecks(obj, context)
+                    val ready =
+                        when (preCheck) {
+                            is PreCheckResult.Failed -> return@body ElementResult.Failed(preCheck.resultJson)
+                            is PreCheckResult.Ready -> preCheck
+                        }
 
-            // Shared advance pipeline (ownership → resolve → validate → gate → apply → cascade →
-            // unblock). Built per-item (not once for the whole batch) because statusLabelService
-            // must be bound to THIS item's rootId — a batch can mix items from different roots, each
-            // with its own per-root status_labels override (see
-            // ToolExecutionContext.rootAwareStatusLabelService).
-            // MCP enforces claim ownership (enforceOwnership = true); the REST route passes false.
-            // A per-root config read failure anywhere in the pre-commit pipeline below (status
-            // label resolution, gate check, review-phase detection) must fail ONLY this transition
-            // with a transient config_unavailable outcome — the batch continues with the rest (D5).
-            // Nothing has been persisted for this transition at this point, so there is no
-            // committed-write-reported-as-failed risk here (contrast the post-commit dispatch
-            // decoration below, which is handled separately per D7).
-            val outcome =
-                try {
-                    val advanceService = context.advanceServiceFactory().forItem(ready.item, ready.trigger)
+                    // Shared advance pipeline (ownership → resolve → validate → gate → apply → cascade →
+                    // unblock). Built per-item (not once for the whole batch) because statusLabelService
+                    // must be bound to THIS item's rootId — a batch can mix items from different roots, each
+                    // with its own per-root status_labels override (see
+                    // ToolExecutionContext.rootAwareStatusLabelService).
+                    // MCP enforces claim ownership (enforceOwnership = true); the REST route passes false.
+                    // A per-root config read failure anywhere in the pre-commit pipeline below (status
+                    // label resolution, gate check, review-phase detection) must fail ONLY this transition
+                    // with a transient config_unavailable outcome — the batch continues with the rest (D5).
+                    // Nothing has been persisted for this transition at this point, so there is no
+                    // committed-write-reported-as-failed risk here (contrast the post-commit dispatch
+                    // decoration below, which is handled separately per D7).
+                    val outcome =
+                        try {
+                            val advanceService = context.advanceServiceFactory().forItem(ready.item, ready.trigger)
 
-                    // Delegate the full pipeline to the per-item AdvanceService above.
-                    // MCP ALWAYS enforces resource leases — there is no tool-level override. An
-                    // operator who must bypass a lease uses the ADMIN-gated REST surface (an
-                    // `overrideResourceLeases` advance, or DELETE /api/v1/resources/leases/{key}),
-                    // both of which are logged at WARN.
-                    // Each transition carries its own actor into the SSE events its write (and
-                    // any cascade it triggers) publishes.
-                    withEventActor(ready.actorClaim) {
-                        advanceService.advance(
-                            item = ready.item,
-                            trigger = ready.trigger,
-                            summary = ready.summary,
-                            actorClaim = ready.actorClaim,
-                            verification = ready.verification,
-                            degradedModePolicy = context.degradedModePolicy,
-                            enforceOwnership = true,
-                            credentialRefs = ready.credentialRefs,
-                            enforceResourceLeases = true
-                        )
-                    }
-                } catch (e: PerRootConfigUnavailableException) {
-                    failCount++
-                    resultsList.add(
-                        buildStructuredErrorResult(
-                            ready.item.id,
-                            ready.trigger,
-                            ToolError(
-                                kind = ErrorKind.TRANSIENT,
-                                code = PerRootConfigUnavailableException.CODE,
-                                message = e.message
+                            // Delegate the full pipeline to the per-item AdvanceService above.
+                            // MCP ALWAYS enforces resource leases — there is no tool-level override. An
+                            // operator who must bypass a lease uses the ADMIN-gated REST surface (an
+                            // `overrideResourceLeases` advance, or DELETE /api/v1/resources/leases/{key}),
+                            // both of which are logged at WARN.
+                            // Each transition carries its own actor into the SSE events its write (and
+                            // any cascade it triggers) publishes.
+                            withEventActor(ready.actorClaim) {
+                                advanceService.advance(
+                                    item = ready.item,
+                                    trigger = ready.trigger,
+                                    summary = ready.summary,
+                                    actorClaim = ready.actorClaim,
+                                    verification = ready.verification,
+                                    degradedModePolicy = context.degradedModePolicy,
+                                    enforceOwnership = true,
+                                    credentialRefs = ready.credentialRefs,
+                                    enforceResourceLeases = true
+                                )
+                            }
+                        } catch (e: PerRootConfigUnavailableException) {
+                            return@body ElementResult.Failed(
+                                buildStructuredErrorResult(
+                                    ready.item.id,
+                                    ready.trigger,
+                                    ToolError(
+                                        kind = ErrorKind.TRANSIENT,
+                                        code = PerRootConfigUnavailableException.CODE,
+                                        message = e.message
+                                    )
+                                )
                             )
-                        )
-                    )
-                    continue
+                        }
+
+                    val advanceResult =
+                        when (outcome) {
+                            is AdvanceOutcome.Success -> outcome.result
+                            is AdvanceOutcome.Failure ->
+                                return@body ElementResult.Failed(buildFailureResult(ready.item.id, ready.trigger, outcome.failure))
+                        }
+
+                    prepared = ready to advanceResult
+                    ElementResult.Done(buildSuccessResult(ready, advanceResult, context))
                 }
 
-            val advanceResult =
-                when (outcome) {
-                    is AdvanceOutcome.Success -> outcome.result
-                    is AdvanceOutcome.Failure -> {
-                        failCount++
-                        resultsList.add(buildFailureResult(ready.item.id, ready.trigger, outcome.failure))
-                        continue
-                    }
+            when (transitionOutcome) {
+                is ElementOutcome.Failed -> {
+                    failCount++
+                    resultsList.add(transitionOutcome.failure)
                 }
-
-            successCount++
-            resultsList.add(buildSuccessResult(ready, advanceResult, context))
+                is ElementOutcome.Succeeded -> {
+                    successCount++
+                    resultsList.add(withDispatch(transitionOutcome.fragment, prepared, context))
+                }
+            }
         }
 
         val totalCount = successCount + failCount
@@ -674,23 +694,6 @@ Call to move an item between phases once its work is done — never edit status 
         val skillPointer: String?
         val noteProgress: JsonObject?
 
-        // Dispatch routing profile for the phase just entered — resolved via the
-        // already-resolved `resolvedSchema` overload (never re-resolves the schema; see
-        // ToolExecutionContext.resolveDispatchProfile's KDoc for why AdvanceItemToolTest.kt:2119
-        // needs this). Independent of the expectedNotes/gate machinery below, so it's computed
-        // whether resolvedSchema is null or not — a trait-less item simply resolves to null.
-        //
-        // This transition ALREADY COMMITTED above — per D7, a per-root config read failure here
-        // must never be reported as a failure of the (already-applied) transition. The dispatch
-        // hint is simply omitted (null) and a WARN is logged.
-        // resolveDispatchProfile is itself nullable in the ordinary (trait-less) case, which the
-        // shared helper's null-on-unavailable return is indistinguishable from — but both paths
-        // resolve to the same `null` dispatch hint here, so collapsing them is correct.
-        val dispatchProfile =
-            omitOnConfigUnavailable(logger, "dispatch profile", itemId) {
-                context.resolveDispatchProfile(item, targetRole, resolvedSchema)
-            }
-
         if (resolvedSchema == null) {
             expectedNotesJson = JsonArray(emptyList())
             guidanceKey = null
@@ -740,10 +743,76 @@ Call to move an item between phases once its work is done — never edit status 
             put("expectedNotes", expectedNotesJson)
             guidanceKey?.let { put("guidanceKey", JsonPrimitive(it)) }
             skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
-            dispatchProfile?.let { put("dispatch", buildDispatchProfileJson(it)) }
             noteProgress?.let { put("noteProgress", it) }
         }
     }
+
+    /**
+     * Adds the dispatch routing profile for the phase just entered to a transition result. It is a
+     * config-derived decoration of a transition that ALREADY COMMITTED: per D7 a per-root config read
+     * failure must never be reported as a failure of it, so the hint is simply omitted (and a WARN
+     * logged). It is never stored; a replay recomputes it from the stored `newRole` and the current
+     * item. Resolved via the already-resolved schema overload when this call ran the transition (it
+     * never re-resolves the schema; see ToolExecutionContext.resolveDispatchProfile).
+     */
+    private suspend fun withDispatch(
+        fragment: JsonObject,
+        prepared: Pair<PreCheckResult.Ready, AdvanceResult>?,
+        context: ToolExecutionContext
+    ): JsonObject {
+        val dispatch =
+            if (prepared != null) {
+                val (ready, advanceResult) = prepared
+                omitOnConfigUnavailable(logger, "dispatch profile", ready.item.id) {
+                    context.resolveDispatchProfile(ready.item, advanceResult.newRole, advanceResult.resolvedSchema)
+                }
+            } else {
+                val itemId =
+                    (fragment["itemId"] as? JsonPrimitive)?.content?.let {
+                        runCatchingNonCancellation {
+                            UUID.fromString(
+                                it
+                            )
+                        }.getOrNull()
+                    }
+                val role = (fragment["newRole"] as? JsonPrimitive)?.content?.let { Role.fromString(it) }
+                val item = if (itemId != null) legacyReadOrNull { context.workItemRepository().getById(itemId) } else null
+                if (item == null || role == null) {
+                    null
+                } else {
+                    omitOnConfigUnavailable(logger, "dispatch profile", item.id) {
+                        context.resolveDispatchProfile(item, role)
+                    }
+                }
+            }
+        if (dispatch == null) return fragment
+        return buildJsonObject {
+            var placed = false
+            fragment.forEach { (k, v) ->
+                if (k == "noteProgress") {
+                    put("dispatch", buildDispatchProfileJson(dispatch))
+                    placed = true
+                }
+                put(k, v)
+            }
+            if (!placed) put("dispatch", buildDispatchProfileJson(dispatch))
+        }
+    }
+
+    /** The failure for a transition whose key was already used with another payload. */
+    private fun mismatchResult(
+        itemId: String,
+        trigger: String,
+        error: DomainError
+    ): JsonObject =
+        buildJsonObject {
+            put("itemId", JsonPrimitive(itemId))
+            put("trigger", JsonPrimitive(trigger))
+            put("applied", JsonPrimitive(false))
+            put("error", JsonPrimitive(error.message))
+            put("errorCode", JsonPrimitive(KeyedCall.IDEMPOTENCY_MISMATCH_CODE))
+            put("errorKind", JsonPrimitive(ErrorKind.PERMANENT.toJsonString()))
+        }
 
     override fun userSummary(
         params: JsonElement,

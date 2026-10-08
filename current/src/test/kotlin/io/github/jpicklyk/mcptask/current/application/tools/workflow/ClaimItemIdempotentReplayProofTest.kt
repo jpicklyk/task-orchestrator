@@ -43,7 +43,7 @@ import kotlin.test.assertNotNull
  * must not be served to a later call whose proof is REJECTED)".
  *
  * Labelled EXISTING-SURFACE per the test-plan: the sequencing this locks down — `parseActorClaim`
- * runs BEFORE `idempotencyCache.getOrCompute` on every call, so a retry always re-verifies its own
+ * runs BEFORE the idempotency lookup on every call, so a retry always re-verifies its own
  * proof before the idempotency cache is ever consulted — is pre-existing behavior, unchanged by
  * this item's fix, and not itself under test here. What is new is the specific scenario: the SAME
  * `requestId` is reused across two calls, the first with a valid proof (which succeeds and is
@@ -108,7 +108,7 @@ class ClaimItemIdempotentReplayProofTest {
         return provider
     }
 
-    /** A single shared context — its IdempotencyCache instance must persist across both calls. */
+    /** A single shared context — its idempotency store must persist across both calls. */
     private fun sharedRejectPolicyContext(): ToolExecutionContext {
         val verifier =
             JwksActorVerifier(

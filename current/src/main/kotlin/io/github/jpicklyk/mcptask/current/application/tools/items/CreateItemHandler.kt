@@ -7,13 +7,19 @@ import io.github.jpicklyk.mcptask.current.application.service.PlacedWriteOutcome
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemPlacementService
 import io.github.jpicklyk.mcptask.current.application.service.buildSchemaResponseFields
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
+import io.github.jpicklyk.mcptask.current.application.tools.ElementOutcome
+import io.github.jpicklyk.mcptask.current.application.tools.ElementResult
+import io.github.jpicklyk.mcptask.current.application.tools.KeyedCall
 import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.application.tools.omitOnConfigUnavailable
 import io.github.jpicklyk.mcptask.current.application.tools.resolveWorkItemIdString
+import io.github.jpicklyk.mcptask.current.application.tools.runElement
 import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -45,7 +51,8 @@ class CreateItemHandler(
         items: JsonArray,
         sharedParentId: UUID?,
         sharedTraits: String?,
-        context: ToolExecutionContext
+        context: ToolExecutionContext,
+        keyed: KeyedCall? = null
     ): JsonElement {
         val repo = context.workItemRepository()
 
@@ -55,26 +62,34 @@ class CreateItemHandler(
 
         for ((index, element) in items.withIndex()) {
             try {
-                val itemObj =
-                    element as? JsonObject
-                        ?: throw ToolValidationException("Item at index $index must be a JSON object")
-
-                val spec = parseItemSpec(itemObj, index, sharedParentId, sharedTraits, context, repo)
-                val createResult = createWithPlacement(spec, index, repo, context.unitOfWork)
-
-                when (createResult) {
-                    is PersistedCreate.Written -> {
-                        createResult.item.rootId?.let { createdRootIds.add(it) }
-                        createdItems.add(buildCreatedItemJson(createResult.item, context))
-                    }
-                    is PersistedCreate.Failed -> {
-                        failures.add(
-                            buildJsonObject {
-                                put("index", JsonPrimitive(index))
-                                put("error", JsonPrimitive(createResult.message))
+                // The created item, when this call wrote it (a replay has only the stored fragment).
+                var written: WorkItem? = null
+                val outcome =
+                    runElement(keyed, index, element) {
+                        written = null
+                        val itemObj = element as? JsonObject
+                        if (itemObj == null) {
+                            val message = "Item at index $index must be a JSON object"
+                            ElementResult.Invalid(failureJson(index, message), message)
+                        } else {
+                            val spec = parseItemSpec(itemObj, index, sharedParentId, sharedTraits, context, repo)
+                            when (val createResult = createWithPlacement(spec, index, repo, context.unitOfWork)) {
+                                is PersistedCreate.Written -> {
+                                    written = createResult.item
+                                    ElementResult.Done(buildCreatedItemFragment(createResult.item))
+                                }
+                                is PersistedCreate.Failed -> ElementResult.Failed(failureJson(index, createResult.message))
                             }
-                        )
+                        }
                     }
+
+                when (outcome) {
+                    is ElementOutcome.Succeeded -> {
+                        val item = written ?: fetchCreated(outcome.fragment, repo)
+                        item?.rootId?.let { createdRootIds.add(it) }
+                        createdItems.add(if (item != null) withSchemaDecoration(outcome.fragment, item, context) else outcome.fragment)
+                    }
+                    is ElementOutcome.Failed -> failures.add(outcome.failure)
                 }
             } catch (e: ToolValidationException) {
                 failures.add(
@@ -301,22 +316,33 @@ class CreateItemHandler(
         ) : PersistedCreate
     }
 
+    private fun failureJson(
+        index: Int,
+        message: String
+    ): JsonObject =
+        buildJsonObject {
+            put("index", JsonPrimitive(index))
+            put("error", JsonPrimitive(message))
+        }
+
+    /** Reloads the item a replayed fragment describes, for the response-only decoration; null when it is gone. */
+    private suspend fun fetchCreated(
+        fragment: JsonObject,
+        repo: WorkItemRepository
+    ): WorkItem? {
+        val id =
+            (fragment["id"] as? JsonPrimitive)?.content?.let { runCatchingNonCancellation { UUID.fromString(it) }.getOrNull() }
+                ?: return null
+        return legacyReadOrNull { repo.getById(id) }
+    }
+
     /**
-     * Builds the response JSON for one successfully-created item, including the response-only
-     * schemaMatch/expectedNotes decoration. The item is ALREADY PERSISTED at this point — per
-     * D7, a per-root config read failure resolving this decoration must never be reported as a
-     * failure of this (already-committed) create; schemaMatch/expectedNotes are simply omitted
-     * and a WARN is logged (see [omitOnConfigUnavailable]).
+     * Builds the stored base fragment for one successfully-created item: everything that is a fact of
+     * the committed create. The config-derived schemaMatch/expectedNotes are not part of it (see
+     * [withSchemaDecoration]).
      */
-    private suspend fun buildCreatedItemJson(
-        item: WorkItem,
-        context: ToolExecutionContext
-    ): JsonObject {
+    private fun buildCreatedItemFragment(item: WorkItem): JsonObject {
         val createdTags = item.tags
-        val schemaFields =
-            omitOnConfigUnavailable(logger, "schema", item.id) {
-                buildSchemaResponseFields(context.resolveSchema(item))
-            }
         return buildJsonObject {
             put("id", JsonPrimitive(item.id.toString()))
             put("title", JsonPrimitive(item.title))
@@ -329,10 +355,29 @@ class CreateItemHandler(
             } else {
                 put("tags", JsonNull)
             }
-            if (schemaFields != null) {
-                put("schemaMatch", JsonPrimitive(schemaFields.schemaMatch))
-                put("expectedNotes", schemaFields.expectedNotes)
-            }
+        }
+    }
+
+    /**
+     * Adds the response-only schemaMatch/expectedNotes decoration to [fragment]. The item is ALREADY
+     * PERSISTED at this point — per D7, a per-root config read failure resolving this decoration must
+     * never be reported as a failure of this (already-committed) create; schemaMatch/expectedNotes
+     * are simply omitted and a WARN is logged (see [omitOnConfigUnavailable]). Recomputed on every
+     * replay, never stored.
+     */
+    private suspend fun withSchemaDecoration(
+        fragment: JsonObject,
+        item: WorkItem,
+        context: ToolExecutionContext
+    ): JsonObject {
+        val schemaFields =
+            omitOnConfigUnavailable(logger, "schema", item.id) {
+                buildSchemaResponseFields(context.resolveSchema(item))
+            } ?: return fragment
+        return buildJsonObject {
+            fragment.forEach { (k, v) -> put(k, v) }
+            put("schemaMatch", JsonPrimitive(schemaFields.schemaMatch))
+            put("expectedNotes", schemaFields.expectedNotes)
         }
     }
 }

@@ -13,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.test.InMemoryIdempotencyStore
 import io.github.jpicklyk.mcptask.current.test.TestStatusLabelService
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
@@ -58,6 +59,7 @@ class CompleteTreeToolAdvanceParityTest {
         every { repoProvider.noteRepository() } returns noteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
         every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
+        every { repoProvider.idempotencyStore() } returns InMemoryIdempotencyStore()
         coEvery { workItemRepo.dbNow() } returns Instant.now()
 
         context = ToolExecutionContext(repoProvider)

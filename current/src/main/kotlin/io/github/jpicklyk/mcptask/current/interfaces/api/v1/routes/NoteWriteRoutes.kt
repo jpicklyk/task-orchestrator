@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
+import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
@@ -79,7 +79,7 @@ private fun noteErrorCaptured(
 fun Route.noteWriteRoutes(
     repositoryProvider: RepositoryProvider,
     degradedModePolicy: DegradedModePolicy,
-    idempotencyCache: IdempotencyCache,
+    idempotency: IdempotencyService,
     unitOfWork: UnitOfWork,
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
@@ -179,11 +179,11 @@ fun Route.noteWriteRoutes(
                     try {
                         McpJson.decodeFromString(NoteWriteDto.serializer(), bodyText)
                     } catch (e: SerializationException) {
-                        return noteErrorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Invalid request body")
+                        return payloadRejection(e.message ?: "Invalid request body")
                     }
 
                 if (dto.role.lowercase() !in VALID_NOTE_ROLES) {
-                    return noteErrorCaptured(HttpStatusCode.BadRequest, "validation_error", "role must be one of: queue, work, review")
+                    return payloadRejection("role must be one of: queue, work, review")
                 }
 
                 // Synthesize actor server-side — client body actor.* fields are dropped
@@ -203,7 +203,7 @@ fun Route.noteWriteRoutes(
                         )
                     } catch (e: Exception) {
                         e.rethrowIfCancellation()
-                        return noteErrorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Validation failed")
+                        return payloadRejection(e.message ?: "Validation failed")
                     }
 
                 return run {
@@ -224,7 +224,13 @@ fun Route.noteWriteRoutes(
                 }
             }
 
-            call.runWithIdempotency(idempotencyCache, trustedActorId, idempotencyKeyResult) { executeUpsert() }
+            call.runWithIdempotency(
+                idempotency,
+                trustedActorId,
+                idempotencyKeyResult,
+                "/items/{id}/notes/{key}",
+                bodyText
+            ) { executeUpsert() }
         }
 
         // ─── DELETE /items/{id}/notes/{key} ─────────────────────────────────

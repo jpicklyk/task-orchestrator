@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.application.port.ChildPlacement
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
+import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -120,7 +120,6 @@ class ItemWriteRoutesParentPlacementInTxnTest {
      */
     private fun Application.configureParentPlacementTestApp(
         repositoryProvider: RepositoryProvider,
-        idempotencyCache: IdempotencyCache = IdempotencyCache(),
         authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig()
     ) {
         // Fires a MutateOnFirstTransactionRepository's write at the first top-level unit's open.
@@ -142,7 +141,7 @@ class ItemWriteRoutesParentPlacementInTxnTest {
                 itemWriteRoutes(
                     repositoryProvider,
                     DegradedModePolicy.ACCEPT_CACHED,
-                    idempotencyCache,
+                    IdempotencyService(uow),
                     ToolExecutionContext(
                         repositoryProvider,
                         NoOpNoteSchemaService,
@@ -314,7 +313,7 @@ class ItemWriteRoutesParentPlacementInTxnTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `probe replaying the same Idempotency-Key on the S10 400 not_found returns the cached body and does not re-run`(): Unit =
+    fun `probe retrying the same Idempotency-Key after the S10 400 not_found re-runs because the failure is not recorded`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
             val root =
@@ -333,8 +332,7 @@ class ItemWriteRoutesParentPlacementInTxnTest {
                     )
                 }
             val wrapped = MutateOnFirstTransactionRepository(repo.workItemRepository()) { d -> d.delete(p.id) }
-            val cache = IdempotencyCache()
-            application { configureParentPlacementTestApp(WorkItemRepoOverrideProvider(repo, wrapped), idempotencyCache = cache) }
+            application { configureParentPlacementTestApp(WorkItemRepoOverrideProvider(repo, wrapped)) }
 
             val idempotencyKey = UUID.randomUUID().toString()
             val makeRequest: suspend () -> HttpResponse = {
@@ -352,13 +350,11 @@ class ItemWriteRoutesParentPlacementInTxnTest {
             assertEquals(HttpStatusCode.BadRequest, first.status)
             val firstBody = first.bodyAsText()
 
+            // The first attempt rolled back (its in-unit parent delete included) and recorded nothing, so the
+            // retry runs again against the restored parent instead of replaying the 400.
             val second = makeRequest()
-            assertEquals(first.status, second.status)
-            assertEquals(firstBody, second.bodyAsText(), "a replay with the same Idempotency-Key must return the cached body verbatim")
-
-            val all = runBlocking { repo.workItemRepository().findByFilters() }
-            assertNotNull(all)
-            assertTrue(all.items.none { it.title == "Orphan Child Probe" })
+            assertEquals(null, second.headers["Idempotent-Replayed"], "the retry was not served from a record")
+            assertTrue(firstBody.contains("not_found"), "the first attempt reported the missing parent: $firstBody")
         }
 
     // Probe catalog, recorded per skill §6 (every probe attempted, including N/A ones):

@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
+import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
@@ -77,7 +77,6 @@ private const val READ_ONLY_TOKEN = TEST_TOKEN
  */
 fun Application.configureWriteTestApp(
     repo: DefaultRepositoryProvider,
-    idempotencyCache: IdempotencyCache = IdempotencyCache(),
     degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
     authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig(),
     schemaService: WorkItemSchemaService = NoOpNoteSchemaService,
@@ -103,7 +102,7 @@ fun Application.configureWriteTestApp(
             itemWriteRoutes(
                 repo,
                 degradedModePolicy,
-                idempotencyCache,
+                IdempotencyService(unitOfWork),
                 ToolExecutionContext(
                     repo,
                     schemaService,
@@ -113,8 +112,8 @@ fun Application.configureWriteTestApp(
                 ).advanceServiceFactory(),
                 unitOfWork,
             )
-            noteWriteRoutes(repo, degradedModePolicy, idempotencyCache, unitOfWork)
-            dependencyWriteRoutes(repo, degradedModePolicy, unitOfWork)
+            noteWriteRoutes(repo, degradedModePolicy, IdempotencyService(unitOfWork), unitOfWork)
+            dependencyWriteRoutes(repo, degradedModePolicy, IdempotencyService(unitOfWork), unitOfWork)
         }
     }
 }
@@ -1649,8 +1648,7 @@ class IdempotencyTest {
     fun `same Idempotency-Key on POST items returns cached response and creates item exactly once`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            val cache = IdempotencyCache()
-            application { configureWriteTestApp(repo, idempotencyCache = cache, unitOfWork = db.unitOfWork()) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val idempotencyKey = UUID.randomUUID().toString()
             val makeRequest: suspend () -> HttpResponse = {
@@ -1678,8 +1676,7 @@ class IdempotencyTest {
     fun `different Idempotency-Key on POST items re-executes and creates separate item`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            val cache = IdempotencyCache()
-            application { configureWriteTestApp(repo, idempotencyCache = cache, unitOfWork = db.unitOfWork()) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             client.post("/api/v1/items") {
                 header("Authorization", "Bearer $WRITE_TOKEN")

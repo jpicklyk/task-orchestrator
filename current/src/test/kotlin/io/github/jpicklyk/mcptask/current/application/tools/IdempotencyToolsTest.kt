@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
@@ -13,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.sansReplay
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -47,17 +47,14 @@ class IdempotencyToolsTest {
     val db = SqliteTestDatabase.perMethod()
 
     private lateinit var repositoryProvider: DefaultRepositoryProvider
-    private lateinit var idempotencyCache: IdempotencyCache
     private lateinit var context: ToolExecutionContext
 
     @BeforeEach
     fun setUp() {
         repositoryProvider = db.repositoryProvider()
-        idempotencyCache = IdempotencyCache()
         context =
             ToolExecutionContext(
                 repositoryProvider = repositoryProvider,
-                idempotencyCache = idempotencyCache,
                 unitOfWork = db.unitOfWork()
             )
     }
@@ -110,8 +107,8 @@ class IdempotencyToolsTest {
                         "items" to
                             JsonArray(
                                 listOf(
-                                    // Different title but should NOT execute since cached
-                                    buildJsonObject { put("title", JsonPrimitive("Different")) }
+                                    // Same payload on retry: replayed from the stored record, not executed again
+                                    buildJsonObject { put("title", JsonPrimitive("First")) }
                                 )
                             ),
                         "requestId" to JsonPrimitive(requestId),
@@ -121,7 +118,7 @@ class IdempotencyToolsTest {
                 ) as JsonObject
 
             // Both responses should be identical (cached)
-            assertEquals(firstResult, secondResult)
+            assertEquals(firstResult.sansReplay(), secondResult.sansReplay())
 
             val firstId =
                 ((firstResult["data"] as JsonObject)["items"] as JsonArray)[0]
@@ -213,7 +210,7 @@ class IdempotencyToolsTest {
                 context
             )
 
-            assertEquals(0, idempotencyCache.size(), "Cache should remain empty when requestId is omitted")
+            assertEquals(0, db.idempotencyRecordCount(), "Cache should remain empty when requestId is omitted")
 
             val allItems = context.workItemRepository().findRootItems()
             assertNotNull(allItems)
@@ -301,7 +298,7 @@ class IdempotencyToolsTest {
                                         put("itemId", JsonPrimitive(itemId))
                                         put("key", JsonPrimitive("approach"))
                                         put("role", JsonPrimitive("work"))
-                                        put("body", JsonPrimitive("DIFFERENT body"))
+                                        put("body", JsonPrimitive("First body"))
                                     }
                                 )
                             ),
@@ -311,7 +308,7 @@ class IdempotencyToolsTest {
                     context
                 ) as JsonObject
 
-            assertEquals(firstResult, secondResult)
+            assertEquals(firstResult.sansReplay(), secondResult.sansReplay())
 
             // Verify the note body was set ONCE — second call did not overwrite
             val notes = context.noteRepository().findByItemId(UUID.fromString(itemId))
@@ -363,7 +360,7 @@ class IdempotencyToolsTest {
                 context
             )
 
-            assertEquals(0, idempotencyCache.size())
+            assertEquals(0, db.idempotencyRecordCount())
             val notes = context.noteRepository().findByItemId(UUID.fromString(itemId))
             assertNotNull(notes)
             assertEquals("v2", notes[0].body, "Without requestId, second call must overwrite")
@@ -419,7 +416,7 @@ class IdempotencyToolsTest {
                     context
                 ) as JsonObject
 
-            assertEquals(firstResult, secondResult)
+            assertEquals(firstResult.sansReplay(), secondResult.sansReplay())
 
             // Verify exactly one dependency exists (cached call did NOT create a duplicate)
             val deps = context.dependencyRepository().findByFromItemId(UUID.fromString(from))
@@ -474,8 +471,8 @@ class IdempotencyToolsTest {
                 ) as JsonObject
 
             // Cached response is identical
-            assertEquals(first, second)
-            assertEquals(1, idempotencyCache.size())
+            assertEquals(first.sansReplay(), second.sansReplay())
+            assertEquals(1, db.idempotencyRecordCount())
         }
 
     // ──────────────────────────────────────────────
@@ -501,14 +498,14 @@ class IdempotencyToolsTest {
             val second =
                 tool.execute(
                     params(
-                        "root" to buildJsonObject { put("title", JsonPrimitive("Different title")) },
+                        "root" to buildJsonObject { put("title", JsonPrimitive("Root tree")) },
                         "requestId" to JsonPrimitive(requestId),
                         "actor" to actor()
                     ),
                     context
                 ) as JsonObject
 
-            assertEquals(first, second)
+            assertEquals(first.sansReplay(), second.sansReplay())
 
             val firstRootId =
                 ((first["data"] as JsonObject)["root"] as JsonObject)["id"]!!
@@ -559,8 +556,8 @@ class IdempotencyToolsTest {
                     context
                 ) as JsonObject
 
-            assertEquals(first, second)
-            assertEquals(1, idempotencyCache.size())
+            assertEquals(first.sansReplay(), second.sansReplay())
+            assertEquals(1, db.idempotencyRecordCount())
         }
 
     // ──────────────────────────────────────────────
@@ -600,7 +597,7 @@ class IdempotencyToolsTest {
             )
 
             // Should have TWO cache entries, one per actor
-            assertEquals(2, idempotencyCache.size())
+            assertEquals(2, db.idempotencyRecordCount())
 
             val allItems = context.workItemRepository().findRootItems()
             assertNotNull(allItems)
@@ -637,7 +634,7 @@ class IdempotencyToolsTest {
                 context
             )
 
-            assertEquals(0, idempotencyCache.size(), "Without actor, requestId must not enable caching")
+            assertEquals(0, db.idempotencyRecordCount(), "Without actor, requestId must not enable caching")
             val items = context.workItemRepository().findRootItems()
             assertNotNull(items)
             assertEquals(2, items.items.size)
@@ -717,11 +714,9 @@ class IdempotencyToolsTest {
     fun `claim_item with requestId returns cached response on retry, no double-mutation`() =
         runBlocking {
             val mockRepo = MockRepositoryProvider()
-            val claimCache = IdempotencyCache()
             val claimContext =
                 ToolExecutionContext(
                     repositoryProvider = mockRepo.provider,
-                    idempotencyCache = claimCache,
                     unitOfWork = db.unitOfWork()
                 )
 
@@ -752,10 +747,10 @@ class IdempotencyToolsTest {
             val secondResult = tool.execute(claimParams, claimContext) as JsonObject
 
             // Responses must be identical (cached)
-            assertEquals(firstResult, secondResult)
+            assertEquals(firstResult.sansReplay(), secondResult.sansReplay())
 
             // Verify only ONE cache entry exists
-            assertEquals(1, claimCache.size())
+            assertEquals(1, db.idempotencyRecordCount())
 
             // The repository.claim() must have been called exactly ONCE (cached on retry)
             coVerify(exactly = 1) { mockRepo.workItemRepo.claim(itemId, agentId, 900) }
@@ -772,11 +767,9 @@ class IdempotencyToolsTest {
     fun `claim_item without requestId is rejected at validation`() =
         runBlocking {
             val mockRepo = MockRepositoryProvider()
-            val claimCache = IdempotencyCache()
             val claimContext =
                 ToolExecutionContext(
                     repositoryProvider = mockRepo.provider,
-                    idempotencyCache = claimCache,
                     unitOfWork = db.unitOfWork()
                 )
 
@@ -798,7 +791,7 @@ class IdempotencyToolsTest {
             coVerify(exactly = 0) { mockRepo.workItemRepo.claim(any(), any(), any()) }
 
             // Cache must be untouched
-            assertEquals(0, claimCache.size(), "Cache must remain empty after validation rejection")
+            assertEquals(0, db.idempotencyRecordCount(), "Cache must remain empty after validation rejection")
         }
 
     // ──────────────────────────────────────────────
@@ -861,7 +854,7 @@ class IdempotencyToolsTest {
                 "getOrCompute must ensure exactly one item is created under concurrent load"
             )
             // Cache should have exactly one entry
-            assertEquals(1, idempotencyCache.size())
+            assertEquals(1, db.idempotencyRecordCount())
         }
 
     /**
@@ -905,7 +898,11 @@ class IdempotencyToolsTest {
             // All responses should be identical (cached)
             val firstResponse = results[0]
             for (result in results) {
-                assertEquals(firstResponse, result, "All concurrent retries must return the identical cached response")
+                assertEquals(
+                    firstResponse.sansReplay(),
+                    result.sansReplay(),
+                    "All concurrent retries must return the identical cached response"
+                )
             }
 
             // Item should be in WORK (transitioned exactly once)
@@ -913,7 +910,7 @@ class IdempotencyToolsTest {
             assertNotNull(item)
             assertEquals("work", item.role.toJsonString())
 
-            assertEquals(1, idempotencyCache.size())
+            assertEquals(1, db.idempotencyRecordCount())
         }
 
     // ──────────────────────────────────────────────
@@ -986,7 +983,7 @@ class IdempotencyToolsTest {
             )
 
             // Two separate cache entries (one per trusted actor)
-            assertEquals(2, idempotencyCache.size(), "Each trusted actor gets its own cache slot")
+            assertEquals(2, db.idempotencyRecordCount(), "Each trusted actor gets its own cache slot")
         }
 
     // ──────────────────────────────────────────────
@@ -1007,7 +1004,6 @@ class IdempotencyToolsTest {
             val rejectContext =
                 ToolExecutionContext(
                     repositoryProvider = repositoryProvider,
-                    idempotencyCache = idempotencyCache,
                     degradedModePolicy = DegradedModePolicy.REJECT,
                     unitOfWork = db.unitOfWork()
                 )
@@ -1015,7 +1011,7 @@ class IdempotencyToolsTest {
             val tool = ManageItemsTool()
             val requestId = UUID.randomUUID().toString()
 
-            val sizeBefore = idempotencyCache.size()
+            val sizeBefore = db.idempotencyRecordCount()
 
             // With REJECT policy and noop verifier, actor is UNVERIFIED → policy rejects
             // → trustedActorId resolves to null → cache is skipped entirely
@@ -1034,7 +1030,7 @@ class IdempotencyToolsTest {
 
             // Cache must be unchanged — policy rejection means no trusted ID to key on,
             // so the operation runs without caching (trustedActorId=null → skip cache)
-            val sizeAfter = idempotencyCache.size()
+            val sizeAfter = db.idempotencyRecordCount()
             assertEquals(
                 sizeBefore,
                 sizeAfter,
@@ -1098,7 +1094,11 @@ class IdempotencyToolsTest {
                     context
                 )
 
-            assertEquals(first, second, "Same-key retry must return the cached response after getOrCompute migration")
+            assertEquals(
+                first.sansReplay(),
+                second.sansReplay(),
+                "Same-key retry must return the cached response after getOrCompute migration"
+            )
             // Only one dependency should exist (no double-create)
             val deps = context.dependencyRepository().findByFromItemId(UUID.fromString(from))
             assertEquals(1, deps.size, "getOrCompute must prevent double-creation on retry")
@@ -1126,14 +1126,18 @@ class IdempotencyToolsTest {
             val second =
                 tool.execute(
                     params(
-                        "root" to buildJsonObject { put("title", JsonPrimitive("Different Title on Retry")) },
+                        "root" to buildJsonObject { put("title", JsonPrimitive("Regression Tree")) },
                         "requestId" to JsonPrimitive(requestId),
                         "actor" to actor("tree-agent")
                     ),
                     context
                 )
 
-            assertEquals(first, second, "Same-key retry must return the cached response after getOrCompute migration")
+            assertEquals(
+                first.sansReplay(),
+                second.sansReplay(),
+                "Same-key retry must return the cached response after getOrCompute migration"
+            )
 
             val allItems = context.workItemRepository().findRootItems()
             assertNotNull(allItems)
@@ -1172,7 +1176,11 @@ class IdempotencyToolsTest {
                     context
                 )
 
-            assertEquals(first, second, "Same-key retry must return the cached response after getOrCompute migration")
-            assertEquals(1, idempotencyCache.size())
+            assertEquals(
+                first.sansReplay(),
+                second.sansReplay(),
+                "Same-key retry must return the cached response after getOrCompute migration"
+            )
+            assertEquals(1, db.idempotencyRecordCount())
         }
 }

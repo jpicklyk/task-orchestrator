@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
+import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -120,7 +120,7 @@ class ItemPlacementParityTest {
                 itemWriteRoutes(
                     provider,
                     DegradedModePolicy.ACCEPT_CACHED,
-                    IdempotencyCache(),
+                    IdempotencyService(hookedUnitOfWork(provider.workItemRepository())),
                     ToolExecutionContext(
                         provider,
                         NoOpNoteSchemaService,

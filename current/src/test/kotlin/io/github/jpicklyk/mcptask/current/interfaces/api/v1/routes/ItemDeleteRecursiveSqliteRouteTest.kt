@@ -4,7 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
+import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -109,7 +109,7 @@ private fun Application.configureDeleteRouteFailTestApp(
             itemWriteRoutes(
                 provider,
                 DegradedModePolicy.ACCEPT_CACHED,
-                IdempotencyCache(),
+                IdempotencyService(unitOfWork),
                 ToolExecutionContext(
                     provider,
                     NoOpNoteSchemaService,

@@ -55,7 +55,7 @@ class ItemWriteIdempotencyConcurrencyTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S5 same Idempotency-Key with different bodies replays the first response verbatim`(): Unit =
+    fun `S5 same Idempotency-Key with a different body is a 409 idempotency_mismatch and executes nothing`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
@@ -77,18 +77,12 @@ class ItemWriteIdempotencyConcurrencyTest {
                 }
 
             assertEquals(HttpStatusCode.Created, first.status)
-            assertEquals(first.status, second.status)
-            val firstBody = first.bodyAsText()
+            assertEquals(HttpStatusCode.Conflict, second.status, "the key was used with another body")
             val secondBody = second.bodyAsText()
-            assertEquals(
-                firstBody,
-                secondBody,
-                "a same-key replay must be byte-identical to the FIRST response regardless of the second body",
-            )
-            assertTrue(firstBody.contains("First Body"), "the cached response must reflect the FIRST request's title: $firstBody")
+            assertTrue(secondBody.contains("idempotency_mismatch"), "the 409 must name idempotency_mismatch: $secondBody")
             assertFalse(
                 secondBody.contains("Second Body Completely Different"),
-                "the second body must never be executed — this is not a 409/422 conflict contract",
+                "the second body must never be executed",
             )
 
             val items = runBlocking { repo.workItemRepository().findByFilters() }
@@ -162,7 +156,7 @@ class ItemWriteIdempotencyConcurrencyTest {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     header("Idempotency-Key", upper)
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"Mixed Case Second"}""")
+                    setBody("""{"title":"Mixed Case First"}""")
                 }
 
             assertEquals(HttpStatusCode.Created, first.status)

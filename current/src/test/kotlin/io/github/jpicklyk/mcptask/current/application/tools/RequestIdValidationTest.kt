@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItem
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.sansReplay
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -54,6 +55,7 @@ class RequestIdValidationTest {
     // Dynamic tests of one @TestFactory share a single @BeforeEach, so each freshContext() opens its own
     // isolated database (one per dynamic test, as before) and @AfterEach closes them all.
     private val openDatabases = mutableListOf<SqliteTestDatabase>()
+    private val databaseOf = java.util.IdentityHashMap<ToolExecutionContext, SqliteTestDatabase>()
 
     @AfterEach
     fun closeDatabases() {
@@ -115,7 +117,7 @@ class RequestIdValidationTest {
     /** A fresh, isolated SQLite-backed [ToolExecutionContext] — mirrors [IdempotencyToolsTest]'s setUp. */
     private fun freshContext(): ToolExecutionContext {
         val db = SqliteTestDatabase.open().also { openDatabases += it }
-        return ToolExecutionContext(repositoryProvider = db.repositoryProvider())
+        return ToolExecutionContext(repositoryProvider = db.repositoryProvider(), unitOfWork = db.unitOfWork()).also { databaseOf[it] = db }
     }
 
     private fun toolCases(): List<ToolCase> =
@@ -260,13 +262,13 @@ class RequestIdValidationTest {
 
                     val second = case.tool.execute(params, context)
                     assertEquals(
-                        first,
-                        second,
+                        first.sansReplay(),
+                        second.sansReplay(),
                         "${case.label}: an identical retry with the same requestId must replay the cached response verbatim"
                     )
                     assertEquals(
                         1,
-                        context.idempotencyCache.size(),
+                        databaseOf.getValue(context).idempotencyRecordCount(),
                         "${case.label}: exactly one cache entry — the retry must not re-execute"
                     )
                 }
@@ -292,7 +294,11 @@ class RequestIdValidationTest {
                         "${case.label}: message must name requestId, got: ${ex.message}"
                     )
                     assertFalse(mutated(), "${case.label}: a rejected call must not have written anything")
-                    assertEquals(0, context.idempotencyCache.size(), "${case.label}: cache must stay empty on rejection")
+                    assertEquals(
+                        0,
+                        databaseOf.getValue(context).idempotencyRecordCount(),
+                        "${case.label}: cache must stay empty on rejection"
+                    )
                 }
             }
         }
@@ -316,7 +322,7 @@ class RequestIdValidationTest {
                     assertTrue(mutated(), "${case.label}: call without requestId must still execute")
                     assertEquals(
                         0,
-                        context.idempotencyCache.size(),
+                        databaseOf.getValue(context).idempotencyRecordCount(),
                         "${case.label}: absent requestId must never populate the cache"
                     )
                 }
@@ -348,7 +354,7 @@ class RequestIdValidationTest {
                         allItems.size,
                         "$label: without an actor, requestId must NOT enable idempotency — both calls must execute"
                     )
-                    assertEquals(0, context.idempotencyCache.size(), "$label: cache must stay empty without an actor")
+                    assertEquals(0, databaseOf.getValue(context).idempotencyRecordCount(), "$label: cache must stay empty without an actor")
                 }
             }
         }
@@ -393,7 +399,11 @@ class RequestIdValidationTest {
                 allItems.size,
                 "create_work_tree: a malformed actor must disable idempotency — both calls must succeed and create a tree"
             )
-            assertEquals(0, context.idempotencyCache.size(), "create_work_tree: cache must stay empty with a malformed actor")
+            assertEquals(
+                0,
+                databaseOf.getValue(context).idempotencyRecordCount(),
+                "create_work_tree: cache must stay empty with a malformed actor"
+            )
         }
 
     // ──────────────────────────────────────────────────────────────────
@@ -472,11 +482,15 @@ class RequestIdValidationTest {
                     val second = case.tool.execute(baseParams.withRequestId(JsonPrimitive(lower)), context)
 
                     assertEquals(
-                        first,
-                        second,
+                        first.sansReplay(),
+                        second.sansReplay(),
                         "${case.label}: an uppercase requestId and its lowercase spelling must hit the same cache slot"
                     )
-                    assertEquals(1, context.idempotencyCache.size(), "${case.label}: only one cache entry for the pair")
+                    assertEquals(
+                        1,
+                        databaseOf.getValue(context).idempotencyRecordCount(),
+                        "${case.label}: only one cache entry for the pair"
+                    )
                 }
             }
         }
@@ -512,7 +526,11 @@ class RequestIdValidationTest {
                             "${case.label}/$formLabel: message must name requestId, got: ${ex.message}"
                         )
                         assertFalse(mutated(), "${case.label}/$formLabel: must not write")
-                        assertEquals(0, context.idempotencyCache.size(), "${case.label}/$formLabel: cache must stay empty")
+                        assertEquals(
+                            0,
+                            databaseOf.getValue(context).idempotencyRecordCount(),
+                            "${case.label}/$formLabel: cache must stay empty"
+                        )
                     }
                 }
             }
@@ -539,7 +557,11 @@ class RequestIdValidationTest {
                             "${case.label}/$formLabel: message must name requestId, got: ${ex.message}"
                         )
                         assertFalse(mutated(), "${case.label}/$formLabel: must not write")
-                        assertEquals(0, context.idempotencyCache.size(), "${case.label}/$formLabel: cache must stay empty")
+                        assertEquals(
+                            0,
+                            databaseOf.getValue(context).idempotencyRecordCount(),
+                            "${case.label}/$formLabel: cache must stay empty"
+                        )
                     }
                 }
             }
@@ -572,7 +594,7 @@ class RequestIdValidationTest {
                         "$formLabel: message must name requestId, got: ${ex.message}"
                     )
                     assertFalse(mutated(), "$formLabel: must not write")
-                    assertEquals(0, context.idempotencyCache.size(), "$formLabel: cache must stay empty")
+                    assertEquals(0, databaseOf.getValue(context).idempotencyRecordCount(), "$formLabel: cache must stay empty")
                 }
             }
         }

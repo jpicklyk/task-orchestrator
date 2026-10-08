@@ -7,7 +7,7 @@ import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
+import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
@@ -274,7 +274,6 @@ class ItemWriteRoutesFailurePathTest {
     private fun Application.configureFailurePathTestApp(
         repositoryProvider: RepositoryProvider,
         schemaService: WorkItemSchemaService = NoOpNoteSchemaService,
-        idempotencyCache: IdempotencyCache = IdempotencyCache(),
         authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig()
     ) {
         // Fires a MutateOnFirstTransactionRepository's write at the first top-level unit's open.
@@ -296,7 +295,7 @@ class ItemWriteRoutesFailurePathTest {
                 itemWriteRoutes(
                     repositoryProvider,
                     DegradedModePolicy.ACCEPT_CACHED,
-                    idempotencyCache,
+                    IdempotencyService(uow),
                     ToolExecutionContext(
                         repositoryProvider,
                         schemaService,

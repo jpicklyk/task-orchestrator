@@ -91,16 +91,21 @@ class FlywayOnlyMigrationTest {
         insertItem(url, b, parent = a, depth = 1, rootId = a, title = "beta")
         insertNote(url, a, "k", "zebra body")
         val before = query(url, "SELECT title FROM work_items ORDER BY title") { it.getString(1) }
+        // Rebuild the exact V17 shape: drop what later migrations added, then the history.
+        exec(url, "DROP TABLE idempotency_records")
         exec(url, "DROP TABLE flyway_schema_history")
         assertFalse(tableExists(url, "flyway_schema_history"), "fixture: history must be gone")
 
         assertTrue(manager(url).updateSchema(), "an exact V17 shape must be baselined, not refused")
 
+        // The baseline at 17, then the later migrations run on top of it (V19; V18 is reserved).
         val rows = historyRows(url)
-        assertEquals(1, rows.size, "exactly one history row (the baseline) expected, got $rows")
-        assertEquals("BASELINE", rows.single().second)
-        assertEquals("17", rows.single().first)
-        assertTrue(rows.single().third)
+        assertEquals(2, rows.size, "the baseline row plus the V19 migration expected, got $rows")
+        assertEquals("BASELINE", rows.first().second)
+        assertEquals("17", rows.first().first)
+        assertTrue(rows.first().third)
+        assertEquals("19", rows.last().first)
+        assertTrue(rows.last().third)
         assertEquals(before, query(url, "SELECT title FROM work_items ORDER BY title") { it.getString(1) })
         assertEquals(1, scalarInt(url, "SELECT count(*) FROM notes"))
     }

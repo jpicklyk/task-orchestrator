@@ -63,7 +63,7 @@ is computed automatically from the parent; nesting depth is unbounded at creatio
 | `requiresVerification` | boolean | No | **Top-level `requiresVerification` is ignored.** Set it on individual items in the `items` array instead. |
 | `type` | string | No | **Top-level `type` is ignored.** Set it on individual items in the `items` array instead. |
 | `properties` | string | No | **Top-level `properties` is ignored.** Set it on individual items in the `items` array instead. |
-| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. Repeated calls with the same `(actor.id, requestId)` within ~10 minutes return the cached response without re-executing. Cache is single-instance and in-memory (not persisted). |
+| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. Each array element is applied once for 24 hours: a retry with the same `requestId` replays the stored result of elements that succeeded and re-runs those that did not. See [Idempotency](#idempotency). |
 | `actor` | object | No | Actor for idempotency key resolution: `{ id (required string), kind (required: orchestrator\|subagent\|user\|external), parent? (optional string), proof? (optional string) }`. Required when `requestId` is provided. |
 
 **Item object fields (create):**
@@ -1206,7 +1206,7 @@ report the same cascade/unblock results.
 | `trigger` | string | Conditional | Singular-form sugar: the trigger for the single item named by top-level `itemId`. |
 | `summary` | string | No | Singular-form sugar (optional): transition summary for the single top-level `itemId`. |
 | `actor` | object | No | Singular-form sugar (optional): actor claim for the single top-level `itemId`, same shape as a transition's `actor`. |
-| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. Repeated calls with the same `(actor.id, requestId)` within ~10 minutes return the cached response without re-executing. Uses the first transition's `actor.id` as the idempotency key actor. |
+| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. Each transition is applied once for 24 hours (see [Idempotency](#idempotency)). Uses the first transition's `actor.id` as the idempotency principal. |
 
 Provide **either** a `transitions` array **or** the singular `itemId` + `trigger`. If `transitions` is present, the top-level singular fields are ignored.
 
@@ -1859,7 +1859,7 @@ changing the claim holder.
 | `actor` | object | Yes | Actor identity — `{ id, kind, parent?, proof? }`. Verified identity overrides any `agentId` field on individual claim entries. |
 | `claims` | array | No | Items to claim. Each entry uses **ID mode** or **selector mode** (see below). At least one of `claims` or `releases` must be non-empty. |
 | `releases` | array | No | Items to release: `[{ itemId (UUID or hex prefix) }]`. |
-| `requestId` | string (UUID) | **Yes** | Client-generated UUID for idempotency. Required — `claim_item` is a fleet-mode tool and idempotency is a hard contract. Single-orchestrator deployments do not use `claim_item`; fleet callers are in a multi-agent context where network retries are a real concern. Repeated calls with the same (`actor.id`, `requestId`) within ~10 minutes return the cached response without re-executing. |
+| `requestId` | string (UUID) | **Yes** | Client-generated UUID for idempotency. Required — `claim_item` is a fleet-mode tool and idempotency is a hard contract. Single-orchestrator deployments do not use `claim_item`; fleet callers are in a multi-agent context where network retries are a real concern. Each claim and release is applied once for 24 hours (see [Idempotency](#idempotency)). |
 
 **`claims[]` entry schema — two mutually exclusive modes:**
 
@@ -1922,7 +1922,7 @@ The selector filter shape is identical to the `get_next_item` filter parameters 
 
 **Tiered disclosure rule.** On `already_claimed`, the response includes `kind`, `contendedItemId`, and `retryAfterMs` — never the competing agent's identity. This prevents claim sniping and jealousy patterns.
 
-**Idempotency replay.** A `(actor, requestId)` cache hit replays the resolved response verbatim — including the same `itemId` for selector calls. The selector is **not** re-evaluated against fresh queue state on retry; the first-resolution result is what you get.
+**Idempotency replay.** A successful claim is stored under `"<requestId>:<index>"` and replayed verbatim on a retry with the same request — including the same `itemId` for selector calls. The selector is **not** re-evaluated against fresh queue state when a stored success is replayed. A claim that did not succeed (`already_claimed`, `none_eligible`, a fault) is not stored, so a retry with the same `requestId` runs it again.
 
 > **Single-claim-per-call:** The `claims` array must contain at most 1 entry. `claims.size > 1` returns a `validation_error` with code `multi_claim_not_supported` immediately, regardless of whether entries use `itemId` or `selector` mode.
 >
@@ -2608,19 +2608,23 @@ not accept an `actor` parameter -- it is read-only, with no write to attribute.
 
 The mutating tools `manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, `complete_tree`, and `claim_item` support `requestId: UUID` for idempotency.
 
-**`claim_item` requires `requestId` (mandatory).** `claim_item` is a fleet-mode tool by definition — single-orchestrator deployments don't claim items. Fleet deployments using `claim_item` are by definition in a multi-agent context where network retries are a real concern, so `claim_item` enforces idempotency as a contract. Calls missing `requestId` are rejected at validation. For `claim_item`, the cache key uses the trusted agent identity (post-`DegradedModePolicy` resolution), matching the actor key used by the claim itself.
+**`claim_item` requires `requestId` (mandatory).** `claim_item` is a fleet-mode tool by definition — single-orchestrator deployments don't claim items. Fleet deployments using `claim_item` are by definition in a multi-agent context where network retries are a real concern, so `claim_item` enforces idempotency as a contract. Calls missing `requestId` are rejected at validation. For `claim_item`, the principal is the trusted agent identity (post-`DegradedModePolicy` resolution), matching the actor used by the claim itself.
 
-**The rest keep `requestId` optional.** `manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, and `complete_tree` serve both orchestrator-mode (single dispatcher, no idempotency needed) and fleet-mode (idempotency desired) callers. Omitting `requestId` skips the cache entirely — execution is always fresh. When present, it must be a valid UUID — a malformed value is rejected at validation (see Constraints below), not silently ignored.
+**The rest keep `requestId` optional.** `manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, and `complete_tree` serve both orchestrator-mode (single dispatcher, no idempotency needed) and fleet-mode (idempotency desired) callers. Omitting `requestId` (or the `actor` that identifies the principal) skips idempotency entirely — execution is exactly as before. When present, `requestId` must be a valid UUID — a malformed value is rejected at validation (see Constraints below), not silently ignored.
 
-**How it works.** When `requestId` and `actor.id` are both present, the server checks an in-memory LRU cache keyed on `(actor.id, requestId)`. If a cached result exists, the original response is returned immediately without re-executing the operation. The cache window is approximately 10 minutes.
+**How it works.** With a `requestId` and a trusted `actor`, the server keys every **element** of the call — each `items[i]`, `notes[i]`, `transitions[i]`, `claims[i]` and `releases[i]`, or the whole call for an atomic tool — as `"<requestId>:<index>"` under the tool and operation (`mcp.<tool>[.<operation>]`; `claim_item` uses `mcp.claim_item.claim` and `mcp.claim_item.release`, each array numbered from 0). The element runs in one transaction together with its record, so a record exists only if the element's effects committed. A record lives for 24 hours, is stored in the database (it survives restarts and is shared by every server process on it), and is scoped to the verified principal.
 
-**Replay includes returned failures.** Any response the server actually returned — including a returned transient failure such as `resource_unavailable` or `already_claimed` — is replayed verbatim for the full cache TTL on a repeated `(actor.id, requestId)`. Only a thrown exception is not cached. This means: retry a call whose response you already received with a **fresh** `requestId`; reuse the same `requestId` only when no response arrived at all (e.g. a network timeout).
+- **Same key, same element → replayed.** The stored result is returned with `"replayed": true` on that element (`data.replayed: true` for an atomic or single-element tool) and the element is **not** re-executed. Batch counts are recomputed from the element results.
+- **Same key, different element → `idempotency_mismatch`.** The element fails with `errorCode` `idempotency_mismatch` and nothing is executed. The comparison is a SHA-256 of the canonical request (sorted keys, no whitespace); the shared call parameters count too, and an `actor.proof` does not.
+- **Config-derived decorations are recomputed, never stored:** `schemaMatch` and `expectedNotes` on a created item, `dispatch` on an advance result, and `itemContext` on a notes upsert reflect the config at replay time.
+
+**What is recorded.** Only a result that committed, and a payload rejection that depends on the payload alone (an element that is not a JSON object), is recorded. A failure that depends on state or is transient — `gate_blocked`, `resource_unavailable`, `already_claimed`, a missing item, a config or database fault, any other validation failure — rolls the element back and is **not** recorded, so a retry with the same `requestId` runs it again. This is the retry rule: **a stored success replays for 24 hours; a state or transient failure re-executes on retry with the same `requestId`.** (`complete_tree` is recorded only when every item succeeded; a batch whose elements partly failed re-runs just those on retry because the elements that succeeded replay.)
 
 **Constraints:**
-- Cache is single-instance and in-memory. It is not persisted across server restarts and is not shared across multiple server processes.
-- For `advance_item`, the `actor.id` of the **first** transition in the batch is used as the cache key actor.
-- For `manage_items`, `manage_notes`, `manage_dependencies`, `create_work_tree`, and `complete_tree`, the top-level `actor.id` is used. (Implementation note: these tools extract actor from the request-level field, not per-item fields.)
-- A non-UUID `requestId` string is rejected at validation on every one of these tools — `claim_item` was already strict; `manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, and `complete_tree` match it. There is no silent-ignore path.
+- For `advance_item`, the `actor.id` of the **first** transition in the batch is the principal.
+- For `manage_items`, `manage_notes`, `manage_dependencies`, `create_work_tree`, and `complete_tree`, the top-level `actor.id` is the principal. (Implementation note: these tools extract actor from the request-level field, not per-item fields.)
+- `manage_dependencies` create, `create_work_tree`, `complete_tree` and a `manage_notes` delete by `itemId` are atomic or single calls: element `0` is the whole call. `complete_tree` opens a unit per item, so concurrent callers with the same key may both run; the call converges because already-terminal items are skipped.
+- A non-UUID `requestId` string is rejected at validation on every one of these tools. There is no silent-ignore path.
 
 **Usage.** Generate a fresh UUID per logical operation:
 
@@ -2631,8 +2635,7 @@ The mutating tools `manage_items`, `manage_notes`, `manage_dependencies`, `advan
 }
 ```
 
-Replay the same call if the network times out and no response arrived — the server either executes once or returns the cached result. If a response (including a transient-failure response) did arrive, retry with a fresh `requestId` instead.
-
+Retry the same call with the same `requestId` whenever the outcome is unknown or a transient failure came back: elements that already succeeded replay, the rest run again. Use a **new** `requestId` for a different payload.
 ---
 
 ## Error Envelope
@@ -2714,7 +2717,7 @@ kind=permanent  → do not retry; fix the request (validation, permissions, etc.
 kind=shedding   → wait retryAfterMs, then retry; reduce polling rate if this persists
 ```
 
-See [Idempotency](#idempotency) for why a retried transient failure needs a fresh `requestId`.
+See [Idempotency](#idempotency): a retried transient failure re-executes under the same `requestId`.
 
 ---
 

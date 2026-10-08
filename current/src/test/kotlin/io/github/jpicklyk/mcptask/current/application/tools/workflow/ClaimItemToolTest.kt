@@ -1367,7 +1367,7 @@ class ClaimItemToolTest {
             val requestId = UUID.randomUUID().toString()
             val p = params(claims = listOf(selectorEntry()), requestId = requestId)
 
-            // Use the SAME context object for both calls so the IdempotencyCache is shared.
+            // Use the SAME context object for both calls so the idempotency records are shared.
             val sharedContext = defaultContext(nextItemRecommender = recommender)
 
             // First call — resolves and claims itemId1

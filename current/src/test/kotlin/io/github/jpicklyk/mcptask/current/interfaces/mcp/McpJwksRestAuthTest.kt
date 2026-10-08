@@ -7,7 +7,6 @@ import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -169,7 +168,6 @@ class McpJwksRestAuthTest {
                     unitOfWork = db.unitOfWork(),
                 ),
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
-            idempotencyCache = IdempotencyCache(),
             jwksVerifier = verifier,
         )
     }

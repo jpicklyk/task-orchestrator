@@ -32,6 +32,7 @@ class MockRepositoryProvider {
     val planDocumentRepo: PlanDocumentStore = mockk()
     val resourceLeaseRepo: LeaseStore = mockk()
     val workTreeExecutor: WorkTreeExecutor = mockk()
+    val idempotencyRepo = InMemoryIdempotencyStore()
     val provider: RepositoryProvider = mockk()
 
     init {
@@ -43,6 +44,7 @@ class MockRepositoryProvider {
         every { provider.planDocumentRepository() } returns planDocumentRepo
         every { provider.resourceLeaseRepository() } returns resourceLeaseRepo
         every { provider.workTreeExecutor() } returns workTreeExecutor
+        every { provider.idempotencyStore() } returns idempotencyRepo
         // Default: workItemRepo.dbNow() returns JVM time (suitable for tests not exercising clock skew)
         coEvery { workItemRepo.dbNow() } returns Instant.now()
         // Default: noteRepo returns empty lists for any query

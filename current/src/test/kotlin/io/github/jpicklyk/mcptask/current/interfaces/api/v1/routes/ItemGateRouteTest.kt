@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
@@ -536,7 +535,6 @@ class ItemGateRouteTest {
                             perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
                         ),
                     degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
-                    idempotencyCache = IdempotencyCache(),
                 )
             }
 

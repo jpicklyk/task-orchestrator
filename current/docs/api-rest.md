@@ -308,22 +308,20 @@ byte-identical content produces the same fingerprint/ETag as an LF, BOM-less che
 
 ## 5. Idempotency
 
-`POST /items`, `PATCH /items/{id}`, and `PUT /items/{id}/notes/{key}` support idempotency via the `Idempotency-Key` header:
+`POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT /items/{id}/notes/{key}`, and `POST /dependencies` support idempotency via the `Idempotency-Key` header:
 
 ```
 Idempotency-Key: <UUID>
 ```
 
 - Must be a valid UUID
-- Malformed key → `400 bad_request`
-- On retry with the same key: the cached response (status + body) is returned verbatim without re-executing the operation
-- Cache is keyed by `(actor-id, idempotency-key)`; TTL is ~10 minutes
-- ETag pre-conditions are evaluated and stored as part of the cached response — a replay does NOT re-evaluate the ETag against the now-mutated resource
-- **Replay contract is pinned to the key alone — there is no body hash.** A retry with the *same* key returns the first request's captured response verbatim even if the retry's body differs; only the `(actor-id, idempotency-key)` pair distinguishes requests. Concurrent requests carrying the same key coalesce onto one in-flight computation — the first caller executes it, later callers block on and receive the same result, and different keys never serialize against each other. If the computation throws, nothing is cached and the next request with that key computes again.
-- This cache instance is shared with the idempotent MCP tools (keyed by `requestId`, e.g.
-  `advance_item` — see `api-reference.md`) as well as these REST routes — the blast radius of the
-  cache is cross-surface, though a collision needs a matching `(actor-id, key)` pair on both sides.
-- `POST /items` and `PUT /items/{id}/notes/{key}` additionally require `Content-Type: application/json` (an absent header is treated as `*/*` and accepted); any other value → `415 unsupported_media_type` before the idempotency key or body is read.
+- Malformed key → `400 validation_error`
+- The write and its record commit in the same transaction, so a record exists only if the effects committed. Records are durable (they survive a restart and are shared by every process on the database) and live for 24 hours, scoped to the caller and the route (`rest.<METHOD> <route template>`).
+- **Replay.** A retry with the same key and the same request (method, path, `If-Match`, canonical body) returns the stored response (status, body and `ETag`) verbatim with the header `Idempotent-Replayed: true`, without re-executing. ETag pre-conditions were evaluated on the first call and are not re-evaluated against the now-mutated resource.
+- **Mismatch.** The same key with a different request is `409 idempotency_mismatch`; nothing is executed. The body is compared canonically (key order and whitespace do not matter), so a retry must send the same content.
+- **What is recorded.** Only a 2xx response and a pure payload rejection (a `400 validation_error` for a malformed body or value) are recorded. A response that depends on state or is transient (`404`, `403`, `409`, `412`, `500`, `503`) rolls the write back and is **not** recorded, so a retry with the same key runs again.
+- Concurrent requests with the same key serialize on the database writer: the first executes, the others replay its result.
+- The same record store backs the MCP tools (`requestId`, keyed per element — see `api-reference.md`); a REST key is `"<uuid>:0"` under the REST route, so the two surfaces never collide.- `POST /items` and `PUT /items/{id}/notes/{key}` additionally require `Content-Type: application/json` (an absent header is treated as `*/*` and accepted); any other value → `415 unsupported_media_type` before the idempotency key or body is read.
 - Every write route now bounds its body read to a fixed byte limit BEFORE buffering it: a `Content-Length` over the limit is rejected with `413 payload_too_large` before any bytes are touched, and a chunked/understated-`Content-Length` body is caught by a channel read capped at `limit + 1` bytes, so an oversized body is never buffered in full either way. `POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT /items/{id}/notes/{key}`, and `POST /dependencies` share a 1 MiB limit (previously unbounded); `PUT /roots/{rootId}/config` (128 KiB) and `PUT /roots/{rootId}/plans/{slug}` (64 KiB) keep their existing numeric limits, now enforced at the same pre-buffer point instead of after a full read. See §6 for the `payload_too_large` error shape.
 
 ---
@@ -367,6 +365,7 @@ other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability
 | `field_not_patchable` | 400 | PATCH attempted on a server-owned field |
 | `cycle_detected` | 400 | Dependency would create a cycle |
 | `has_children` | 409 | `DELETE /items/{id}` refused: item has one or more direct children and `?recursive=true` was not given; `details.childCount` is the direct child count |
+| `idempotency_mismatch` | 409 | An `Idempotency-Key` was reused with a different request (see §5) |
 | `duplicate_dependency` | 409 | `POST /dependencies`: an edge with the same `fromItemId`/`toItemId`/`type` already exists |
 | `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §23), or a non-JSON `Content-Type` on `POST /items`, `PUT /items/{id}/notes/{key}`, `POST /items/{id}/advance`, or `POST /dependencies` (see §5) |
 | `etag_mismatch` | 412 | `If-Match` header does not match current ETag |
@@ -1221,7 +1220,7 @@ Any other value → `400 validation_error`.
 
 ### POST /items/{id}/advance
 
-Trigger a role transition. Requires `ADVANCE`.
+Trigger a role transition. Requires `ADVANCE`. Supports `Idempotency-Key` header (see [section 5](#5-idempotency)).
 
 This route runs the **same advance pipeline as the MCP `advance_item` tool**, unified behind `AdvanceService`: resolve → validate dependencies → **required-note gate** → **resource-lease gate** → apply → cascade detection → unblock detection. Previously the REST path skipped the gate, cascades, and unblock detection; those are now enforced and reported.
 
@@ -1509,6 +1508,8 @@ Validation:
 - `409 duplicate_dependency`
 - `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
 - `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the body is read
+
+Supports `Idempotency-Key` header (see [section 5](#5-idempotency)); the same key with a different body is `409 idempotency_mismatch`.
 
 ### DELETE /dependencies/{id}
 

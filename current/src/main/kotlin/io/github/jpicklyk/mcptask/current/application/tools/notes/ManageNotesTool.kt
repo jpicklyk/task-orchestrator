@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.support.legacyWrite
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.support.writeOutcome
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
@@ -15,7 +16,6 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.security.PathContainment
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -127,7 +127,7 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Client-generated UUID for idempotency (10 min cache, keyed by actor+requestId); " +
+                                    "Client-generated UUID; each element runs once per 24h (keyed by actor+requestId); " +
                                         "requires actor; malformed values rejected."
                                 )
                             )
@@ -214,28 +214,34 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                 null
             }
 
-        // Atomic getOrCompute: check-compute-store under a single lock to prevent TOCTOU races.
-        // kotlinx.coroutines.runBlocking bridges the suspend execution into the lock-held lambda.
-        // This is safe because the operation logic only accesses DB repositories and never
-        // re-acquires the IdempotencyCache lock.
-        if (requestId != null && trustedActorId != null) {
-            return context.idempotencyCache.getOrCompute(trustedActorId, requestId) {
-                runBlocking {
-                    withEventActor(eventActor) {
-                        when (operation) {
-                            "upsert" -> executeUpsert(params, context)
-                            "delete" -> executeDelete(params, context)
-                            else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
-                        }
-                    }
-                }
+        // A keyed call (requestId plus a trusted principal) is keyed PER ELEMENT of the operation array: each
+        // element runs, and is recorded, in its own unit. Unkeyed calls never touch the idempotency service.
+        val keyed =
+            if (requestId != null && trustedActorId != null) {
+                KeyedCall(
+                    context.idempotency,
+                    trustedActorId,
+                    requestId,
+                    KeyedCall.op(name, operation),
+                    KeyedCall.sharedOf(params, "notes", "ids")
+                )
+            } else {
+                null
             }
-        }
 
         return withEventActor(eventActor) {
             when (operation) {
-                "upsert" -> executeUpsert(params, context)
-                "delete" -> executeDelete(params, context)
+                "upsert" -> executeUpsert(params, context, keyed)
+                "delete" ->
+                    if (keyed != null && optionalJsonArray(params, "ids").isNullOrEmpty()) {
+                        // Delete by itemId (+ key) is one atomic call: element 0.
+                        keyed.whole(
+                            KeyedCall.withoutKeyFields(params),
+                            recordable = { KeyedCall.hasPositive(it, "deleted") && !KeyedCall.hasPositive(it, "failed") }
+                        ) { executeDelete(params, context, null) }
+                    } else {
+                        executeDelete(params, context, keyed)
+                    }
                 else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
             }
         }
@@ -271,7 +277,8 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
 
     private suspend fun executeUpsert(
         params: JsonElement,
-        context: ToolExecutionContext
+        context: ToolExecutionContext,
+        keyed: KeyedCall?
     ): JsonElement {
         val notesArray = requireJsonArray(params, "notes")
         val noteRepo = context.noteRepository()
@@ -284,149 +291,144 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
 
         for ((index, element) in notesArray.withIndex()) {
             try {
-                val noteObj =
-                    element as? JsonObject
-                        ?: throw ToolValidationException("Note at index $index must be a JSON object")
+                val outcome =
+                    runElement(keyed, index, element, onError = { noteFailure(index, it) }) body@{
+                        val noteObj = element as? JsonObject
+                        if (noteObj == null) {
+                            val message = "Note at index $index must be a JSON object"
+                            return@body ElementResult.Invalid(noteFailure(index, message), message)
+                        }
 
-                val itemIdStr =
-                    extractNoteString(noteObj, "itemId")
-                        ?: throw ToolValidationException("Note at index $index: 'itemId' is required")
-                val key =
-                    extractNoteString(noteObj, "key")
-                        ?: throw ToolValidationException("Note at index $index: 'key' is required")
-                val role =
-                    extractNoteString(noteObj, "role")
-                        ?: throw ToolValidationException("Note at index $index: 'role' is required")
+                        val itemIdStr =
+                            extractNoteString(noteObj, "itemId")
+                                ?: throw ToolValidationException("Note at index $index: 'itemId' is required")
+                        val key =
+                            extractNoteString(noteObj, "key")
+                                ?: throw ToolValidationException("Note at index $index: 'key' is required")
+                        val role =
+                            extractNoteString(noteObj, "role")
+                                ?: throw ToolValidationException("Note at index $index: 'role' is required")
 
-                // Resolve body: `body` (inline) and `bodyFromFile` (server-side path) are
-                // mutually exclusive. bodyFromFile is read and validated eagerly here so the
-                // remaining validation (schema maxLength, etc.) sees the final resolved text.
-                val bodyInline = extractNoteString(noteObj, "body")
-                val bodyFromFilePath = extractNoteString(noteObj, "bodyFromFile")
-                if (bodyInline != null && bodyFromFilePath != null) {
-                    throw ToolValidationException(
-                        "Note at index $index: 'body' and 'bodyFromFile' are mutually exclusive — provide only one"
-                    )
-                }
-                val body: String =
-                    if (bodyFromFilePath != null) {
-                        readBodyFromFile(bodyFromFilePath, index)
-                    } else {
-                        bodyInline ?: ""
-                    }
-
-                // Extract optional actor claim
-                val actorResult = parseActorClaim(noteObj["actor"] as? JsonObject, context)
-                val actorClaim =
-                    when (actorResult) {
-                        is ActorParseResult.Success -> actorResult.claim
-                        is ActorParseResult.Absent -> null
-                        is ActorParseResult.Invalid -> {
-                            failures.add(
-                                buildJsonObject {
-                                    put("index", JsonPrimitive(index))
-                                    put("error", JsonPrimitive("Note at index $index: ${actorResult.error}"))
-                                }
+                        // Resolve body: `body` (inline) and `bodyFromFile` (server-side path) are
+                        // mutually exclusive. bodyFromFile is read and validated eagerly here so the
+                        // remaining validation (schema maxLength, etc.) sees the final resolved text.
+                        val bodyInline = extractNoteString(noteObj, "body")
+                        val bodyFromFilePath = extractNoteString(noteObj, "bodyFromFile")
+                        if (bodyInline != null && bodyFromFilePath != null) {
+                            throw ToolValidationException(
+                                "Note at index $index: 'body' and 'bodyFromFile' are mutually exclusive — provide only one"
                             )
-                            continue
+                        }
+                        val body: String =
+                            if (bodyFromFilePath != null) {
+                                readBodyFromFile(bodyFromFilePath, index)
+                            } else {
+                                bodyInline ?: ""
+                            }
+
+                        // Extract optional actor claim
+                        val actorResult = parseActorClaim(noteObj["actor"] as? JsonObject, context)
+                        val actorClaim =
+                            when (actorResult) {
+                                is ActorParseResult.Success -> actorResult.claim
+                                is ActorParseResult.Absent -> null
+                                is ActorParseResult.Invalid ->
+                                    return@body ElementResult.Failed(noteFailure(index, "Note at index $index: ${actorResult.error}"))
+                            }
+                        val verification =
+                            when (actorResult) {
+                                is ActorParseResult.Success -> actorResult.verification
+                                else -> null
+                            }
+
+                        val (resolvedItemId, itemIdErr) = resolveIdString(itemIdStr, context)
+                        if (itemIdErr != null || resolvedItemId == null) {
+                            throw ToolValidationException("Note at index $index: could not resolve 'itemId': $itemIdStr")
+                        }
+                        val itemId = resolvedItemId
+
+                        // Validate that the WorkItem exists (cache for itemContext reuse)
+                        if (itemId !in validatedItems) {
+                            run {
+                                val r =
+                                    itemRepo.getById(itemId) ?: throw ToolValidationException(
+                                        "Note at index $index: WorkItem '$itemIdStr' not found"
+                                    )
+                                validatedItems[itemId] = r
+                            }
+                        }
+
+                        // Enforce the configured note-body length limit (schema maxLength), evaluated
+                        // AFTER body resolution so it applies uniformly to inline `body` and
+                        // file-sourced `bodyFromFile` content alike.
+                        var lengthWarning: String? = null
+                        val maxLength =
+                            context
+                                .resolveSchema(validatedItems.getValue(itemId))
+                                ?.notes
+                                ?.firstOrNull { it.key == key }
+                                ?.maxLength
+                        if (maxLength != null && body.length > maxLength) {
+                            val detail = "body length ${body.length} exceeds maxLength $maxLength for key '$key'"
+                            val effectiveNoteLimitsMode = context.resolveNoteLimitsMode(validatedItems.getValue(itemId).rootId)
+                            if (effectiveNoteLimitsMode == "reject") {
+                                return@body ElementResult.Failed(
+                                    buildJsonObject {
+                                        put("index", JsonPrimitive(index))
+                                        put("error", JsonPrimitive("Note at index $index: $detail"))
+                                        put("code", JsonPrimitive("NOTE_BODY_TOO_LONG"))
+                                        put("key", JsonPrimitive(key))
+                                        put("maxLength", JsonPrimitive(maxLength))
+                                        put("actualLength", JsonPrimitive(body.length))
+                                    }
+                                )
+                            } else {
+                                lengthWarning = detail
+                            }
+                        }
+
+                        // One write unit per note: the existing-note lookup (to preserve its ID) and the
+                        // upsert commit or roll back together; a store failure rolls the unit back.
+                        val upserted =
+                            context.unitOfWork.writeOutcome("ManageNotesTool.upsert") {
+                                // Check for existing note with same (itemId, key) to preserve its ID
+                                val existingNote =
+                                    legacyReadOrNull { noteRepo.findByItemIdAndKey(itemId, key) }
+
+                                val note =
+                                    Note(
+                                        id = existingNote?.id ?: UUID.randomUUID(),
+                                        itemId = itemId,
+                                        key = key,
+                                        role = role,
+                                        body = body,
+                                        actorClaim = actorClaim,
+                                        verification = verification
+                                    )
+                                noteRepo.upsert(note)
+                            }
+
+                        when (upserted) {
+                            is Outcome.Err -> ElementResult.Failed(noteFailure(index, LegacyFaults.message(upserted.error)))
+                            is Outcome.Ok -> {
+                                val result = upserted.value
+                                ElementResult.Done(
+                                    buildJsonObject {
+                                        put("id", JsonPrimitive(result.id.toString()))
+                                        put("itemId", JsonPrimitive(result.itemId.toString()))
+                                        put("key", JsonPrimitive(result.key))
+                                        put("role", JsonPrimitive(result.role))
+                                        actorClaim?.let { put("actor", it.toJson()) }
+                                        verification?.toJsonOrOmit()?.let { put("verification", it) }
+                                        lengthWarning?.let { put("warning", JsonPrimitive(it)) }
+                                    }
+                                )
+                            }
                         }
                     }
-                val verification =
-                    when (actorResult) {
-                        is ActorParseResult.Success -> actorResult.verification
-                        else -> null
-                    }
-
-                val (resolvedItemId, itemIdErr) = resolveIdString(itemIdStr, context)
-                if (itemIdErr != null || resolvedItemId == null) {
-                    throw ToolValidationException("Note at index $index: could not resolve 'itemId': $itemIdStr")
-                }
-                val itemId = resolvedItemId
-
-                // Validate that the WorkItem exists (cache for itemContext reuse)
-                if (itemId !in validatedItems) {
-                    run {
-                        val r =
-                            itemRepo.getById(itemId) ?: throw ToolValidationException(
-                                "Note at index $index: WorkItem '$itemIdStr' not found"
-                            )
-                        validatedItems[itemId] = r
-                    }
-                }
-
-                // Enforce the configured note-body length limit (schema maxLength), evaluated
-                // AFTER body resolution so it applies uniformly to inline `body` and
-                // file-sourced `bodyFromFile` content alike.
-                var lengthWarning: String? = null
-                val maxLength =
-                    context
-                        .resolveSchema(validatedItems.getValue(itemId))
-                        ?.notes
-                        ?.firstOrNull { it.key == key }
-                        ?.maxLength
-                if (maxLength != null && body.length > maxLength) {
-                    val detail = "body length ${body.length} exceeds maxLength $maxLength for key '$key'"
-                    val effectiveNoteLimitsMode = context.resolveNoteLimitsMode(validatedItems.getValue(itemId).rootId)
-                    if (effectiveNoteLimitsMode == "reject") {
-                        failures.add(
-                            buildJsonObject {
-                                put("index", JsonPrimitive(index))
-                                put("error", JsonPrimitive("Note at index $index: $detail"))
-                                put("code", JsonPrimitive("NOTE_BODY_TOO_LONG"))
-                                put("key", JsonPrimitive(key))
-                                put("maxLength", JsonPrimitive(maxLength))
-                                put("actualLength", JsonPrimitive(body.length))
-                            }
-                        )
-                        continue
-                    } else {
-                        lengthWarning = detail
-                    }
-                }
-
-                // One write unit per note: the existing-note lookup (to preserve its ID) and the
-                // upsert commit or roll back together; a store failure rolls the unit back.
-                val upserted =
-                    context.unitOfWork.writeOutcome("ManageNotesTool.upsert") {
-                        // Check for existing note with same (itemId, key) to preserve its ID
-                        val existingNote =
-                            legacyReadOrNull { noteRepo.findByItemIdAndKey(itemId, key) }
-
-                        val note =
-                            Note(
-                                id = existingNote?.id ?: UUID.randomUUID(),
-                                itemId = itemId,
-                                key = key,
-                                role = role,
-                                body = body,
-                                actorClaim = actorClaim,
-                                verification = verification
-                            )
-                        noteRepo.upsert(note)
-                    }
-
-                when (upserted) {
-                    is Outcome.Err ->
-                        failures.add(
-                            buildJsonObject {
-                                put("index", JsonPrimitive(index))
-                                put("error", JsonPrimitive(LegacyFaults.message(upserted.error)))
-                            }
-                        )
-                    is Outcome.Ok -> {
-                        val result = upserted.value
-                        upsertedNotes.add(
-                            buildJsonObject {
-                                put("id", JsonPrimitive(result.id.toString()))
-                                put("itemId", JsonPrimitive(result.itemId.toString()))
-                                put("key", JsonPrimitive(result.key))
-                                put("role", JsonPrimitive(result.role))
-                                actorClaim?.let { put("actor", it.toJson()) }
-                                verification?.toJsonOrOmit()?.let { put("verification", it) }
-                                lengthWarning?.let { put("warning", JsonPrimitive(it)) }
-                            }
-                        )
-                    }
+                when (outcome) {
+                    is ElementOutcome.Succeeded -> upsertedNotes.add(outcome.fragment)
+                    is ElementOutcome.Failed -> failures.add(outcome.failure)
                 }
             } catch (e: ToolValidationException) {
                 failures.add(
@@ -470,7 +472,10 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
             buildJsonObject {
                 for (itemIdStr in successItemIds) {
                     val itemId = UUID.fromString(itemIdStr)
-                    val item = validatedItems[itemId] ?: continue
+                    val item =
+                        validatedItems[itemId]
+                            ?: legacyReadOrNull { itemRepo.getById(itemId) }
+                            ?: continue
 
                     // The notes for this item are ALREADY PERSISTED at this point (the per-index
                     // upsert loop above already ran) — per D7, a per-root config read failure
@@ -538,9 +543,33 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
     // Delete operation
     // ──────────────────────────────────────────────
 
+    private fun noteFailure(
+        index: Int,
+        message: String
+    ): JsonObject =
+        buildJsonObject {
+            put("index", JsonPrimitive(index))
+            put("error", JsonPrimitive(message))
+        }
+
+    private fun noteFailure(
+        index: Int,
+        error: DomainError
+    ): JsonObject = KeyedCall.defaultFailure(index, error)
+
+    private fun deleteFailure(
+        id: String,
+        message: String
+    ): JsonObject =
+        buildJsonObject {
+            put("id", JsonPrimitive(id))
+            put("error", JsonPrimitive(message))
+        }
+
     private suspend fun executeDelete(
         params: JsonElement,
-        context: ToolExecutionContext
+        context: ToolExecutionContext,
+        keyed: KeyedCall?
     ): JsonElement {
         val idsArray = optionalJsonArray(params, "ids")
         val itemIdStr = optionalString(params, "itemId")
@@ -553,7 +582,7 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
 
         // Delete by IDs array
         if (idsArray != null && idsArray.isNotEmpty()) {
-            for (element in idsArray) {
+            for ((index, element) in idsArray.withIndex()) {
                 val idStr = (element as? JsonPrimitive)?.content
                 if (idStr == null) {
                     failures.add(
@@ -578,28 +607,23 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                         continue
                     }
 
-                run {
-                    val result =
-                        context.unitOfWork.legacyWrite("ManageNotesTool.delete", {
-                            return@run run {
-                                failures.add(
-                                    buildJsonObject {
-                                        put("id", JsonPrimitive(idStr))
-                                        put("error", JsonPrimitive(it))
-                                    }
-                                )
-                            }
-                        }) { noteRepo.delete(id) }
-                    if (result) {
-                        deletedCount++
-                    } else {
-                        failures.add(
-                            buildJsonObject {
-                                put("id", JsonPrimitive(idStr))
-                                put("error", JsonPrimitive("Note '$idStr' not found"))
-                            }
-                        )
+                // A delete is recorded only once it committed; a missing note or a fault rolls the element
+                // back and is reported unrecorded, so a retry with the same key runs it again.
+                val outcome =
+                    runElement(keyed, index, element, onError = { deleteFailure(idStr, it.message) }) {
+                        when (val deleted = context.unitOfWork.writeOutcome("ManageNotesTool.delete") { noteRepo.delete(id) }) {
+                            is Outcome.Err -> ElementResult.Failed(deleteFailure(idStr, LegacyFaults.message(deleted.error)))
+                            is Outcome.Ok ->
+                                if (deleted.value) {
+                                    ElementResult.Done(buildJsonObject { put("id", JsonPrimitive(idStr)) })
+                                } else {
+                                    ElementResult.Failed(deleteFailure(idStr, "Note '$idStr' not found"))
+                                }
+                        }
                     }
+                when (outcome) {
+                    is ElementOutcome.Succeeded -> deletedCount++
+                    is ElementOutcome.Failed -> failures.add(outcome.failure)
                 }
             }
         } else if (itemIdStr != null) {

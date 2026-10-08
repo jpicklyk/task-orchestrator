@@ -10,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.ServiceBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -967,7 +966,6 @@ class EffectiveConfigRoutesEdgeTest {
                             unitOfWork = db.unitOfWork(),
                         ),
                     degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
-                    idempotencyCache = IdempotencyCache(),
                 )
             }
 

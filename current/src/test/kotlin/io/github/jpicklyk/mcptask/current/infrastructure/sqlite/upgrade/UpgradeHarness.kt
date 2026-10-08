@@ -271,7 +271,8 @@ object UpgradeHarness {
     ): StepResult {
         val file = File(dir, "step-$version.db")
         val url = urlFor(file)
-        migrate(url, target = version - 1)
+        // The highest migration below this one: version - 1 does not exist while the chain has a gap.
+        migrate(url, target = migrationVersions(dir).last { it < version })
         val ownSeed = seeds.firstOrNull { it.version == version }
         DriverManager.getConnection(url).use { conn ->
             BaselineDataset.seed(conn)

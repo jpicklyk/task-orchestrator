@@ -10,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import java.util.UUID
 
@@ -182,7 +181,7 @@ with `deleteAll=true` for every dependency on that item.
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Client-generated UUID for idempotency (10 min cache, keyed by actor+requestId); " +
+                                    "Client-generated UUID; each element runs once per 24h (keyed by actor+requestId); " +
                                         "requires actor; malformed values rejected."
                                 )
                             )
@@ -330,28 +329,35 @@ with `deleteAll=true` for every dependency on that item.
                 null
             }
 
-        // Atomic getOrCompute: check-compute-store under a single lock to prevent TOCTOU races.
-        // kotlinx.coroutines.runBlocking bridges the suspend execution into the lock-held lambda.
-        // This is safe because the operation logic only accesses DB repositories and never
-        // re-acquires the IdempotencyCache lock.
-        if (requestId != null && trustedActorId != null) {
-            return context.idempotencyCache.getOrCompute(trustedActorId, requestId) {
-                runBlocking {
-                    withEventActor(eventActor) {
-                        when (operation) {
-                            "create" -> executeCreate(params, context)
-                            "delete" -> executeDelete(params, context)
-                            else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
-                        }
-                    }
-                }
+        // A keyed call (requestId plus a trusted principal) is one atomic element 0: create is all-or-nothing
+        // across the batch, delete is a single statement. A committed create or delete is recorded and replays;
+        // a validation or state failure (cycle, duplicate, nothing deleted) rolls back unrecorded, so a retry
+        // with the same key runs it again. Unkeyed calls never touch the idempotency service.
+        val keyed =
+            if (requestId != null && trustedActorId != null) {
+                KeyedCall(
+                    context.idempotency,
+                    trustedActorId,
+                    requestId,
+                    KeyedCall.op(name, operation),
+                    KeyedCall.withoutKeyFields(params)
+                )
+            } else {
+                null
             }
-        }
 
         return withEventActor(eventActor) {
             when (operation) {
-                "create" -> executeCreate(params, context)
-                "delete" -> executeDelete(params, context)
+                "create" ->
+                    keyed?.whole(
+                        KeyedCall.withoutKeyFields(params),
+                        recordable = { KeyedCall.hasPositive(it, "created") }
+                    ) { executeCreate(params, context) } ?: executeCreate(params, context)
+                "delete" ->
+                    keyed?.whole(
+                        KeyedCall.withoutKeyFields(params),
+                        recordable = { KeyedCall.hasPositive(it, "deleted") }
+                    ) { executeDelete(params, context) } ?: executeDelete(params, context)
                 else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
             }
         }

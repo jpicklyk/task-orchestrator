@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import java.util.UUID
 
@@ -162,7 +161,7 @@ Unified write operations for WorkItems (create, update, delete).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Client-generated UUID for idempotency (10 min cache, keyed by actor+requestId); " +
+                                    "Client-generated UUID; each element runs once per 24h (keyed by actor+requestId); " +
                                         "requires actor; malformed values rejected."
                                 )
                             )
@@ -251,23 +250,29 @@ Unified write operations for WorkItems (create, update, delete).
                 null
             }
 
-        // Atomic getOrCompute: check-compute-store under a single lock to prevent TOCTOU races.
-        // kotlinx.coroutines.runBlocking bridges the suspend execution into the lock-held lambda.
-        // This is safe because the operation logic only accesses DB repositories and never
-        // re-acquires the IdempotencyCache lock.
-        if (requestId != null && trustedActorId != null) {
-            return context.idempotencyCache.getOrCompute(trustedActorId, requestId) {
-                runBlocking { withEventActor(eventActor) { executeOperation(operation, params, context) } }
+        // A keyed call (requestId plus a trusted principal) is keyed PER ELEMENT of the operation array: each
+        // element runs, and is recorded, in its own unit. Unkeyed calls never touch the idempotency service.
+        val keyed =
+            if (requestId != null && trustedActorId != null) {
+                KeyedCall(
+                    context.idempotency,
+                    trustedActorId,
+                    requestId,
+                    KeyedCall.op(name, operation),
+                    KeyedCall.sharedOf(params, "items", "itemIds")
+                )
+            } else {
+                null
             }
-        }
 
-        return withEventActor(eventActor) { executeOperation(operation, params, context) }
+        return withEventActor(eventActor) { executeOperation(operation, params, context, keyed) }
     }
 
     private suspend fun executeOperation(
         operation: String,
         params: JsonElement,
-        context: ToolExecutionContext
+        context: ToolExecutionContext,
+        keyed: KeyedCall?
     ): JsonElement {
         return when (operation) {
             "create" -> {
@@ -277,20 +282,23 @@ Unified write operations for WorkItems (create, update, delete).
                     requireJsonArray(params, "items"),
                     parentId,
                     optionalString(params, "traits"),
-                    context
+                    context,
+                    keyed
                 )
             }
             "update" ->
                 updateHandler.execute(
                     requireJsonArray(params, "items"),
                     optionalString(params, "traits"),
-                    context
+                    context,
+                    keyed
                 )
             "delete" ->
                 deleteHandler.execute(
                     requireJsonArray(params, "itemIds"),
                     optionalBoolean(params, "recursive", false),
-                    context
+                    context,
+                    keyed
                 )
             else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
         }

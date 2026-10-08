@@ -128,7 +128,6 @@ class RuleBudgetStashTest {
             noteSchemaService = composition.noteSchemaService,
             toolContext = composition.toolContext,
             degradedModePolicy = composition.degradedModePolicy,
-            idempotencyCache = composition.idempotencyCache,
         )
     }
 

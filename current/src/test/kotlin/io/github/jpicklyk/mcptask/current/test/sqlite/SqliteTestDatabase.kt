@@ -65,6 +65,17 @@ class SqliteTestDatabase private constructor(
     /** The production repositories over this database (created once per instance). */
     fun repositoryProvider(): DefaultRepositoryProvider = provider ?: DefaultRepositoryProvider(databaseManager).also { provider = it }
 
+    /** The number of rows in idempotency_records (read over a separate JDBC connection). */
+    fun idempotencyRecordCount(): Int =
+        java.sql.DriverManager.getConnection(jdbcUrl).use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery("SELECT COUNT(*) FROM idempotency_records").use { rows ->
+                    rows.next()
+                    rows.getInt(1)
+                }
+            }
+        }
+
     /** The production [UnitOfWork] (SQLite) over this database and [repositoryProvider]. */
     fun unitOfWork(clock: Clock = Clock { Instant.now() }): UnitOfWork = SqliteUnitOfWork(databaseManager, repositoryProvider(), clock)
 
@@ -155,6 +166,8 @@ class SqliteTestDatabaseExtension internal constructor(
     val database: Database get() = db.database
 
     fun repositoryProvider(): DefaultRepositoryProvider = db.repositoryProvider()
+
+    fun idempotencyRecordCount(): Int = db.idempotencyRecordCount()
 
     /** The production [UnitOfWork] (SQLite) over the current database. */
     fun unitOfWork(clock: Clock = Clock { Instant.now() }): UnitOfWork = db.unitOfWork(clock)

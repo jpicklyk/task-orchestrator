@@ -19,7 +19,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import java.util.UUID
 
@@ -153,7 +152,7 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Client-generated UUID for idempotency (10 min cache, keyed by actor+requestId); " +
+                                    "Client-generated UUID; each element runs once per 24h (keyed by actor+requestId); " +
                                         "requires actor; malformed values rejected."
                                 )
                             )
@@ -287,17 +286,27 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
                 null
             }
 
-        // Atomic getOrCompute: check-compute-store under a single lock to prevent TOCTOU races.
-        // kotlinx.coroutines.runBlocking bridges the suspend execution into the lock-held lambda.
-        // This is safe because the tree completion logic only accesses DB repositories and never
-        // re-acquires the IdempotencyCache lock.
+        // A keyed call (requestId plus a trusted principal) is one element 0, recorded only when every item
+        // succeeded. Each per-item advance opens its own unit, so the call cannot join one: the lookup and
+        // the record are separate units around the work. Unkeyed calls never touch the idempotency service.
         if (requestId != null && trustedActorId != null) {
-            return context.idempotencyCache.getOrCompute(trustedActorId, requestId) {
-                runBlocking { executeCompleteTree(paramsObj, trigger, includeRoot, context) }
-            }
+            val params = KeyedCall.withoutKeyFields(paramsObj)
+            return KeyedCall(context.idempotency, trustedActorId, requestId, KeyedCall.op(name), params)
+                .detached(params, recordable = ::allItemsSucceeded) {
+                    executeCompleteTree(paramsObj, trigger, includeRoot, context)
+                }
         }
 
         return executeCompleteTree(paramsObj, trigger, includeRoot, context)
+    }
+
+    /** True when [response] reports no gate failure and no per-item error: the only result worth replaying. */
+    private fun allItemsSucceeded(response: JsonElement): Boolean {
+        val data = (response as? JsonObject)?.get("data") as? JsonObject ?: return false
+        val summary = data["summary"] as? JsonObject ?: return false
+        if (((summary["gateFailures"] as? JsonPrimitive)?.intOrNull ?: 1) != 0) return false
+        val results = data["results"] as? JsonArray ?: return false
+        return results.none { (it as? JsonObject)?.containsKey("error") == true }
     }
 
     private suspend fun executeCompleteTree(

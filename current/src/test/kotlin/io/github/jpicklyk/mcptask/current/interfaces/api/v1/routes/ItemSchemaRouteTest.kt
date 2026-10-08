@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
@@ -115,7 +114,6 @@ class ItemSchemaRouteTest {
             noteSchemaService = composition.noteSchemaService,
             toolContext = composition.toolContext,
             degradedModePolicy = composition.degradedModePolicy,
-            idempotencyCache = composition.idempotencyCache,
         )
     }
 
@@ -376,7 +374,6 @@ class ItemSchemaRouteTest {
                     noteSchemaService = ItemSchemaRouteNoGlobalSchemaService,
                     toolContext = toolContext,
                     degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
-                    idempotencyCache = IdempotencyCache(),
                 )
             }
 

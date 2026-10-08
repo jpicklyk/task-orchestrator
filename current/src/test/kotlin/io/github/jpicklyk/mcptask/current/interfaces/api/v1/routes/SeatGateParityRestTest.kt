@@ -203,7 +203,6 @@ work_item_schemas:
             noteSchemaService = composition.noteSchemaService,
             toolContext = composition.toolContext,
             degradedModePolicy = composition.degradedModePolicy,
-            idempotencyCache = composition.idempotencyCache,
         )
         routing { wellKnownRoutes(serverName = serverName, serverVersion = "1.0.0") }
     }

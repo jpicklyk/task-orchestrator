@@ -16,7 +16,7 @@ import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
+import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
@@ -51,7 +51,6 @@ class ToolExecutionContext(
     private val statusLabelService: StatusLabelService = NoOpStatusLabelService,
     private val actorVerifier: ActorVerifier = NoOpActorVerifier,
     val degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
-    val idempotencyCache: IdempotencyCache = IdempotencyCache(),
     val nextItemRecommender: NextItemRecommender =
         NextItemRecommender(
             repositoryProvider.workItemRepository(),
@@ -76,6 +75,12 @@ class ToolExecutionContext(
      */
     val unitOfWork: UnitOfWork = UnscopedUnitOfWork(repositoryProvider, clock),
 ) {
+    /**
+     * Durable per-element idempotency over [unitOfWork]. Lazy so contexts that never serve a keyed call
+     * (most tests) do not build it.
+     */
+    val idempotency: IdempotencyService by lazy { IdempotencyService(unitOfWork) }
+
     /**
      * Lazy so 17+ test files that strict-mock [RepositoryProvider] are unaffected by an eager
      * accessor call at construction time; built once per [ToolExecutionContext] instance.
