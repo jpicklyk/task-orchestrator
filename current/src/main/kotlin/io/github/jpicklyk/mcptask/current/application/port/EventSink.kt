@@ -12,6 +12,15 @@ interface EventSink {
 
     /** Appends one row for [event]. */
     suspend fun record(event: DomainEvent): EventRecord? = record(listOf(event)).firstOrNull()
+
+    /**
+     * Records [event], a `*.rejected` row, so that it survives the caller's unit: exactly one row whether that unit
+     * commits or rolls back (a keyed call's element unit rolls back on the very rejection it records). The default
+     * is a plain [record], for sinks with no transaction to escape.
+     */
+    suspend fun recordRejection(event: DomainEvent) {
+        record(event)
+    }
 }
 
 /**

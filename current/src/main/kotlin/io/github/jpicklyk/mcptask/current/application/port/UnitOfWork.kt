@@ -88,6 +88,13 @@ internal class ActiveUnit(
     private var fault: Throwable? = null
 
     /**
+     * The [UnitOfWork] that opened this (outermost) unit, when it sets one. A rollback hook uses it to open a
+     * FRESH unit (see `EventRecorder.recordRejection`); hooks run after the unit has ended, outside any ambient unit.
+     */
+    @Volatile
+    var owner: UnitOfWork? = null
+
+    /**
      * Records [t], thrown out of a store transaction JOINED to this unit. Exposed has then already rolled the
      * shared connection back, so the unit is poisoned: the runner never commits it (a later [Outcome.Ok]
      * becomes a rollback and an [Outcome.Err] of this fault). The first fault wins.

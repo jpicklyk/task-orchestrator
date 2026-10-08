@@ -57,6 +57,20 @@ class EventRecorder(
         return appended
     }
 
+    /**
+     * Records [event] in the ambient unit and, when that unit was opened by a [UnitOfWork] (its owner), registers a
+     * rollback hook that appends the same event in a FRESH unit of that owner. The row is so written exactly once:
+     * by the ambient unit when it commits, by the follow-up unit when it rolls back (a keyed call's element unit
+     * rolls back on the very rejection it records). The hook is registered BEFORE the append, so an append that
+     * poisons the unit still leaves the row to the follow-up. With no ambient unit this is a plain [record].
+     */
+    override suspend fun recordRejection(event: DomainEvent) {
+        val unit = coroutineContext[UnitElement]?.unit
+        val owner = unit?.owner
+        if (unit != null && owner != null) unit.addRollback { appendDetached(owner, event) }
+        record(event)
+    }
+
     private fun toRecord(
         event: DomainEvent,
         now: Instant,
@@ -103,7 +117,30 @@ class EventRecorder(
         internal fun logRejectionFailure(
             type: String,
             e: Exception
-        ) = logger.warn("Recording a {} row failed; the rejection itself is unchanged: {}", type, e.message)
+        ) = logRejectionFailure(type, e.message)
+
+        internal fun logRejectionFailure(
+            type: String,
+            message: String?
+        ) = logger.warn("Recording a {} row failed; the rejection itself is unchanged: {}", type, message)
+    }
+}
+
+/** Appends [event] in its own fresh unit of [owner] (no ambient unit exists when a rollback hook runs). */
+private suspend fun appendDetached(
+    owner: UnitOfWork,
+    event: DomainEvent
+) {
+    try {
+        val outcome =
+            owner.write("events.recordRejection") {
+                events.record(event)
+                Outcome.Ok(Unit)
+            }
+        if (outcome is Outcome.Err) EventRecorder.logRejectionFailure(event.type, outcome.error.message)
+    } catch (e: Exception) {
+        e.rethrowIfCancellation()
+        EventRecorder.logRejectionFailure(event.type, e)
     }
 }
 
@@ -123,14 +160,16 @@ suspend fun eventRootOf(
 ): UUID = hierarchy.findAncestorChains(setOf(itemId))[itemId]?.firstOrNull()?.id ?: itemId
 
 /**
- * Appends [event] (a `*.rejected` row) in its OWN short write unit. The rejected operation wrote nothing (or rolled
- * back), so the row cannot ride in its unit. A failure to record is logged at WARN and swallowed: the rejection the
- * caller returns is never changed by its audit row.
+ * Appends [event] (a `*.rejected` row) so that it survives the caller's transaction. Outside any unit it is its OWN
+ * short write unit. Under an ambient unit (an idempotency-keyed call runs the whole element in one, and rolls it back
+ * on the rejection) it joins that unit AND registers a rollback hook that re-appends it in a fresh unit
+ * ([EventSink.recordRejection]): exactly one row whether the ambient unit commits or rolls back. A failure to record
+ * is logged at WARN and swallowed: the rejection the caller returns is never changed by its audit row.
  */
 suspend fun UnitOfWork.recordRejection(event: DomainEvent) {
     try {
         write("events.recordRejection") {
-            events.record(event)
+            events.recordRejection(event)
             Outcome.Ok(Unit)
         }
     } catch (e: Exception) {

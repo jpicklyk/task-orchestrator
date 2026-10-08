@@ -45,7 +45,10 @@ class SqliteUnitOfWork(
             check(ambient.writable) { "write '$op' attempted inside a read unit" }
             return UnitScope(repositories, ambient, events).block()
         }
-        return dbs.units.runWrite(op, clock) { unit -> UnitScope(repositories, unit, events).block() }
+        return dbs.units.runWrite(op, clock) { unit ->
+            unit.owner = this
+            UnitScope(repositories, unit, events).block()
+        }
     }
 
     override suspend fun <T> read(block: suspend ReadScope.() -> T): T {

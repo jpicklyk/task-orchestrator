@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 import io.github.jpicklyk.mcptask.current.application.port.FTS_CANDIDATE_ROWS
 import io.github.jpicklyk.mcptask.current.application.port.MAX_FTS_RESULTS
 import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
+import io.github.jpicklyk.mcptask.current.application.port.NoteRef
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.SearchHit
 import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
@@ -24,6 +25,7 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.java.UUIDColumnType
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
+import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.upsert
 import org.slf4j.LoggerFactory
@@ -182,6 +184,17 @@ class SQLiteNoteRepository(
                     .where { NotesTable.itemId inList itemIds }
                     .map { mapRowToNote(it) }
             notes.groupBy { it.itemId }
+        }
+    }
+
+    override suspend fun findRefsByItemIds(itemIds: Set<UUID>): Map<UUID, List<NoteRef>> {
+        if (itemIds.isEmpty()) return emptyMap()
+        return databaseManager.readTx {
+            NotesTable
+                .select(NotesTable.id, NotesTable.itemId, NotesTable.key, NotesTable.role)
+                .where { NotesTable.itemId inList itemIds }
+                .map { NoteRef(it[NotesTable.id].value, it[NotesTable.itemId], it[NotesTable.key], it[NotesTable.role]) }
+                .groupBy { it.itemId }
         }
     }
 

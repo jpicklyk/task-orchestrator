@@ -160,7 +160,9 @@ class EventPublishingRepositoryProvider(
                     }
                     record(events)
                 }
-                is ClaimResult.AlreadyClaimed -> record(DomainEvent.ClaimRejected(itemId, rootOfItem(itemId), result.retryAfterMs))
+                // A rejection row must survive the caller's unit (a keyed claim rolls back on it): see recordRejection.
+                is ClaimResult.AlreadyClaimed ->
+                    recorder.recordRejection(DomainEvent.ClaimRejected(itemId, rootOfItem(itemId), result.retryAfterMs))
                 else -> Unit
             }
             return result
@@ -197,7 +199,7 @@ class EventPublishingRepositoryProvider(
         if (items.isEmpty()) return emptyList()
         val ids = items.map { it.id }.toSet()
         val roots = items.associate { it.id to rootOf(it) }
-        val notesByItem = delegate.noteRepository().findByItemIds(ids)
+        val notesByItem = delegate.noteRepository().findRefsByItemIds(ids)
         val edgesByItem = delegate.dependencyRepository().findByItemIds(ids)
         val seenEdges = HashSet<UUID>()
         val events = mutableListOf<DomainEvent>()
@@ -364,7 +366,9 @@ class EventPublishingRepositoryProvider(
                         )
                     }
                 is LeaseAcquireResult.Contended ->
-                    record(DomainEvent.LeaseRejected(holderItemId, rootOfItem(holderItemId), result.contendedKeys, result.retryAfterMs))
+                    recorder.recordRejection(
+                        DomainEvent.LeaseRejected(holderItemId, rootOfItem(holderItemId), result.contendedKeys, result.retryAfterMs),
+                    )
             }
             return result
         }
@@ -376,16 +380,25 @@ class EventPublishingRepositoryProvider(
             return result
         }
 
-        // Overridden explicitly: delegation would route the interface default to the inner store's own
-        // releaseAllForItem, bypassing the override above.
+        /**
+         * Set-based, like the store it wraps: ONE pre-read of the active leases (filtered to [holderItemIds]) and ONE
+         * bulk release, then one `lease.released` row per active (holder, key) found. Lapsed rows the bulk release
+         * also removes are expiries, not releases, and record nothing (expiry rows are P14's).
+         */
         override suspend fun releaseAllForItems(holderItemIds: Set<UUID>): LeaseReleaseResult {
-            var total = 0
-            for (holderItemId in holderItemIds) {
-                when (val result = releaseAllForItem(holderItemId)) {
-                    is LeaseReleaseResult.Success -> total += result.releasedCount
+            if (holderItemIds.isEmpty()) return inner.releaseAllForItems(holderItemIds)
+            val active = inner.findAllActive().filter { it.holderItemId in holderItemIds }
+            val result = inner.releaseAllForItems(holderItemIds)
+            val released = (result as? LeaseReleaseResult.Success)?.releasedCount ?: 0
+            if (released > 0 && active.isNotEmpty()) {
+                val events = mutableListOf<DomainEvent>()
+                for ((holderItemId, leases) in active.groupBy { it.holderItemId }) {
+                    val root = rootOfItem(holderItemId)
+                    for (lease in leases) events += DomainEvent.LeaseReleased(holderItemId, root, lease.resourceKey, 1, forced = false)
                 }
+                record(events)
             }
-            return LeaseReleaseResult.Success(total)
+            return result
         }
 
         override suspend fun forceReleaseByKey(

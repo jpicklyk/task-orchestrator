@@ -271,6 +271,7 @@ class EventPublishingDecoratorGuardTest {
                 "findByItemId",
                 "findByItemIdAndKey",
                 "findByItemIds",
+                "findRefsByItemIds",
                 "ftsSearch",
             )
 
