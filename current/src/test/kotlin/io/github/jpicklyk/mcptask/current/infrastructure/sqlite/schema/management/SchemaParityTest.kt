@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.manageme
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.StartupIntegrity
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.javaUuidSqlite
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.timestampSqlite
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.utcTimestamp
 import io.github.jpicklyk.mcptask.current.test.sqlite.ClasspathScan
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import org.jetbrains.exposed.v1.core.Table
@@ -276,8 +276,8 @@ private object NotesMirror : Table("notes") {
     val key = varchar("key", 200)
     val role = varchar("role", 20)
     val body = text("body")
-    val createdAt = timestampSqlite("created_at")
-    val modifiedAt = timestampSqlite("modified_at")
+    val createdAt = utcTimestamp("created_at")
+    val modifiedAt = utcTimestamp("modified_at")
     val actorId = text("actor_id").nullable()
     val actorKind = text("actor_kind").nullable()
     val actorParent = text("actor_parent").nullable()
@@ -297,8 +297,8 @@ private object DriftedNotesTable : Table("notes") {
     val key = integer("key")
     val role = varchar("role", 20)
     val body = text("body").nullable()
-    val createdAt = timestampSqlite("created_at")
-    val modifiedAt = timestampSqlite("modified_at")
+    val createdAt = utcTimestamp("created_at")
+    val modifiedAt = utcTimestamp("modified_at")
     val actorId = text("actor_id").nullable()
     val actorParent = text("actor_parent").nullable()
     val actorProof = text("actor_proof").nullable()

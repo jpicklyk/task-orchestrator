@@ -14,7 +14,7 @@ object DependenciesTable : IdTable<UUID>("dependencies") {
     val toItemId = javaUuidSqlite("to_item_id")
     val type = varchar("type", 20).default("BLOCKS")
     val unblockAt = varchar("unblock_at", 20).nullable()
-    val createdAt = timestampSqlite("created_at")
+    val createdAt = utcTimestamp("created_at")
 
     init {
         foreignKey(fromItemId to WorkItemsTable.id, onDelete = ReferenceOption.CASCADE)

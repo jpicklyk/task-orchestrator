@@ -18,3 +18,4 @@
 15|V15__Resource_Leases.sql|1173170734
 16|V16__Resource_Lease_History.sql|-527478894
 17|V17__Store_Actor_Proof_Evidence.sql|-1932963354
+18|V18__Normalize_Timestamps.sql|-145553964

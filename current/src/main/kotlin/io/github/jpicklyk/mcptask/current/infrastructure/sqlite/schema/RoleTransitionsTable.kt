@@ -17,7 +17,7 @@ object RoleTransitionsTable : IdTable<UUID>("role_transitions") {
     val toStatusLabel = text("to_status_label").nullable()
     val trigger = varchar("trigger", 50)
     val summary = text("summary").nullable()
-    val transitionedAt = timestampSqlite("transitioned_at")
+    val transitionedAt = utcTimestamp("transitioned_at")
     val actorId = text("actor_id").nullable()
     val actorKind = text("actor_kind").nullable()
     val actorParent = text("actor_parent").nullable()

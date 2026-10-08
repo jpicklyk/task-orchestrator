@@ -4,7 +4,6 @@ import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.ReferenceOption
 import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.core.dao.id.IdTable
-import org.jetbrains.exposed.v1.javatime.timestamp
 import java.util.UUID
 
 /**
@@ -20,7 +19,7 @@ import java.util.UUID
  * `SQLiteResourceLeaseRepository.acquireAll`). Follows [PlanDocumentsTable]'s style: BLOB id
  * default, a plain unique-index pair rather than an inline `UNIQUE` column.
  *
- * [acquiredAt] / [expiresAt] / [originalAcquiredAt] are declared via [timestamp] exactly like
+ * [acquiredAt] / [expiresAt] / [originalAcquiredAt] are declared via [utcTimestampText] exactly like
  * [WorkItemsTable]'s `claimedAt` / `claimExpiresAt` / `originalClaimedAt` claim columns — both
  * store ISO-8601 TEXT under SQLite (see `V5__Add_Claim_Fields.sql` and `V15__Resource_Leases.sql`
  * for the underlying column type rationale).
@@ -35,9 +34,9 @@ object ResourceLeasesTable : IdTable<UUID>("resource_leases") {
     val resourceKey = text("resource_key")
     val holderItemId = javaUuidSqlite("holder_item_id")
     val acquiredByActorId = text("acquired_by_actor_id").nullable()
-    val acquiredAt = timestamp("acquired_at")
-    val expiresAt = timestamp("expires_at")
-    val originalAcquiredAt = timestamp("original_acquired_at")
+    val acquiredAt = utcTimestampText("acquired_at")
+    val expiresAt = utcTimestampText("expires_at")
+    val originalAcquiredAt = utcTimestampText("original_acquired_at")
     val budgetLimit = integer("budget_limit").nullable()
     val budgetUsed = integer("budget_used").nullable()
     val budgetWindowSeconds = integer("budget_window_seconds").nullable()
