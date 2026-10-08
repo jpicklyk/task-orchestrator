@@ -12,13 +12,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -79,6 +79,13 @@ class ApiEventBus(
     /** Highest seq fanned out (or skipped with no subscriber connected); null until first known. */
     @Volatile
     private var tailSeq: Long? = null
+
+    /** True while a [startTailer] poll is running: [committed] may then hand a busy or gapped tail to it. */
+    @Volatile
+    private var tailerRunning = false
+
+    /** Wakes the tailer at once (conflated): sent by [committed] when it defers the tail to the poll. */
+    private val wake = Channel<Unit>(Channel.CONFLATED)
 
     /** Active subscribers: subscriber-id to Subscriber. */
     private val subscribers = ConcurrentHashMap<String, Subscriber>()
@@ -164,9 +171,38 @@ class ApiEventBus(
      * The local commit signal: [records] were appended by a unit that has now committed. Rows that directly follow
      * the tail are fanned out as given; a gap (another process committed in between) re-reads the tail from
      * [source], so nothing is skipped or delivered twice.
+     *
+     * This runs in the writer's afterCommit hook, so with a tailer running ([startTailer]) it never waits on the
+     * tail lock nor reads the table: when the lock is busy (a replay snapshot is being read) or the rows do not
+     * follow the tail, it wakes the tailer, which re-reads the tail from [source] (the rows are durable, so
+     * deferring loses nothing). Without a tailer (tests) it takes the lock and catches up inline.
      */
     override suspend fun committed(records: List<EventRecord>) {
         if (records.isEmpty()) return
+        if (tailerRunning && source != null && tailSeq != null) {
+            if (!tailMutex.tryLock()) {
+                wake.trySend(Unit)
+                return
+            }
+            try {
+                val tail = tailSeq
+                val first = records.first().seq
+                val last = records.last().seq
+                when {
+                    tail == null -> wake.trySend(Unit)
+                    subscribers.isEmpty() -> tailSeq = maxOf(tail, last)
+                    first == tail + 1 -> {
+                        fanOut(records)
+                        tailSeq = last
+                    }
+                    last <= tail -> Unit
+                    else -> wake.trySend(Unit)
+                }
+            } finally {
+                tailMutex.unlock()
+            }
+            return
+        }
         tailMutex.withLock {
             val first = records.first().seq
             val last = records.last().seq
@@ -231,18 +267,21 @@ class ApiEventBus(
         scope: CoroutineScope,
         pollInterval: Duration = 1.seconds,
     ): Job =
-        scope.launch {
-            while (isActive) {
-                delay(pollInterval)
-                if (subscribers.isEmpty()) continue
-                try {
-                    pump()
-                } catch (e: Exception) {
-                    e.rethrowIfCancellation()
-                    logger.warn("SSE tail poll failed; retrying on the next tick: {}", e.message)
+        scope
+            .launch {
+                tailerRunning = true
+                while (isActive) {
+                    // A deferred commit ([committed]) wakes the poll at once; otherwise it ticks every pollInterval.
+                    withTimeoutOrNull(pollInterval) { wake.receive() }
+                    if (subscribers.isEmpty()) continue
+                    try {
+                        pump()
+                    } catch (e: Exception) {
+                        e.rethrowIfCancellation()
+                        logger.warn("SSE tail poll failed; retrying on the next tick: {}", e.message)
+                    }
                 }
-            }
-        }
+            }.also { job -> job.invokeOnCompletion { tailerRunning = false } }
 
     // -------------------------------------------------------------------------
     // Subscribe
@@ -274,14 +313,63 @@ class ApiEventBus(
         rootIds: Set<UUID>,
         lastEventId: Long? = null,
         resumeRequested: Boolean = lastEventId != null,
+    ): Flow<ApiEvent> = stream(register(subscriberId, rootIds), lastEventId, resumeRequested, startSeq = null)
+
+    /**
+     * [subscribe] for a connection that starts NOW (what `GET /api/v1/events` uses). Under the tail lock it first
+     * catches the tail up to the newest committed row WITHOUT handing the backlog to the new subscriber (rows other
+     * processes committed while nobody listened go to the existing subscribers only, or nowhere), then registers
+     * it. So a fresh connection never receives rows committed before it connected, nor a `queue_overflow` caused
+     * by them; a resume replays them from the table instead. Without a [source] it is [subscribe].
+     */
+    suspend fun connect(
+        subscriberId: String,
+        rootIds: Set<UUID>,
+        lastEventId: Long? = null,
+        resumeRequested: Boolean = lastEventId != null,
     ): Flow<ApiEvent> {
+        val src = source ?: return subscribe(subscriberId, rootIds, lastEventId, resumeRequested)
+        val (sub, start) =
+            tailMutex.withLock {
+                val tail = tailSeq
+                if (tail != null && subscribers.isNotEmpty()) pumpLocked(src, tail)
+                val newest = src.maxSeq()
+                val caughtUp = maxOf(tailSeq ?: newest, newest)
+                tailSeq = caughtUp
+                register(subscriberId, rootIds) to caughtUp
+            }
+        return stream(sub, lastEventId, resumeRequested, startSeq = start)
+    }
+
+    private fun register(
+        subscriberId: String,
+        rootIds: Set<UUID>,
+    ): Subscriber {
         val channel = Channel<ApiEvent>(capacity = connectionQueueSize)
         val sub = Subscriber(id = subscriberId, rootIds = rootIds, channel = channel)
         subscribers[subscriberId] = sub
+        return sub
+    }
 
+    /**
+     * The flow of one registered subscriber. [startSeq], when known, is the tail at registration: a fresh
+     * connection skips rows at or below it, and a `queue_overflow` sentinel whose dropped event lies at or below
+     * what was already covered (replayed, or [startSeq]) lost nothing new and is not emitted.
+     */
+    private fun stream(
+        sub: Subscriber,
+        lastEventId: Long?,
+        resumeRequested: Boolean,
+        startSeq: Long?,
+    ): Flow<ApiEvent> {
+        val subscriberId = sub.id
+        val rootIds = sub.rootIds
+        val channel = sub.channel
         return flow {
             try {
                 var lastEmitted = Long.MIN_VALUE
+                // Rows at or below this seq were already covered (replayed, or committed before a fresh connect).
+                var covered = startSeq ?: Long.MIN_VALUE
                 if (resumeRequested) {
                     val (sentinel, from, replay) = replaySnapshot(rootIds, lastEventId)
                     // Nothing at or below the replay start may follow it (a lagging live delivery would).
@@ -299,7 +387,9 @@ class ApiEventBus(
                         emit(event)
                         lastEmitted = event.id
                     }
+                    covered = maxOf(covered, lastEmitted)
                 } else {
+                    if (startSeq != null) lastEmitted = startSeq
                     val src = source
                     if (src != null && tailSeq == null) {
                         tailMutex.withLock { if (tailSeq == null) tailSeq = src.maxSeq() }
@@ -308,7 +398,11 @@ class ApiEventBus(
 
                 for (evt in channel) {
                     if (evt.event in ApiEventType.CONTROL_EVENTS) {
-                        emit(evt)
+                        // The sentinel's id is one below the dropped event: a drop inside the covered range was a
+                        // duplicate the dedupe below would have discarded anyway, so nothing new was lost.
+                        val duplicateDrop =
+                            evt.event == ApiEventType.SYNC_LOST && evt.reason == SyncLostReason.QUEUE_OVERFLOW && evt.id < covered
+                        if (!duplicateDrop) emit(evt)
                     } else if (evt.id > lastEmitted) {
                         emit(evt)
                         lastEmitted = evt.id

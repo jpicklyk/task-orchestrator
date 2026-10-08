@@ -3551,7 +3551,7 @@ paths:
             by root and tags_include the same way the live stream is, deduplicated against live
             delivery by id. API_SSE_BUFFER_SIZE (default 1000) is the replay window. When the id
             is not replayable -- more than the window behind the newest event (buffer_evicted),
-            above the newest event, at or below the 10^12 seq floor (any pre-4.0 ring-buffer id),
+            above the newest event, below the 10^12 seq floor (any pre-4.0 ring-buffer id; the floor itself is a valid start-of-log cursor),
             or unparsable (unknown_event_id) -- the server emits a sync.lost event with that reason
             as the first frame, then immediately replays the whole window after it (replay resumes
             from the sentinel's own id, max(10^12, newest - window), not the client's cursor -- no
@@ -3579,7 +3579,7 @@ paths:
                   replay; never redacted), and reason -- set only on sync.lost,
                   one of queue_overflow (per-connection queue overflowed), buffer_evicted
                   (resumed Last-Event-ID further behind than the replay window), or
-                  unknown_event_id (resumed Last-Event-ID above the newest event, at or below the
+                  unknown_event_id (resumed Last-Event-ID above the newest event, below the
                   seq floor, or unparsable); null/absent on every other event type.
 
                   auth.expired: sent and the stream closed when the connection's token expires

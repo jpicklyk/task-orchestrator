@@ -365,10 +365,8 @@ private val sseInlineAuthPlugin =
  *   principal's full scope instead of narrowing it. Mixed valid/invalid values still narrow and
  *   are accepted.
  *
- * Unresolved-root events (the publisher could not determine an event's roots) are withheld from
- * root-scoped subscriptions by the bus itself, live and on replay — see [ApiEventBus.publish]'s
- * `rootsResolved` flag. A root-scoped client can therefore see FEWER events than an unrestricted
- * one, never events outside its scope; it re-fetches through the read API to reconverge.
+ * Every projected row carries its root, so the bus filters live delivery and replay by root alike;
+ * only control events (`sync.lost`, `auth.expired`) reach every subscriber.
  *
  * The `tags_include` half of scope is NOT applied at the bus-subscription level ([ApiEventBus]
  * has no tag dimension) -- it is enforced per event, in the `sse { }` collect body below, using
@@ -388,8 +386,8 @@ private val sseInlineAuthPlugin =
  * ## Resume and gap reporting
  * Event ids are `seq` values of the durable `events` table. `Last-Event-ID` replays the stored
  * events with a higher seq (within the replay window). When the requested id is not replayable --
- * older than the replay window (`API_SSE_BUFFER_SIZE`), above the newest seq, at or below the seq
- * floor (every id the pre-4.0 in-memory ring buffer issued), or present but unparsable -- the bus
+ * older than the replay window (`API_SSE_BUFFER_SIZE`), above the newest seq, below the seq
+ * floor (every id the pre-4.0 in-memory ring buffer issued; the floor itself is a valid cursor), or present but unparsable -- the bus
  * emits a `sync.lost` event carrying a
  * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.SyncLostReason] as the first frame
  * of the connection, before any replayed event. A blank header counts as no resume attempt.
@@ -510,7 +508,7 @@ fun Route.eventRoutes(
 
             // Capture the SseServerSession so it can be used in nested coroutines.
             val session = this
-            val flow = eventBus.subscribe(subscriberId, effectiveRoots, lastEventId, resumeRequested)
+            val flow = eventBus.connect(subscriberId, effectiveRoots, lastEventId, resumeRequested)
 
             // -----------------------------------------------------------------
             // Tag-scope filter (tags_include half of scope; see "Scope filtering" above)
