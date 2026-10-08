@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database
 
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
@@ -865,6 +866,7 @@ class StartupCompactionTest {
     // ────────────────────────────────────────────────────────────────────────
 
     @Test
+    @Tag("serial")
     fun `S13 runOnce compacts a 100MB-plus database in under 30 seconds`(
         @TempDir tempDir: Path
     ) {

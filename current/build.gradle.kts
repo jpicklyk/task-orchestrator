@@ -137,8 +137,8 @@ dependencies {
     testImplementation(libs.bouncycastle.provider)
 }
 
-tasks.test {
-    useJUnitPlatform()
+// Shared by `test` and `serialTest` (same JVM settings and task inputs).
+tasks.withType<Test>().configureEach {
     // Force the test JVM to UTC so Exposed's javatime.timestamp column and our DB-side
     // datetime('now') SQL agree on time-of-day interpretation. Production Docker containers
     // default to UTC; pinning the test JVM to UTC keeps test behaviour identical to production
@@ -198,6 +198,31 @@ tasks.test {
     inputs
         .files(rootProject.file("gradle/libs.versions.toml"))
         .withPropertyName("kotlinLoggingCatalogInput")
+}
+
+tasks.test {
+    // Wall-clock- and CPU-sensitive tests carry @Tag("serial") and run in `serialTest`, alone in a
+    // single fork, so a neighbouring fork (or a test that deliberately pins every core) cannot
+    // starve them.
+    useJUnitPlatform { excludeTags("serial") }
+    finalizedBy("serialTest")
+}
+
+val serialTest by tasks.registering(Test::class) {
+    description = "Runs the @Tag(\"serial\") timing-sensitive tests in a single fork."
+    group = "verification"
+    val testTask = tasks.test.get()
+    testClassesDirs = testTask.testClassesDirs
+    classpath = testTask.classpath
+    useJUnitPlatform { includeTags("serial") }
+    maxParallelForks = 1
+    shouldRunAfter(testTask)
+    // A targeted `:current:test --tests X` run must not drag in the whole serial set.
+    // Target a serial test directly with `:current:serialTest --tests X`.
+    onlyIf {
+        testTask.filter.includePatterns.isEmpty() &&
+            (testTask.filter as org.gradle.api.internal.tasks.testing.filter.DefaultTestFilter).commandLineIncludePatterns.isEmpty()
+    }
 }
 
 kotlin {

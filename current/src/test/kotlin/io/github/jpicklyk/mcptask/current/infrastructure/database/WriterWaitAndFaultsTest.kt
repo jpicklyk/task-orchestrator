@@ -11,6 +11,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -39,6 +40,7 @@ class WriterWaitAndFaultsTest {
 
     // ---------------------------------------------------------------- B1
     @Test
+    @Tag("serial")
     @Timeout(value = 45, unit = TimeUnit.SECONDS)
     fun `B1 a writer waiting longer than the unit deadline returns UNAVAILABLE with a retry hint and does not hang`(): Unit =
         runBlocking {

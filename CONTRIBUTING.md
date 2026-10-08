@@ -354,6 +354,16 @@ For schema changes, follow the migration checklist in [.claude/skills/add-compon
 ./gradlew :current:test --tests "*migration*"
 ```
 
+### Serial (timing-sensitive) tests
+
+Tests that assert wall-clock bounds or deliberately spin CPU threads are tagged `@Tag("serial")`.
+The `test` task runs in parallel forks and excludes that tag; the `serialTest` task runs only the
+tagged tests, alone in a single fork, and `test` is finalized by it so `./gradlew :current:test` still
+covers them. Tag a test when its time bound leaves less than about 1.5 s or 3x headroom over its
+typical duration, or when it pins CPU. To run one directly use
+`./gradlew :current:serialTest --tests "<pattern>"`; plain `:current:test --tests` will not find it
+(and skips `serialTest` entirely).
+
 ### Test Guidelines
 
 - Write tests for all new functionality
