@@ -1,7 +1,12 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
+import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -13,212 +18,136 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 
 /**
- * Independent test authorship for item 0e9d5675 (needs-test-author).
+ * The commit signal from the event recorder to the SSE projection (item 0e9d5675's contracts, re-pointed by P8
+ * ea2b9b63 from the per-transaction event buffer to the events table).
  *
- * Oracles (frozen in test-plan note 46ed4b0a, before this file was written):
- *  O1 current/docs/api-rest.md:1462-1475,:1493 — monotonic id namespace; Last-Event-ID ring-buffer
- *     replay; a data event denotes a persisted change.
- *  O2 this item's diagnosis note, "Corrections" 3-4 — the four rollback-capable enclosing sites,
- *     and the build-at-flush id rule (a deferred event must not be built — and therefore must not
- *     be id-stamped — before the transaction that encloses it commits).
- *  O3 WorkItemRepository.kt:100-111 KDoc: "if [block] throws, all writes are rolled back
- *     atomically" (supplied verbatim in this item's DECLARATIONS block).
- *
- * These tests exercise [DeferredEventPublisher] directly against a real Exposed/SQLite transaction
- * obtained via [io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository.inTransaction]
- * (the transaction seam named in the DECLARATIONS block) — no [EventPublishingRepositoryProvider]
- * involved here; the decorator's own routing is covered separately by
- * [EventPublishingTransactionRollbackTest].
- *
- * Every scenario is NEW-SURFACE per the test-plan's labelling (the fix introduces both
- * [PendingApiEvent] and [DeferredEventPublisher]); a plain revert of the fix removes the
- * declarations these tests bind to and would not compile, so red-first here means the
- * "concurrent immediate publish" recipe in `deferred events receive ids allocated at flush time...`
- * — a build-at-enqueue-time bug (the narrowest regression this fix could reintroduce) turns that
- * one test red without touching any other test's compilation.
+ * Contracts kept from the buffer era: outside a unit a recorded event streams immediately; inside a unit nothing
+ * streams (or becomes visible to another connection) before the commit, then everything streams in record order
+ * with increasing ids; a rollback streams nothing and leaves nothing replayable; nested units signal once, at the
+ * outermost commit. The buffer era's build-at-flush id rule (S6) and its minimal-descriptor probe are gone with
+ * the buffer: ids are now the rows' seqs, allocated by the append inside the writer unit.
  */
 class DeferredEventPublisherTest {
     @RegisterExtension
     val db = SqliteTestDatabase.perMethod()
 
-    // -------------------------------------------------------------------------
-    // S1 — outside a transaction, publish is synchronous
-    // -------------------------------------------------------------------------
+    private fun wiring(): Pair<ApiEventBus, EventRecorder> {
+        val store = db.repositoryProvider().eventStore()
+        val bus = ApiEventBus(source = store)
+        return bus to EventRecorder(store, listener = DeferredEventPublisher(bus))
+    }
+
+    private fun created(id: UUID) = DomainEvent.ItemCreated(id, id, null)
+
+    private fun updated(id: UUID) = DomainEvent.ItemUpdated(id, id, listOf("title"))
+
+    private fun deleted(id: UUID) = DomainEvent.ItemDeleted(id, id)
+
+    /** Reads the projected log from a fresh context (no ambient unit), i.e. as another connection sees it. */
+    private suspend fun committedView(bus: ApiEventBus): List<ApiEvent> =
+        CoroutineScope(Dispatchers.IO).async { bus.projectedEvents() }.await()
 
     @Test
-    fun `S1 - publishOnCommit outside a transaction publishes synchronously`(): Unit =
+    fun `S1 - recording outside a unit streams synchronously`(): Unit =
         runBlocking {
-            val bus = ApiEventBus()
-            val publisher = DeferredEventPublisher(bus)
+            val (bus, recorder) = wiring()
             val itemId = UUID.randomUUID()
+            val flow = bus.subscribe("s1", emptySet())
 
-            publisher.publishOnCommit(
-                PendingApiEvent(eventType = ApiEventType.ITEM_CREATED, itemId = itemId),
-            )
+            recorder.record(created(itemId))
 
-            val snapshot = bus.ringBufferSnapshot()
-            assertEquals(1, snapshot.size, "with no ambient transaction the event must be visible immediately")
-            assertEquals(ApiEventType.ITEM_CREATED, snapshot[0].event)
-            assertEquals(itemId.toString(), snapshot[0].itemId)
+            val delivered = bus.drainDelivered("s1", flow)
+            assertEquals(1, delivered.size, "with no ambient unit the event must stream immediately")
+            assertEquals(ApiEventType.ITEM_CREATED, delivered[0].event)
+            assertEquals(itemId.toString(), delivered[0].itemId)
         }
 
-    // -------------------------------------------------------------------------
-    // S2 — inside a committing transaction, buffered then flushed FIFO
-    // -------------------------------------------------------------------------
-
     @Test
-    fun `S2 - publishOnCommit inside a committing transaction defers until commit then flushes FIFO`(): Unit =
+    fun `S2 - recording inside a committing unit streams nothing until commit then everything in order`(): Unit =
         runBlocking {
-            val delegate = db.repositoryProvider()
-            val bus = ApiEventBus()
-            val publisher = DeferredEventPublisher(bus)
+            val (bus, recorder) = wiring()
             val id1 = UUID.randomUUID()
             val id2 = UUID.randomUUID()
             val id3 = UUID.randomUUID()
+            val flow = bus.subscribe("s2", emptySet())
 
             db.unitOfWork().inUnit {
-                publisher.publishOnCommit(PendingApiEvent(eventType = ApiEventType.ITEM_CREATED, itemId = id1))
-                publisher.publishOnCommit(PendingApiEvent(eventType = ApiEventType.ITEM_UPDATED, itemId = id2))
-                publisher.publishOnCommit(PendingApiEvent(eventType = ApiEventType.ITEM_DELETED, itemId = id3))
-
-                // Nothing built or published while the transaction is still open (O2/O3).
-                assertTrue(bus.ringBufferSnapshot().isEmpty(), "no event must be visible before commit")
+                recorder.record(listOf(created(id1), updated(id2), deleted(id3)))
+                assertTrue(committedView(bus).isEmpty(), "no row may be visible to another connection before commit")
             }
 
-            val snapshot = bus.ringBufferSnapshot()
-            assertEquals(3, snapshot.size, "all three deferred events must flush on commit")
+            val delivered = bus.drainDelivered("s2", flow)
             assertEquals(
                 listOf(ApiEventType.ITEM_CREATED, ApiEventType.ITEM_UPDATED, ApiEventType.ITEM_DELETED),
-                snapshot.map { it.event },
-                "flush order must match enqueue order (FIFO)",
+                delivered.map { it.event },
+                "delivery order must match record order",
             )
-            assertEquals(listOf(id1.toString(), id2.toString(), id3.toString()), snapshot.map { it.itemId })
+            assertEquals(listOf(id1.toString(), id2.toString(), id3.toString()), delivered.map { it.itemId })
             assertTrue(
-                snapshot[0].id < snapshot[1].id && snapshot[1].id < snapshot[2].id,
-                "ids must be strictly increasing in FIFO/commit order — got ids ${snapshot.map { it.id }}",
+                delivered[0].id < delivered[1].id && delivered[1].id < delivered[2].id,
+                "ids must be strictly increasing in record/commit order, got ${delivered.map { it.id }}",
             )
+            assertEquals(delivered, committedView(bus), "live delivery must equal the committed projection")
         }
 
-    // -------------------------------------------------------------------------
-    // S3 — inside a rolling-back transaction, buffer is dropped entirely
-    // -------------------------------------------------------------------------
-
     @Test
-    fun `S3 - publishOnCommit inside a rolling-back transaction discards the buffer entirely`(): Unit =
+    fun `S3 - recording inside a rolling-back unit streams nothing and leaves nothing replayable`(): Unit =
         runBlocking {
-            val delegate = db.repositoryProvider()
-            val bus = ApiEventBus()
-            val publisher = DeferredEventPublisher(bus)
+            val (bus, recorder) = wiring()
+            val flow = bus.subscribe("s3", emptySet())
 
             var caught: Throwable? = null
             try {
                 db.unitOfWork().inUnit {
-                    publisher.publishOnCommit(
-                        PendingApiEvent(eventType = ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID()),
-                    )
+                    recorder.record(created(UUID.randomUUID()))
                     throw IllegalStateException("boom")
                 }
             } catch (e: IllegalStateException) {
                 caught = e
             }
-            assertTrue(caught is IllegalStateException, "expected the transaction failure to propagate, got: $caught")
+            assertTrue(caught is IllegalStateException, "expected the unit failure to propagate, got: $caught")
 
-            assertTrue(
-                bus.ringBufferSnapshot().isEmpty(),
-                "rollback must drop the buffer with zero ring-buffer entries (O1/O3)",
-            )
+            assertTrue(bus.drainDelivered("s3", flow).isEmpty(), "a rolled-back unit must stream nothing")
+            assertTrue(committedView(bus).isEmpty(), "a rolled-back unit must leave no row")
 
-            // A later Last-Event-ID replay must not surface anything either — per the
-            // codebase's own established probe convention (SyncLostReplayTest.kt: lastEventId=0L
-            // against a bus that has never published anything yields no sentinel and no events).
             val replayed =
                 withTimeoutOrNull(200) {
-                    bus.subscribe("sub-replay-0e9d5675", emptySet(), lastEventId = 0L).take(1).toList()
+                    bus.subscribe("sub-replay-0e9d5675", emptySet(), lastEventId = 1_000_000_000_000L).take(1).toList()
                 }
-            assertTrue(replayed.isNullOrEmpty(), "nothing should be replayable for a rolled-back publish, got: $replayed")
+            assertTrue(replayed.isNullOrEmpty(), "nothing should be replayable for a rolled-back record, got: $replayed")
             bus.unsubscribe("sub-replay-0e9d5675")
         }
 
-    // -------------------------------------------------------------------------
-    // S6 — ids are allocated at flush time, never at enqueue time
-    // -------------------------------------------------------------------------
-
     @Test
-    fun `S6 - deferred events receive ids allocated at flush time, after any concurrent immediate publish`(): Unit =
+    fun `S7a - nested units signal once on the outermost commit`(): Unit =
         runBlocking {
-            val delegate = db.repositoryProvider()
-            val bus = ApiEventBus()
-            val publisher = DeferredEventPublisher(bus)
-            val idE1 = UUID.randomUUID()
-            val idE2 = UUID.randomUUID()
-
-            db.unitOfWork().inUnit {
-                publisher.publishOnCommit(PendingApiEvent(eventType = ApiEventType.ITEM_CREATED, itemId = idE1))
-                publisher.publishOnCommit(PendingApiEvent(eventType = ApiEventType.ITEM_UPDATED, itemId = idE2))
-
-                // A concurrent, non-transactional publish lands on the bus WHILE the deferred
-                // pair is still buffered (open transaction). If publishOnCommit built (and
-                // therefore id-stamped) its event at enqueue time rather than at flush time,
-                // E1/E2 would already hold lower ids than this one — this is the narrowest
-                // revert that would turn this test red (O1/diagnosis §4).
-                bus.publish(bus.buildEvent(ApiEventType.NOTE_UPSERTED, itemId = UUID.randomUUID()))
-            }
-
-            val snapshot = bus.ringBufferSnapshot()
-            assertEquals(3, snapshot.size)
-            val e0 = snapshot.first { it.event == ApiEventType.NOTE_UPSERTED }
-            val e1 = snapshot.first { it.itemId == idE1.toString() }
-            val e2 = snapshot.first { it.itemId == idE2.toString() }
-            assertTrue(
-                e0.id < e1.id,
-                "the immediate publish made while the transaction was open must get a LOWER id " +
-                    "than the deferred events (e0.id=${e0.id}, e1.id=${e1.id})",
-            )
-            assertTrue(e1.id < e2.id, "deferred events keep FIFO id order among themselves")
-        }
-
-    // -------------------------------------------------------------------------
-    // S7 — nested inTransaction shares one buffer, flushed once at the outermost boundary
-    // -------------------------------------------------------------------------
-
-    @Test
-    fun `S7a - nested inTransaction shares one buffer and flushes once on the outermost commit`(): Unit =
-        runBlocking {
-            val delegate = db.repositoryProvider()
-            val bus = ApiEventBus()
-            val publisher = DeferredEventPublisher(bus)
+            val (bus, recorder) = wiring()
             val id = UUID.randomUUID()
+            val flow = bus.subscribe("s7a", emptySet())
 
             db.unitOfWork().inUnit {
                 db.unitOfWork().inUnit {
-                    publisher.publishOnCommit(PendingApiEvent(eventType = ApiEventType.ITEM_CREATED, itemId = id))
+                    recorder.record(created(id))
                 }
-                // Still open at the outer level: the inner block's completion alone must not flush.
-                assertTrue(
-                    bus.ringBufferSnapshot().isEmpty(),
-                    "inner completion must not flush; only the outermost commit does",
-                )
+                assertTrue(committedView(bus).isEmpty(), "inner completion must not commit; only the outermost does")
             }
 
-            val snapshot = bus.ringBufferSnapshot()
-            assertEquals(1, snapshot.size, "nested transactions share one buffer, flushed exactly once")
-            assertEquals(id.toString(), snapshot[0].itemId)
+            val delivered = bus.drainDelivered("s7a", flow)
+            assertEquals(1, delivered.size, "nested units share one commit, signalled exactly once")
+            assertEquals(id.toString(), delivered[0].itemId)
         }
 
     @Test
-    fun `S7b - nested inTransaction rollback at the outer level publishes nothing`(): Unit =
+    fun `S7b - nested units rolled back at the outer level stream nothing`(): Unit =
         runBlocking {
-            val delegate = db.repositoryProvider()
-            val bus = ApiEventBus()
-            val publisher = DeferredEventPublisher(bus)
+            val (bus, recorder) = wiring()
+            val flow = bus.subscribe("s7b", emptySet())
 
             var caught: Throwable? = null
             try {
                 db.unitOfWork().inUnit {
                     db.unitOfWork().inUnit {
-                        publisher.publishOnCommit(
-                            PendingApiEvent(eventType = ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID()),
-                        )
+                        recorder.record(created(UUID.randomUUID()))
                     }
                     throw IllegalStateException("boom")
                 }
@@ -226,47 +155,21 @@ class DeferredEventPublisherTest {
                 caught = e
             }
             assertTrue(caught is IllegalStateException, "expected the outer rollback to propagate, got: $caught")
-            assertTrue(bus.ringBufferSnapshot().isEmpty(), "outer rollback must drop the shared buffer")
+            assertTrue(bus.drainDelivered("s7b", flow).isEmpty(), "outer rollback must stream nothing")
+            assertTrue(committedView(bus).isEmpty(), "outer rollback must leave no row")
         }
 
-    // -------------------------------------------------------------------------
-    // Edge probes — boundary (empty buffer) and empty-vs-absent-vs-null (minimal descriptor)
-    // -------------------------------------------------------------------------
-
     @Test
-    fun `edge - a transaction that enqueues nothing commits as a no-op`(): Unit =
+    fun `edge - a unit that records nothing commits as a no-op`(): Unit =
         runBlocking {
-            val delegate = db.repositoryProvider()
-            val bus = ApiEventBus()
-            // DeferredEventPublisher is constructed but never used inside the transaction below —
-            // this pins the declared "empty buffer commits as a no-op" behavior.
-            DeferredEventPublisher(bus)
+            val (bus, _) = wiring()
+            val flow = bus.subscribe("edge", emptySet())
 
             db.unitOfWork().inUnit {
                 // intentionally empty
             }
 
-            assertTrue(bus.ringBufferSnapshot().isEmpty(), "an empty deferred buffer must not publish anything on commit")
-        }
-
-    @Test
-    fun `edge - a minimal PendingApiEvent with all-default optional fields flushes with those fields null-absent`(): Unit =
-        runBlocking {
-            val delegate = db.repositoryProvider()
-            val bus = ApiEventBus()
-            val publisher = DeferredEventPublisher(bus)
-
-            db.unitOfWork().inUnit {
-                // eventType is the only required field; itemId/modifiedAt/newRole default to null
-                // and affectedRoots defaults to emptySet() — distinct from explicitly passing them.
-                publisher.publishOnCommit(PendingApiEvent(eventType = ApiEventType.AUTH_EXPIRED))
-            }
-
-            val snapshot = bus.ringBufferSnapshot()
-            assertEquals(1, snapshot.size)
-            assertEquals(ApiEventType.AUTH_EXPIRED, snapshot[0].event)
-            assertEquals(null, snapshot[0].itemId, "absent itemId must flush through as null, not a placeholder")
-            assertEquals(null, snapshot[0].modifiedAt)
-            assertEquals(null, snapshot[0].newRole)
+            assertTrue(bus.drainDelivered("edge", flow).isEmpty(), "an empty unit must not stream anything on commit")
+            assertTrue(committedView(bus).isEmpty())
         }
 }

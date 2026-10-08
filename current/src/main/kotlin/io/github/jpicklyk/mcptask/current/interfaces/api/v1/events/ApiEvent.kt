@@ -13,7 +13,9 @@ import kotlinx.serialization.Serializable
  * **Payload contract:** Minimal by design. Dashboards should re-fetch the full item details
  * via the read API when they need field-level data. The payload keeps the bus lightweight.
  *
- * @param id Monotonically-increasing event sequence number, scoped to this [ApiEventBus] instance.
+ * @param id For a data event, the `seq` of the `events` row it projects: monotonic, durable across
+ *   restarts and shared by every process writing the same database (above 1e12 since V20). For a
+ *   control event, an id below every event that follows it on the connection.
  * @param event The event type string (e.g. `item.created`, `item.advanced`, `auth.expired`).
  * @param itemId The primary work-item UUID affected, or null for bus-level events (`sync.lost`,
  *   `auth.expired`).
@@ -26,9 +28,8 @@ import kotlinx.serialization.Serializable
  * @param actor Who performed the write (`{id, kind, parent?}`; never proof or verification), or
  *   null (absent) when no actor was resolved, for bus-level events, or when redacted on egress.
  * @param rootId The depth-0 ancestor of the affected item (for `scope.left` the OLD root, for
- *   `scope.entered` the NEW one). Absent when the root could not be resolved (no subscriber was
- *   connected at publish time, or the ancestor query failed) - live and on replay alike. Never
- *   redacted.
+ *   `scope.entered` the NEW one): the row's `root_id`, always present on a data event since P8 (a
+ *   root item uses its own id). Absent only on control events. Never redacted.
  */
 @Serializable
 data class ApiEvent(
@@ -47,11 +48,11 @@ data class ApiEvent(
  *
  * - [QUEUE_OVERFLOW] — the client fell behind and its per-connection queue overflowed; events
  *   were dropped mid-stream.
- * - [BUFFER_EVICTED] — the client resumed with a `Last-Event-ID` older than the oldest event
- *   still retained in the bus ring buffer; the events in between can no longer be replayed.
- * - [UNKNOWN_EVENT_ID] — the client resumed with a `Last-Event-ID` this bus never issued: either
- *   greater than the current high-water mark (typically a cursor from before a server restart,
- *   since the counter restarts at 0) or unparsable as a number.
+ * - [BUFFER_EVICTED] -- the client resumed with a `Last-Event-ID` further behind the newest seq
+ *   than the replay window (`API_SSE_BUFFER_SIZE`); the events in between are not replayed.
+ * - [UNKNOWN_EVENT_ID] -- the client resumed with a `Last-Event-ID` that is not a seq of this
+ *   database: greater than the newest seq, below the seq floor (every id the pre-4.0 in-memory
+ *   ring buffer issued), or unparsable as a number.
  *
  * In all three cases the client must re-fetch full state via the read API; the gap is not
  * recoverable from the stream.
@@ -68,11 +69,11 @@ object SyncLostReason {
  * - `ITEM_CREATED`, `ITEM_UPDATED`, `ITEM_DELETED` — work-item CRUD via [WorkItemRepository].
  * - `NOTE_UPSERTED`, `NOTE_DELETED` — note writes via [NoteStore].
  * - `DEPENDENCY_ADDED`, `DEPENDENCY_REMOVED` — dependency changes via [DependencyStore].
- * - `ITEM_ADVANCED` — role transition via [RoleTransitionHandler]; payload carries [ApiEvent.newRole].
+ * - `ITEM_ADVANCED` -- role transition (the `item.transitioned` row); payload carries [ApiEvent.newRole].
  * - `SCOPE_ENTERED` — item moved INTO this root's subtree (reparent or creation).
  * - `SCOPE_LEFT` — item moved OUT OF this root's subtree (reparent).
  * - `SYNC_LOST` — the client has an unrecoverable gap: its per-connection queue overflowed, or it
- *   resumed with a `Last-Event-ID` that was evicted from / never issued by the ring buffer. The
+ *   resumed with a `Last-Event-ID` outside the replay window or not issued by this database. The
  *   cause is carried in [ApiEvent.reason] ([SyncLostReason]). Client should re-fetch full state.
  * - `AUTH_EXPIRED` — the connection's bearer token (or JWT) has expired. Client must reconnect
  *   with a fresh credential.

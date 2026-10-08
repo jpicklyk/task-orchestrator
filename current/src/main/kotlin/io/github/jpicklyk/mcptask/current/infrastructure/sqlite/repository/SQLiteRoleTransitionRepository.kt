@@ -20,7 +20,6 @@ import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.lessEq
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.andWhere
-import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.slf4j.LoggerFactory
@@ -126,12 +125,6 @@ class SQLiteRoleTransitionRepository(
                     ).limit(limit)
                     .map { mapRowToRoleTransition(it) }
             results
-        }
-
-    override suspend fun deleteByItemId(itemId: UUID): Int =
-        databaseManager.writeTx("TransitionStore.deleteByItemId") {
-            val deletedCount = RoleTransitionsTable.deleteWhere { RoleTransitionsTable.itemId eq itemId }
-            deletedCount
         }
 
     private fun mapRowToRoleTransition(row: ResultRow): RoleTransition {

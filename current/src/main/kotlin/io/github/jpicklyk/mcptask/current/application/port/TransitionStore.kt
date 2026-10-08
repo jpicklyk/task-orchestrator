@@ -24,6 +24,4 @@ interface TransitionStore {
         since: Instant,
         limit: Int = 50
     ): List<RoleTransition>
-
-    suspend fun deleteByItemId(itemId: UUID): Int
 }

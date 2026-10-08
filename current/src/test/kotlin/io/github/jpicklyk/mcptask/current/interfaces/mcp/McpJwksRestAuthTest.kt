@@ -21,6 +21,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEvent
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.FROM_START
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.emit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.get
@@ -259,7 +261,7 @@ class McpJwksRestAuthTest {
     @Test
     fun `SSE missing token returns 401 in jwks mode`() =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { installJwksApp(verifier(), eventBus = bus) }
             assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/events").status)
         }
@@ -267,7 +269,7 @@ class McpJwksRestAuthTest {
     @Test
     fun `SSE invalid JWT returns 401 in jwks mode`() =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { installJwksApp(verifier(), eventBus = bus) }
             val response =
                 client.get("/api/v1/events") {
@@ -279,12 +281,11 @@ class McpJwksRestAuthTest {
     @Test
     fun `SSE streams a replayed event to a JWT-authenticated client in jwks mode`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
 
             // Publish an event to the ring buffer BEFORE subscribing so replay can deliver it.
             val itemId = UUID.randomUUID()
-            val prePublished = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemId, modifiedAt = Instant.now())
-            bus.publish(prePublished, emptySet())
+            val prePublished = bus.emit(ApiEventType.ITEM_CREATED, itemId = itemId)
 
             application { installJwksApp(verifier(), eventBus = bus) }
 
@@ -297,7 +298,7 @@ class McpJwksRestAuthTest {
                     urlString = "/api/v1/events",
                     request = {
                         header(HttpHeaders.Authorization, "Bearer ${signRs256()}")
-                        header("Last-Event-ID", "0")
+                        header("Last-Event-ID", FROM_START)
                     },
                 ) {
                     incoming.take(1).toList().forEach { sse ->

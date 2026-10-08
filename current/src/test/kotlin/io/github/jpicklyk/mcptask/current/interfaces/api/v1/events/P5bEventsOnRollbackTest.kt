@@ -32,7 +32,7 @@ import kotlin.test.assertTrue
  *
  * Oracle: api-rest.md event contract as quoted by the existing EventPublishingTransactionRollbackTest (a data event
  * denotes a persisted change) plus task-scope section 6 (FAIL throws before any work). The decorator's events are
- * observed through ApiEventBus.ringBufferSnapshot() against a baseline.
+ * observed through ApiEventBus.projectedEvents() against a baseline.
  */
 @Timeout(value = 120, unit = TimeUnit.SECONDS)
 class P5bEventsOnRollbackTest {
@@ -63,10 +63,10 @@ class P5bEventsOnRollbackTest {
             }
         }
 
-    private fun createdEventsAfter(
+    private suspend fun createdEventsAfter(
         bus: ApiEventBus,
         baseline: Int
-    ) = bus.ringBufferSnapshot().drop(baseline).filter { it.event == ApiEventType.ITEM_CREATED }
+    ) = bus.projectedEvents().drop(baseline).filter { it.event == ApiEventType.ITEM_CREATED }
 
     private fun unitOver(provider: EventPublishingRepositoryProvider) =
         SqliteUnitOfWork(db.databaseManager, provider, Clock { Instant.now() })
@@ -76,7 +76,7 @@ class P5bEventsOnRollbackTest {
         runBlocking {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(db.repositoryProvider(), bus)
-            val baseline = bus.ringBufferSnapshot().size
+            val baseline = bus.projectedEvents().size
 
             val result =
                 unitOver(provider).write<Unit>("S10.err") {
@@ -97,7 +97,7 @@ class P5bEventsOnRollbackTest {
             )
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(db.repositoryProvider(), bus)
-            val baseline = bus.ringBufferSnapshot().size
+            val baseline = bus.projectedEvents().size
 
             val result =
                 unitOver(provider).write<Unit>("S10.fault") {
@@ -117,7 +117,7 @@ class P5bEventsOnRollbackTest {
         runBlocking {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(db.repositoryProvider(), bus)
-            val baseline = bus.ringBufferSnapshot().size
+            val baseline = bus.projectedEvents().size
 
             val result =
                 unitOver(provider).write("S10.ok") {
@@ -142,14 +142,14 @@ class P5bEventsOnRollbackTest {
                 }
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(DefaultRepositoryProvider(failing), bus)
-            val baseline = bus.ringBufferSnapshot().size
+            val baseline = bus.projectedEvents().size
 
             assertFailsWith<OutsideUnitWriteException> {
                 provider.workItemRepository().create(WorkItem(title = "P1 outside", depth = 0))
             }
 
             assertEquals(0, rawCount("work_items"))
-            assertEquals(emptyList(), bus.ringBufferSnapshot().drop(baseline), "no event of any kind may be published")
+            assertEquals(emptyList(), bus.projectedEvents().drop(baseline), "no event of any kind may be published")
         }
 
     @Test
@@ -162,7 +162,7 @@ class P5bEventsOnRollbackTest {
                 }
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(DefaultRepositoryProvider(failing), bus)
-            val baseline = bus.ringBufferSnapshot().size
+            val baseline = bus.projectedEvents().size
 
             SqliteUnitOfWork(failing, provider, Clock { Instant.now() }).write("P1.control") {
                 stores.workItemRepository().create(WorkItem(title = "P1 inside", depth = 0))

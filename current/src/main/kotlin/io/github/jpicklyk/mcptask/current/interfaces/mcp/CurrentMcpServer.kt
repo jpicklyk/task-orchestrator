@@ -232,15 +232,15 @@ class CurrentMcpServer(
             val outcome: StartupOutcome =
                 when (transportType) {
                     "stdio" -> {
-                        // stdio transport does NOT serve the REST/SSE API. When the API is enabled the
-                        // tool context still uses the decorated provider, so MCP-tool writes publish to
-                        // the bus — but with no SSE subscribers (no HTTP server), publish() is a cheap
-                        // no-op. Document the gap rather than expand scope to serve SSE over stdio.
+                        // stdio transport does NOT serve the REST/SSE API. Every write still records
+                        // its events rows (the decorator is always installed); with no HTTP server
+                        // there is simply no SSE subscriber, and another process serving
+                        // MCP_TRANSPORT=http over the same database streams these rows.
                         if (apiWiring.eventBus != null) {
                             logger.info(
                                 "API config is enabled but MCP_TRANSPORT=stdio: the SSE endpoint is " +
-                                    "only served under MCP_TRANSPORT=http. Event publishing is a no-op " +
-                                    "(no subscribers) in stdio mode."
+                                    "only served under MCP_TRANSPORT=http. Events rows are still " +
+                                    "recorded; nothing streams from this process."
                             )
                         }
                         runStdioTransport(server, serverName, toolCount, readinessMarker)

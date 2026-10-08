@@ -2028,7 +2028,7 @@ above.
 
 Real-time event stream. Requires `READ` or `ADMIN` capability.
 
-**Delivery guarantee:** every domain event (`item.*`, `note.*`, `dependency.*`, `scope.*`) is published after the write's database transaction commits, and is dropped (never published) if that transaction rolls back. Ordering on the success path is unchanged — an event still reaches subscribers in commit order, and a caller observing a `200`/`201` response is guaranteed the corresponding event was (or imminently will be) published.
+**Delivery guarantee:** the stream is a projection of the durable `events` table (4.0, migration V20). Every write records its event rows in the same database transaction as the change, so a rolled-back write records (and streams) nothing. Events reach subscribers in commit order (`id` = the row's `seq`). A write made by this process streams as soon as it commits; a write made by another process sharing the database (for example an MCP `stdio` server) streams within about one second, picked up by a 1 s poll while any subscriber is connected. A caller observing a `200`/`201` response is guaranteed the corresponding event is stored and replayable.
 
 **Authentication — pre-flight plugin (important):**
 
@@ -2067,13 +2067,13 @@ connection-time check, distinct from the per-event filtering described below.
 
 `tags_include` is not a query parameter — it is enforced from the principal's own token scope, per event, as described next.
 
-**`Last-Event-ID` replay:** The bus maintains a ring buffer of recent events (size: `API_SSE_BUFFER_SIZE`, default 1000). On reconnect, events with `id > Last-Event-ID` are replayed before live streaming resumes. Ring-buffer entries carry `affectedRoots` metadata, so the replay path applies the **same root-intersection filter** as the live fan-out — a client reconnecting with `?root=<uuid>` receives only replayed events for roots within its subscription (and scope). Replay is consistent with the live stream.
+**`Last-Event-ID` replay:** Event ids are the `seq` of the `events` table: monotonic, durable across restarts, shared by every process writing the database, and (since V20) above 10^12. On reconnect, the stored events with `id > Last-Event-ID` are replayed before live streaming resumes, deduplicated against the live stream by id (no event is delivered twice or skipped at the boundary). `API_SSE_BUFFER_SIZE` (default 1000) is the **replay window**: a resume at most that many ids behind the newest event replays everything after the cursor. Every row carries its `root_id`, so the replay path applies the **same root-intersection filter** as the live fan-out -- a client reconnecting with `?root=<uuid>` receives only replayed events for roots within its subscription (and scope). Replay is consistent with the live stream. Control events (`sync.lost`, `auth.expired`) are not stored, so they are never replayed. A connection without `Last-Event-ID` starts at the newest event: it receives only events committed after it connected (a backlog written while nobody listened is replayed only on a resume).
 
-**Unreplayable cursor → `sync.lost`:** When a reconnecting client's `Last-Event-ID` can no longer be satisfied from the ring buffer — the id is older than the oldest retained event (`buffer_evicted`), above the current high-water mark (`unknown_event_id`; typically a pre-restart cursor, since the id counter restarts at 0 on restart), or the header was present but not parseable as a number (`unknown_event_id`) — the bus emits a `sync.lost` event as the **first frame of the connection**, before any replayed or live event, carrying the cause in `reason`. Detection reads the global ring buffer, not the caller's root-scoped view, so a root-scoped client can occasionally receive a `sync.lost` for an eviction that didn't affect its own roots (a false positive costing one extra re-fetch — the alternative, a scoped check, risks a false *negative*, i.e. silent loss, which is what this exists to prevent). A blank or absent `Last-Event-ID` header is not treated as a resume attempt and never produces `sync.lost`.
+**Unreplayable cursor -> `sync.lost`:** When a reconnecting client's `Last-Event-ID` cannot be satisfied -- the id is more than the replay window behind the newest event (`buffer_evicted`), above the newest event (`unknown_event_id`), below the 10^12 seq floor (`unknown_event_id`: every id issued by the pre-4.0 in-memory ring buffer, so a cursor saved before the upgrade is reported, never silently matched), or the header was present but not parseable as a number (`unknown_event_id`) -- the bus emits a `sync.lost` event as the **first frame of the connection**, before any replayed or live event, carrying the cause in `reason`. Detection compares the cursor with the newest event of the whole log, not the caller's root-scoped view, so a root-scoped client can occasionally receive a `sync.lost` for a gap that didn't affect its own roots (a false positive costing one extra re-fetch -- the alternative, a scoped check, risks a false *negative*, i.e. silent loss, which is what this exists to prevent). A blank or absent `Last-Event-ID` header is not treated as a resume attempt and never produces `sync.lost`.
 
-**Replay resumes from the sentinel, not the client's cursor:** After either `sync.lost` reason, the same connection immediately replays the FULL retained ring buffer — not just events past the client's original `Last-Event-ID` — because the replay cursor becomes the sentinel's own `id` (always one below the oldest retained event, or the current high-water mark on an empty buffer) rather than the unusable client cursor. No second reconnect is needed to recover the buffered history. `API_SSE_BUFFER_SIZE=0` is a legal, explicit "retain nothing" setting: the buffer never accumulates entries, so every resume attempt that carries a `Last-Event-ID` yields `sync.lost` (`buffer_evicted`, sentinel id = the current high-water mark) with no events to replay after it.
+**Replay resumes from the sentinel, not the client's cursor:** After either `sync.lost` reason, the same connection immediately replays the WHOLE replay window -- not just events past the client's original `Last-Event-ID` -- because the replay cursor becomes the sentinel's own `id` (`max(10^12, newest id - API_SSE_BUFFER_SIZE)`, below every event that follows it) rather than the unusable client cursor. No second reconnect is needed, and reconnecting with the sentinel's id yields no second sentinel. `API_SSE_BUFFER_SIZE=0` is a legal, explicit "no replay" setting: every resume attempt behind the newest event yields `sync.lost` (`buffer_evicted`, sentinel id = the newest id) with no events to replay after it.
 
-**Writes made while no subscriber was connected are still buffered, but UNRESOLVED:** every write (create/update/advance/delete, all types) is added to the ring buffer even when `subscriberCount() == 0` at write time, so a later `Last-Event-ID` resume can still recover it — but its `affectedRoots` could not be computed (the no-subscriber performance guard skips the ancestor-chain query), so it replays only to unrestricted subscribers (no `?root=` filter), never to root-scoped ones. This is the same fail-closed treatment §21's live root-intersection filter already gives an unresolved event; it applies identically on replay.
+**Writes made while no subscriber was connected are replayed in full:** every write is stored with its root whether or not anyone is connected, so a later `Last-Event-ID` resume recovers it with the same root filtering as a live delivery. (Before 4.0 such writes were buffered without a root and replayed only to unrestricted subscribers.)
 
 **Tag scope (`tags_include`) filtering:** Root scope is applied at the bus level (above); tag scope
 is enforced per-event on top of it, identically for the live stream and for `Last-Event-ID` replay,
@@ -2084,7 +2084,7 @@ the result is cached per connection for `item.*`/`scope.*` events (which also re
 mid-stream tag change on an item takes effect immediately) and reused for `note.*`/`dependency.*`
 events on the same item. See §25 for the `item.deleted` fail-closed gap this scheme has.
 
-**Event ID namespace:** The monotonic ID counter for `/api/v1/events` is **independent** from the `/mcp` SSE channel's `EventStore`. Do NOT reuse `Last-Event-ID` values across the two channels.
+**Event ID namespace:** The ids of `/api/v1/events` (the `events` table's `seq`) are **independent** from the `/mcp` SSE channel's `EventStore`. Do NOT reuse `Last-Event-ID` values across the two channels.
 
 **Token expiry:** The SSE handler periodically checks token expiry (interval: `API_SSE_AUTH_CHECK_INTERVAL_SECONDS`, default 30s). When a token expires, an `auth.expired` event is sent and the stream closes. The client must reconnect with a fresh token. This watchdog runs for **every** authenticated JWKS SSE session — JWKS tokens are required to carry `exp` (see §1), so every JWKS session has a real expiry to watch. It does not run, and no `auth.expired` event is ever sent, for the two cases with no expiry to watch: `API_AUTH_MODE=none` unauthenticated sessions, and bearer-token sessions whose token entry has no `expires_at`.
 
@@ -2102,7 +2102,7 @@ events on the same item. See §25 for the `item.deleted` fail-closed gap this sc
 | `dependency.removed` | set | set | null | Dependency edge removed |
 | `scope.entered` | set | set | null | Item reparented into this root's subtree |
 | `scope.left` | set | set | null | Item reparented out of this root's subtree |
-| `sync.lost` | null | null | null | Unrecoverable gap in the stream; re-fetch full state. Carries `reason`: `queue_overflow` (the connection's per-connection queue overflowed and events were dropped mid-stream), `buffer_evicted` (resumed `Last-Event-ID` is older than the oldest event still retained in the ring buffer), or `unknown_event_id` (resumed `Last-Event-ID` is above the current high-water mark — typically pre-restart — or was not parseable as a number) |
+| `sync.lost` | null | null | null | Unrecoverable gap in the stream; re-fetch full state. Carries `reason`: `queue_overflow` (the connection's per-connection queue overflowed and events were dropped mid-stream), `buffer_evicted` (resumed `Last-Event-ID` is further behind the newest event than the replay window), or `unknown_event_id` (resumed `Last-Event-ID` is above the newest event, below the 10^12 seq floor -- a pre-4.0 cursor -- or was not parseable as a number) |
 | `auth.expired` | null | null | null | Connection's token has expired; reconnect with fresh credential |
 
 Both `sync.lost` and `auth.expired` are **control events** — they always bypass the `?types=` filter (see Query parameters above). All other event types additionally carry a `reason` field of `null`, and (because the SSE payload is encoded with `explicitNulls = false`) it is absent from their JSON entirely rather than present as `null`.
@@ -2110,15 +2110,19 @@ Both `sync.lost` and `auth.expired` are **control events** — they always bypas
 **Actor and rootId (domain events only).** Every domain event (`item.*`, `note.*`, `dependency.*`, `scope.*`) may carry two additive fields; the control events (`sync.lost`, `auth.expired`) never do.
 
 - `actor` — `{id, kind, parent?}`: who performed the write. Never `proof` or `verification`. Resolution order at the moment the event is queued: the note's own `actorClaim` (`note.upserted`), then the actor of the enclosing write (the MCP tool's `actor`, per transition for `advance_item` — a cascaded parent advance carries the triggering transition's actor — or the synthesized `api:<tokenId>` / `external` claim for REST writes), then none. A write with no actor (a tool call without `actor`, a background sweep) emits no `actor` field.
-- `rootId` — the item's depth-0 ancestor (`scope.left` carries the OLD root, `scope.entered` the NEW root). Absent when the root could not be resolved: events published while no SSE client was connected skip the ancestor query (a performance guard), so they have no `rootId` — live and again on `Last-Event-ID` replay, since the buffered event is replayed as built. `rootId` is scope metadata and is never redacted.
+- `rootId` -- the item's depth-0 ancestor (`scope.left` carries the OLD root, `scope.entered` the NEW root). Always present on a domain event since 4.0 (a root item uses its own id), live and on replay alike. `rootId` is scope metadata and is never redacted.
 
 **Redaction.** Applied per connection, on egress only, identically for live delivery and `Last-Event-ID` replay: `actor` is omitted when `API_REDACT_NOTE_ATTRIBUTION=true` and the caller lacks `ADMIN`; otherwise it is delivered (`API_AUTH_MODE=none` callers are ADMIN).
 
-**`item.advanced` note:** This event is emitted on role change (via `POST /items/{id}/advance` or any write path that triggers `RoleTransitionHandler`). It carries the `newRole` field. This is distinct from `item.updated` — a role change emits `item.advanced` (not `item.updated`).
+**`item.updated` note:** since 4.0 an update that changes no field emits nothing, and a role change that also edits other fields emits only `item.advanced`.
 
-**Claim/release note:** A successful claim or release through the MCP `claim_item` tool (its `claims` and `releases` arrays) emits `item.updated` for the claimed/released item — and, for a claim that auto-releases the agent's other held items, one additional `item.updated` per auto-released item.
+**`item.advanced` note:** This event is the projection of the transition row a role change records (via `advance_item`, `complete_tree`, `POST /items/{id}/advance`, including cascaded parent transitions). It carries the `newRole` field. This is distinct from `item.updated` -- a role change emits `item.advanced` (not `item.updated`).
 
-**Bulk-write note:** `create_work_tree` emits `item.created` for each newly created item (root first; an attach-mode pre-existing root emits nothing), then `dependency.added` per edge and `note.upserted` per note, all after the enclosing transaction commits — a rolled-back tree emits nothing. Deleting all of an item's notes at once emits a single `note.deleted` for that item, not one per note; removing all of an item's dependencies emits one `dependency.removed` per edge.
+**Claim/release note:** A successful claim or release through the MCP `claim_item` tool (its `claims` and `releases` arrays) emits `item.updated` for the claimed/released item -- and, for a claim that auto-releases the agent's other held items, one additional `item.updated` per auto-released item. A transition that ends a held claim (for example completing a claimed item) also emits `item.updated` for that item since 4.0.
+
+**Bulk-write note:** `create_work_tree` emits `item.created` for each newly created item (root first; an attach-mode pre-existing root emits nothing), then `dependency.added` per edge and `note.upserted` per note, all after the enclosing transaction commits -- a rolled-back tree emits nothing. Deleting all of an item's notes at once emits one `note.deleted` per note (since 4.0; was one per call); removing all of an item's dependencies emits one `dependency.removed` per edge. Deleting an item also emits one `note.deleted` per note and one `dependency.removed` per edge the database cascade removes, before the `item.deleted`.
+
+**Table-only events:** the `events` table also records rejections (`transition.rejected`, `claim.rejected`, `lease.rejected`), resource-lease acquire/release, per-root config pushes and plan-document stash/adopt. These are audit rows and are not streamed; the stream carries only the event types listed above.
 
 ---
 
@@ -2196,31 +2200,20 @@ ownership, or per-item lifecycle exceptions for `{rootId}`'s items either.
 
 ## 25. Known Limitations
 
-**SSE `rootId` is absent for events published with no connected subscriber.** The no-subscriber
-performance guard skips the ancestor-chain query, so such events carry no `rootId` (and are treated
-as unresolved for root-scoped delivery) both live and when later replayed; `actor` is still present.
-
-**SSE dependency-event root resolution falls back to the database on a cold cache.** Live
-root-filtering and `Last-Event-ID` replay are both correctly root-scoped — ring-buffer entries
-carry `affectedRoots` metadata and the replay path applies the same root-intersection filter as the
-live fan-out. `dependency.added` / `dependency.removed` resolve their affected roots from an
-in-memory ancestor-root cache populated by prior item create/update writes; on a cache miss (e.g.,
-a dependency change with no preceding item write on that subtree during the connection's lifetime)
-root resolution now queries `findAncestorChains` directly instead of failing closed, so root-scoped
-subscribers correctly receive the event as long as at least one subscriber is connected at the
-moment of the dependency write (with zero subscribers connected, resolution is skipped entirely as
-a performance guard — the event is still buffered for `Last-Event-ID` replay, but as UNRESOLVED, so
-a later resume delivers it only to unrestricted subscribers, not root-scoped ones). Bus-level control events
-(`sync.lost`, `auth.expired`) always broadcast to every subscriber, root-scoped included, because
-they report the state of the stream itself.
+**SSE root scoping is per row.** Since 4.0 every event row is stored with its root (the item's
+depth-0 ancestor; a reparent stores one row under the old root and one under the new), so live
+delivery and `Last-Event-ID` replay are root-filtered identically whether or not a subscriber was
+connected at write time. Bus-level control events (`sync.lost`, `auth.expired`) always broadcast to
+every subscriber, root-scoped included, because they report the state of the stream itself.
 
 **SSE tag-scope filtering has an `item.deleted` fail-closed gap.** Per-event `tags_include`
 filtering (§21) resolves an event's tags by looking up its `itemId` at delivery time. For
 `item.deleted`, the item is already gone by the time the event is filtered, so its tags cannot be
 resolved — the event is dropped for any tag-scoped connection rather than risk showing (or hiding)
-it incorrectly. Unlike the dependency-event root resolution above, which now falls back to a live
-DB query on a cache miss, there is no live row left to query here for `item.deleted` — the
-fail-closed drop for tag-scoped subscribers is unconditional.
+it incorrectly. There is no live row left to query for `item.deleted`, so the fail-closed drop for
+tag-scoped subscribers is unconditional. The `note.deleted` and `dependency.removed` events an item
+delete cascades (emitted before its `item.deleted`) share the gap: they are dropped for a tag-scoped
+connection unless it already resolved the item's tags from an earlier event on the same connection.
 
 **SSE honors bearer, JWKS, and unauthenticated modes.** The pre-flight auth plugin for the SSE route resolves `Authorization: Bearer` (and, when enabled, `?token=`) using the same shared Bearer-scheme parser as `ApiBearerAuth`, and explicitly short-circuits for `API_AUTH_MODE=none` (§1/§21) exactly like the bearer route. JWKS-mode JWT authentication for SSE is exercised by the automated expiry-watchdog test suite, which sends JWKS-signed tokens through this plugin.
 

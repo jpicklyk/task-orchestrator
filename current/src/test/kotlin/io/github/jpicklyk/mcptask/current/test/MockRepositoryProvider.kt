@@ -32,6 +32,7 @@ class MockRepositoryProvider {
     val resourceLeaseRepo: LeaseStore = mockk()
     val workTreeExecutor: WorkTreeExecutor = mockk()
     val idempotencyRepo = InMemoryIdempotencyStore()
+    val eventStore = InMemoryEventStore()
     val provider: RepositoryProvider = mockk()
 
     init {
@@ -44,6 +45,7 @@ class MockRepositoryProvider {
         every { provider.resourceLeaseRepository() } returns resourceLeaseRepo
         every { provider.workTreeExecutor() } returns workTreeExecutor
         every { provider.idempotencyStore() } returns idempotencyRepo
+        every { provider.eventStore() } returns eventStore
         // The narrow work-item stores are the same mock as the composite (the interface defaults do the same).
         every { provider.itemStore() } returns workItemRepo
         every { provider.hierarchyStore() } returns workItemRepo

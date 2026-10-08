@@ -249,7 +249,7 @@ class DependencyEventRootScopingTest {
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
             val (_, itemA, itemB) = createRootAndChildren(provider, "S5")
-            val baselineCount = bus.ringBufferSnapshot().size
+            val baselineCount = bus.projectedEvents().size
 
             db.unitOfWork().inUnit {
                 provider.dependencyRepository().create(
@@ -257,13 +257,13 @@ class DependencyEventRootScopingTest {
                 )
                 assertEquals(
                     baselineCount,
-                    bus.ringBufferSnapshot().size,
+                    bus.projectedEvents().size,
                     "the dependency event must not be visible before the enclosing transaction commits",
                 )
                 provider.workItemRepository().update(itemA.copy(title = "S5 A renamed"))
             }
 
-            val events = bus.ringBufferSnapshot().drop(baselineCount)
+            val events = bus.projectedEvents().drop(baselineCount)
             assertEquals(
                 2,
                 events.size,
@@ -286,13 +286,13 @@ class DependencyEventRootScopingTest {
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
             val (_, itemA, itemB) = createRootAndChildren(provider, "S6")
-            val baselineCount = bus.ringBufferSnapshot().size
+            val baselineCount = bus.projectedEvents().size
 
             provider.dependencyRepository().create(
                 Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS),
             )
 
-            val events = bus.ringBufferSnapshot().drop(baselineCount)
+            val events = bus.projectedEvents().drop(baselineCount)
             assertEquals(
                 1,
                 events.size,
@@ -315,12 +315,12 @@ class DependencyEventRootScopingTest {
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
             val (_, itemA, itemB) = createRootAndChildren(provider, "ProbeA")
-            val baselineCount = bus.ringBufferSnapshot().size
+            val baselineCount = bus.projectedEvents().size
 
             provider.dependencyRepository().create(
                 Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS),
             )
-            assertEquals(1, bus.ringBufferSnapshot().drop(baselineCount).size, "first create publishes exactly one event")
+            assertEquals(1, bus.projectedEvents().drop(baselineCount).size, "first create publishes exactly one event")
 
             assertThrows<ValidationException> {
                 provider.dependencyRepository().create(
@@ -330,7 +330,7 @@ class DependencyEventRootScopingTest {
 
             assertEquals(
                 1,
-                bus.ringBufferSnapshot().drop(baselineCount).size,
+                bus.projectedEvents().drop(baselineCount).size,
                 "a rejected duplicate must not publish a second dependency.added event",
             )
         }
@@ -353,7 +353,7 @@ class DependencyEventRootScopingTest {
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
             val (_, itemA, itemB) = createRootAndChildren(provider, "ProbeC")
-            val baselineCount = bus.ringBufferSnapshot().size
+            val baselineCount = bus.projectedEvents().size
 
             // A -> B and B -> A would be a rejected cycle for BLOCKS; RELATES_TO is exempt from
             // cycle detection, so both creates must succeed and both must publish.
@@ -364,7 +364,7 @@ class DependencyEventRootScopingTest {
                 Dependency(fromItemId = itemB.id, toItemId = itemA.id, type = DependencyType.RELATES_TO),
             )
 
-            val events = bus.ringBufferSnapshot().drop(baselineCount)
+            val events = bus.projectedEvents().drop(baselineCount)
             assertEquals(2, events.size, "both RELATES_TO creates must publish; neither is rejected as a cycle")
             assertTrue(events.all { it.event == ApiEventType.DEPENDENCY_ADDED })
         }
@@ -376,12 +376,12 @@ class DependencyEventRootScopingTest {
             val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
-            val baselineCount = bus.ringBufferSnapshot().size
+            val baselineCount = bus.projectedEvents().size
 
             val result = provider.dependencyRepository().delete(UUID.randomUUID())
 
             assertFalse(result, "deleting an id that was never created must return false")
-            assertEquals(baselineCount, bus.ringBufferSnapshot().size, "no dependency.removed event for an unknown id")
+            assertEquals(baselineCount, bus.projectedEvents().size, "no dependency.removed event for an unknown id")
         }
 
     /** Probe (e): two creates in one transaction flush in enqueue order on commit. */
@@ -405,7 +405,7 @@ class DependencyEventRootScopingTest {
                 provider
                     .workItemRepository()
                     .create(WorkItem(title = "ProbeE C", parentId = root.id, depth = 1))!!
-            val baselineCount = bus.ringBufferSnapshot().size
+            val baselineCount = bus.projectedEvents().size
 
             db.unitOfWork().inUnit {
                 provider.dependencyRepository().create(
@@ -416,7 +416,7 @@ class DependencyEventRootScopingTest {
                 )
             }
 
-            val events = bus.ringBufferSnapshot().drop(baselineCount)
+            val events = bus.projectedEvents().drop(baselineCount)
             assertEquals(
                 2,
                 events.size,

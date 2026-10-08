@@ -3,10 +3,16 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 import com.lemonappdev.konsist.api.Konsist
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStore
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.application.port.HierarchyStore
+import io.github.jpicklyk.mcptask.current.application.port.IdempotencyStore
 import io.github.jpicklyk.mcptask.current.application.port.ItemStore
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
+import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -86,17 +92,102 @@ class EventPublishingDecoratorGuardTest {
 
     private val readOnlyAllowListExact =
         setOf(
-            // ping/descendantIds read; clear is the claim-column cleanup that always runs inside a unit whose
-            // item update() already publishes item.updated, so it is deliberately a plain delegation.
+            // P8: `clear` is no longer allow-listed; it records claim.released (reason cleared).
             "ping",
             "descendantIds",
-            "clear",
             "search",
             "ftsSearch",
             "hasCyclicDependency",
             "backlinks",
             "resolveChildPlacement",
+            "list",
+            // Pure functions on the config / plan-document ports (no store access).
+            "computeFingerprint",
+            "classifyFingerprint",
+            "computeContentHash",
         )
+
+    /**
+     * Stores the decorator deliberately passes through unrecorded, with their full method surface (P8 F4). A new
+     * method on one of them fails here until it is classified. The event store is never decorated: its appends
+     * are what the decorator records.
+     */
+    private val passThroughSurfaces =
+        mapOf(
+            IdempotencyStore::class.java to setOf("find", "upsert", "insertIfAbsent", "deleteExpired"),
+            EventStore::class.java to setOf("append", "readAfter", "maxSeq"),
+        )
+
+    /** Shared classification: every declared method of [port] is overridden by [decoratorClass] or allow-listed. */
+    private fun assertClassified(
+        port: Class<*>,
+        expectedNames: Set<String>,
+        decoratorClass: String,
+    ) {
+        val actualNames = declaredInterfaceMethodNames(port)
+        assertEquals(expectedNames, actualNames, "${port.simpleName}'s declared method-name surface has changed")
+
+        val evented = overriddenFunctionNames(decoratorClass)
+        assertTrue(evented.isNotEmpty(), "$decoratorClass must override at least one method")
+        val staleOrTypoed = evented - actualNames
+        assertTrue(staleOrTypoed.isEmpty(), "$decoratorClass overrides name(s) not on ${port.simpleName}: $staleOrTypoed")
+
+        val unclassified = actualNames.filterNot { it in evented || isReadOnlyAllowListed(it) }
+        assertTrue(unclassified.isEmpty(), "Unclassified ${port.simpleName} methods: $unclassified")
+    }
+
+    @Test
+    fun `LeaseStore method surface is fully classified as EVENTED or read-only allow-listed`() =
+        assertClassified(
+            LeaseStore::class.java,
+            setOf(
+                "acquireAll",
+                "releaseAllForItem",
+                "releaseAllForItems",
+                "forceReleaseByKey",
+                "findActiveByKeys",
+                "findActiveForItem",
+                "findAllActive",
+                "findHoldersAt",
+                "findRecentIntervals",
+            ),
+            "EventPublishingLeaseStore",
+        )
+
+    @Test
+    fun `TransitionStore method surface is fully classified as EVENTED or read-only allow-listed`() =
+        assertClassified(
+            TransitionStore::class.java,
+            setOf("create", "findByItemId", "findByTimeRange", "findSince"),
+            "EventPublishingTransitionStore",
+        )
+
+    @Test
+    fun `ProjectConfigStore method surface is fully classified as EVENTED or read-only allow-listed`() =
+        assertClassified(
+            ProjectConfigStore::class.java,
+            setOf("upsert", "upsertGuarded", "get", "getFingerprint", "delete", "computeFingerprint", "classifyFingerprint"),
+            "EventPublishingProjectConfigStore",
+        )
+
+    @Test
+    fun `PlanDocumentStore method surface is fully classified as EVENTED or read-only allow-listed`() =
+        assertClassified(
+            PlanDocumentStore::class.java,
+            setOf("stash", "get", "list", "markAdopted", "computeContentHash"),
+            "EventPublishingPlanDocumentStore",
+        )
+
+    @Test
+    fun `pass-through stores are named explicitly and handed through unwrapped`() {
+        for ((port, surface) in passThroughSurfaces) {
+            assertEquals(surface, declaredInterfaceMethodNames(port), "${port.simpleName}'s declared method-name surface has changed")
+        }
+        val delegate = db.repositoryProvider()
+        val provider = EventPublishingRepositoryProvider(delegate, ApiEventBus())
+        assertTrue(provider.idempotencyStore() === delegate.idempotencyStore(), "the idempotency store must pass through")
+        assertTrue(provider.eventStore() === delegate.eventStore(), "the event store must never be decorated")
+    }
 
     private fun isReadOnlyAllowListed(name: String): Boolean {
         if (name in readOnlyAllowListExact) return true
@@ -180,6 +271,7 @@ class EventPublishingDecoratorGuardTest {
                 "findByItemId",
                 "findByItemIdAndKey",
                 "findByItemIds",
+                "findRefsByItemIds",
                 "ftsSearch",
             )
 
@@ -267,5 +359,9 @@ class EventPublishingDecoratorGuardTest {
             "EventPublishingRepositoryProvider.workTreeExecutor() must return a wrapping decorator " +
                 "instance distinct from the delegate's raw executor",
         )
+        assertTrue(provider.resourceLeaseRepository() !== delegate.resourceLeaseRepository(), "the lease store must be wrapped")
+        assertTrue(provider.roleTransitionRepository() !== delegate.roleTransitionRepository(), "the transition store must be wrapped")
+        assertTrue(provider.projectConfigRepository() !== delegate.projectConfigRepository(), "the config store must be wrapped")
+        assertTrue(provider.planDocumentRepository() !== delegate.planDocumentRepository(), "the plan-document store must be wrapped")
     }
 }

@@ -2,8 +2,11 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.FROM_START
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.emit
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
+import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -29,7 +32,6 @@ import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import java.time.Instant
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 import io.ktor.client.plugins.sse.SSE as ClientSSE
@@ -170,7 +172,7 @@ class BearerSchemeParsingTest {
     @Test
     fun `S3 - SSE accepts mixed-case bEaReR scheme and streams`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = InMemoryEventStore())
             val config = bearerConfig()
             val entries = config.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) }
             application {
@@ -180,7 +182,7 @@ class BearerSchemeParsingTest {
             }
 
             val itemId = UUID.randomUUID()
-            bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemId, modifiedAt = Instant.now()), emptySet())
+            bus.emit(ApiEventType.ITEM_CREATED, itemId = itemId)
 
             val sseClient = createClient { install(ClientSSE) }
             val collected = mutableListOf<String>()
@@ -189,7 +191,7 @@ class BearerSchemeParsingTest {
                     urlString = "/events",
                     request = {
                         header(HttpHeaders.Authorization, "bEaReR $VALID_TOKEN")
-                        header("Last-Event-ID", "0")
+                        header("Last-Event-ID", FROM_START)
                     },
                 ) {
                     incoming.take(1).toList().forEach { collected.add(it.event ?: "") }
@@ -204,7 +206,7 @@ class BearerSchemeParsingTest {
     @Test
     fun `S3 - SSE accepts multiple spaces before the credential and streams`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = InMemoryEventStore())
             val config = bearerConfig()
             val entries = config.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) }
             application {
@@ -214,7 +216,7 @@ class BearerSchemeParsingTest {
             }
 
             val itemId = UUID.randomUUID()
-            bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemId, modifiedAt = Instant.now()), emptySet())
+            bus.emit(ApiEventType.ITEM_CREATED, itemId = itemId)
 
             val sseClient = createClient { install(ClientSSE) }
             val collected = mutableListOf<String>()
@@ -223,7 +225,7 @@ class BearerSchemeParsingTest {
                     urlString = "/events",
                     request = {
                         header(HttpHeaders.Authorization, "Bearer   $VALID_TOKEN")
-                        header("Last-Event-ID", "0")
+                        header("Last-Event-ID", FROM_START)
                     },
                 ) {
                     incoming.take(1).toList().forEach { collected.add(it.event ?: "") }

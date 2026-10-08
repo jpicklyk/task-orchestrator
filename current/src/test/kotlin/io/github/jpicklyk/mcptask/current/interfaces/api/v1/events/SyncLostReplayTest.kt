@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.take
@@ -12,7 +13,6 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import java.time.Instant
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 
@@ -43,12 +43,11 @@ class SyncLostReplayTest {
     @Test
     fun `S1 - reconnecting after eviction yields sync_lost buffer_evicted then exactly the retained tail in order`(): Unit =
         runBlocking {
-            val bus = ApiEventBus(bufferSize = 4)
+            val bus = ApiEventBus(bufferSize = 4, source = InMemoryEventStore())
             val published = mutableListOf<ApiEvent>()
             repeat(10) {
-                val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
+                val e = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
                 published.add(e)
-                bus.publish(e, emptySet())
             }
             // lastEventId = id of the 2nd published event -- long evicted (only the last 4 remain).
             val flow = bus.subscribe("s1", emptySet(), lastEventId = published[1].id)
@@ -74,12 +73,11 @@ class SyncLostReplayTest {
     @Test
     fun `S2 - lastEventId within the retained window replays exactly the events after it with no sentinel`(): Unit =
         runBlocking {
-            val bus = ApiEventBus(bufferSize = 10)
+            val bus = ApiEventBus(bufferSize = 10, source = InMemoryEventStore())
             val published = mutableListOf<ApiEvent>()
             repeat(5) {
-                val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
+                val e = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
                 published.add(e)
-                bus.publish(e, emptySet())
             }
             val flow = bus.subscribe("s2", emptySet(), lastEventId = published[1].id)
             val collected = withTimeout(5.seconds) { flow.take(3).toList() }
@@ -100,12 +98,11 @@ class SyncLostReplayTest {
     @Test
     fun `S3a - lastEventId at oldestRetained_id minus 1 yields no sentinel and a full replay`(): Unit =
         runBlocking {
-            val bus = ApiEventBus(bufferSize = 3)
+            val bus = ApiEventBus(bufferSize = 3, source = InMemoryEventStore())
             val published = mutableListOf<ApiEvent>()
             repeat(5) {
-                val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
+                val e = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
                 published.add(e)
-                bus.publish(e, emptySet())
             }
             val oldestRetainedId = published[2].id // bufferSize=3 retains ids 3,4,5
             val flow = bus.subscribe("s3a", emptySet(), lastEventId = oldestRetainedId - 1)
@@ -123,12 +120,11 @@ class SyncLostReplayTest {
     @Test
     fun `S3b - lastEventId one below the no-gap boundary yields a sentinel`(): Unit =
         runBlocking {
-            val bus = ApiEventBus(bufferSize = 3)
+            val bus = ApiEventBus(bufferSize = 3, source = InMemoryEventStore())
             val published = mutableListOf<ApiEvent>()
             repeat(5) {
-                val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
+                val e = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
                 published.add(e)
-                bus.publish(e, emptySet())
             }
             val oldestRetainedId = published[2].id
             val flow = bus.subscribe("s3b", emptySet(), lastEventId = oldestRetainedId - 2)
@@ -153,16 +149,15 @@ class SyncLostReplayTest {
     @Test
     fun `S4 - no Last-Event-ID after eviction yields no sentinel and no replay, live events only`(): Unit =
         runBlocking {
-            val bus = ApiEventBus(bufferSize = 3)
+            val bus = ApiEventBus(bufferSize = 3, source = InMemoryEventStore())
             repeat(5) {
-                bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now()), emptySet())
+                bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
             }
             val flow = bus.subscribe("s4", emptySet(), lastEventId = null)
             val collected = async { withTimeout(5.seconds) { flow.take(1).toList() } }
 
             delay(50)
-            val live = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
-            bus.publish(live, emptySet())
+            val live = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
 
             val events = collected.await()
             assertEquals(1, events.size, "S4: expected exactly the live event, no replay/sentinel. Got: $events")
@@ -178,12 +173,11 @@ class SyncLostReplayTest {
     @Test
     fun `S5 - a lastEventId beyond the current counter yields sync_lost unknown_event_id then a full replay`(): Unit =
         runBlocking {
-            val bus = ApiEventBus(bufferSize = 3)
+            val bus = ApiEventBus(bufferSize = 3, source = InMemoryEventStore())
             val published = mutableListOf<ApiEvent>()
             repeat(5) {
-                val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
+                val e = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
                 published.add(e)
-                bus.publish(e, emptySet())
             }
             val oldestRetainedId = published[2].id
             val bogus = published.last().id + 100
@@ -210,12 +204,11 @@ class SyncLostReplayTest {
     @Test
     fun `S10 - the sentinel id is lower than everything replayed after it, and reconnecting at that id yields no sentinel`(): Unit =
         runBlocking {
-            val bus = ApiEventBus(bufferSize = 4)
+            val bus = ApiEventBus(bufferSize = 4, source = InMemoryEventStore())
             val published = mutableListOf<ApiEvent>()
             repeat(10) {
-                val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
+                val e = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
                 published.add(e)
-                bus.publish(e, emptySet())
             }
             val firstFlow = bus.subscribe("s10-first", emptySet(), lastEventId = published[1].id)
             val firstCollected = withTimeout(5.seconds) { firstFlow.take(5).toList() }
@@ -249,12 +242,12 @@ class SyncLostReplayTest {
     @Test
     fun `S11 - a queue-overflow sentinel carries reason queue_overflow with a null itemId`(): Unit =
         runBlocking {
-            val bus = ApiEventBus(bufferSize = 1000, connectionQueueSize = 4)
+            val bus = ApiEventBus(bufferSize = 1000, connectionQueueSize = 4, source = InMemoryEventStore())
             val root = UUID.randomUUID()
             val flow = bus.subscribe("s11", setOf(root), lastEventId = null)
 
             repeat(10) {
-                bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID()), setOf(root))
+                bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), rootId = root)
             }
 
             val collected = withTimeout(5.seconds) { flow.take(4).toList() }
@@ -276,12 +269,11 @@ class SyncLostReplayTest {
     @Test
     fun `S12 - the ring buffer never retains an auto-generated sentinel, and a concurrent healthy cursor sees none`(): Unit =
         runBlocking {
-            val bus = ApiEventBus(bufferSize = 4)
+            val bus = ApiEventBus(bufferSize = 4, source = InMemoryEventStore())
             val published = mutableListOf<ApiEvent>()
             repeat(10) {
-                val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
+                val e = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
                 published.add(e)
-                bus.publish(e, emptySet())
             }
 
             // Trigger a sentinel for an evicted-cursor subscriber; this must not enter the buffer.
@@ -290,8 +282,8 @@ class SyncLostReplayTest {
             bus.unsubscribe("s12-evicted")
 
             assertTrue(
-                bus.ringBufferSnapshot().none { it.event == ApiEventType.SYNC_LOST },
-                "S12: the ring buffer must never retain an auto-generated sync.lost sentinel. Got: ${bus.ringBufferSnapshot()}",
+                bus.projectedEvents().none { it.event == ApiEventType.SYNC_LOST },
+                "S12: the ring buffer must never retain an auto-generated sync.lost sentinel. Got: ${bus.projectedEvents()}",
             )
 
             // A healthy-cursor subscriber (lastEventId inside the retained window) must see no sentinel.
@@ -312,12 +304,15 @@ class SyncLostReplayTest {
     @Test
     fun `probe - bufferSize 0 does not crash publish and still delivers live events`(): Unit =
         runBlocking {
-            val bus = ApiEventBus(bufferSize = 0)
-            repeat(3) {
-                bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now()), emptySet())
-            }
-            // Resume requested against an always-empty buffer: sentinel id falls back to idCounter.get().
-            val flow = bus.subscribe("probe-buf0", emptySet(), lastEventId = 1L)
+            val bus = ApiEventBus(bufferSize = 0, source = InMemoryEventStore())
+            val emitted =
+                (1..3).map {
+                    bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
+                }
+            // Resume requested with no replay window: sentinel id falls back to the high-water mark.
+            // P8 expected-value change: the cursor is a real (evicted) seq instead of 1, and the high-water
+            // mark is the newest seq instead of the per-bus counter value 3.
+            val flow = bus.subscribe("probe-buf0", emptySet(), lastEventId = emitted.first().id)
             val collected = withTimeout(5.seconds) { flow.take(1).toList() }
             assertEquals(
                 ApiEventType.SYNC_LOST,
@@ -325,9 +320,9 @@ class SyncLostReplayTest {
                 "probe: an empty buffer with a resume request must still surface a sentinel, not crash"
             )
             assertEquals(
-                3L,
+                emitted.last().id,
                 collected[0].id,
-                "probe: with bufferSize=0 the sentinel id must fall back to the current counter (3 events built)"
+                "probe: with bufferSize=0 the sentinel id must fall back to the high-water mark (the 3rd event's seq)"
             )
             bus.unsubscribe("probe-buf0")
 
@@ -335,8 +330,7 @@ class SyncLostReplayTest {
             val flow2 = bus.subscribe("probe-buf0-live", emptySet(), lastEventId = null)
             val live = async { withTimeout(5.seconds) { flow2.take(1).toList() } }
             delay(50)
-            val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
-            bus.publish(e, emptySet())
+            val e = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
             val events = live.await()
             assertEquals(1, events.size)
             assertEquals(e.id, events[0].id)
@@ -346,12 +340,11 @@ class SyncLostReplayTest {
     @Test
     fun `probe - bufferSize 1 evicts down to a single retained event without crashing`(): Unit =
         runBlocking {
-            val bus = ApiEventBus(bufferSize = 1)
+            val bus = ApiEventBus(bufferSize = 1, source = InMemoryEventStore())
             val published = mutableListOf<ApiEvent>()
             repeat(3) {
-                val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
+                val e = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
                 published.add(e)
-                bus.publish(e, emptySet())
             }
             val flow = bus.subscribe("probe-buf1", emptySet(), lastEventId = published[0].id)
             val collected = withTimeout(5.seconds) { flow.take(2).toList() }
@@ -362,20 +355,21 @@ class SyncLostReplayTest {
         }
 
     @Test
-    fun `probe - lastEventId 0 before any event is published yields no sentinel`(): Unit =
+    fun `probe - a start-of-log lastEventId before any event is published yields no sentinel`(): Unit =
         runBlocking {
-            val bus = ApiEventBus(bufferSize = 4)
-            val flow = bus.subscribe("probe-zero", emptySet(), lastEventId = 0L)
+            val bus = ApiEventBus(bufferSize = 4, source = InMemoryEventStore())
+            // P8 expected-value change: the start-of-log cursor is the seq floor; 0 is now an old ring-buffer id
+            // and is answered with sync.lost unknown_event_id (F2).
+            val flow = bus.subscribe("probe-zero", emptySet(), lastEventId = FROM_START.toLong())
             val collected = async { withTimeout(5.seconds) { flow.take(1).toList() } }
             delay(50)
-            val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
-            bus.publish(e, emptySet())
+            val e = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
             val events = collected.await()
             assertEquals(1, events.size)
             assertNotEquals(
                 ApiEventType.SYNC_LOST,
                 events[0].event,
-                "probe: lastEventId=0 against a never-published bus must not be treated as a gap. Got: $events",
+                "probe: a start-of-log cursor against a never-published bus must not be treated as a gap. Got: $events",
             )
             bus.unsubscribe("probe-zero")
         }
@@ -383,9 +377,9 @@ class SyncLostReplayTest {
     @Test
     fun `probe - a negative lastEventId is treated as a gap and yields a sentinel`(): Unit =
         runBlocking {
-            val bus = ApiEventBus(bufferSize = 3)
+            val bus = ApiEventBus(bufferSize = 3, source = InMemoryEventStore())
             repeat(5) {
-                bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now()), emptySet())
+                bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
             }
             val flow = bus.subscribe("probe-negative", emptySet(), lastEventId = -5L)
             val collected = withTimeout(5.seconds) { flow.take(4).toList() }
@@ -410,12 +404,11 @@ class SyncLostReplayTest {
     @Test
     fun `probe - Long_MAX_VALUE lastEventId yields an unknown_event_id sentinel like a smaller out-of-range id`(): Unit =
         runBlocking {
-            val bus = ApiEventBus(bufferSize = 3)
+            val bus = ApiEventBus(bufferSize = 3, source = InMemoryEventStore())
             val published = mutableListOf<ApiEvent>()
             repeat(5) {
-                val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
+                val e = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
                 published.add(e)
-                bus.publish(e, emptySet())
             }
             val oldestRetainedId = published[2].id
             val flow = bus.subscribe("probe-maxlong", emptySet(), lastEventId = Long.MAX_VALUE)
@@ -433,12 +426,11 @@ class SyncLostReplayTest {
     @Test
     fun `probe - reconnecting twice at the same evicted lastEventId is idempotent`(): Unit =
         runBlocking {
-            val bus = ApiEventBus(bufferSize = 4)
+            val bus = ApiEventBus(bufferSize = 4, source = InMemoryEventStore())
             val published = mutableListOf<ApiEvent>()
             repeat(10) {
-                val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
+                val e = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
                 published.add(e)
-                bus.publish(e, emptySet())
             }
             val cursor = published[1].id
 

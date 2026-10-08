@@ -44,6 +44,9 @@ interface ReadScope {
 
 /** What a write unit can do on top of reading. */
 interface WriteScope : ReadScope {
+    /** Records typed domain events as `events` rows inside this unit (they commit or roll back with it). */
+    val events: EventSink
+
     /**
      * Runs [fn] after the unit COMMITS, in a non-cancellable context. A failure is logged at WARN
      * and does not change the [Outcome]. Registered from a joined scope, it fires once, on the
@@ -83,6 +86,13 @@ internal class ActiveUnit(
 
     @Volatile
     private var fault: Throwable? = null
+
+    /**
+     * The [UnitOfWork] that opened this (outermost) unit, when it sets one. A rollback hook uses it to open a
+     * FRESH unit (see `EventRecorder.recordRejection`); hooks run after the unit has ended, outside any ambient unit.
+     */
+    @Volatile
+    var owner: UnitOfWork? = null
 
     /**
      * Records [t], thrown out of a store transaction JOINED to this unit. Exposed has then already rolled the

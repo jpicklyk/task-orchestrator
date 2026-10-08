@@ -54,7 +54,7 @@ class EventPublishingTransactionRollbackTest {
             // synchronously (its own internal suspendTransaction commits before the decorator
             // publishes). We only assert on events published AFTER this baseline.
             val item = provider.workItemRepository().create(WorkItem(title = "S4 Item", depth = 0))!!
-            val baselineCount = bus.ringBufferSnapshot().size
+            val baselineCount = bus.projectedEvents().size
 
             var caught: Throwable? = null
             try {
@@ -67,7 +67,7 @@ class EventPublishingTransactionRollbackTest {
             }
             assertTrue(caught is IllegalStateException, "expected the transaction failure to propagate, got: $caught")
 
-            val afterEvents = bus.ringBufferSnapshot().drop(baselineCount)
+            val afterEvents = bus.projectedEvents().drop(baselineCount)
             assertTrue(
                 afterEvents.none { it.event == ApiEventType.ITEM_UPDATED || it.event == ApiEventType.ITEM_ADVANCED },
                 "a rolled-back update must publish zero item.updated/item.advanced events (got: $afterEvents)",
@@ -87,7 +87,7 @@ class EventPublishingTransactionRollbackTest {
 
             val itemA = provider.workItemRepository().create(WorkItem(title = "S5 A", depth = 0))!!
             val itemB = provider.workItemRepository().create(WorkItem(title = "S5 B", depth = 0))!!
-            val baselineCount = bus.ringBufferSnapshot().size
+            val baselineCount = bus.projectedEvents().size
 
             var caught: Throwable? = null
             try {
@@ -101,7 +101,7 @@ class EventPublishingTransactionRollbackTest {
             }
             assertTrue(caught is IllegalStateException, "expected the transaction failure to propagate, got: $caught")
 
-            val afterEvents = bus.ringBufferSnapshot().drop(baselineCount)
+            val afterEvents = bus.projectedEvents().drop(baselineCount)
             assertTrue(
                 afterEvents.none { it.event == ApiEventType.ITEM_DELETED },
                 "a rolled-back cascade delete must publish zero item.deleted events, mirroring " +
@@ -119,12 +119,12 @@ class EventPublishingTransactionRollbackTest {
             val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
-            val baselineCount = bus.ringBufferSnapshot().size
+            val baselineCount = bus.projectedEvents().size
 
             val item = provider.workItemRepository().create(WorkItem(title = "S8 Item", depth = 0))!!
             provider.noteRepository().upsert(Note(itemId = item.id, key = "s8-note", role = "queue", body = "hello"))
 
-            val events = bus.ringBufferSnapshot().drop(baselineCount)
+            val events = bus.projectedEvents().drop(baselineCount)
             assertEquals(2, events.size, "create + note upsert must each publish exactly one event (got: $events)")
             assertEquals(ApiEventType.ITEM_CREATED, events[0].event)
             assertEquals(ApiEventType.NOTE_UPSERTED, events[1].event)
@@ -144,7 +144,7 @@ class EventPublishingTransactionRollbackTest {
             assertEquals(0, bus.subscriberCount(), "precondition: no subscriber connected")
 
             val item = provider.workItemRepository().create(WorkItem(title = "S9 Item", depth = 0))!!
-            val baselineCount = bus.ringBufferSnapshot().size
+            val baselineCount = bus.projectedEvents().size
 
             var caught: Throwable? = null
             try {
@@ -160,7 +160,7 @@ class EventPublishingTransactionRollbackTest {
             assertEquals(0, bus.subscriberCount(), "still zero subscribers")
             assertEquals(
                 baselineCount,
-                bus.ringBufferSnapshot().size,
+                bus.projectedEvents().size,
                 "a rolled-back publish adds nothing to the ring buffer regardless of subscriber count",
             )
         }

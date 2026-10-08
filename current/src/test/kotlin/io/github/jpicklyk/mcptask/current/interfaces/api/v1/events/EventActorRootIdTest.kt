@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.TreeDepSpec
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
@@ -11,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsToo
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
+import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -18,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -156,7 +159,14 @@ class EventActorRootIdTest {
             val root = provider.newRoot("R-s1a")
             val child = provider.newChild("C-s1a", root)
             val renamed = provider.workItemRepository().update(child.copy(title = "C-s1a-renamed"))!!
-            provider.workItemRepository().update(renamed.copy(role = Role.WORK))!!
+            // P8: an advance is the role-changing update plus its transition row, in one unit (as
+            // RoleTransitionHandler.applyTransition writes them); the transition row projects as item.advanced.
+            db.unitOfWork().inUnit {
+                provider.workItemRepository().update(renamed.copy(role = Role.WORK))!!
+                provider.roleTransitionRepository().create(
+                    RoleTransition(itemId = child.id, fromRole = "queue", toRole = "work", trigger = "start"),
+                )
+            }
             provider.workItemRepository().delete(child.id)
 
             val events = bus.drainDelivered("s1a", flow)
@@ -466,7 +476,7 @@ class EventActorRootIdTest {
             assertTrue(threw, "fixture: the forced exception must propagate")
             val events = bus.drainDelivered("s5b", flow)
             assertTrue(events.isEmpty(), "rollback must publish nothing, got: $events")
-            assertTrue(bus.ringBufferSnapshot().isEmpty(), "rollback must buffer nothing")
+            assertTrue(bus.projectedEvents().isEmpty(), "rollback must buffer nothing")
         }
 
     // -------------------------------------------------------------------------
@@ -560,7 +570,7 @@ class EventActorRootIdTest {
             val provider = decorated(bus)
 
             val root = provider.newRoot("R-s7")
-            val w = bus.ringBufferSnapshot().last().id
+            val w = bus.projectedEvents().last().id
             assertEquals(0, bus.subscriberCount(), "fixture: nothing may be subscribed during the write")
             val child = withEventActor(agentA) { provider.newChild("C-s7", root) }
 
@@ -568,8 +578,9 @@ class EventActorRootIdTest {
             val events = bus.drainDelivered("s7", flow)
 
             val ev = events.one(ApiEventType.ITEM_CREATED, child.id)
-            assertNull(ev.rootId, "an unresolved event carries no rootId (task-scope: documented limitation)")
-            assertEquals(dtoA(), ev.actor, "the actor is still present on an unresolved event")
+            // P8 expected-value change: the zero-subscriber limitation is gone; every row carries its root.
+            assertEquals(root.id.toString(), ev.rootId, "a zero-subscriber write carries its resolved rootId since P8")
+            assertEquals(dtoA(), ev.actor, "the actor is present on a zero-subscriber write")
         }
 
     @Test
@@ -799,44 +810,40 @@ class EventActorRootIdTest {
         }
 
     // -------------------------------------------------------------------------
-    // S13 -- DeferredEventPublisher carries actor/rootId through to the built event
+    // S13 -- the recorded row carries actor/rootId through to the projected event
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S13 a PendingApiEvent actor and rootId are carried onto the published event`(): Unit =
+    fun `S13 a recorded event's actor and rootId are carried onto the projected event`(): Unit =
         runBlocking {
-            val bus = ApiEventBus()
-            val publisher = DeferredEventPublisher(bus)
+            val store = repositoryProvider.eventStore()
+            val bus = ApiEventBus(source = store)
+            val recorder = EventRecorder(store, listener = DeferredEventPublisher(bus))
             val itemId = UUID.randomUUID()
             val rootId = UUID.randomUUID()
 
-            publisher.publishOnCommit(
-                PendingApiEvent(
-                    eventType = ApiEventType.ITEM_UPDATED,
-                    itemId = itemId,
-                    affectedRoots = setOf(rootId),
-                    actor = agentA,
-                    rootId = rootId,
-                ),
-            )
+            withEventActor(agentA) { recorder.record(DomainEvent.ItemUpdated(itemId, rootId, listOf("title"))) }
 
-            val snapshot = bus.ringBufferSnapshot()
+            val snapshot = bus.projectedEvents()
             assertEquals(1, snapshot.size)
             assertEquals(dtoA(), snapshot[0].actor)
             assertEquals(rootId.toString(), snapshot[0].rootId)
         }
 
     @Test
-    fun `S13b a PendingApiEvent with no actor and no rootId publishes an event with both null`(): Unit =
+    fun `S13b a recorded event with no actor projects a null actor and its own root`(): Unit =
         runBlocking {
-            val bus = ApiEventBus()
-            val publisher = DeferredEventPublisher(bus)
+            val store = repositoryProvider.eventStore()
+            val bus = ApiEventBus(source = store)
+            val recorder = EventRecorder(store, listener = DeferredEventPublisher(bus))
+            val itemId = UUID.randomUUID()
 
-            publisher.publishOnCommit(PendingApiEvent(eventType = ApiEventType.ITEM_UPDATED, itemId = UUID.randomUUID()))
+            recorder.record(DomainEvent.ItemUpdated(itemId, itemId, listOf("title")))
 
-            val snapshot = bus.ringBufferSnapshot()
+            val snapshot = bus.projectedEvents()
             assertEquals(1, snapshot.size)
             assertNull(snapshot[0].actor)
-            assertNull(snapshot[0].rootId)
+            // P8: every row carries a root (a root item uses its own id), so rootId is never absent.
+            assertEquals(itemId.toString(), snapshot[0].rootId)
         }
 }

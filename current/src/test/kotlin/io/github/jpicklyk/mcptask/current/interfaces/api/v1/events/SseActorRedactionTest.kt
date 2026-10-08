@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
+import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
@@ -116,12 +117,10 @@ class SseActorRedactionTest {
         itemId: UUID,
         rootId: UUID?,
         actor: ActorClaim?,
-    ): (ApiEventBus) -> Unit =
+    ): suspend (ApiEventBus) -> Unit =
         { bus ->
-            bus.publish(
-                bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = itemId, modifiedAt = FIXED_TIME, actor = actor, rootId = rootId),
-                affectedRoots = rootId?.let { setOf(it) } ?: emptySet(),
-            )
+            // P8: a row always has a root; a null rootId means "the item is its own root".
+            bus.emit(ApiEventType.ITEM_UPDATED, itemId = itemId, rootId = rootId ?: itemId, actor = actor, at = FIXED_TIME)
         }
 
     /** Connects as the given principal and returns the first raw frame (replay or live) plus its raw text. */
@@ -130,11 +129,11 @@ class SseActorRedactionTest {
         redact: Boolean,
         live: Boolean,
         readScope: ApiScope = ApiScope(rootIds = null, tagsInclude = emptySet()),
-        publish: (ApiEventBus) -> Unit,
+        publish: suspend (ApiEventBus) -> Unit,
     ): Pair<JsonObject, String> {
         var out: Pair<JsonObject, String>? = null
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = InMemoryEventStore())
             if (!live) publish(bus)
             application { wire(bus, entries(readScope), redact) }
             val client = createClient { install(ClientSSE) }
@@ -155,7 +154,7 @@ class SseActorRedactionTest {
                         urlString = "/events",
                         request = {
                             header(HttpHeaders.Authorization, "Bearer ${if (admin) ADMIN_TOKEN else READ_TOKEN}")
-                            if (!live) header("Last-Event-ID", "0")
+                            if (!live) header("Last-Event-ID", FROM_START)
                         },
                     ) {
                         val raw =
@@ -257,17 +256,19 @@ class SseActorRedactionTest {
         )
 
         val bare = fetchFrame(admin = false, redact = true, live = false, publish = publisher(UUID.randomUUID(), null, null))
+        // P8 expected-value change: every row carries a root (a root item uses its own id), so rootId is always
+        // present; an event without an actor still has no actor key.
         assertEquals(
-            setOf("id", "event", "itemId", "modifiedAt"),
+            setOf("id", "event", "itemId", "modifiedAt", "rootId"),
             bare.first.keys,
-            "an event with neither actor nor rootId keeps the pre-existing key set, got: ${bare.second}",
+            "an event without an actor has no actor key (rootId is always present since P8), got: ${bare.second}",
         )
     }
 
     @Test
     fun `S8f redaction is egress-only so a later admin connection still sees the actor`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = InMemoryEventStore())
             val itemId = UUID.randomUUID()
             val rootId = UUID.randomUUID()
             publisher(itemId, rootId, claim)(bus)
@@ -281,7 +282,7 @@ class SseActorRedactionTest {
                         urlString = "/events",
                         request = {
                             header(HttpHeaders.Authorization, "Bearer $token")
-                            header("Last-Event-ID", "0")
+                            header("Last-Event-ID", FROM_START)
                         },
                     ) {
                         val raw =
@@ -323,20 +324,12 @@ class SseActorRedactionTest {
     @Test
     fun `S9a the replay-gap sync_lost sentinel carries neither actor nor rootId for admin and read-only alike`(): Unit =
         testApplication {
-            val bus = ApiEventBus(bufferSize = 3)
+            val bus = ApiEventBus(bufferSize = 3, source = InMemoryEventStore())
             val rootId = UUID.randomUUID()
             val published = mutableListOf<ApiEvent>()
             repeat(5) {
-                val e =
-                    bus.buildEvent(
-                        ApiEventType.ITEM_UPDATED,
-                        itemId = UUID.randomUUID(),
-                        modifiedAt = FIXED_TIME,
-                        actor = claim,
-                        rootId = rootId,
-                    )
+                val e = bus.emit(ApiEventType.ITEM_UPDATED, itemId = UUID.randomUUID(), rootId = rootId, actor = claim, at = FIXED_TIME)
                 published.add(e)
-                bus.publish(e, setOf(rootId))
             }
             application { wire(bus, entries(), redact = false) }
             val client = createClient { install(ClientSSE) }
@@ -370,7 +363,7 @@ class SseActorRedactionTest {
     @Test
     fun `S9b auth_expired carries neither actor nor rootId`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = InMemoryEventStore())
             application {
                 wire(bus, entries(readExpiresAt = Instant.now().plusMillis(1200)), redact = false, authCheckIntervalSeconds = 1)
             }

@@ -200,7 +200,7 @@ API_ALLOW_UNAUTHENTICATED=true
 | `CORS_ALLOWED_HEADERS` | CORS enabled | `Authorization,Content-Type,If-Match` | Comma-separated request headers. |
 | `CORS_EXPOSE_HEADERS` | CORS enabled | `ETag,Last-Event-ID,Retry-After` | Response headers JS may read. `Retry-After` is exposed by default so browser dashboards can read the resource-lease contention backoff hint directly off `POST /items/{id}/advance`'s `409` response (see Resource Leasing below) without falling back to the `details.retryAfterMs` body field. |
 | `CORS_MAX_AGE_SECONDS` | CORS enabled | `3600` | Preflight cache duration. |
-| `API_SSE_BUFFER_SIZE` | SSE in use | `1000` | Ring-buffer size for Last-Event-ID replay. |
+| `API_SSE_BUFFER_SIZE` | SSE in use | `1000` | Last-Event-ID replay window, in event ids (seqs of the durable `events` table): a resume further behind the newest event gets `sync.lost` `buffer_evicted`. `0` = no replay. |
 | `API_ALLOW_QUERY_TOKEN_FOR_SSE` | SSE + browser | `false` | Allow `?token=` auth for SSE (browser EventSource workaround). |
 | `API_SSE_AUTH_CHECK_INTERVAL_SECONDS` | SSE in use | `30` | Interval for token-expiry checks on open SSE connections. |
 | `API_REDACT_NOTE_ATTRIBUTION` | always | `true` | When `true`, non-admin callers see no `actor`/`verification` on notes/transitions. |

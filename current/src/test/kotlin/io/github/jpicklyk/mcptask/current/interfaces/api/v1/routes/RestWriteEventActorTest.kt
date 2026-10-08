@@ -199,7 +199,7 @@ class RestWriteEventActorTest {
             val updated = events.filter { it.event == ApiEventType.ITEM_UPDATED && it.itemId == item.id.toString() }
             assertEquals(1, updated.size, "R3: exactly one item.updated for the item; got $events")
             // Read-back through the bus ring buffer yields the same attribution (replay path).
-            val replayed = bus.ringBufferSnapshot().filter { it.id == updated.single().id }
+            val replayed = bus.projectedEvents().filter { it.id == updated.single().id }
             assertEquals(1, replayed.size)
             assertEquals(expectedActor, replayed.single().actor)
         }

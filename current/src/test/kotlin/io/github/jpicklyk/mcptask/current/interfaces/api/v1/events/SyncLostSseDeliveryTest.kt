@@ -39,7 +39,6 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
-import java.time.Instant
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 import io.ktor.client.plugins.sse.SSE as ClientSSE
@@ -146,7 +145,7 @@ class SyncLostSseDeliveryTest {
     @Test
     fun `S6a - a malformed Last-Event-ID header yields sync_lost unknown_event_id then live delivery`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { wireEventsRoute(bus, tokenEntries(TOKEN), workItemRepository = null) }
             val sseClient = createClient { install(ClientSSE) }
             val liveId = UUID.randomUUID()
@@ -156,7 +155,7 @@ class SyncLostSseDeliveryTest {
                 coroutineScope {
                     launch {
                         delay(SETTLE_DELAY_MS)
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = liveId, modifiedAt = Instant.now()), emptySet())
+                        bus.emit(ApiEventType.ITEM_CREATED, itemId = liveId)
                     }
                     sseClient.sse(
                         urlString = "/events",
@@ -188,7 +187,7 @@ class SyncLostSseDeliveryTest {
     @Test
     fun `S6b - no Last-Event-ID header at all is absent, not a resume request, and yields no sentinel`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { wireEventsRoute(bus, tokenEntries(TOKEN), workItemRepository = null) }
             val sseClient = createClient { install(ClientSSE) }
             val liveId = UUID.randomUUID()
@@ -198,7 +197,7 @@ class SyncLostSseDeliveryTest {
                 coroutineScope {
                     launch {
                         delay(SETTLE_DELAY_MS)
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = liveId, modifiedAt = Instant.now()), emptySet())
+                        bus.emit(ApiEventType.ITEM_CREATED, itemId = liveId)
                     }
                     sseClient.sse(
                         urlString = "/events",
@@ -220,7 +219,7 @@ class SyncLostSseDeliveryTest {
     @Test
     fun `S7a - types filter drops non-matching replay events but the sentinel still arrives first`(): Unit =
         testApplication {
-            val bus = ApiEventBus(bufferSize = 3)
+            val bus = ApiEventBus(bufferSize = 3, source = db.repositoryProvider().eventStore())
             val published = mutableListOf<ApiEvent>()
             val eventTypes =
                 listOf(
@@ -231,9 +230,8 @@ class SyncLostSseDeliveryTest {
                     ApiEventType.ITEM_CREATED,
                 )
             eventTypes.forEach { t ->
-                val e = bus.buildEvent(t, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
+                val e = bus.emit(t, itemId = UUID.randomUUID())
                 published.add(e)
-                bus.publish(e, emptySet())
             }
             application { wireEventsRoute(bus, tokenEntries(TOKEN), workItemRepository = null) }
             val sseClient = createClient { install(ClientSSE) }
@@ -270,7 +268,7 @@ class SyncLostSseDeliveryTest {
     @Test
     fun `S7b - a live queue-overflow sentinel also bypasses the types filter`(): Unit =
         testApplication {
-            val bus = ApiEventBus(bufferSize = 1000, connectionQueueSize = 4)
+            val bus = ApiEventBus(bufferSize = 1000, connectionQueueSize = 4, source = db.repositoryProvider().eventStore())
             application { wireEventsRoute(bus, tokenEntries(TOKEN), workItemRepository = null) }
             val sseClient = createClient { install(ClientSSE) }
 
@@ -280,10 +278,7 @@ class SyncLostSseDeliveryTest {
                     launch {
                         delay(SETTLE_DELAY_MS)
                         repeat(10) {
-                            bus.publish(
-                                bus.buildEvent(ApiEventType.NOTE_UPSERTED, itemId = UUID.randomUUID(), modifiedAt = Instant.now()),
-                                emptySet(),
-                            )
+                            bus.emit(ApiEventType.NOTE_UPSERTED, itemId = UUID.randomUUID())
                         }
                     }
                     sseClient.sse(
@@ -314,7 +309,7 @@ class SyncLostSseDeliveryTest {
     fun `S8 - a tags_include-scoped subscription still receives the sentinel across eviction while dropping out-of-scope replay`(): Unit =
         testApplication {
             val provider = db.repositoryProvider()
-            val bus = ApiEventBus(bufferSize = 3)
+            val bus = ApiEventBus(bufferSize = 3, source = db.repositoryProvider().eventStore())
             val itemAlpha = createItem(provider, tags = "alpha")
             val itemBeta1 = createItem(provider, tags = "beta")
             val itemBeta2 = createItem(provider, tags = "beta")
@@ -322,9 +317,8 @@ class SyncLostSseDeliveryTest {
             val published = mutableListOf<ApiEvent>()
             val sequence = listOf(itemBeta1.id, itemAlpha.id, itemBeta2.id, itemAlpha.id, itemBeta3.id)
             sequence.forEach { id ->
-                val e = bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = id, modifiedAt = Instant.now())
+                val e = bus.emit(ApiEventType.ITEM_UPDATED, itemId = id)
                 published.add(e)
-                bus.publish(e, emptySet())
             }
             application { wireEventsRoute(bus, tokenEntries(TOKEN, tagsInclude = setOf("alpha")), provider.workItemRepository()) }
             val sseClient = createClient { install(ClientSSE) }
@@ -362,14 +356,13 @@ class SyncLostSseDeliveryTest {
     @Test
     fun `S9 - a root-scoped subscriber still receives the sentinel when only other roots' events were evicted, with no leak`(): Unit =
         testApplication {
-            val bus = ApiEventBus(bufferSize = 3)
+            val bus = ApiEventBus(bufferSize = 3, source = db.repositoryProvider().eventStore())
             val rootA = UUID.randomUUID()
             val rootB = UUID.randomUUID()
             val published = mutableListOf<ApiEvent>()
             repeat(5) {
-                val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
+                val e = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), rootId = rootB)
                 published.add(e)
-                bus.publish(e, setOf(rootB)) // every buffered event belongs to rootB only
             }
             application { wireEventsRoute(bus, tokenEntries(TOKEN, rootIds = setOf(rootA)), workItemRepository = null) }
             val sseClient = createClient { install(ClientSSE) }
@@ -380,7 +373,7 @@ class SyncLostSseDeliveryTest {
                 coroutineScope {
                     launch {
                         delay(SETTLE_DELAY_MS)
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = liveId, modifiedAt = Instant.now()), setOf(rootA))
+                        bus.emit(ApiEventType.ITEM_CREATED, itemId = liveId, rootId = rootA)
                     }
                     sseClient.sse(
                         urlString = "/events",
@@ -414,12 +407,11 @@ class SyncLostSseDeliveryTest {
     @Test
     fun `probe - a mixed-case Last-Event-ID header still triggers replay - HTTP headers are case-insensitive`(): Unit =
         testApplication {
-            val bus = ApiEventBus(bufferSize = 3)
+            val bus = ApiEventBus(bufferSize = 3, source = db.repositoryProvider().eventStore())
             val published = mutableListOf<ApiEvent>()
             repeat(5) {
-                val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
+                val e = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
                 published.add(e)
-                bus.publish(e, emptySet())
             }
             application { wireEventsRoute(bus, tokenEntries(TOKEN), workItemRepository = null) }
             val sseClient = createClient { install(ClientSSE) }

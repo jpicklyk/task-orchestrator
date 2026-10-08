@@ -101,9 +101,12 @@ class EventPublishingWriteCoverageTest {
     // S3 — note deleteByItemId happy path
     // -------------------------------------------------------------------------
 
-    /** S3: note deleteByItemId(X) with 2 notes → exactly 1 note.deleted itemId=X. [D] */
+    /**
+     * S3: note deleteByItemId(X) with 2 notes -> one note.deleted per note, each itemId=X. [D]
+     * P8 declared expected-value change (task-scope): one row per deleted note, was one event per call.
+     */
     @Test
-    fun `S3 note deleteByItemId with multiple notes emits exactly one note deleted event`(): Unit =
+    fun `S3 note deleteByItemId with multiple notes emits one note deleted event per note`(): Unit =
         runBlocking {
             val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
@@ -118,9 +121,9 @@ class EventPublishingWriteCoverageTest {
             provider.noteRepository().deleteByItemId(x.id)
 
             val events = bus.drainDelivered("s3", flow)
-            assertEquals(1, events.size, "expected exactly 1 event, got: $events")
-            assertEquals(ApiEventType.NOTE_DELETED, events[0].event)
-            assertEquals(x.id.toString(), events[0].itemId)
+            assertEquals(2, events.size, "expected exactly 2 events (one per note), got: $events")
+            assertTrue(events.all { it.event == ApiEventType.NOTE_DELETED }, "every event must be note.deleted, got: $events")
+            assertTrue(events.all { it.itemId == x.id.toString() }, "every event must carry itemId=X, got: $events")
         }
 
     // -------------------------------------------------------------------------
