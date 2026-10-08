@@ -19,10 +19,10 @@ import kotlin.coroutines.CoroutineContext
  * (`unavailable`, `duplicate`, `not_found`, `internal`); any other exception rolls the unit back
  * and is rethrown unchanged.
  *
- * Caveat until P5b makes the stores throw: a store that returns `Result.Error` inside a unit means
- * the shared connection has ALREADY been rolled back (Exposed's join path rolls the outer connection
- * back when a joined block throws). The caller MUST return [Outcome.Err] then and never continue to
- * [Outcome.Ok], or the unit commits only the writes made after the fault.
+ * Caveat until P5b makes the stores throw: a store that returns `Result.Error` inside a unit MAY mean
+ * the shared connection has ALREADY been rolled back (when the error wraps a thrown exception, Exposed's
+ * join path rolls the outer connection back). The caller MUST return [Outcome.Err] then and never continue
+ * to [Outcome.Ok], or the unit could commit only the writes made after the fault.
  */
 interface UnitOfWork {
     suspend fun <T> write(

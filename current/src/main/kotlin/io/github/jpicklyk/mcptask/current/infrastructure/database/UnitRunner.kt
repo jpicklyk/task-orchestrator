@@ -51,7 +51,13 @@ class UnitRunner internal constructor(
     private val writerMutex = Mutex()
     private val outsideWrites = ConcurrentHashMap<String, AtomicLong>()
 
-    /** Total time a unit may spend retrying BUSY before it surfaces as `unavailable`. Adjustable for tests. */
+    /**
+     * Total time a unit may spend on BUSY retries AND on waiting for the in-process writer lock before it
+     * surfaces as `unavailable`. Adjustable for tests. It is a soft bound: an attempt already running is never
+     * force-cancelled (that would skip rollback hooks), so the unit can overrun by up to ~1.375 s: the maximum
+     * backoff (250 ms x jitter up to 1.5) plus the pool's 1 s busy_timeout on BEGIN, plus the attempt's own
+     * statement time.
+     */
     @Volatile
     var deadline: Duration = DEFAULT_DEADLINE
 
@@ -184,6 +190,7 @@ class UnitRunner internal constructor(
     ): Driven<R> {
         val started = TimeSource.Monotonic.markNow()
         var attempt = 0
+        var lastBusy: Throwable? = null
         while (true) {
             val unit = ActiveUnit(writable = write, now = clock.now())
             try {
@@ -204,7 +211,11 @@ class UnitRunner internal constructor(
                 return Driven.RolledBack(e.error, unit)
             } catch (e: Throwable) {
                 e.rethrowIfCancellation()
+                // A retry that reaches the lock with its budget already spent by BUSY retries is BUSY exhaustion.
+                val busy = lastBusy
+                if (e is WriterLockTimeout && busy != null) return Driven.Faulted(busy, unit)
                 if (PersistenceFaults.isBusy(e) && started.elapsedNow() < deadline) {
+                    lastBusy = e
                     logger.debug("Unit attempt {} hit SQLITE_BUSY; retrying: {}", attempt + 1, e.message)
                     backoff(attempt)
                     attempt++
@@ -218,21 +229,24 @@ class UnitRunner internal constructor(
     /**
      * Takes the writer lock, waiting at most the REMAINING unit [deadline] (time since [started]). A lock that
      * never frees (e.g. a unit whose [UnitElement] was lost and re-entered the writer) becomes [WriterLockTimeout],
-     * which surfaces as `unavailable` instead of hanging.
+     * which surfaces as `unavailable` instead of hanging. The wait is bounded, but an attempt already past the
+     * lock is not: see the overrun note on [deadline].
      */
     private suspend fun acquireWriter(started: TimeMark) {
         if (writerMutex.tryLock()) return
         val remaining = deadline - started.elapsedNow()
-        val acquired =
-            if (remaining.isPositive()) {
-                withTimeoutOrNull(remaining) {
-                    writerMutex.lock()
-                    true
-                }
-            } else {
-                null
+        // Record acquisition in a local (kotlinx "Asynchronous timeout and resources"): the timeout may be
+        // delivered AFTER lock() resumed, making withTimeoutOrNull return null while this coroutine owns the
+        // Mutex. Straight-line code after a returned lock() cannot be interrupted, so `locked` is authoritative.
+        // A lock() that throws CancellationException has already released per Mutex semantics.
+        var locked = false
+        if (remaining.isPositive()) {
+            withTimeoutOrNull(remaining) {
+                writerMutex.lock()
+                locked = true
             }
-        if (acquired == null) throw WriterLockTimeout(deadline)
+        }
+        if (!locked) throw WriterLockTimeout(deadline)
     }
 
     /** The in-process writer lock stayed held past the unit deadline. */
