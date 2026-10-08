@@ -332,9 +332,16 @@ class ApiEventBus(
         val (sub, start) =
             tailMutex.withLock {
                 val tail = tailSeq
-                if (tail != null && subscribers.isNotEmpty()) pumpLocked(src, tail)
-                val newest = src.maxSeq()
-                val caughtUp = maxOf(tailSeq ?: newest, newest)
+                // With subscribers connected the tail advances only to what the pump READ and fanned out: a separate
+                // newest-seq read could jump over a row committed between the two reads, losing it for them.
+                // With none (or no known tail) nobody can miss a row, so the newest committed seq is the start.
+                val caughtUp =
+                    if (tail != null && subscribers.isNotEmpty()) {
+                        pumpLocked(src, tail)
+                        tailSeq ?: tail
+                    } else {
+                        maxOf(tail ?: Long.MIN_VALUE, src.maxSeq())
+                    }
                 tailSeq = caughtUp
                 register(subscriberId, rootIds) to caughtUp
             }

@@ -419,14 +419,12 @@ class EventPublishingRepositoryProvider(
             keys: List<String>,
             result: LeaseReleaseResult,
         ) {
+            // One row per ACTIVE (holder, key) released. Lapsed rows the release also removes are expiries, not
+            // releases, and record nothing (expiry rows are P14's), the same rule as releaseAllForItems.
             val released = (result as? LeaseReleaseResult.Success)?.releasedCount ?: 0
-            if (released <= 0) return
+            if (released <= 0 || keys.isEmpty()) return
             val root = rootOfItem(holderItemId)
-            if (keys.isEmpty()) {
-                record(DomainEvent.LeaseReleased(holderItemId, root, null, released, forced = false))
-            } else {
-                record(keys.map { DomainEvent.LeaseReleased(holderItemId, root, it, 1, forced = false) })
-            }
+            record(keys.map { DomainEvent.LeaseReleased(holderItemId, root, it, 1, forced = false) })
         }
     }
 
