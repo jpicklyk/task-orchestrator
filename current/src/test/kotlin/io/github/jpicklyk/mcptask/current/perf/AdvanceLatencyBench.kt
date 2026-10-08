@@ -20,6 +20,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assumptions.assumeTrue
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -37,6 +38,7 @@ import java.util.concurrent.atomic.AtomicLong
  * same file compiles on either base. Pool statistics are read reflectively and report `na` where the
  * server has no Hikari pools.
  */
+@Tag("serial")
 class AdvanceLatencyBench {
     @Test
     fun advanceLatency() {

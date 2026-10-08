@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -31,6 +32,7 @@ import kotlin.time.Duration.Companion.milliseconds
  * fresh write unit must return Ok promptly; a leaked writer makes it come back UNAVAILABLE after its deadline.
  */
 @Timeout(value = 120, unit = TimeUnit.SECONDS)
+@Tag("serial")
 class WriterLockCancellationLeakTest {
     @RegisterExtension
     @JvmField

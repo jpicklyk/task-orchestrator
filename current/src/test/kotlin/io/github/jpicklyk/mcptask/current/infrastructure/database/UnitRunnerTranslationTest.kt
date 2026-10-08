@@ -31,6 +31,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -420,6 +421,7 @@ class UnitRunnerTranslationTest {
 
     // ---------------------------------------------------------------- S15
     @Test
+    @Tag("serial")
     fun `S15 a held writer connection yields UNAVAILABLE after the 2 s checkout instead of hanging`(): Unit =
         runBlocking {
             val holding = CountDownLatch(1)

@@ -7,6 +7,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -26,6 +27,7 @@ import kotlin.time.Duration.Companion.milliseconds
  * free, observed by a fresh write unit completing Ok promptly. A leaked lock would make that unit time out UNAVAILABLE.
  */
 @Timeout(value = 120, unit = TimeUnit.SECONDS)
+@Tag("serial")
 class WriterLockLeakTest {
     @RegisterExtension
     @JvmField
