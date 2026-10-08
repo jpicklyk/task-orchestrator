@@ -235,16 +235,23 @@ class UnitRunner internal constructor(
     private suspend fun acquireWriter(started: TimeMark) {
         if (writerMutex.tryLock()) return
         val remaining = deadline - started.elapsedNow()
-        // Record acquisition in a local (kotlinx "Asynchronous timeout and resources"): the timeout may be
-        // delivered AFTER lock() resumed, making withTimeoutOrNull return null while this coroutine owns the
-        // Mutex. Straight-line code after a returned lock() cannot be interrupted, so `locked` is authoritative.
-        // A lock() that throws CancellationException has already released per Mutex semantics.
+        // Ownership rule (kotlinx "Asynchronous timeout and resources"): once lock() has returned, `locked` is set
+        // in straight-line code and this coroutine owns the Mutex however withTimeoutOrNull then exits. A timeout
+        // delivered after the grant makes it return null; an outer-job cancellation after the grant makes it
+        // THROW. If this function returns normally, drive's finally unlocks. If it throws while `locked`, the
+        // catch below unlocks before rethrowing; drive's try is never entered, so there is exactly one unlock.
+        // A lock() that itself throws never granted the Mutex, so `locked` stays false and nothing is unlocked.
         var locked = false
-        if (remaining.isPositive()) {
-            withTimeoutOrNull(remaining) {
-                writerMutex.lock()
-                locked = true
+        try {
+            if (remaining.isPositive()) {
+                withTimeoutOrNull(remaining) {
+                    writerMutex.lock()
+                    locked = true
+                }
             }
+        } catch (e: Throwable) {
+            if (locked) writerMutex.unlock()
+            throw e
         }
         if (!locked) throw WriterLockTimeout(deadline)
     }
