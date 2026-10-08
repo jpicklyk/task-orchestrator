@@ -1,7 +1,11 @@
 package io.github.jpicklyk.mcptask.current.test.sqlite
 
+import io.github.jpicklyk.mcptask.current.application.port.Clock
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.database.OutsideUnitPolicy
+import io.github.jpicklyk.mcptask.current.infrastructure.database.SqliteUnitOfWork
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.TestInstance
@@ -12,6 +16,7 @@ import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.time.Instant
 
 /**
  * A real, file-backed SQLite database for tests: a copy of the once-per-JVM Flyway template
@@ -40,9 +45,13 @@ class SqliteTestDatabase private constructor(
     /** `jdbc:sqlite:` URL for [file]. */
     val jdbcUrl: String = "jdbc:sqlite:" + file.absolutePath.replace(File.separatorChar, '/')
 
-    /** The production manager, already initialized against [file]. Only its public API is used. */
+    /**
+     * The production manager, already initialized against [file]. Only its public API is used. Its outside-unit
+     * policy is [OutsideUnitPolicy.IMPLICIT] on purpose: tests may seed through the stores outside a unit (each
+     * such write is still counted in `units.outsideUnitWrites`; see [assertNoOutsideUnitWrites]).
+     */
     val databaseManager: DatabaseManager =
-        DatabaseManager(appConfig = AppConfig.fromEnv { null }).also {
+        DatabaseManager(appConfig = AppConfig.fromEnv { null }, outsideUnitPolicy = OutsideUnitPolicy.IMPLICIT).also {
             check(it.initialize(jdbcUrl)) { "SqliteTestDatabase: DatabaseManager.initialize failed for $jdbcUrl" }
         }
 
@@ -53,6 +62,9 @@ class SqliteTestDatabase private constructor(
 
     /** The production repositories over this database (created once per instance). */
     fun repositoryProvider(): DefaultRepositoryProvider = provider ?: DefaultRepositoryProvider(databaseManager).also { provider = it }
+
+    /** The production [UnitOfWork] (SQLite) over this database and [repositoryProvider]. */
+    fun unitOfWork(clock: Clock = Clock { Instant.now() }): UnitOfWork = SqliteUnitOfWork(databaseManager, repositoryProvider(), clock)
 
     /** Shuts the manager down and deletes the database files; fails loudly if a connection leaked. */
     override fun close() {
@@ -138,6 +150,9 @@ class SqliteTestDatabaseExtension internal constructor(
     val database: Database get() = db.database
 
     fun repositoryProvider(): DefaultRepositoryProvider = db.repositoryProvider()
+
+    /** The production [UnitOfWork] (SQLite) over the current database. */
+    fun unitOfWork(clock: Clock = Clock { Instant.now() }): UnitOfWork = db.unitOfWork(clock)
 
     override fun beforeAll(context: ExtensionContext) {
         if (!perMethod) start(context)

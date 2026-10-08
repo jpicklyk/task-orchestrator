@@ -30,10 +30,13 @@ import java.sql.Connection
  * @param appConfig Typed env snapshot supplying the busy_timeout value, FLYWAY_REPAIR and the raw env resolver. Defaults to
  *   a fresh [AppConfig.fromEnv] snapshot so existing no-arg construction (and tests) keep the prior
  *   env-driven behavior unchanged.
+ * @param outsideUnitPolicy what a store write outside any unit of work does (always counted first).
+ *   Stays [OutsideUnitPolicy.IMPLICIT] until every write site runs inside a unit; then it becomes FAIL.
  */
 class DatabaseManager(
     private val customDatabase: Database? = null,
-    private val appConfig: AppConfig = AppConfig.fromEnv()
+    private val appConfig: AppConfig = AppConfig.fromEnv(),
+    outsideUnitPolicy: OutsideUnitPolicy = OutsideUnitPolicy.IMPLICIT
 ) {
     private val logger = LoggerFactory.getLogger(DatabaseManager::class.java)
     private var writerDb: Database? = customDatabase
@@ -44,7 +47,7 @@ class DatabaseManager(
     private lateinit var schemaManager: DatabaseSchemaManager
 
     /** Runs units of work: the writer Mutex, BUSY retry, boundary translation and the outside-unit write counter. */
-    val units: UnitRunner = UnitRunner(this)
+    val units: UnitRunner = UnitRunner(this, outsideUnitPolicy)
 
     /**
      * Initializes the database connection pools.

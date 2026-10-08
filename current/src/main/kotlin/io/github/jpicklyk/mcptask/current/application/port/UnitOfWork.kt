@@ -16,13 +16,14 @@ import kotlin.coroutines.CoroutineContext
  * it rolls back when it returns [Outcome.Err] or throws.
  *
  * Persistence faults are translated once, at the outermost [write], into the error catalog
- * (`unavailable`, `duplicate`, `not_found`, `internal`); any other exception rolls the unit back
- * and is rethrown unchanged.
+ * (`unavailable`, `duplicate`, `not_found`, `version_conflict`, `internal`); any other exception
+ * rolls the unit back and is rethrown unchanged.
  *
- * Caveat until P5b makes the stores throw: a store that returns `Result.Error` inside a unit MAY mean
- * the shared connection has ALREADY been rolled back (when the error wraps a thrown exception, Exposed's
- * join path rolls the outer connection back). The caller MUST return [Outcome.Err] then and never continue
- * to [Outcome.Ok], or the unit could commit only the writes made after the fault.
+ * Poisoned units: a store fault thrown inside a unit (even one a caller catches) has already rolled
+ * the shared connection back. The unit records it, and the outermost [write] never commits after it:
+ * an [Outcome.Ok] returned after a recorded fault becomes a rollback and the fault's translated
+ * [Outcome.Err] (a non-persistence fault is rethrown). A nested [Outcome.Err] that was NOT a thrown
+ * fault does not poison the unit; the outermost caller decides.
  */
 interface UnitOfWork {
     suspend fun <T> write(
@@ -69,8 +70,9 @@ class UnitElement internal constructor(
 }
 
 /**
- * Mutable state of one unit ATTEMPT: whether it can write, its [now], and its registered hooks.
- * A BUSY retry creates a fresh instance, which is how abandoned attempts lose their hooks.
+ * Mutable state of one unit ATTEMPT: whether it can write, its [now], its registered hooks, and the
+ * first store fault raised inside it. A BUSY retry creates a fresh instance, which is how abandoned
+ * attempts lose their hooks and their recorded fault.
  */
 internal class ActiveUnit(
     val writable: Boolean,
@@ -78,6 +80,21 @@ internal class ActiveUnit(
 ) {
     private val commitHooks = ArrayList<suspend () -> Unit>()
     private val rollbackHooks = ArrayList<suspend (DomainError?) -> Unit>()
+
+    @Volatile
+    private var fault: Throwable? = null
+
+    /**
+     * Records [t], thrown out of a store transaction JOINED to this unit. Exposed has then already rolled the
+     * shared connection back, so the unit is poisoned: the runner never commits it (a later [Outcome.Ok]
+     * becomes a rollback and an [Outcome.Err] of this fault). The first fault wins.
+     */
+    fun recordFault(t: Throwable) {
+        synchronized(this) { if (fault == null) fault = t }
+    }
+
+    /** The first fault recorded by [recordFault] in this attempt, or null. */
+    fun recordedFault(): Throwable? = fault
 
     fun addCommit(fn: suspend () -> Unit) {
         synchronized(commitHooks) { commitHooks.add(fn) }

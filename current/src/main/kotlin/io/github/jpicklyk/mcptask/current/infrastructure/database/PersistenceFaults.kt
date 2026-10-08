@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
+import io.github.jpicklyk.mcptask.current.domain.error.VersionConflictException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import org.sqlite.SQLiteException
 import java.sql.SQLException
@@ -19,6 +20,9 @@ import java.util.IdentityHashMap
  * its cause) is a persistence fault; every other exception (validation, marker, illegal-state) is not
  * translated and callers rethrow it unchanged. [DomainError.message] keeps the INNERMOST SQL
  * exception message, so the 3.x error text can still be reproduced from it.
+ *
+ * The one non-SQL row: a [VersionConflictException] (a store's lost optimistic-locking race) becomes
+ * `version_conflict` with both versions in [ErrorDetail.VersionConflict].
  */
 object PersistenceFaults {
     /** What kind of persistence fault a throwable is. */
@@ -68,6 +72,8 @@ object PersistenceFaults {
      * unchanged). A BUSY fault that reaches this point has exhausted the unit deadline.
      */
     fun translate(t: Throwable): DomainError? {
+        val conflict = chain(t).firstOrNull { it is VersionConflictException } as VersionConflictException?
+        if (conflict != null) return versionConflict(conflict)
         val fault = classify(t) ?: return null
         val inner = innermostMessage(t)
         return when (fault) {
@@ -95,6 +101,14 @@ object PersistenceFaults {
                 DomainError(ErrorCode.INTERNAL, "Database error: $inner")
         }
     }
+
+    private fun versionConflict(e: VersionConflictException): DomainError =
+        DomainError(
+            code = ErrorCode.VERSION_CONFLICT,
+            message = VersionConflictException.MESSAGE,
+            detail = ErrorDetail.VersionConflict(kind = EntityKind.ITEM, id = e.id.toString(), expected = e.expected, actual = e.actual),
+            fixArgs = mapOf("kind" to "item", "id" to e.id.toString(), "actual" to e.actual.toString())
+        )
 
     private fun unavailable(
         message: String,
