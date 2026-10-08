@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.application.support.UnitResult
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.support.writeUnit
+import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
@@ -338,6 +339,41 @@ class AdvanceService(
     }
 
     /**
+     * Records one `transition.rejected` row for a gate or dependency rejection, in its own short follow-up unit
+     * (the rejected advance wrote nothing). This is the single choke point for MCP `advance_item`, `complete_tree`
+     * and the REST advance route. A failure to record never changes the rejection.
+     */
+    private suspend fun recordTransitionRejected(
+        item: WorkItem,
+        trigger: String,
+        code: String,
+        missingKeys: List<String> = emptyList(),
+        blockerIds: List<java.util.UUID> = emptyList(),
+        actorClaim: ActorClaim?,
+        verification: VerificationResult?
+    ) {
+        val rootId =
+            try {
+                eventRootOf(item, workItemRepository)
+            } catch (e: Exception) {
+                e.rethrowIfCancellation()
+                item.id
+            }
+        unitOfWork.recordRejection(
+            DomainEvent.TransitionRejected(
+                entityId = item.id,
+                rootId = rootId,
+                trigger = trigger,
+                code = code,
+                missingKeys = missingKeys,
+                blockerIds = blockerIds,
+                actor = actorClaim,
+                verification = verification
+            )
+        )
+    }
+
+    /**
      * Run the full advance pipeline for a single item + trigger.
      *
      * @param item the freshly-read [WorkItem] to transition.
@@ -419,6 +455,16 @@ class AdvanceService(
         // 3. Validate dependency constraints.
         val validation = handler.validateTransition(item, targetRole, dependencyRepository, workItemRepository)
         if (!validation.valid) {
+            if (validation.blockers.isNotEmpty()) {
+                recordTransitionRejected(
+                    item,
+                    trigger,
+                    DomainEvent.REJECTED_DEPENDENCY_UNMET,
+                    blockerIds = validation.blockers.map { it.fromItemId }.distinct(),
+                    actorClaim = actorClaim,
+                    verification = verification
+                )
+            }
             return AdvanceOutcome.Failure(
                 AdvanceFailure.ValidationFailed(
                     validation.error ?: "Transition validation failed",
@@ -431,7 +477,18 @@ class AdvanceService(
         var primaryViolations: List<IndependenceViolation>? = null
         if (itemSchema != null && (trigger == "start" || trigger == "complete")) {
             val gateOutcome = checkGate(item, itemSchema, trigger, targetRole)
-            if (gateOutcome.failure != null) return AdvanceOutcome.Failure(gateOutcome.failure)
+            if (gateOutcome.failure != null) {
+                // An independence-only block has no missing keys; it is still a gate_blocked rejection.
+                recordTransitionRejected(
+                    item,
+                    trigger,
+                    DomainEvent.REJECTED_GATE_BLOCKED,
+                    missingKeys = gateOutcome.failure.missingNotes.map { it.key },
+                    actorClaim = actorClaim,
+                    verification = verification
+                )
+                return AdvanceOutcome.Failure(gateOutcome.failure)
+            }
             primaryViolations = gateOutcome.violations
         }
 

@@ -44,6 +44,9 @@ interface ReadScope {
 
 /** What a write unit can do on top of reading. */
 interface WriteScope : ReadScope {
+    /** Records typed domain events as `events` rows inside this unit (they commit or roll back with it). */
+    val events: EventSink
+
     /**
      * Runs [fn] after the unit COMMITS, in a non-cancellable context. A failure is logged at WARN
      * and does not change the [Outcome]. Registered from a joined scope, it fires once, on the
