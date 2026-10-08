@@ -117,7 +117,7 @@ class LifecycleResponseBudgetTest {
                 override fun getSchemaForType(type: String?): WorkItemSchema? = if (type == "feature-task") featureTaskSchema else null
             }
 
-        context = ToolExecutionContext(repositoryProvider, schemaService)
+        context = ToolExecutionContext(repositoryProvider, schemaService, unitOfWork = db.unitOfWork())
         measured.clear()
     }
 

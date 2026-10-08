@@ -22,6 +22,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
+import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -92,6 +93,7 @@ class EventActorRootIdTest {
             repositoryProvider = decorated(bus),
             actorVerifier = NoOpActorVerifier,
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
+            unitOfWork = db.unitOfWork(),
         )
 
     private fun List<ApiEvent>.one(
@@ -133,12 +135,12 @@ class EventActorRootIdTest {
     }
 
     private suspend fun EventPublishingRepositoryProvider.newRoot(title: String): WorkItem =
-        workItemRepository().create(WorkItem(title = title, depth = 0)).getOrNull()!!
+        workItemRepository().create(WorkItem(title = title, depth = 0))!!
 
     private suspend fun EventPublishingRepositoryProvider.newChild(
         title: String,
         parent: WorkItem,
-    ): WorkItem = workItemRepository().create(WorkItem(title = title, parentId = parent.id, depth = 1)).getOrNull()!!
+    ): WorkItem = workItemRepository().create(WorkItem(title = title, parentId = parent.id, depth = 1))!!
 
     // -------------------------------------------------------------------------
     // S1 -- rootId per event type [AC1]
@@ -153,8 +155,8 @@ class EventActorRootIdTest {
 
             val root = provider.newRoot("R-s1a")
             val child = provider.newChild("C-s1a", root)
-            val renamed = provider.workItemRepository().update(child.copy(title = "C-s1a-renamed")).getOrNull()!!
-            provider.workItemRepository().update(renamed.copy(role = Role.WORK)).getOrNull()!!
+            val renamed = provider.workItemRepository().update(child.copy(title = "C-s1a-renamed"))!!
+            provider.workItemRepository().update(renamed.copy(role = Role.WORK))!!
             provider.workItemRepository().delete(child.id)
 
             val events = bus.drainDelivered("s1a", flow)
@@ -187,7 +189,7 @@ class EventActorRootIdTest {
 
             val root = provider.newRoot("R-s1c")
             val child = provider.newChild("C-s1c", root)
-            val saved = provider.noteRepository().upsert(note(child.id, "k-s1c")).getOrNull()!!
+            val saved = provider.noteRepository().upsert(note(child.id, "k-s1c"))!!
             provider.noteRepository().delete(saved.id)
 
             val events = bus.drainDelivered("s1c", flow)
@@ -434,7 +436,7 @@ class EventActorRootIdTest {
             lateinit var child: WorkItem
             // The actor scope closes BEFORE the transaction commits, so a flush-time context read
             // would see no actor: the assertion below can only pass if capture happened at enqueue.
-            provider.workItemRepository().inTransaction {
+            db.unitOfWork().inUnit {
                 child = withEventActor(agentA) { provider.newChild("C-s5a", root) }
             }
 
@@ -453,7 +455,7 @@ class EventActorRootIdTest {
 
             var threw = false
             try {
-                provider.workItemRepository().inTransaction {
+                db.unitOfWork().inUnit {
                     withEventActor(agentA) { provider.newRoot("X-s5b") }
                     throw IllegalStateException("forced rollback s5b")
                 }
@@ -683,7 +685,7 @@ class EventActorRootIdTest {
             val flow = bus.subscribe("s11c", emptySet(), lastEventId = null)
             val ctx = toolContext(bus)
             val item = provider.newRoot("X-s11c")
-            val saved = provider.noteRepository().upsert(note(item.id, "k-s11c")).getOrNull()!!
+            val saved = provider.noteRepository().upsert(note(item.id, "k-s11c"))!!
 
             val result =
                 ManageNotesTool().execute(

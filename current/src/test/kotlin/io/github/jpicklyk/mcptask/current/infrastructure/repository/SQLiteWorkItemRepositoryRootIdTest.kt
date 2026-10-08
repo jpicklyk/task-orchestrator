@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.repository
 import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -13,7 +12,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 
 /**
  * Integration tests for the denormalized `root_id` column against a real in-memory SQLite
@@ -47,15 +47,15 @@ class SQLiteWorkItemRepositoryRootIdTest {
     private fun create(item: WorkItem): WorkItem =
         runBlocking {
             val result = repository.create(item)
-            assertIs<Result.Success<WorkItem>>(result, "Expected item '${item.title}' to be created")
-            result.data
+            assertNotNull(result, "Expected item '${item.title}' to be created")
+            result
         }
 
     private fun rootIdOf(id: UUID): UUID? =
         runBlocking {
             val result = repository.getById(id)
-            assertIs<Result.Success<WorkItem>>(result)
-            result.data.rootId
+            assertNotNull(result)
+            result.rootId
         }
 
     @Test
@@ -111,11 +111,11 @@ class SQLiteWorkItemRepositoryRootIdTest {
                     item.copy(parentId = rootD.id, depth = 1, rootId = rootD.id)
                 }
             val updateResult = repository.update(movedB)
-            assertIs<Result.Success<WorkItem>>(updateResult)
+            assertNotNull(updateResult)
 
             // Cascade: depth delta is 0 (B stayed at depth 1) but rootId must still restamp C.
             val cascadeResult = validator.recomputeDescendantDepths(b.id, 0, rootD.id, repository)
-            assertIs<Result.Success<Unit>>(cascadeResult)
+            assertNull(cascadeResult)
 
             assertEquals(rootD.id, rootIdOf(b.id), "B's rootId must flip to Root D after reparent")
             assertEquals(rootD.id, rootIdOf(c.id), "C must inherit B's new root (Root D), not the old Root A")
@@ -134,7 +134,7 @@ class SQLiteWorkItemRepositoryRootIdTest {
                     item.copy(parentId = null, depth = 0, rootId = leaf.id)
                 }
             val updateResult = repository.update(movedLeaf)
-            assertIs<Result.Success<WorkItem>>(updateResult)
+            assertNotNull(updateResult)
 
             assertEquals(leaf.id, rootIdOf(leaf.id), "Leaf must become its own root after moving to root level")
         }

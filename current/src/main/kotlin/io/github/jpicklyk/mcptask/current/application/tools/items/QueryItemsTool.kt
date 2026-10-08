@@ -2,12 +2,15 @@ package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView
 import io.github.jpicklyk.mcptask.current.application.service.search.FtsQuerySanitizer
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ItemSortFields
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
@@ -681,13 +684,10 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                 val (resolvedId, idError) = resolveItemId(params, "itemId", context)
                 if (idError != null) return idError
                 val item =
-                    when (val result = context.workItemRepository().getById(resolvedId!!)) {
-                        is Result.Success -> result.data
-                        is Result.Error -> return errorResponse(
-                            "WorkItem not found: $resolvedId",
-                            ErrorCodes.RESOURCE_NOT_FOUND
-                        )
-                    }
+                    context.workItemRepository().getById(resolvedId!!) ?: return errorResponse(
+                        "WorkItem not found: $resolvedId",
+                        ErrorCodes.RESOURCE_NOT_FOUND
+                    )
                 ItemSchemaView.buildItemSchemaJson(item, context.configResolver) to "item (schema-free mode)"
             }
 
@@ -712,23 +712,20 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
         val includeTimestamps = optionalBoolean(params, "includeTimestamps", false)
 
         val item =
-            when (val result = context.workItemRepository().getById(itemId)) {
-                is Result.Success -> result.data
-                is Result.Error -> return errorResponse(
-                    "WorkItem not found",
-                    ErrorCodes.RESOURCE_NOT_FOUND,
-                    additionalData =
-                        buildJsonObject {
-                            put("requestedId", JsonPrimitive(itemId.toString()))
-                        }
-                )
-            }
+            context.workItemRepository().getById(itemId) ?: return errorResponse(
+                "WorkItem not found",
+                ErrorCodes.RESOURCE_NOT_FOUND,
+                additionalData =
+                    buildJsonObject {
+                        put("requestedId", JsonPrimitive(itemId.toString()))
+                    }
+            )
 
         val itemJson = item.toFullJson(includeTimestamps = includeTimestamps)
 
         return if (includeAncestors) {
             val chains = context.workItemRepository().findAncestorChains(setOf(item.id))
-            val ancestors = (chains as? Result.Success)?.data?.get(item.id) ?: emptyList()
+            val ancestors = chains?.get(item.id) ?: emptyList()
             val enriched =
                 buildJsonObject {
                     itemJson.forEach { (k, v) -> put(k, v) }
@@ -778,7 +775,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
 
                 val ancestorId: UUID? =
                     if (ancestorIdStr != null) {
-                        runCatching { UUID.fromString(ancestorIdStr) }.getOrElse {
+                        runCatchingNonCancellation { UUID.fromString(ancestorIdStr) }.getOrElse {
                             return errorResponse("Invalid scope.ancestorId UUID: $ancestorIdStr", ErrorCodes.VALIDATION_ERROR)
                         }
                     } else {
@@ -786,7 +783,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                     }
                 val scopeItemId: UUID? =
                     if (itemIdStr != null) {
-                        runCatching { UUID.fromString(itemIdStr) }.getOrElse {
+                        runCatchingNonCancellation { UUID.fromString(itemIdStr) }.getOrElse {
                             return errorResponse("Invalid scope.itemId UUID: $itemIdStr", ErrorCodes.VALIDATION_ERROR)
                         }
                     } else {
@@ -851,6 +848,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                     offset = offset,
                 )
             } catch (e: Exception) {
+                e.rethrowIfCancellation()
                 return errorResponse(
                     "FTS5 search failed: ${e.message}",
                     ErrorCodes.INTERNAL_ERROR
@@ -971,51 +969,51 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
         // the ancestor's subtree (inclusive). Omitted ancestorId preserves whole-DB behavior.
         val totalCount =
             if (ancestorId != null) {
-                when (
+                run {
                     val countResult =
-                        context.workItemRepository().countInScope(
-                            rootIds = setOf(ancestorId),
-                            parentId = parentId,
-                            depth = depth,
-                            role = role,
-                            priority = priority,
-                            tags = tags,
-                            query = null,
-                            createdAfter = createdAfter,
-                            createdBefore = createdBefore,
-                            modifiedAfter = modifiedAfter,
-                            modifiedBefore = modifiedBefore,
-                            roleChangedAfter = roleChangedAfter,
-                            roleChangedBefore = roleChangedBefore,
-                            type = typeFilter,
-                            claimStatus = claimStatusFilter
-                        )
-                ) {
-                    is Result.Success -> countResult.data
-                    is Result.Error -> return errorResponse(countResult.error.message, ErrorCodes.DATABASE_ERROR)
+                        legacyRead({ return errorResponse(it, ErrorCodes.DATABASE_ERROR) }) {
+                            context.workItemRepository().countInScope(
+                                rootIds = setOf(ancestorId),
+                                parentId = parentId,
+                                depth = depth,
+                                role = role,
+                                priority = priority,
+                                tags = tags,
+                                query = null,
+                                createdAfter = createdAfter,
+                                createdBefore = createdBefore,
+                                modifiedAfter = modifiedAfter,
+                                modifiedBefore = modifiedBefore,
+                                roleChangedAfter = roleChangedAfter,
+                                roleChangedBefore = roleChangedBefore,
+                                type = typeFilter,
+                                claimStatus = claimStatusFilter
+                            )
+                        }
+                    countResult
                 }
             } else {
-                when (
+                run {
                     val countResult =
-                        context.workItemRepository().countByFilters(
-                            parentId = parentId,
-                            depth = depth,
-                            role = role,
-                            priority = priority,
-                            tags = tags,
-                            query = null, // LIKE-based query removed; FTS goes through executeFtsSearch
-                            createdAfter = createdAfter,
-                            createdBefore = createdBefore,
-                            modifiedAfter = modifiedAfter,
-                            modifiedBefore = modifiedBefore,
-                            roleChangedAfter = roleChangedAfter,
-                            roleChangedBefore = roleChangedBefore,
-                            type = typeFilter,
-                            claimStatus = claimStatusFilter
-                        )
-                ) {
-                    is Result.Success -> countResult.data
-                    is Result.Error -> return errorResponse(countResult.error.message, ErrorCodes.DATABASE_ERROR)
+                        legacyRead({ return errorResponse(it, ErrorCodes.DATABASE_ERROR) }) {
+                            context.workItemRepository().countByFilters(
+                                parentId = parentId,
+                                depth = depth,
+                                role = role,
+                                priority = priority,
+                                tags = tags,
+                                query = null, // LIKE-based query removed; FTS goes through executeFtsSearch
+                                createdAfter = createdAfter,
+                                createdBefore = createdBefore,
+                                modifiedAfter = modifiedAfter,
+                                modifiedBefore = modifiedBefore,
+                                roleChangedAfter = roleChangedAfter,
+                                roleChangedBefore = roleChangedBefore,
+                                type = typeFilter,
+                                claimStatus = claimStatusFilter
+                            )
+                        }
+                    countResult
                 }
             }
 
@@ -1023,59 +1021,59 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
         // ItemFetchResult.skipped), so the scoped path always reports skipped=0.
         val itemsAndSkipped: Pair<List<WorkItem>, Int> =
             if (ancestorId != null) {
-                when (
+                run {
                     val result =
-                        context.workItemRepository().findInScope(
-                            rootIds = setOf(ancestorId),
-                            parentId = parentId,
-                            depth = depth,
-                            role = role,
-                            priority = priority,
-                            tags = tags,
-                            query = null,
-                            createdAfter = createdAfter,
-                            createdBefore = createdBefore,
-                            modifiedAfter = modifiedAfter,
-                            modifiedBefore = modifiedBefore,
-                            roleChangedAfter = roleChangedAfter,
-                            roleChangedBefore = roleChangedBefore,
-                            sortBy = sortBy,
-                            sortOrder = sortOrder,
-                            limit = limit,
-                            offset = offset,
-                            type = typeFilter,
-                            claimStatus = claimStatusFilter
-                        )
-                ) {
-                    is Result.Success -> Pair(result.data, 0)
-                    is Result.Error -> return errorResponse(result.error.message, ErrorCodes.DATABASE_ERROR)
+                        legacyRead({ return errorResponse(it, ErrorCodes.DATABASE_ERROR) }) {
+                            context.workItemRepository().findInScope(
+                                rootIds = setOf(ancestorId),
+                                parentId = parentId,
+                                depth = depth,
+                                role = role,
+                                priority = priority,
+                                tags = tags,
+                                query = null,
+                                createdAfter = createdAfter,
+                                createdBefore = createdBefore,
+                                modifiedAfter = modifiedAfter,
+                                modifiedBefore = modifiedBefore,
+                                roleChangedAfter = roleChangedAfter,
+                                roleChangedBefore = roleChangedBefore,
+                                sortBy = sortBy,
+                                sortOrder = sortOrder,
+                                limit = limit,
+                                offset = offset,
+                                type = typeFilter,
+                                claimStatus = claimStatusFilter
+                            )
+                        }
+                    Pair(result, 0)
                 }
             } else {
-                when (
+                run {
                     val result =
-                        context.workItemRepository().findByFilters(
-                            parentId = parentId,
-                            depth = depth,
-                            role = role,
-                            priority = priority,
-                            tags = tags,
-                            query = null, // LIKE-based query removed; FTS goes through executeFtsSearch
-                            createdAfter = createdAfter,
-                            createdBefore = createdBefore,
-                            modifiedAfter = modifiedAfter,
-                            modifiedBefore = modifiedBefore,
-                            roleChangedAfter = roleChangedAfter,
-                            roleChangedBefore = roleChangedBefore,
-                            sortBy = sortBy,
-                            sortOrder = sortOrder,
-                            limit = limit,
-                            offset = offset,
-                            type = typeFilter,
-                            claimStatus = claimStatusFilter
-                        )
-                ) {
-                    is Result.Success -> Pair(result.data.items, result.data.skipped)
-                    is Result.Error -> return errorResponse(result.error.message, ErrorCodes.DATABASE_ERROR)
+                        legacyRead({ return errorResponse(it, ErrorCodes.DATABASE_ERROR) }) {
+                            context.workItemRepository().findByFilters(
+                                parentId = parentId,
+                                depth = depth,
+                                role = role,
+                                priority = priority,
+                                tags = tags,
+                                query = null, // LIKE-based query removed; FTS goes through executeFtsSearch
+                                createdAfter = createdAfter,
+                                createdBefore = createdBefore,
+                                modifiedAfter = modifiedAfter,
+                                modifiedBefore = modifiedBefore,
+                                roleChangedAfter = roleChangedAfter,
+                                roleChangedBefore = roleChangedBefore,
+                                sortBy = sortBy,
+                                sortOrder = sortOrder,
+                                limit = limit,
+                                offset = offset,
+                                type = typeFilter,
+                                claimStatus = claimStatusFilter
+                            )
+                        }
+                    Pair(result.items, result.skipped)
                 }
             }
         val items = itemsAndSkipped.first
@@ -1084,7 +1082,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
         val chains: Map<java.util.UUID, List<WorkItem>> =
             if (includeAncestors && items.isNotEmpty()) {
                 val chainResult = context.workItemRepository().findAncestorChains(items.map { it.id }.toSet())
-                (chainResult as? Result.Success)?.data ?: emptyMap()
+                chainResult ?: emptyMap()
             } else {
                 emptyMap()
             }
@@ -1173,32 +1171,33 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
 
         // Fetch the item itself
         val item =
-            when (val result = context.workItemRepository().getById(itemId)) {
-                is Result.Success -> result.data
-                is Result.Error -> return errorResponse(
-                    result.error.message,
-                    ErrorCodes.RESOURCE_NOT_FOUND
-                )
-            }
+            legacyRead({ return errorResponse(it, ErrorCodes.DATABASE_ERROR) }) { context.workItemRepository().getById(itemId) }
+                ?: return errorResponse("WorkItem not found with id: $itemId", ErrorCodes.RESOURCE_NOT_FOUND)
 
         // Count children by role — always the full breakdown, unaffected by excludeTerminal.
         val childCounts =
-            when (val result = context.workItemRepository().countChildrenByRole(itemId)) {
-                is Result.Success -> result.data
-                is Result.Error -> return errorResponse(
-                    result.error.message,
-                    ErrorCodes.DATABASE_ERROR
-                )
+            run {
+                val result =
+                    legacyRead({
+                        return errorResponse(
+                            it,
+                            ErrorCodes.DATABASE_ERROR
+                        )
+                    }) { context.workItemRepository().countChildrenByRole(itemId) }
+                result
             }
 
         // Fetch direct children
         val children =
-            when (val result = context.workItemRepository().findChildren(itemId)) {
-                is Result.Success -> result.data
-                is Result.Error -> return errorResponse(
-                    result.error.message,
-                    ErrorCodes.DATABASE_ERROR
-                )
+            run {
+                val result =
+                    legacyRead({
+                        return errorResponse(
+                            it,
+                            ErrorCodes.DATABASE_ERROR
+                        )
+                    }) { context.workItemRepository().findChildren(itemId) }
+                result
             }
         // excludeTerminal filters the emitted list only — childCounts above stays unfiltered so
         // callers can still see how many terminal children exist even when they're hidden here.
@@ -1250,22 +1249,20 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
         val excludeTerminal = optionalBoolean(params, "excludeTerminal", false)
 
         val anchorItem =
-            when (val result = context.workItemRepository().getById(anchorId)) {
-                is Result.Success -> result.data
-                is Result.Error -> return errorResponse(
-                    result.error.message,
-                    ErrorCodes.RESOURCE_NOT_FOUND
-                )
-            }
+            legacyRead({ return errorResponse(it, ErrorCodes.DATABASE_ERROR) }) { context.workItemRepository().getById(anchorId) }
+                ?: return errorResponse("WorkItem not found with id: $anchorId", ErrorCodes.RESOURCE_NOT_FOUND)
 
         // Direct children of the anchor act as the roots set for this view.
         val allChildren =
-            when (val result = context.workItemRepository().findChildren(anchorId)) {
-                is Result.Success -> result.data
-                is Result.Error -> return errorResponse(
-                    result.error.message,
-                    ErrorCodes.DATABASE_ERROR
-                )
+            run {
+                val result =
+                    legacyRead({
+                        return errorResponse(
+                            it,
+                            ErrorCodes.DATABASE_ERROR
+                        )
+                    }) { context.workItemRepository().findChildren(anchorId) }
+                result
             }
         // findChildren has no SQL-level excludeTerminal or ordering — filter and sort in memory.
         // excludeTerminal narrows the roots set itself (same layer as the global path), so
@@ -1289,12 +1286,12 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
         val itemsWithCounts =
             pagedChildren.map { child ->
                 val subtreeCounts =
-                    when (
+                    run {
                         val result =
-                            context.workItemRepository().countInScopeByRole(rootIds = setOf(child.id))
-                    ) {
-                        is Result.Success -> result.data
-                        is Result.Error -> emptyMap()
+                            legacyRead(
+                                { return@run emptyMap() }
+                            ) { context.workItemRepository().countInScopeByRole(rootIds = setOf(child.id)) }
+                        result
                     }
                 // Subtract the child's own role — countInScopeByRole is roots-inclusive, but
                 // childCounts here should represent descendants only (see KDoc above).
@@ -1348,12 +1345,15 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
         // are never fetched, so the enrichment loop below never pays for their child counts,
         // claim summaries, or children payload.
         val fetchResult =
-            when (val result = context.workItemRepository().findRootItems(limit, offset, excludeTerminal)) {
-                is Result.Success -> result.data
-                is Result.Error -> return errorResponse(
-                    result.error.message,
-                    ErrorCodes.DATABASE_ERROR
-                )
+            run {
+                val result =
+                    legacyRead({
+                        return errorResponse(
+                            it,
+                            ErrorCodes.DATABASE_ERROR
+                        )
+                    }) { context.workItemRepository().findRootItems(limit, offset, excludeTerminal) }
+                result
             }
         val rootItems = fetchResult.items
         val skipped = fetchResult.skipped
@@ -1363,30 +1363,27 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
         // value passed to findRootItems above, so it is the count of the set being paged through,
         // not the unconditional root count.
         val totalRoots =
-            when (val result = context.workItemRepository().countRootItems(excludeTerminal)) {
-                is Result.Success -> result.data
-                is Result.Error -> return errorResponse(
-                    result.error.message,
-                    ErrorCodes.DATABASE_ERROR
-                )
+            run {
+                val result =
+                    legacyRead({
+                        return errorResponse(
+                            it,
+                            ErrorCodes.DATABASE_ERROR
+                        )
+                    }) { context.workItemRepository().countRootItems(excludeTerminal) }
+                result
             }
 
         // For each root item, get child counts by role, claim summary, and optionally children
         val itemsWithCounts =
             rootItems.map { item ->
                 val childCounts =
-                    when (val result = context.workItemRepository().countChildrenByRole(item.id)) {
-                        is Result.Success -> result.data
-                        is Result.Error -> emptyMap()
-                    }
+                    (legacyReadOrNull { context.workItemRepository().countChildrenByRole(item.id) } ?: emptyMap())
 
                 // Claim summary: scoped to this root item's direct children.
                 // (For a true subtree count, countByClaimStatus with parentId gives direct children only.)
                 val claimCounts =
-                    when (val result = context.workItemRepository().countByClaimStatus(parentId = item.id)) {
-                        is Result.Success -> result.data
-                        is Result.Error -> null
-                    }
+                    legacyReadOrNull { context.workItemRepository().countByClaimStatus(parentId = item.id) }
 
                 buildJsonObject {
                     item.toMinimalJson().forEach { (k, v) -> put(k, v) }
@@ -1408,10 +1405,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                     }
                     if (includeChildren) {
                         val children =
-                            when (val result = context.workItemRepository().findChildren(item.id)) {
-                                is Result.Success -> result.data
-                                is Result.Error -> emptyList()
-                            }
+                            (legacyReadOrNull { context.workItemRepository().findChildren(item.id) } ?: emptyList())
                         // Same excludeTerminal semantics as the scoped-overview `children` array:
                         // a terminal-role child that still has non-terminal descendants is
                         // RETAINED (bug 18fd99a7) — matches executeScopedOverview/executeAnchoredOverview.
@@ -1463,10 +1457,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
         context: ToolExecutionContext
     ): Boolean {
         val counts =
-            when (val result = context.workItemRepository().countInScopeByRole(rootIds = setOf(itemId))) {
-                is Result.Success -> result.data
-                is Result.Error -> return false
-            }
+            legacyReadOrNull { context.workItemRepository().countInScopeByRole(rootIds = setOf(itemId)) } ?: return false
         return counts.any { (role, count) -> role != Role.TERMINAL && count > 0 }
     }
 
@@ -1479,10 +1470,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
         context: ToolExecutionContext
     ): JsonObject {
         val grandchildCounts =
-            when (val result = context.workItemRepository().countChildrenByRole(child.id)) {
-                is Result.Success -> result.data
-                is Result.Error -> emptyMap()
-            }
+            (legacyReadOrNull { context.workItemRepository().countChildrenByRole(child.id) } ?: emptyMap())
         val childTraits = PropertiesHelper.extractTraits(child.properties)
         return buildJsonObject {
             child.toMinimalJson().forEach { (k, v) -> put(k, v) }

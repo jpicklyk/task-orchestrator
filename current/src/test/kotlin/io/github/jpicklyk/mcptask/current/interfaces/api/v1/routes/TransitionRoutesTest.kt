@@ -33,7 +33,7 @@ class TransitionRoutesTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    val i = repo.workItemRepository().create(WorkItem(title = "Transitioning", depth = 0)).getOrNull()!!
+                    val i = repo.workItemRepository().create(WorkItem(title = "Transitioning", depth = 0))!!
                     repo.roleTransitionRepository().create(
                         RoleTransition(
                             itemId = i.id,
@@ -78,7 +78,7 @@ class TransitionRoutesTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Out of scope transition", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Out of scope transition", depth = 0))!!
                 }
             val authConfig = makeTestAuthConfig(scopeRootIds = setOf(UUID.randomUUID()))
             application {
@@ -96,7 +96,7 @@ class TransitionRoutesTest {
         testApplication {
             val repo = db.repositoryProvider()
             runBlocking {
-                val item = repo.workItemRepository().create(WorkItem(title = "Globally transitions", depth = 0)).getOrNull()!!
+                val item = repo.workItemRepository().create(WorkItem(title = "Globally transitions", depth = 0))!!
                 repo.roleTransitionRepository().create(
                     RoleTransition(
                         itemId = item.id,
@@ -123,7 +123,7 @@ class TransitionRoutesTest {
         testApplication {
             val repo = db.repositoryProvider()
             runBlocking {
-                val item = repo.workItemRepository().create(WorkItem(title = "Recent transition item", depth = 0)).getOrNull()!!
+                val item = repo.workItemRepository().create(WorkItem(title = "Recent transition item", depth = 0))!!
                 repo.roleTransitionRepository().create(
                     RoleTransition(
                         itemId = item.id,
@@ -152,7 +152,7 @@ class TransitionRoutesTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    val i = repo.workItemRepository().create(WorkItem(title = "Many transitions", depth = 0)).getOrNull()!!
+                    val i = repo.workItemRepository().create(WorkItem(title = "Many transitions", depth = 0))!!
                     // Create a few transitions
                     repeat(3) { idx ->
                         repo.roleTransitionRepository().create(
@@ -187,7 +187,7 @@ class TransitionRoutesTest {
             val base = java.time.Instant.parse("2026-01-01T00:00:00Z")
             val item =
                 runBlocking {
-                    val i = repo.workItemRepository().create(WorkItem(title = "Paged transitions", depth = 0)).getOrNull()!!
+                    val i = repo.workItemRepository().create(WorkItem(title = "Paged transitions", depth = 0))!!
                     repeat(3) { idx ->
                         repo.roleTransitionRepository().create(
                             RoleTransition(

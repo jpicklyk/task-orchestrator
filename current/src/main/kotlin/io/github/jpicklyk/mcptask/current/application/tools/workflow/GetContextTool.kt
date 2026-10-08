@@ -9,10 +9,11 @@ import io.github.jpicklyk.mcptask.current.application.service.buildMissingBySeat
 import io.github.jpicklyk.mcptask.current.application.service.buildSeatsJson
 import io.github.jpicklyk.mcptask.current.application.service.computeMissingBySeat
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.async
@@ -210,13 +211,10 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
     ): JsonElement {
         val itemResult = context.workItemRepository().getById(itemId)
         val item =
-            when (itemResult) {
-                is Result.Success -> itemResult.data
-                is Result.Error -> return errorResponse(
-                    "WorkItem not found: $itemId",
-                    ErrorCodes.RESOURCE_NOT_FOUND
-                )
-            }
+            itemResult ?: return errorResponse(
+                "WorkItem not found: $itemId",
+                ErrorCodes.RESOURCE_NOT_FOUND
+            )
 
         val resolvedSchema = context.resolveSchema(item)
 
@@ -224,12 +222,8 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
         // above (never re-resolves it) — see ToolExecutionContext.resolveDispatchProfile's KDoc.
         val dispatchProfile = context.resolveDispatchProfile(item, item.role, resolvedSchema)
 
-        val notesResult = context.noteRepository().findByItemId(item.id)
         val notes =
-            when (notesResult) {
-                is Result.Success -> notesResult.data
-                is Result.Error -> emptyList()
-            }
+            legacyReadOrNull { context.noteRepository().findByItemId(item.id) } ?: emptyList()
         val notesByKey = notes.associateBy { it.key }
 
         // Build schema list with exists/filled status
@@ -281,10 +275,7 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
         val ancestorsJson: JsonArray =
             if (includeAncestors) {
                 val chains =
-                    when (val r = context.workItemRepository().findAncestorChains(setOf(item.id))) {
-                        is Result.Success -> r.data
-                        is Result.Error -> emptyMap()
-                    }
+                    (legacyReadOrNull { context.workItemRepository().findAncestorChains(setOf(item.id)) } ?: emptyMap())
                 buildAncestorsArray(chains[item.id] ?: emptyList())
             } else {
                 JsonArray(emptyList())
@@ -416,12 +407,20 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
         // Fetch work and review items in parallel, merge results
         val (workItems, reviewItems) =
             coroutineScope {
-                val workDeferred = async { workItemRepo.findByRole(Role.WORK, limit = 200, rootIds = scopeIds) }
-                val reviewDeferred = async { workItemRepo.findByRole(Role.REVIEW, limit = 200, rootIds = scopeIds) }
+                val workDeferred =
+                    async {
+                        legacyReadOrNull { workItemRepo.findByRole(Role.WORK, limit = 200, rootIds = scopeIds) }
+                            ?: emptyList()
+                    }
+                val reviewDeferred =
+                    async {
+                        legacyReadOrNull { workItemRepo.findByRole(Role.REVIEW, limit = 200, rootIds = scopeIds) }
+                            ?: emptyList()
+                    }
 
                 Pair(
-                    workDeferred.await().getOrElse(emptyList()),
-                    reviewDeferred.await().getOrElse(emptyList())
+                    workDeferred.await(),
+                    reviewDeferred.await()
                 )
             }
         val activeItems = workItems + reviewItems
@@ -431,10 +430,11 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
         // plumbing the resolved scope set through the transition-item lookup, which the task
         // scope note flagged as invasive; documented as a known limitation instead.
         val recentTransitions =
-            context
-                .roleTransitionRepository()
-                .findSince(since, limit = transitionLimit)
-                .getOrElse(emptyList())
+            legacyReadOrNull {
+                context
+                    .roleTransitionRepository()
+                    .findSince(since, limit = transitionLimit)
+            } ?: emptyList()
 
         // Resolve titles for the transition items (may include items no longer active, e.g. terminal).
         val transitionTitles: Map<java.util.UUID, String> =
@@ -442,9 +442,9 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
                 if (ids.isEmpty()) {
                     emptyMap()
                 } else {
-                    when (val r = workItemRepo.findByIds(ids)) {
-                        is Result.Success -> r.data.associate { it.id to it.title }
-                        is Result.Error -> emptyMap()
+                    run {
+                        val r = legacyRead({ return@run emptyMap<java.util.UUID, String>() }) { workItemRepo.findByIds(ids) }
+                        r.associate { it.id to it.title }
                     }
                 }
             }
@@ -457,10 +457,7 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
             if (includeAncestors) {
                 val allIds = (activeItems.map { it.id } + stalledItems.map { it.item.id }).toSet()
                 if (allIds.isNotEmpty()) {
-                    when (val r = workItemRepo.findAncestorChains(allIds)) {
-                        is Result.Success -> r.data
-                        is Result.Error -> emptyMap()
-                    }
+                    (legacyReadOrNull { workItemRepo.findAncestorChains(allIds) } ?: emptyMap())
                 } else {
                     emptyMap()
                 }
@@ -544,15 +541,27 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
         val blockedItems: List<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>
         val claimCounts: io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts?
         coroutineScope {
-            val workDeferred = async { workItemRepo.findByRole(Role.WORK, limit = 200, rootIds = scopeIds) }
-            val reviewDeferred = async { workItemRepo.findByRole(Role.REVIEW, limit = 200, rootIds = scopeIds) }
-            val blockedDeferred = async { workItemRepo.findByRole(Role.BLOCKED, limit = 200, rootIds = scopeIds) }
-            val claimDeferred = async { workItemRepo.countByClaimStatus(parentId = null, rootIds = scopeIds) }
+            val workDeferred =
+                async {
+                    legacyReadOrNull { workItemRepo.findByRole(Role.WORK, limit = 200, rootIds = scopeIds) }
+                        ?: emptyList()
+                }
+            val reviewDeferred =
+                async {
+                    legacyReadOrNull { workItemRepo.findByRole(Role.REVIEW, limit = 200, rootIds = scopeIds) }
+                        ?: emptyList()
+                }
+            val blockedDeferred =
+                async {
+                    legacyReadOrNull { workItemRepo.findByRole(Role.BLOCKED, limit = 200, rootIds = scopeIds) }
+                        ?: emptyList()
+                }
+            val claimDeferred = async { legacyReadOrNull { workItemRepo.countByClaimStatus(parentId = null, rootIds = scopeIds) } }
 
-            workItems = workDeferred.await().getOrElse(emptyList())
-            reviewItems = reviewDeferred.await().getOrElse(emptyList())
-            blockedItems = blockedDeferred.await().getOrElse(emptyList())
-            claimCounts = (claimDeferred.await() as? Result.Success)?.data
+            workItems = workDeferred.await()
+            reviewItems = reviewDeferred.await()
+            blockedItems = blockedDeferred.await()
+            claimCounts = claimDeferred.await()
         }
 
         val activeItems = workItems + reviewItems
@@ -563,10 +572,7 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
             if (includeAncestors) {
                 val allIds = (activeItems.map { it.id } + blockedItems.map { it.id } + stalledItems.map { it.item.id }).toSet()
                 if (allIds.isNotEmpty()) {
-                    when (val r = workItemRepo.findAncestorChains(allIds)) {
-                        is Result.Success -> r.data
-                        is Result.Error -> emptyMap()
-                    }
+                    (legacyReadOrNull { workItemRepo.findAncestorChains(allIds) } ?: emptyMap())
                 } else {
                     emptyMap()
                 }
@@ -666,10 +672,7 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
         // Batch-fetch all notes for schema-eligible items (N+1 → 1 query)
         val itemIds = schemaItems.map { it.first.id }.toSet()
         val notesByItemId =
-            when (val r = noteRepo.findByItemIds(itemIds)) {
-                is Result.Success -> r.data
-                is Result.Error -> return emptyList()
-            }
+            legacyReadOrNull { noteRepo.findByItemIds(itemIds) } ?: return emptyList()
 
         // Check each item against its schema using shared computation
         for ((item, schema) in schemaItems) {

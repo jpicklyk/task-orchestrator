@@ -4,25 +4,25 @@ import io.github.jpicklyk.mcptask.current.domain.model.Note
 import java.util.UUID
 
 interface NoteRepository {
-    suspend fun getById(id: UUID): Result<Note>
+    suspend fun getById(id: UUID): Note?
 
-    suspend fun upsert(note: Note): Result<Note>
+    suspend fun upsert(note: Note): Note
 
-    suspend fun delete(id: UUID): Result<Boolean>
+    suspend fun delete(id: UUID): Boolean
 
-    suspend fun deleteByItemId(itemId: UUID): Result<Int>
+    suspend fun deleteByItemId(itemId: UUID): Int
 
     suspend fun findByItemId(
         itemId: UUID,
         role: String? = null
-    ): Result<List<Note>>
+    ): List<Note>
 
     suspend fun findByItemIdAndKey(
         itemId: UUID,
         key: String
-    ): Result<Note?>
+    ): Note?
 
-    suspend fun findByItemIds(itemIds: Set<UUID>): Result<Map<UUID, List<Note>>>
+    suspend fun findByItemIds(itemIds: Set<UUID>): Map<UUID, List<Note>>
 
     /**
      * Full-text search on note bodies using the V7 FTS5 virtual tables.

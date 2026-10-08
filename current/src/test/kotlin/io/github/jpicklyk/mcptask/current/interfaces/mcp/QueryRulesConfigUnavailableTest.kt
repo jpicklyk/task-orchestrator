@@ -5,8 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.config.QueryRulesToo
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -86,7 +84,7 @@ class QueryRulesConfigUnavailableTest {
 
         val (root, item) =
             runBlocking {
-                val r = sqlite.workItemRepository().create(WorkItem(title = "S9 Root", depth = 0)).getOrNull()!!
+                val r = sqlite.workItemRepository().create(WorkItem(title = "S9 Root", depth = 0))!!
                 // A real row must exist so getFingerprint succeeds with a non-null value first --
                 // resolve() only reaches the .get() read (the one failGet intercepts) once the
                 // fingerprint check has NOT short-circuited on Success(null)/absence. Mirrors
@@ -104,7 +102,7 @@ class QueryRulesConfigUnavailableTest {
                                 rootId = r.id,
                                 depth = 1,
                             ),
-                        ).getOrNull()!!
+                        )!!
                 r to i
             }
 
@@ -115,6 +113,7 @@ class QueryRulesConfigUnavailableTest {
             ToolExecutionContext(
                 provider,
                 perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                unitOfWork = db.unitOfWork(),
             )
         return Triple(context, item, failable)
     }
@@ -177,7 +176,7 @@ class QueryRulesConfigUnavailableTest {
 
 /**
  * Wraps a real [ProjectConfigRepository] and lets tests force [get]/[getFingerprint] to return
- * `Result.Error(RepositoryError.DatabaseError("x"))` on demand. Own copy for this file -- see the
+ * `throw IllegalStateException("x")` on demand. Own copy for this file -- see the
  * identical class in the sibling config-unavailable test files for the full rationale (no shared
  * harness file per this item's file-ownership rule).
  */
@@ -189,9 +188,9 @@ private class FailableProjectConfigRepository(
     @Volatile var failGet: Boolean = false
 
     override suspend fun getFingerprint(rootItemId: UUID) =
-        if (failFingerprint) Result.Error(RepositoryError.DatabaseError("x")) else delegate.getFingerprint(rootItemId)
+        if (failFingerprint) throw IllegalStateException("x") else delegate.getFingerprint(rootItemId)
 
-    override suspend fun get(rootItemId: UUID) = if (failGet) Result.Error(RepositoryError.DatabaseError("x")) else delegate.get(rootItemId)
+    override suspend fun get(rootItemId: UUID) = if (failGet) throw IllegalStateException("x") else delegate.get(rootItemId)
 }
 
 /** An SQLite-backed provider with only [projectConfigRepository] swapped. */

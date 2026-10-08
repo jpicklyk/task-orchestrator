@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import java.util.UUID
 
 /**
@@ -43,18 +43,15 @@ suspend fun resolveWorkItemIdString(
     }
 
     // Repository prefix resolution
-    return when (val result = context.workItemRepository().findByIdPrefix(idStr)) {
-        is Result.Success -> {
-            val matches = result.data
-            when {
-                matches.isEmpty() ->
-                    throw ToolValidationException("No WorkItem found matching $fieldLabel prefix: $idStr")
-                matches.size > 1 ->
-                    throw ToolValidationException("Ambiguous $fieldLabel prefix: $idStr matches ${matches.size} items")
-                else -> matches.first().id
-            }
+    val matches =
+        legacyRead({ throw ToolValidationException("Failed to resolve $fieldLabel prefix: $it") }) {
+            context.workItemRepository().findByIdPrefix(idStr)
         }
-        is Result.Error ->
-            throw ToolValidationException("Failed to resolve $fieldLabel prefix: ${result.error.message}")
+    return when {
+        matches.isEmpty() ->
+            throw ToolValidationException("No WorkItem found matching $fieldLabel prefix: $idStr")
+        matches.size > 1 ->
+            throw ToolValidationException("Ambiguous $fieldLabel prefix: $idStr matches ${matches.size} items")
+        else -> matches.first().id
     }
 }

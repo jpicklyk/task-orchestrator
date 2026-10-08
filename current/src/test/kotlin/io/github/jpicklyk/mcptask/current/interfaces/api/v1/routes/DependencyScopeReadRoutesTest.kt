@@ -64,18 +64,15 @@ class DependencyScopeReadRoutesTest {
                     val a =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "SubjectAS1", tags = "alpha", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "SubjectAS1", tags = "alpha", depth = 0))!!
                     val b =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "BetaBS1", tags = "beta", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "BetaBS1", tags = "beta", depth = 0))!!
                     val c =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "AlphaCS1", tags = "alpha", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "AlphaCS1", tags = "alpha", depth = 0))!!
                     repo
                         .dependencyRepository()
                         .create(Dependency(fromItemId = b.id, toItemId = a.id, type = DependencyType.BLOCKS))
@@ -117,14 +114,13 @@ class DependencyScopeReadRoutesTest {
             val repo = db.repositoryProvider()
             val (rootR1, subjectA, otherRootB) =
                 runBlocking {
-                    val r1 = repo.workItemRepository().create(WorkItem(title = "RootR1S3", depth = 0)).getOrNull()!!
+                    val r1 = repo.workItemRepository().create(WorkItem(title = "RootR1S3", depth = 0))!!
                     val a =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "SubjectAS3", parentId = r1.id, depth = 1))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "SubjectAS3", parentId = r1.id, depth = 1))!!
                     val b =
-                        repo.workItemRepository().create(WorkItem(title = "OtherRootBS3", depth = 0)).getOrNull()!!
+                        repo.workItemRepository().create(WorkItem(title = "OtherRootBS3", depth = 0))!!
                     repo
                         .dependencyRepository()
                         .create(Dependency(fromItemId = b.id, toItemId = a.id, type = DependencyType.BLOCKS))
@@ -154,27 +150,23 @@ class DependencyScopeReadRoutesTest {
             val repo = db.repositoryProvider()
             val (rootR1, subjectA, inScopeD, wrongTagE, wrongRootF) =
                 runBlocking {
-                    val r1 = repo.workItemRepository().create(WorkItem(title = "RootR1S4", depth = 0)).getOrNull()!!
+                    val r1 = repo.workItemRepository().create(WorkItem(title = "RootR1S4", depth = 0))!!
                     val a =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "SubjectAS4", tags = "alpha", parentId = r1.id, depth = 1))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "SubjectAS4", tags = "alpha", parentId = r1.id, depth = 1))!!
                     val d =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "InScopeDS4", tags = "alpha", parentId = r1.id, depth = 1))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "InScopeDS4", tags = "alpha", parentId = r1.id, depth = 1))!!
                     val e =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "WrongTagES4", tags = "beta", parentId = r1.id, depth = 1))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "WrongTagES4", tags = "beta", parentId = r1.id, depth = 1))!!
                     val f =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "WrongRootFS4", tags = "alpha", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "WrongRootFS4", tags = "alpha", depth = 0))!!
                     repo
                         .dependencyRepository()
                         .create(Dependency(fromItemId = d.id, toItemId = a.id, type = DependencyType.BLOCKS))
@@ -215,18 +207,15 @@ class DependencyScopeReadRoutesTest {
                     val a =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "SubjectAS5", tags = "alpha", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "SubjectAS5", tags = "alpha", depth = 0))!!
                     val b =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "BetaBS5", tags = "beta", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "BetaBS5", tags = "beta", depth = 0))!!
                     val c =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "AlphaCS5", tags = "alpha", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "AlphaCS5", tags = "alpha", depth = 0))!!
                     repo
                         .dependencyRepository()
                         .create(Dependency(fromItemId = b.id, toItemId = a.id, type = DependencyType.BLOCKS))
@@ -268,18 +257,15 @@ class DependencyScopeReadRoutesTest {
                     val a =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "SubjectAS6", tags = "alpha", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "SubjectAS6", tags = "alpha", depth = 0))!!
                     val b =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "BetaBS6", tags = "beta", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "BetaBS6", tags = "beta", depth = 0))!!
                     val c =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "AlphaCS6", tags = "alpha", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "AlphaCS6", tags = "alpha", depth = 0))!!
                     // Both B and C block A -- A's blockedBy bucket is the bucket under test.
                     repo
                         .dependencyRepository()
@@ -323,18 +309,15 @@ class DependencyScopeReadRoutesTest {
                     val a =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "SubjectAS7", tags = "alpha", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "SubjectAS7", tags = "alpha", depth = 0))!!
                     val b =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "BetaBS7", tags = "beta", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "BetaBS7", tags = "beta", depth = 0))!!
                     val c =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "AlphaCS7", tags = "alpha", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "AlphaCS7", tags = "alpha", depth = 0))!!
                     repo
                         .dependencyRepository()
                         .create(Dependency(fromItemId = b.id, toItemId = a.id, type = DependencyType.BLOCKS))
@@ -370,8 +353,7 @@ class DependencyScopeReadRoutesTest {
                 runBlocking {
                     repo
                         .workItemRepository()
-                        .create(WorkItem(title = "SubjectAS8", tags = "beta", depth = 0))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "SubjectAS8", tags = "beta", depth = 0))!!
                 }
             val authConfig = makeTestAuthConfig(tagsInclude = setOf("alpha"))
             application {
@@ -409,13 +391,11 @@ class DependencyScopeReadRoutesTest {
                     val a =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "SubjectAS9", tags = "alpha", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "SubjectAS9", tags = "alpha", depth = 0))!!
                     val b =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "BetaBS9", tags = "beta", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "BetaBS9", tags = "beta", depth = 0))!!
                     repo
                         .dependencyRepository()
                         .create(Dependency(fromItemId = b.id, toItemId = a.id, type = DependencyType.BLOCKS))
@@ -447,19 +427,16 @@ class DependencyScopeReadRoutesTest {
                     val a =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "SubjectAP1", tags = "alpha", depth = 0))
-                            .getOrNull()!!
-                    val g = repo.workItemRepository().create(WorkItem(title = "NullTagsGP1", depth = 0)).getOrNull()!!
+                            .create(WorkItem(title = "SubjectAP1", tags = "alpha", depth = 0))!!
+                    val g = repo.workItemRepository().create(WorkItem(title = "NullTagsGP1", depth = 0))!!
                     val h =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "EmptyTagsHP1", tags = "", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "EmptyTagsHP1", tags = "", depth = 0))!!
                     val i =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "AlphaControlIP1", tags = "alpha", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "AlphaControlIP1", tags = "alpha", depth = 0))!!
                     repo
                         .dependencyRepository()
                         .create(Dependency(fromItemId = g.id, toItemId = a.id, type = DependencyType.BLOCKS))
@@ -502,13 +479,11 @@ class DependencyScopeReadRoutesTest {
                     val a =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "SubjectAP3", tags = "alpha", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "SubjectAP3", tags = "alpha", depth = 0))!!
                     val b =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "BetaBP3", tags = "beta", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "BetaBP3", tags = "beta", depth = 0))!!
                     // Two edges of different types between the same pair, in both directions.
                     repo
                         .dependencyRepository()

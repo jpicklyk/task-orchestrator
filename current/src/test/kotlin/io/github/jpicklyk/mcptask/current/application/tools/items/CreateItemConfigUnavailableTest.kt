@@ -1,10 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -25,7 +22,7 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -54,7 +51,7 @@ class CreateItemConfigUnavailableTest {
     @BeforeEach
     fun setUp() {
         repositoryProvider = db.repositoryProvider()
-        plainContext = ToolExecutionContext(repositoryProvider)
+        plainContext = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         tool = ManageItemsTool()
     }
 
@@ -102,12 +99,16 @@ class CreateItemConfigUnavailableTest {
                             description: "Q1"
                     """.trimIndent()
                 )
-            assertEquals(true, pushed is Result.Success, "setup precondition: config push must succeed, got $pushed")
+            assertEquals(true, pushed != null, "setup precondition: config push must succeed, got $pushed")
 
             val failable = FailableProjectConfigRepository(realConfigRepo)
             failable.failFingerprint = true
             val failingContext =
-                ToolExecutionContext(repositoryProvider, perRootConfigService = PerRootConfigService(failable))
+                ToolExecutionContext(
+                    repositoryProvider,
+                    perRootConfigService = PerRootConfigService(failable),
+                    unitOfWork = db.unitOfWork()
+                )
 
             val createResult =
                 tool.execute(
@@ -142,8 +143,8 @@ class CreateItemConfigUnavailableTest {
             // The item itself was genuinely persisted despite the decoration failure.
             val childId = item["id"]!!.jsonPrimitive.content
             val persisted = repositoryProvider.workItemRepository().getById(UUID.fromString(childId))
-            assertIs<Result.Success<WorkItem>>(persisted)
-            assertEquals("Child S14", persisted.data.title)
+            assertNotNull(persisted)
+            assertEquals("Child S14", persisted.title)
         }
 
     @Test
@@ -154,12 +155,16 @@ class CreateItemConfigUnavailableTest {
 
             val realConfigRepo = repositoryProvider.projectConfigRepository()
             val pushed = realConfigRepo.upsert(UUID.fromString(rootId), "work_item_schemas:\n  T:\n    notes: []\n")
-            assertEquals(true, pushed is Result.Success)
+            assertEquals(true, pushed != null)
 
             val failable = FailableProjectConfigRepository(realConfigRepo)
             failable.failGet = true
             val failingContext =
-                ToolExecutionContext(repositoryProvider, perRootConfigService = PerRootConfigService(failable))
+                ToolExecutionContext(
+                    repositoryProvider,
+                    perRootConfigService = PerRootConfigService(failable),
+                    unitOfWork = db.unitOfWork()
+                )
 
             // Two items in ONE batch: a child of the failing root, and a standalone (no parentId,
             // no rootId) item — the standalone item never touches the per-root layer at all, so its
@@ -203,7 +208,7 @@ class CreateItemConfigUnavailableTest {
 
 /**
  * Wraps a real [ProjectConfigRepository] and lets tests force [get]/[getFingerprint] to return
- * `Result.Error(RepositoryError.DatabaseError("x"))` on demand. Own copy for this file — see the
+ * `throw IllegalStateException("x")` on demand. Own copy for this file — see the
  * identical class in the sibling config-unavailable test files for the full rationale (no shared
  * harness file per this item's file-ownership rule).
  */
@@ -215,7 +220,7 @@ private class FailableProjectConfigRepository(
     @Volatile var failGet: Boolean = false
 
     override suspend fun getFingerprint(rootItemId: UUID) =
-        if (failFingerprint) Result.Error(RepositoryError.DatabaseError("x")) else delegate.getFingerprint(rootItemId)
+        if (failFingerprint) throw IllegalStateException("x") else delegate.getFingerprint(rootItemId)
 
-    override suspend fun get(rootItemId: UUID) = if (failGet) Result.Error(RepositoryError.DatabaseError("x")) else delegate.get(rootItemId)
+    override suspend fun get(rootItemId: UUID) = if (failGet) throw IllegalStateException("x") else delegate.get(rootItemId)
 }

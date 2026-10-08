@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.repository.ItemFetchResult
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -224,8 +223,8 @@ class QueryItemsOverviewLimitContractTest {
 
             coEvery {
                 mocks.workItemRepo.findRootItems(limit = 1, offset = 0, excludeTerminal = false)
-            } returns Result.Success(ItemFetchResult(items = emptyList(), skipped = 0))
-            coEvery { mocks.workItemRepo.countRootItems(any()) } returns Result.Success(0L)
+            } returns ItemFetchResult(items = emptyList(), skipped = 0)
+            coEvery { mocks.workItemRepo.countRootItems(any()) } returns 0L
 
             val tool = QueryItemsTool()
             val result =

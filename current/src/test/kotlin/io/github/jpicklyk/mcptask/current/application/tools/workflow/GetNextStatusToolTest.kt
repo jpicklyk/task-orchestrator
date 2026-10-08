@@ -5,8 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.mockk.coEvery
@@ -98,7 +96,7 @@ class GetNextStatusToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -121,7 +119,7 @@ class GetNextStatusToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.WORK)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -144,7 +142,7 @@ class GetNextStatusToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.REVIEW)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -171,7 +169,7 @@ class GetNextStatusToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.TERMINAL)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             val result =
                 tool.execute(
@@ -198,7 +196,7 @@ class GetNextStatusToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.BLOCKED, previousRole = Role.WORK)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             val result =
                 tool.execute(
@@ -220,8 +218,8 @@ class GetNextStatusToolTest {
             val item = makeItem(id = itemId, role = Role.QUEUE)
             val blockerItem = makeItem(id = blockerId, role = Role.QUEUE, title = "Blocker")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.getById(blockerId) } returns blockerItem
 
             // Blocker BLOCKS item, default unblockAt = terminal
             val dep =
@@ -260,10 +258,7 @@ class GetNextStatusToolTest {
         runBlocking {
             val itemId = UUID.randomUUID()
 
-            coEvery { workItemRepo.getById(itemId) } returns
-                Result.Error(
-                    RepositoryError.NotFound(itemId, "WorkItem not found: $itemId")
-                )
+            coEvery { workItemRepo.getById(itemId) } returns null
 
             val result =
                 tool.execute(
@@ -301,7 +296,7 @@ class GetNextStatusToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -321,7 +316,7 @@ class GetNextStatusToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.WORK)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -341,7 +336,7 @@ class GetNextStatusToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.REVIEW)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -365,7 +360,7 @@ class GetNextStatusToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -401,7 +396,7 @@ class GetNextStatusToolTest {
             // Override default: return a schema without a review phase for empty tag list
             every { noteSchemaService.getSchemaForTags(emptyList()) } returns schemaWithoutReview().notes
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -430,7 +425,7 @@ class GetNextStatusToolTest {
             // Override: tag lookup for "feature" returns a schema with a review phase
             every { noteSchemaService.getSchemaForTags(listOf("feature")) } returns schemaWithReview("feature").notes
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -461,8 +456,8 @@ class GetNextStatusToolTest {
             val item = makeItem(id = itemId, role = Role.QUEUE)
             val blockerItem = makeItem(id = blockerId, role = Role.QUEUE, title = "Blocker")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.getById(blockerId) } returns blockerItem
 
             // No incoming BLOCKS deps
             every { depRepo.findByToItemId(itemId) } returns emptyList()
@@ -501,8 +496,8 @@ class GetNextStatusToolTest {
             val item = makeItem(id = itemId, role = Role.QUEUE)
             val blockerItem = makeItem(id = blockerId, role = Role.TERMINAL, title = "Satisfied Blocker")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.getById(blockerId) } returns blockerItem
 
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             val dep =
@@ -534,9 +529,9 @@ class GetNextStatusToolTest {
             val blockerA = makeItem(id = blockerAId, role = Role.QUEUE, title = "Blocker A")
             val blockerB = makeItem(id = blockerBId, role = Role.WORK, title = "Blocker B")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.getById(blockerAId) } returns Result.Success(blockerA)
-            coEvery { workItemRepo.getById(blockerBId) } returns Result.Success(blockerB)
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.getById(blockerAId) } returns blockerA
+            coEvery { workItemRepo.getById(blockerBId) } returns blockerB
 
             // blockerA BLOCKS item (incoming)
             val blocksDep =
@@ -589,7 +584,7 @@ class GetNextStatusToolTest {
                 )
             every { noteSchemaService.getSchemaForType("typed-task") } returns typeSchema
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -616,7 +611,7 @@ class GetNextStatusToolTest {
                 )
             every { noteSchemaService.getSchemaForType("simple-type") } returns typeSchema
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 

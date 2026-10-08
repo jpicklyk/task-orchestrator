@@ -89,7 +89,8 @@ class QueryItemsToolSchemaResolutionTest {
                 )
             val perRoot = FakePerRootConfigSource(ConfigLayer(perRootDoc, "pr-fp", ConfigSource.PER_ROOT))
 
-            val schemaContext = ToolExecutionContext(repositoryProvider, globalSchemaService, perRootConfigService = perRoot)
+            val schemaContext =
+                ToolExecutionContext(repositoryProvider, globalSchemaService, perRootConfigService = perRoot, unitOfWork = db.unitOfWork())
 
             val result =
                 tool.execute(
@@ -130,7 +131,8 @@ class QueryItemsToolSchemaResolutionTest {
                 )
             val perRoot = FakePerRootConfigSource(ConfigLayer(perRootDoc, "pr-fp", ConfigSource.PER_ROOT))
 
-            val schemaContext = ToolExecutionContext(repositoryProvider, globalSchemaService, perRootConfigService = perRoot)
+            val schemaContext =
+                ToolExecutionContext(repositoryProvider, globalSchemaService, perRootConfigService = perRoot, unitOfWork = db.unitOfWork())
 
             val result =
                 tool.execute(

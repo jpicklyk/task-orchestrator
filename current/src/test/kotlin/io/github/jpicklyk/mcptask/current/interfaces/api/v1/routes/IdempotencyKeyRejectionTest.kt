@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
@@ -18,6 +17,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -43,7 +43,7 @@ class IdempotencyKeyRejectionTest {
     fun `POST items with malformed Idempotency-Key returns 400 validation_error and creates nothing`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -59,9 +59,9 @@ class IdempotencyKeyRejectionTest {
 
             // Hard assertion: nothing was created.
             val items = runBlocking { repo.workItemRepository().findByFilters() }
-            assertTrue(items is Result.Success)
+            assertNotNull(items)
             assertTrue(
-                (items as Result.Success).data.items.none { it.title == "Should Not Be Created" },
+                items.items.none { it.title == "Should Not Be Created" },
                 "Malformed Idempotency-Key must not create an item"
             )
         }
@@ -72,9 +72,9 @@ class IdempotencyKeyRejectionTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Untouched Title", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Untouched Title", depth = 0))!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${item.modifiedAt.toEpochMilli()}\""
             val response =
@@ -94,7 +94,7 @@ class IdempotencyKeyRejectionTest {
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
             assertEquals(
                 "Untouched Title",
-                (persisted as Result.Success).data.title,
+                persisted!!.title,
                 "Malformed Idempotency-Key must leave the item unmodified"
             )
         }
@@ -105,9 +105,9 @@ class IdempotencyKeyRejectionTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Note Host", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Note Host", depth = 0))!!
                 }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/items/${item.id}/notes/should-not-exist") {
@@ -124,9 +124,8 @@ class IdempotencyKeyRejectionTest {
             // Hard assertion: no note was created.
             val noteResult =
                 runBlocking { repo.noteRepository().findByItemIdAndKey(item.id, "should-not-exist") }
-            assertTrue(noteResult is Result.Success)
             assertNull(
-                (noteResult as Result.Success).data,
+                noteResult,
                 "Malformed Idempotency-Key must not create the note"
             )
         }

@@ -29,7 +29,7 @@ class DeleteItemHandler {
         recursive: Boolean,
         context: ToolExecutionContext
     ): JsonElement {
-        val deletion = WorkItemDeletion(context.repositoryProvider)
+        val deletion = WorkItemDeletion(context.repositoryProvider, context.unitOfWork)
 
         val deletedIds = mutableListOf<String>()
         var descendantsDeleted = 0

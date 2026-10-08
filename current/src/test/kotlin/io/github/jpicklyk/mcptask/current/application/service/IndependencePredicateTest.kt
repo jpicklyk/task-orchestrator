@@ -14,7 +14,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -24,6 +23,7 @@ import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -227,13 +227,13 @@ class IndependencePredicateTest {
         runBlocking {
             val repo = buildRepositoryProvider()
             val itemResult = repo.workItemRepository().create(WorkItem(title = "S4 fixture item", type = "indep-predicate-test"))
-            assertTrue(itemResult is Result.Success, "fixture item creation must succeed: $itemResult")
-            val realItemId = (itemResult as Result.Success).data.id
+            assertNotNull(itemResult, "fixture item creation must succeed: $itemResult")
+            val realItemId = itemResult.id
             notes.forEach { note ->
                 val upserted = repo.noteRepository().upsert(note.copy(itemId = realItemId))
-                assertTrue(upserted is Result.Success, "note upsert must succeed: $upserted")
+                assertNotNull(upserted, "note upsert must succeed: $upserted")
             }
-            (repo.noteRepository().findByItemId(realItemId) as Result.Success).data
+            (repo.noteRepository().findByItemId(realItemId)!!)
         }
 
     @Test

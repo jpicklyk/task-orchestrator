@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.tools.notes
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchResult
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
 import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
@@ -241,12 +240,12 @@ class QueryNotesScopeRoleContractTest {
     @Test
     fun `S5 - top-level list role filter is untouched by the scope role removal`(): Unit =
         runBlocking {
-            val context = ToolExecutionContext(db.repositoryProvider())
+            val context = ToolExecutionContext(db.repositoryProvider(), unitOfWork = db.unitOfWork())
             val queryTool = QueryNotesTool()
             val manageTool = ManageNotesTool()
 
             val itemId =
-                ((context.workItemRepository().create(WorkItem(title = "S5 item"))) as Result.Success).data.id.toString()
+                ((context.workItemRepository().create(WorkItem(title = "S5 item")))!!).id.toString()
 
             suspend fun upsert(
                 key: String,

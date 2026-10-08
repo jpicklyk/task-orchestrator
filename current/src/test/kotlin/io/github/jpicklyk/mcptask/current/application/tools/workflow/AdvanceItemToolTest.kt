@@ -11,8 +11,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationExcept
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
@@ -50,8 +48,8 @@ class AdvanceItemToolTest {
         every { repoProvider.workItemRepository() } returns workItemRepo
         every { repoProvider.dependencyRepository() } returns depRepo
         val defaultNoteRepo = mockk<NoteRepository>()
-        coEvery { defaultNoteRepo.findByItemId(any()) } returns Result.Success(emptyList())
-        coEvery { defaultNoteRepo.findByItemId(any(), any()) } returns Result.Success(emptyList())
+        coEvery { defaultNoteRepo.findByItemId(any()) } returns emptyList()
+        coEvery { defaultNoteRepo.findByItemId(any(), any()) } returns emptyList()
         every { repoProvider.noteRepository() } returns defaultNoteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
         // AdvanceItemTool wires the lease store into AdvanceService on every transition; a strict
@@ -60,10 +58,6 @@ class AdvanceItemToolTest {
         every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
         // dbNow() is called for ownership checks; default to JVM time for non-clock-skew tests.
         coEvery { workItemRepo.dbNow() } returns Instant.now()
-        // inTransaction delegates to its block directly — no real DB transaction in unit tests
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
-        }
 
         context = ToolExecutionContext(repoProvider)
     }
@@ -145,9 +139,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -182,9 +176,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -207,9 +201,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.WORK)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
 
@@ -232,9 +226,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.BLOCKED, previousRole = Role.WORK)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -257,9 +251,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.WORK)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -285,7 +279,7 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.TERMINAL)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             val params = buildParams(transitionObj(itemId, "start"))
             val result = tool.execute(params, context)
@@ -306,7 +300,7 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.TERMINAL)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             val params = buildParams(transitionObj(itemId, "complete"))
             val result = tool.execute(params, context)
@@ -323,7 +317,7 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.TERMINAL)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             val params = buildParams(transitionObj(itemId, "cancel"))
             val result = tool.execute(params, context)
@@ -344,7 +338,7 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.BLOCKED, previousRole = Role.WORK)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             val params = buildParams(transitionObj(itemId, "complete"))
             val result = tool.execute(params, context)
@@ -365,7 +359,7 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.BLOCKED, previousRole = Role.WORK)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             val params = buildParams(transitionObj(itemId, "start"))
             val result = tool.execute(params, context)
@@ -388,10 +382,10 @@ class AdvanceItemToolTest {
             val blockedItem = makeItem(id = blockedId, role = Role.BLOCKED, previousRole = Role.WORK)
             val goodItem = makeItem(id = goodId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(blockedId) } returns Result.Success(blockedItem)
-            coEvery { workItemRepo.getById(goodId) } returns Result.Success(goodItem)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(blockedId) } returns blockedItem
+            coEvery { workItemRepo.getById(goodId) } returns goodItem
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(goodId) } returns emptyList()
             every { depRepo.findByFromItemId(goodId) } returns emptyList()
 
@@ -437,8 +431,8 @@ class AdvanceItemToolTest {
             val item = makeItem(id = itemId, role = Role.QUEUE)
             val blockerItem = makeItem(id = blockerId, role = Role.QUEUE, title = "Blocker Task")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.getById(blockerId) } returns blockerItem
 
             val dep =
                 Dependency(
@@ -477,10 +471,10 @@ class AdvanceItemToolTest {
             val item1 = makeItem(id = id1, role = Role.QUEUE)
             val item2 = makeItem(id = id2, role = Role.WORK)
 
-            coEvery { workItemRepo.getById(id1) } returns Result.Success(item1)
-            coEvery { workItemRepo.getById(id2) } returns Result.Success(item2)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(id1) } returns item1
+            coEvery { workItemRepo.getById(id2) } returns item2
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
 
@@ -519,10 +513,10 @@ class AdvanceItemToolTest {
             val goodItem = makeItem(id = goodId, role = Role.QUEUE)
             val badItem = makeItem(id = badId, role = Role.TERMINAL)
 
-            coEvery { workItemRepo.getById(goodId) } returns Result.Success(goodItem)
-            coEvery { workItemRepo.getById(badId) } returns Result.Success(badItem)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(goodId) } returns goodItem
+            coEvery { workItemRepo.getById(badId) } returns badItem
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
 
@@ -556,17 +550,15 @@ class AdvanceItemToolTest {
             val parentItem = makeItem(id = parentId, role = Role.WORK, title = "Parent")
             val childItem = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(childId) } returns childItem
+            coEvery { workItemRepo.getById(parentId) } returns parentItem
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
             // All children of parent are terminal after this transition
             coEvery { workItemRepo.countChildrenByRole(parentId) } returns
-                Result.Success(
-                    mapOf(Role.TERMINAL to 1)
-                )
+                mapOf(Role.TERMINAL to 1)
 
             val params = buildParams(transitionObj(childId, "complete"))
             val result = tool.execute(params, context)
@@ -593,16 +585,14 @@ class AdvanceItemToolTest {
             val parentItem = makeItem(id = parentId, role = Role.WORK, title = "My Parent Item")
             val childItem = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(childId) } returns childItem
+            coEvery { workItemRepo.getById(parentId) } returns parentItem
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
             coEvery { workItemRepo.countChildrenByRole(parentId) } returns
-                Result.Success(
-                    mapOf(Role.TERMINAL to 1)
-                )
+                mapOf(Role.TERMINAL to 1)
 
             val params = buildParams(transitionObj(childId, "complete"))
             val result = tool.execute(params, context)
@@ -629,10 +619,10 @@ class AdvanceItemToolTest {
             val parentItem = makeItem(id = parentId, role = Role.QUEUE, title = "My Parent Queue Item")
             val childItem = makeItem(id = childId, role = Role.QUEUE, title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(childId) } returns childItem
+            coEvery { workItemRepo.getById(parentId) } returns parentItem
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
 
@@ -662,13 +652,13 @@ class AdvanceItemToolTest {
             val parentItem = makeItem(id = parentId, role = Role.BLOCKED, previousRole = Role.WORK, title = "Held Parent")
             val childItem = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(childId) } returns childItem
+            coEvery { workItemRepo.getById(parentId) } returns parentItem
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
-            coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns mapOf(Role.TERMINAL to 1)
 
             val result = tool.execute(buildParams(transitionObj(childId, "complete")), context)
 
@@ -690,16 +680,16 @@ class AdvanceItemToolTest {
             val childItem = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
             val blockerItem = makeItem(id = blockerId, role = Role.QUEUE, title = "Blocker")
 
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
-            coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(childId) } returns childItem
+            coEvery { workItemRepo.getById(parentId) } returns parentItem
+            coEvery { workItemRepo.getById(blockerId) } returns blockerItem
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
             every { depRepo.findByToItemId(parentId) } returns
                 listOf(Dependency(fromItemId = blockerId, toItemId = parentId, type = DependencyType.BLOCKS))
-            coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns mapOf(Role.TERMINAL to 1)
 
             val result = tool.execute(buildParams(transitionObj(childId, "complete")), context)
 
@@ -722,13 +712,13 @@ class AdvanceItemToolTest {
             val parentItem = makeItem(id = parentId, role = Role.WORK, title = "Parent")
             val childItem = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(childId) } returns childItem
+            coEvery { workItemRepo.getById(parentId) } returns parentItem
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
-            coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns mapOf(Role.TERMINAL to 1)
 
             val result = tool.execute(buildParams(transitionObj(childId, "complete")), context)
 
@@ -754,10 +744,10 @@ class AdvanceItemToolTest {
 
             // Child fetch (first call) returns QUEUE state, then returns WORK after update
             val updatedChild = childItem.update { it.copy(role = Role.WORK) }
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(childId) } returns childItem
+            coEvery { workItemRepo.getById(parentId) } returns parentItem
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
 
@@ -790,10 +780,10 @@ class AdvanceItemToolTest {
             val item = makeItem(id = itemId, role = Role.WORK)
             val downstreamItem = makeItem(id = downstreamId, role = Role.QUEUE, title = "Downstream Task")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.getById(downstreamId) } returns Result.Success(downstreamItem)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.getById(downstreamId) } returns downstreamItem
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
 
             // After completing itemId, downstream becomes unblocked
@@ -816,8 +806,8 @@ class AdvanceItemToolTest {
             // should also return the applied version. We'll use coEvery with answers.
             coEvery { workItemRepo.getById(itemId) } returnsMany
                 listOf(
-                    Result.Success(item), // first call: fetch for transition
-                    Result.Success(terminalItem) // second call: isFullyUnblocked check
+                    item, // first call: fetch for transition
+                    terminalItem // second call: isFullyUnblocked check
                 )
 
             val params = buildParams(transitionObj(itemId, "complete"))
@@ -873,7 +863,7 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             val params = buildParams(transitionObj(itemId, "reboot"))
             val result = tool.execute(params, context)
@@ -896,10 +886,7 @@ class AdvanceItemToolTest {
         runBlocking {
             val itemId = UUID.randomUUID()
 
-            coEvery { workItemRepo.getById(itemId) } returns
-                Result.Error(
-                    RepositoryError.NotFound(itemId, "WorkItem not found: $itemId")
-                )
+            coEvery { workItemRepo.getById(itemId) } returns null
 
             val params = buildParams(transitionObj(itemId, "start"))
             val result = tool.execute(params, context)
@@ -916,9 +903,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -937,9 +924,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.REVIEW)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
 
@@ -1003,9 +990,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -1034,9 +1021,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -1081,9 +1068,9 @@ class AdvanceItemToolTest {
             val ignoredId = UUID.randomUUID()
             val item = makeItem(id = batchId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(batchId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(batchId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
 
@@ -1114,9 +1101,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -1135,10 +1122,10 @@ class AdvanceItemToolTest {
             val goodItem = makeItem(id = goodId, role = Role.QUEUE)
             val badItem = makeItem(id = badId, role = Role.TERMINAL)
 
-            coEvery { workItemRepo.getById(goodId) } returns Result.Success(goodItem)
-            coEvery { workItemRepo.getById(badId) } returns Result.Success(badItem)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(goodId) } returns goodItem
+            coEvery { workItemRepo.getById(badId) } returns badItem
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
 
@@ -1199,9 +1186,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -1241,12 +1228,12 @@ class AdvanceItemToolTest {
 
             val noteRepo = mockk<NoteRepository>()
             // No notes exist for this item
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
 
             val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -1288,14 +1275,14 @@ class AdvanceItemToolTest {
                     role = "queue",
                     body = "The feature must do X"
                 )
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(existingNote))
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(listOf(existingNote))
+            coEvery { noteRepo.findByItemId(itemId) } returns listOf(existingNote)
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns listOf(existingNote)
 
             val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -1328,12 +1315,12 @@ class AdvanceItemToolTest {
 
             val noteRepo = mockk<NoteRepository>()
             // No notes exist yet
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
 
             val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -1379,14 +1366,14 @@ class AdvanceItemToolTest {
                     role = "queue",
                     body = "The feature must do X"
                 )
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(existingNote))
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(listOf(existingNote))
+            coEvery { noteRepo.findByItemId(itemId) } returns listOf(existingNote)
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns listOf(existingNote)
 
             val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -1430,12 +1417,12 @@ class AdvanceItemToolTest {
 
             val noteRepo = mockk<NoteRepository>()
             // No notes exist yet
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
 
             val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -1483,12 +1470,12 @@ class AdvanceItemToolTest {
             val noteSchemaService = schemaServiceWith(schemaEntries)
 
             val noteRepo = mockk<NoteRepository>()
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
 
             val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -1543,12 +1530,12 @@ class AdvanceItemToolTest {
                     role = "queue",
                     body = "Criteria are met"
                 )
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(filledNote))
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(listOf(filledNote))
+            coEvery { noteRepo.findByItemId(itemId) } returns listOf(filledNote)
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns listOf(filledNote)
 
             val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -1580,9 +1567,9 @@ class AdvanceItemToolTest {
     fun `reopen trigger transitions TERMINAL to QUEUE`(): Unit =
         runBlocking {
             val item = makeItem(role = Role.TERMINAL)
-            coEvery { workItemRepo.getById(item.id) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(item.id) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByFromItemId(item.id) } returns emptyList()
             every { depRepo.findByToItemId(item.id) } returns emptyList()
 
@@ -1599,7 +1586,7 @@ class AdvanceItemToolTest {
     fun `reopen on non-terminal item fails`(): Unit =
         runBlocking {
             val item = makeItem(role = Role.WORK)
-            coEvery { workItemRepo.getById(item.id) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(item.id) } returns item
 
             val result = tool.execute(buildParams(transitionObj(item.id, "reopen")), context)
             val results = extractResults(result)
@@ -1616,9 +1603,9 @@ class AdvanceItemToolTest {
                 makeItem(role = Role.TERMINAL).let {
                     it.update { c -> c.copy(statusLabel = "cancelled") }
                 }
-            coEvery { workItemRepo.getById(item.id) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(item.id) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByFromItemId(item.id) } returns emptyList()
             every { depRepo.findByToItemId(item.id) } returns emptyList()
 
@@ -1639,9 +1626,9 @@ class AdvanceItemToolTest {
     fun `reopen does not enforce gates on schema-tagged item`(): Unit =
         runBlocking {
             val item = WorkItem(id = UUID.randomUUID(), title = "Gated item", role = Role.TERMINAL, tags = "feature-implementation")
-            coEvery { workItemRepo.getById(item.id) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(item.id) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByFromItemId(item.id) } returns emptyList()
             every { depRepo.findByToItemId(item.id) } returns emptyList()
 
@@ -1699,14 +1686,14 @@ class AdvanceItemToolTest {
                     role = "queue",
                     body = "Criteria here"
                 )
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(queueNote))
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(listOf(queueNote))
+            coEvery { noteRepo.findByItemId(itemId) } returns listOf(queueNote)
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns listOf(queueNote)
 
             val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -1788,14 +1775,14 @@ class AdvanceItemToolTest {
                     role = "work",
                     body = "Design details"
                 )
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(queueNote, workNote))
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(listOf(queueNote, workNote))
+            coEvery { noteRepo.findByItemId(itemId) } returns listOf(queueNote, workNote)
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns listOf(queueNote, workNote)
 
             val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -1855,14 +1842,14 @@ class AdvanceItemToolTest {
                     role = "work",
                     body = "Design details"
                 )
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(queueNote, workNote))
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(listOf(queueNote, workNote))
+            coEvery { noteRepo.findByItemId(itemId) } returns listOf(queueNote, workNote)
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns listOf(queueNote, workNote)
 
             val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -1889,9 +1876,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -1926,14 +1913,14 @@ class AdvanceItemToolTest {
             val noteSchemaService = schemaServiceWith(schemaEntries)
 
             val noteRepo = mockk<NoteRepository>()
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
 
             val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -1986,14 +1973,14 @@ class AdvanceItemToolTest {
 
             val noteRepo = mockk<NoteRepository>()
             val queueNote = Note(itemId = itemId, key = "acceptance-criteria", role = "queue", body = "Done")
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(queueNote))
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(listOf(queueNote))
+            coEvery { noteRepo.findByItemId(itemId) } returns listOf(queueNote)
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns listOf(queueNote)
 
             val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -2037,14 +2024,14 @@ class AdvanceItemToolTest {
 
             val noteRepo = mockk<NoteRepository>()
             val queueNote = Note(itemId = itemId, key = "acceptance-criteria", role = "queue", body = "Done")
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(queueNote))
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(listOf(queueNote))
+            coEvery { noteRepo.findByItemId(itemId) } returns listOf(queueNote)
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns listOf(queueNote)
 
             val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -2065,8 +2052,8 @@ class AdvanceItemToolTest {
             val item = makeItem(id = itemId, role = Role.QUEUE)
             val blockerItem = makeItem(id = blockerId, role = Role.QUEUE, title = "Blocker Task")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.getById(blockerId) } returns blockerItem
 
             val dep =
                 Dependency(
@@ -2102,10 +2089,10 @@ class AdvanceItemToolTest {
             val child = makeItem(id = childId, role = Role.TERMINAL, parentId = parentId, title = "Terminal Child")
 
             // Child getById before and after transition
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(child)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(childId) } returns child
+            coEvery { workItemRepo.getById(parentId) } returns parent
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByFromItemId(childId) } returns emptyList()
             every { depRepo.findByToItemId(childId) } returns emptyList()
             every { depRepo.findByFromItemId(parentId) } returns emptyList()
@@ -2143,9 +2130,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -2190,9 +2177,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE, rootId = rootId)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -2234,9 +2221,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE, rootId = rootId)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -2262,9 +2249,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE, rootId = null)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -2285,16 +2272,14 @@ class AdvanceItemToolTest {
             val parentItem = makeItem(id = parentId, role = Role.WORK, title = "Cascade Parent")
             val childItem = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(childId) } returns childItem
+            coEvery { workItemRepo.getById(parentId) } returns parentItem
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
             coEvery { workItemRepo.countChildrenByRole(parentId) } returns
-                Result.Success(
-                    mapOf(Role.TERMINAL to 1)
-                )
+                mapOf(Role.TERMINAL to 1)
 
             val params = buildParams(transitionObj(childId, "complete"))
             val result = tool.execute(params, context)
@@ -2328,16 +2313,14 @@ class AdvanceItemToolTest {
             val parentItem = makeItem(id = parentId, role = Role.WORK, title = "Custom Cascade Parent")
             val childItem = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(childId) } returns childItem
+            coEvery { workItemRepo.getById(parentId) } returns parentItem
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
             coEvery { workItemRepo.countChildrenByRole(parentId) } returns
-                Result.Success(
-                    mapOf(Role.TERMINAL to 1)
-                )
+                mapOf(Role.TERMINAL to 1)
 
             val params = buildParams(transitionObj(childId, "complete"))
             val result = tool.execute(params, customContext)
@@ -2367,9 +2350,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.WORK)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -2401,9 +2384,9 @@ class AdvanceItemToolTest {
                     it.update { c -> c.copy(statusLabel = "cancelled") }
                 }
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
 
@@ -2433,9 +2416,9 @@ class AdvanceItemToolTest {
                     statusLabel = "in-progress"
                 )
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(blockedItem)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns blockedItem
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
 
@@ -2469,9 +2452,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -2515,9 +2498,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -2563,9 +2546,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -2589,10 +2572,10 @@ class AdvanceItemToolTest {
             val item1 = makeItem(id = id1, role = Role.QUEUE)
             val item2 = makeItem(id = id2, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(id1) } returns Result.Success(item1)
-            coEvery { workItemRepo.getById(id2) } returns Result.Success(item2)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(id1) } returns item1
+            coEvery { workItemRepo.getById(id2) } returns item2
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
 
@@ -2650,14 +2633,14 @@ class AdvanceItemToolTest {
             val parentItem = makeItem(id = parentId, role = Role.WORK, title = "Parent")
             val childItem = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(childId) } returns childItem
+            coEvery { workItemRepo.getById(parentId) } returns parentItem
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
             coEvery { workItemRepo.countChildrenByRole(parentId) } returns
-                Result.Success(mapOf(Role.TERMINAL to 1))
+                mapOf(Role.TERMINAL to 1)
 
             val actorJson =
                 buildJsonObject {
@@ -2705,7 +2688,7 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             val actorJson =
                 buildJsonObject {
@@ -2748,7 +2731,7 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             // actor object with kind but no id
             val actorJson =
@@ -2936,9 +2919,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE) // claimedBy = null
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -2956,9 +2939,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeClaimedItem(id = itemId, role = Role.QUEUE, claimHolder = "agent-alpha")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -2976,7 +2959,7 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeClaimedItem(id = itemId, role = Role.QUEUE, claimHolder = "agent-alpha")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             val params = buildParams(transitionObjWithActor(itemId, "start", "agent-beta"))
             val result = tool.execute(params, context)
@@ -2996,7 +2979,7 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeClaimedItem(id = itemId, role = Role.WORK, claimHolder = "agent-alpha")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             val params = buildParams(transitionObjWithActor(itemId, "complete", "agent-beta"))
             val result = tool.execute(params, context)
@@ -3016,7 +2999,7 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeClaimedItem(id = itemId, role = Role.WORK, claimHolder = "agent-alpha")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             val params = buildParams(transitionObjWithActor(itemId, "block", "agent-beta"))
             val result = tool.execute(params, context)
@@ -3036,7 +3019,7 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeClaimedItem(id = itemId, role = Role.WORK, claimHolder = "agent-alpha")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             val params = buildParams(transitionObjWithActor(itemId, "hold", "agent-beta"))
             val result = tool.execute(params, context)
@@ -3056,7 +3039,7 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeClaimedItem(id = itemId, role = Role.BLOCKED, claimHolder = "agent-alpha", previousRole = Role.WORK)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             val params = buildParams(transitionObjWithActor(itemId, "resume", "agent-beta"))
             val result = tool.execute(params, context)
@@ -3076,7 +3059,7 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeClaimedItem(id = itemId, role = Role.WORK, claimHolder = "agent-alpha")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             val params = buildParams(transitionObjWithActor(itemId, "cancel", "agent-beta"))
             val result = tool.execute(params, context)
@@ -3097,7 +3080,7 @@ class AdvanceItemToolTest {
             // TERMINAL items can be claimed (non-TERMINAL restriction only on claim_item)
             val item = makeClaimedItem(id = itemId, role = Role.TERMINAL, claimHolder = "agent-alpha")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             val params = buildParams(transitionObjWithActor(itemId, "reopen", "agent-beta"))
             val result = tool.execute(params, context)
@@ -3117,9 +3100,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeExpiredClaimItem(id = itemId, role = Role.QUEUE, previousHolder = "agent-alpha")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -3141,9 +3124,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE) // no claim
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -3164,7 +3147,7 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeClaimedItem(id = itemId, role = Role.QUEUE, claimHolder = "agent-alpha")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             // No actor provided but item has an active claim
             val params = buildParams(transitionObj(itemId, "start"))
@@ -3188,7 +3171,7 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE) // no claim
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             // Context with REJECT policy — actor is not verified (NoOpActorVerifier returns UNCHECKED)
             val rejectContext =
@@ -3220,9 +3203,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val blockedItem = makeClaimedItem(id = itemId, role = Role.BLOCKED, claimHolder = "agent-alpha", previousRole = Role.WORK)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(blockedItem)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns blockedItem
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -3244,9 +3227,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeClaimedItem(id = itemId, role = Role.WORK, claimHolder = "agent-alpha")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -3267,9 +3250,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeClaimedItem(id = itemId, role = Role.WORK, claimHolder = "agent-alpha")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -3290,9 +3273,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeClaimedItem(id = itemId, role = Role.WORK, claimHolder = "agent-alpha")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -3313,9 +3296,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeClaimedItem(id = itemId, role = Role.WORK, claimHolder = "agent-alpha")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -3336,9 +3319,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeClaimedItem(id = itemId, role = Role.TERMINAL, claimHolder = "agent-alpha")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -3361,9 +3344,9 @@ class AdvanceItemToolTest {
             val itemId = UUID.randomUUID()
             val item = makeExpiredClaimItem(id = itemId, role = Role.WORK, previousHolder = "agent-A")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -3413,15 +3396,15 @@ class AdvanceItemToolTest {
                     originalClaimedAt = now
                 )
 
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(childId) } returns childItem
+            coEvery { workItemRepo.getById(parentId) } returns parentItem
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
             // All children terminal after this transition
             coEvery { workItemRepo.countChildrenByRole(parentId) } returns
-                Result.Success(mapOf(Role.TERMINAL to 1))
+                mapOf(Role.TERMINAL to 1)
 
             // agent-beta completes child — ownership passes for child (holder)
             val params = buildParams(transitionObjWithActor(childId, "complete", "agent-beta"))
@@ -3673,11 +3656,11 @@ class AdvanceItemToolTest {
 
             val noteRepo = mockk<NoteRepository>()
             // Parent has no notes filled — gate would block if trigger were "complete"
-            coEvery { noteRepo.findByItemId(parentId) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemId(parentId, any()) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemId(parentId) } returns emptyList()
+            coEvery { noteRepo.findByItemId(parentId, any()) } returns emptyList()
             // Child notes (not relevant for cascade gate, but needed for the child's own gate check)
-            coEvery { noteRepo.findByItemId(childId) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemId(childId, any()) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemId(childId) } returns emptyList()
+            coEvery { noteRepo.findByItemId(childId, any()) } returns emptyList()
 
             val gatedContext =
                 run {
@@ -3690,15 +3673,15 @@ class AdvanceItemToolTest {
                     ToolExecutionContext(provider, noteSchemaService)
                 }
 
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(childId) } returns childItem
+            coEvery { workItemRepo.getById(parentId) } returns parentItem
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
             // After child cancels, all remaining children of parent are terminal
             coEvery { workItemRepo.countChildrenByRole(parentId) } returns
-                Result.Success(mapOf(Role.TERMINAL to 1))
+                mapOf(Role.TERMINAL to 1)
 
             // Cancel the child — this should cascade the parent to TERMINAL without gate check
             val params = buildParams(transitionObj(childId, "cancel"))
@@ -3748,8 +3731,8 @@ class AdvanceItemToolTest {
                 }
 
             val noteRepo = mockk<NoteRepository>()
-            coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemId(any(), any()) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemId(any()) } returns emptyList()
+            coEvery { noteRepo.findByItemId(any(), any()) } returns emptyList()
 
             val gatedContext =
                 run {
@@ -3762,18 +3745,18 @@ class AdvanceItemToolTest {
                     ToolExecutionContext(provider, noteSchemaService)
                 }
 
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
+            coEvery { workItemRepo.getById(childId) } returns childItem
+            coEvery { workItemRepo.getById(parentId) } returns parentItem
             // Simulate a custom status label resolver that uses "aborted" instead of "cancelled"
             coEvery { workItemRepo.update(any()) } answers {
                 val updated = firstArg<WorkItem>()
-                Result.Success(updated)
+                updated
             }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
             coEvery { workItemRepo.countChildrenByRole(parentId) } returns
-                Result.Success(mapOf(Role.TERMINAL to 1))
+                mapOf(Role.TERMINAL to 1)
 
             val params = buildParams(transitionObj(childId, "cancel"))
             val result = tool.execute(params, gatedContext)

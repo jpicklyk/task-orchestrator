@@ -38,14 +38,16 @@ import kotlin.time.TimeSource
  * - **Retry.** SQLITE_BUSY/LOCKED re-runs the WHOLE unit (fresh Exposed transaction, fresh
  *   [ConfigSession], fresh hooks, `now` re-read) with jittered exponential backoff until [deadline].
  * - **Translation.** An explicit write ([runWrite]) turns persistence faults into [DomainError]s via
- *   [PersistenceFaults]; every other exception rolls back and is rethrown unchanged. Implicit units
- *   (a store call outside any unit) rethrow the final exception so today's `Result.Error` mapping
- *   in the stores is unchanged.
+ *   [PersistenceFaults]; every other exception rolls back and is rethrown unchanged. A store write
+ *   outside any unit fails with [OutsideUnitWriteException] under the production [OutsideUnitPolicy.FAIL];
+ *   the test fixture's IMPLICIT policy runs it as an implicit unit that rethrows the final exception.
  * - **Hooks.** `afterCommit`/`afterRollback` hooks run once, on the outermost unit, never for an
  *   attempt abandoned by a BUSY retry, and never when the coroutine was cancelled.
  */
 class UnitRunner internal constructor(
-    private val dbs: DatabaseManager
+    private val dbs: DatabaseManager,
+    /** What a store write outside any unit does after it is counted. */
+    val outsideUnitPolicy: OutsideUnitPolicy
 ) {
     private val logger = LoggerFactory.getLogger(UnitRunner::class.java)
     private val writerMutex = Mutex()
@@ -62,12 +64,18 @@ class UnitRunner internal constructor(
     var deadline: Duration = DEFAULT_DEADLINE
 
     /**
-     * Store writes made OUTSIDE an explicit unit (implicit units), by `op`. The first occurrence per
-     * op is logged at WARN, later ones at DEBUG. P5b turns this into a hard failure.
+     * Store writes attempted OUTSIDE an explicit unit, by `op`, under either [outsideUnitPolicy]. The
+     * first occurrence per op is logged at WARN, later ones at DEBUG.
      */
     val outsideUnitWrites: Map<String, Long> get() = outsideWrites.mapValues { it.value.get() }
 
-    /** One explicit write unit. A block that returns [Outcome.Err] rolls the transaction back. */
+    /**
+     * One explicit write unit. A block that returns [Outcome.Err] rolls the transaction back. A block that
+     * returns [Outcome.Ok] after a store fault was recorded on the attempt (a poisoned unit, see
+     * [ActiveUnit.recordFault]) is rolled back too: the recorded fault is rethrown inside the transaction and
+     * handled exactly as if it had propagated (BUSY retries the unit, a persistence fault becomes Err, any
+     * other exception is rethrown).
+     */
     internal suspend fun <T> runWrite(
         op: String,
         clock: Clock,
@@ -78,7 +86,14 @@ class UnitRunner internal constructor(
                 drive(write = true, clock = clock, freshConfig = true) { unit ->
                     when (val outcome = block(unit)) {
                         is Outcome.Err -> throw UnitRollback(outcome.error)
-                        is Outcome.Ok -> outcome
+                        is Outcome.Ok -> {
+                            val poisoned = unit.recordedFault()
+                            if (poisoned != null) {
+                                logger.warn("Unit {} returned Ok after a store fault; rolling back: {}", op, poisoned.message)
+                                throw poisoned
+                            }
+                            outcome
+                        }
                     }
                 }
         ) {
@@ -123,12 +138,17 @@ class UnitRunner internal constructor(
             is Driven.Faulted -> throw driven.cause
         }
 
-    /** A store write made outside any unit: a counted, implicit write unit that rethrows the final exception. */
+    /**
+     * A store write made outside any unit. It is counted; then under [OutsideUnitPolicy.FAIL] it throws
+     * [OutsideUnitWriteException] before taking the writer lock or a connection, and under
+     * [OutsideUnitPolicy.IMPLICIT] it runs as an implicit write unit that rethrows the final exception.
+     */
     suspend fun <T> implicitWrite(
         op: String,
         block: suspend JdbcTransaction.() -> T
     ): T {
         countOutsideWrite(op)
+        if (outsideUnitPolicy == OutsideUnitPolicy.FAIL) throw OutsideUnitWriteException(op)
         return implicit(write = true, block = block)
     }
 

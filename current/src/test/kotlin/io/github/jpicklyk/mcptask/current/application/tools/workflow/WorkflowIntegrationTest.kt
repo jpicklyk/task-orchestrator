@@ -1,8 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.*
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.infrastructure.database.OutsideUnitPolicy
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
@@ -16,10 +17,22 @@ import kotlin.test.*
  * End-to-end workflow integration tests that exercise multiple tools and services
  * together using a real SQLite database. These tests verify cross-tool
  * workflows where operations happen in sequence and state evolves across calls.
+ *
+ * The scenarios run twice: under the test fixture's [OutsideUnitPolicy.IMPLICIT]
+ * ([WorkflowIntegrationTest]) and under the production [OutsideUnitPolicy.FAIL]
+ * ([WorkflowIntegrationFailPolicyTest]), so a tool write made outside a unit of work fails CI instead of
+ * only failing in production. Fixtures are seeded inside a unit so both runs share one body.
  */
-class WorkflowIntegrationTest {
+class WorkflowIntegrationTest : WorkflowIntegrationScenarios(OutsideUnitPolicy.IMPLICIT)
+
+/** [WorkflowIntegrationScenarios] under the production [OutsideUnitPolicy.FAIL]. */
+class WorkflowIntegrationFailPolicyTest : WorkflowIntegrationScenarios(OutsideUnitPolicy.FAIL)
+
+abstract class WorkflowIntegrationScenarios(
+    outsideUnitPolicy: OutsideUnitPolicy
+) {
     @RegisterExtension
-    val db = SqliteTestDatabase.perMethod()
+    val db = SqliteTestDatabase.perMethod(outsideUnitPolicy)
 
     private lateinit var context: ToolExecutionContext
     private lateinit var transitionTool: AdvanceItemTool
@@ -30,7 +43,7 @@ class WorkflowIntegrationTest {
     @BeforeEach
     fun setUp() {
         val repositoryProvider = db.repositoryProvider()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
 
         transitionTool = AdvanceItemTool()
         nextItemTool = GetNextItemTool()
@@ -56,7 +69,7 @@ class WorkflowIntegrationTest {
         val depth =
             if (parentId != null) {
                 val parentResult = context.workItemRepository().getById(parentId)
-                (parentResult as Result.Success).data.depth + 1
+                parentResult!!.depth + 1
             } else {
                 0
             }
@@ -73,8 +86,7 @@ class WorkflowIntegrationTest {
                 statusLabel = statusLabel,
                 depth = depth
             )
-        val result = context.workItemRepository().create(item)
-        return (result as Result.Success).data
+        return seed("WorkflowIntegration.createItem") { context.workItemRepository().create(item) }
     }
 
     private fun createDependency(
@@ -91,8 +103,18 @@ class WorkflowIntegrationTest {
                 unblockAt = unblockAt
             )
         // Orchestrator sweep repair [33e96efd]: create() is now suspend; helper stays non-suspend.
-        return runBlocking { context.dependencyRepository().create(dep) }
+        return runBlocking { seed("WorkflowIntegration.createDependency") { context.dependencyRepository().create(dep) } }
     }
+
+    /** Seeds a fixture inside one write unit, so the FAIL-policy run accepts it. */
+    private suspend fun <T> seed(
+        op: String,
+        block: suspend () -> T
+    ): T =
+        when (val outcome = context.unitOfWork.write(op) { Outcome.Ok(block()) }) {
+            is Outcome.Ok -> outcome.value
+            is Outcome.Err -> error("fixture seed '$op' failed: ${outcome.error.message}")
+        }
 
     private fun buildTransitionParams(vararg transitions: JsonObject): JsonObject =
         buildJsonObject {
@@ -141,7 +163,7 @@ class WorkflowIntegrationTest {
 
     private suspend fun getItem(id: UUID): WorkItem {
         val result = context.workItemRepository().getById(id)
-        return (result as Result.Success).data
+        return result!!
     }
 
     // ──────────────────────────────────────────────

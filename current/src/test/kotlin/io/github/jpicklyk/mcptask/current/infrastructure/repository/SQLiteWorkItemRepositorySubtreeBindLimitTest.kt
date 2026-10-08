@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
@@ -13,7 +13,7 @@ import org.sqlite.SQLiteLimits
 import java.sql.Connection
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import kotlin.test.assertNotNull
 
 /**
  * F-016: subtree reads and bulk deletes must not bind one variable per id.
@@ -47,13 +47,13 @@ class SQLiteWorkItemRepositorySubtreeBindLimitTest {
     private suspend fun buildBigTree(): BigTree {
         val ids = LinkedHashSet<UUID>()
         lateinit var root: WorkItem
-        repo.inTransaction {
-            root = (repo.create(WorkItem(title = "root", depth = 0)) as Result.Success).data
+        sqliteDb.unitOfWork().inUnit {
+            root = repo.create(WorkItem(title = "root", depth = 0))
             for (c in 0 until childCount) {
-                val child = (repo.create(WorkItem(parentId = root.id, depth = 1, title = "c$c")) as Result.Success).data
+                val child = repo.create(WorkItem(parentId = root.id, depth = 1, title = "c$c"))
                 ids += child.id
                 for (g in 0 until grandchildrenPerChild) {
-                    val gc = (repo.create(WorkItem(parentId = child.id, depth = 2, title = "c$c-g$g")) as Result.Success).data
+                    val gc = repo.create(WorkItem(parentId = child.id, depth = 2, title = "c$c-g$g"))
                     ids += gc.id
                 }
             }
@@ -63,7 +63,7 @@ class SQLiteWorkItemRepositorySubtreeBindLimitTest {
 
     private suspend fun <T> withVariableLimit(block: suspend () -> T): T {
         var out: T? = null
-        repo.inTransaction {
+        sqliteDb.unitOfWork().inUnit {
             val conn = TransactionManager.current().connection.connection as Connection
             conn.unwrap(SQLiteConnection::class.java).setLimit(SQLiteLimits.SQLITE_LIMIT_VARIABLE_NUMBER, limit)
             out = block()
@@ -80,9 +80,9 @@ class SQLiteWorkItemRepositorySubtreeBindLimitTest {
 
             val result = withVariableLimit { repo.findDescendants(tree.root.id) }
 
-            assertTrue(result is Result.Success, "findDescendants must not fail under a low variable limit: $result")
-            assertEquals(tree.descendantIds, (result as Result.Success).data.map { it.id }.toSet())
-            assertEquals(descendantCount, result.data.size)
+            assertNotNull(result, "findDescendants must not fail under a low variable limit: $result")
+            assertEquals(tree.descendantIds, result.map { it.id }.toSet())
+            assertEquals(descendantCount, result.size)
         }
 
     @Test
@@ -92,23 +92,22 @@ class SQLiteWorkItemRepositorySubtreeBindLimitTest {
             val ids = tree.descendantIds
 
             val found = withVariableLimit { repo.findByIds(ids) }
-            assertTrue(found is Result.Success, "findByIds must chunk: $found")
-            assertEquals(ids, (found as Result.Success).data.map { it.id }.toSet())
+            assertNotNull(found, "findByIds must chunk: $found")
+            assertEquals(ids, found.map { it.id }.toSet())
 
             // Only the grandchildren (no row in the set is the parent of another) are FK-safe to
             // delete in a single deleteAll.
             val grandchildren =
-                (repo.findDescendants(tree.root.id) as Result.Success)
-                    .data
+                (repo.findDescendants(tree.root.id)!!)
                     .filter { it.depth == 2 }
                     .map { it.id }
                     .toSet()
             assertEquals(childCount * grandchildrenPerChild, grandchildren.size)
             val deleted = withVariableLimit { repo.deleteAll(grandchildren) }
-            assertTrue(deleted is Result.Success, "deleteAll must chunk: $deleted")
-            assertEquals(grandchildren.size, (deleted as Result.Success).data)
+            assertNotNull(deleted, "deleteAll must chunk: $deleted")
+            assertEquals(grandchildren.size, deleted)
 
-            val remaining = (repo.findDescendants(tree.root.id) as Result.Success).data
+            val remaining = repo.findDescendants(tree.root.id)
             assertEquals(childCount, remaining.size)
         }
 }

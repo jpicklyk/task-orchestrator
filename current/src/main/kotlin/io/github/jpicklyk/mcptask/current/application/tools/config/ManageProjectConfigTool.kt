@@ -3,8 +3,8 @@ package io.github.jpicklyk.mcptask.current.application.tools.config
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushResult
 import io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushService
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.tools.*
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
@@ -188,7 +188,7 @@ the root's stored fingerprint history.
         val configYaml = requireString(params, "configYaml")
         val force = optionalBoolean(params, "force")
 
-        val service = ProjectConfigPushService(context.repositoryProvider, configDocumentParser)
+        val service = ProjectConfigPushService(context.repositoryProvider, configDocumentParser, context.unitOfWork)
         return when (val result = service.push(rootId!!, configYaml, force)) {
             is ProjectConfigPushResult.Success ->
                 successResponse(
@@ -269,15 +269,17 @@ the root's stored fingerprint history.
         if (idError != null) return idError
         val fingerprint = optionalString(params, "fingerprint")
 
-        val service = ProjectConfigPushService(context.repositoryProvider, configDocumentParser)
-        return when (val result = service.get(rootId!!)) {
-            is Result.Success -> {
-                val config =
-                    result.data ?: return errorResponse(
-                        "No project config found for root: $rootId",
-                        ErrorCodes.RESOURCE_NOT_FOUND
-                    )
-                val relation = fingerprint?.let { service.classifyRelation(rootId, it) }
+        val service = ProjectConfigPushService(context.repositoryProvider, configDocumentParser, context.unitOfWork)
+        val config =
+            legacyRead({ return errorResponse("Failed to read project config: $it", ErrorCodes.DATABASE_ERROR) }) {
+                service.get(rootId!!)
+            } ?: return errorResponse(
+                "No project config found for root: $rootId",
+                ErrorCodes.RESOURCE_NOT_FOUND
+            )
+        val relation = fingerprint?.let { service.classifyRelation(rootId!!, it) }
+        return run {
+            run {
                 successResponse(
                     buildJsonObject {
                         put("rootId", JsonPrimitive(config.rootItemId.toString()))
@@ -288,11 +290,6 @@ the root's stored fingerprint history.
                     }
                 )
             }
-            is Result.Error ->
-                errorResponse(
-                    "Failed to read project config: ${result.error.message}",
-                    ErrorCodes.DATABASE_ERROR
-                )
         }
     }
 

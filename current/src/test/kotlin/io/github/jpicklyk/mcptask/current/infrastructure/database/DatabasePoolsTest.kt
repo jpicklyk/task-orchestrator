@@ -210,7 +210,12 @@ class DatabasePoolsTest {
                     "jdbc:sqlite:" + File(dir, "custom.db").absolutePath.replace(File.separatorChar, '/'),
                     driver = "org.sqlite.JDBC"
                 )
-            val manager = DatabaseManager(customDatabase = custom, appConfig = AppConfig.fromEnv { null })
+            val manager =
+                DatabaseManager(
+                    customDatabase = custom,
+                    appConfig = AppConfig.fromEnv { null },
+                    outsideUnitPolicy = OutsideUnitPolicy.IMPLICIT
+                )
             try {
                 assertTrue(manager.initialize("ignored"))
                 assertSame(custom, manager.writer())

@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
@@ -60,9 +59,6 @@ class CompleteTreeToolAdvanceParityTest {
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
         every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
         coEvery { workItemRepo.dbNow() } returns Instant.now()
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
-        }
 
         context = ToolExecutionContext(repoProvider)
     }
@@ -178,9 +174,9 @@ class CompleteTreeToolAdvanceParityTest {
             val item = makeItem(id = itemId, title = "Unclaimed Item", role = Role.QUEUE)
 
             val transitionSlot = slot<RoleTransition>()
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(capture(transitionSlot)) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(capture(transitionSlot)) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -225,9 +221,9 @@ class CompleteTreeToolAdvanceParityTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE, rootId = rootId)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -263,8 +259,8 @@ class CompleteTreeToolAdvanceParityTest {
             val itemC = makeItem(id = idC, title = "Dependent", role = Role.QUEUE)
             val depBtoC = Dependency(fromItemId = idB, toItemId = idC, type = DependencyType.BLOCKS)
 
-            coEvery { workItemRepo.getById(idB) } returns Result.Success(itemB)
-            coEvery { workItemRepo.getById(idC) } returns Result.Success(itemC)
+            coEvery { workItemRepo.getById(idB) } returns itemB
+            coEvery { workItemRepo.getById(idC) } returns itemC
             every { depRepo.findByToItemId(idB) } returns emptyList()
             every { depRepo.findByFromItemId(idB) } returns emptyList()
             every { depRepo.findByToItemId(idC) } returns listOf(depBtoC)
@@ -305,9 +301,9 @@ class CompleteTreeToolAdvanceParityTest {
                     claimExpiresAt = Instant.now().minusSeconds(600)
                 )
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -334,10 +330,10 @@ class CompleteTreeToolAdvanceParityTest {
 
             val gated = gatedContext("acceptance-criteria")
 
-            coEvery { workItemRepo.getById(idB) } returns Result.Success(itemB)
-            coEvery { workItemRepo.getById(idC) } returns Result.Success(itemC)
-            coEvery { noteRepo.findByItemId(idB) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemId(idB, any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(idB) } returns itemB
+            coEvery { workItemRepo.getById(idC) } returns itemC
+            coEvery { noteRepo.findByItemId(idB) } returns emptyList()
+            coEvery { noteRepo.findByItemId(idB, any()) } returns emptyList()
             every { depRepo.findByToItemId(idB) } returns emptyList()
             every { depRepo.findByFromItemId(idB) } returns emptyList()
             every { depRepo.findByToItemId(idC) } returns listOf(depBtoC)
@@ -380,9 +376,9 @@ class CompleteTreeToolAdvanceParityTest {
                 )
             val gated = gatedContext("acceptance-criteria")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
             // Deliberately NOT stubbing noteRepo.findByItemId — cancel must never gate-check.
@@ -410,7 +406,7 @@ class CompleteTreeToolAdvanceParityTest {
                 )
             val gated = gatedContext("acceptance-criteria")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
             // Deliberately NOT stubbing update/create/noteRepo — ownership is checked BEFORE the
@@ -440,10 +436,10 @@ class CompleteTreeToolAdvanceParityTest {
             val depAtoB = Dependency(fromItemId = idA, toItemId = idB, type = DependencyType.BLOCKS)
             val gated = gatedContext("acceptance-criteria")
 
-            coEvery { workItemRepo.getById(idA) } returns Result.Success(itemA)
-            coEvery { workItemRepo.getById(idB) } returns Result.Success(itemB)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(idA) } returns itemA
+            coEvery { workItemRepo.getById(idB) } returns itemB
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(idA) } returns emptyList()
             every { depRepo.findByFromItemId(idA) } returns emptyList()
             every { depRepo.findByToItemId(idB) } returns listOf(depAtoB)
@@ -476,9 +472,9 @@ class CompleteTreeToolAdvanceParityTest {
             val item = makeItem(id = itemId, title = "No actor", role = Role.QUEUE)
 
             val transitionSlot = slot<RoleTransition>()
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(capture(transitionSlot)) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(capture(transitionSlot)) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -501,9 +497,9 @@ class CompleteTreeToolAdvanceParityTest {
             val item = makeItem(id = itemId, title = "Null actor", role = Role.QUEUE)
 
             val transitionSlot = slot<RoleTransition>()
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(capture(transitionSlot)) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(capture(transitionSlot)) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -532,9 +528,9 @@ class CompleteTreeToolAdvanceParityTest {
             val item = makeItem(id = itemId, title = "Idempotent", role = Role.QUEUE)
             val requestId = UUID.randomUUID().toString()
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 

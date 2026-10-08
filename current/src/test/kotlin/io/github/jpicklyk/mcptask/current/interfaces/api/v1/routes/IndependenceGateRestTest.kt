@@ -175,8 +175,7 @@ work_item_schemas:
     private suspend fun createRoot(composition: CompositionResult): UUID =
         composition.toolContext.repositoryProvider
             .workItemRepository()
-            .create(WorkItem(title = "A2b indep-rest root", type = "project", depth = 0))
-            .getOrNull()!!
+            .create(WorkItem(title = "A2b indep-rest root", type = "project", depth = 0))!!
             .id
 
     private suspend fun createItem(
@@ -196,7 +195,7 @@ work_item_schemas:
                     rootId = rootId,
                     depth = 1,
                 ),
-            ).getOrNull() ?: error("fixture: item creation failed for type=$type")
+            ) ?: error("fixture: item creation failed for type=$type")
 
     private suspend fun createChild(
         composition: CompositionResult,
@@ -217,7 +216,7 @@ work_item_schemas:
                     rootId = rootId,
                     depth = depth,
                 ),
-            ).getOrNull() ?: error("fixture: child item creation failed for type=$type")
+            ) ?: error("fixture: child item creation failed for type=$type")
 
     private suspend fun upsertNote(
         composition: CompositionResult,

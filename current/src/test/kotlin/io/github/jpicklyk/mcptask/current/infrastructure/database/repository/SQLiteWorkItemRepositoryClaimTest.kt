@@ -3,11 +3,11 @@ package io.github.jpicklyk.mcptask.current.infrastructure.database.repository
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
-import io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.database.OutsideUnitPolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -23,6 +23,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -57,8 +58,8 @@ class SQLiteWorkItemRepositoryClaimTest {
     ): WorkItem {
         val item = WorkItem(title = title, role = role)
         val result = repository.create(item)
-        assertIs<Result.Success<WorkItem>>(result)
-        return result.data
+        assertNotNull(result)
+        return result
     }
 
     // -----------------------------------------------------------------------
@@ -132,13 +133,13 @@ class SQLiteWorkItemRepositoryClaimTest {
 
             // Item A should be unclaimed now
             val aResult = repository.getById(itemA.id)
-            assertIs<Result.Success<WorkItem>>(aResult)
-            assertNull(aResult.data.claimedBy, "Item A should be auto-released when agent claims Item B")
+            assertNotNull(aResult)
+            assertNull(aResult.claimedBy, "Item A should be auto-released when agent claims Item B")
 
             // Item B should be claimed
             val bResult = repository.getById(itemB.id)
-            assertIs<Result.Success<WorkItem>>(bResult)
-            assertEquals("agent-c", bResult.data.claimedBy)
+            assertNotNull(bResult)
+            assertEquals("agent-c", bResult.claimedBy)
         }
 
     /**
@@ -168,8 +169,8 @@ class SQLiteWorkItemRepositoryClaimTest {
 
             // Fetch item A directly from DB to verify all 4 fields are null
             val aResult = repository.getById(itemA.id)
-            assertIs<Result.Success<WorkItem>>(aResult)
-            val released = aResult.data
+            assertNotNull(aResult)
+            val released = aResult
 
             assertNull(released.claimedBy, "claimedBy must be null after auto-release")
             assertNull(released.claimedAt, "claimedAt must be null after auto-release")
@@ -277,8 +278,8 @@ class SQLiteWorkItemRepositoryClaimTest {
             // The final DB row must be atomically consistent — claimed by the single winner with all
             // four fields set, or fully unclaimed. Never a partial write, regardless of contention.
             val finalResult = repository.getById(item.id)
-            assertIs<Result.Success<WorkItem>>(finalResult)
-            val finalItem = finalResult.data
+            assertNotNull(finalResult)
+            val finalItem = finalResult
 
             val winner = s1 ?: s2
             if (winner != null) {
@@ -381,8 +382,8 @@ class SQLiteWorkItemRepositoryClaimTest {
             // set — all four are written (or cleared) in a single SQL UPDATE. If there is
             // ever a row where some fields are null and others are not, that is data corruption.
             val finalResult = repository.getById(item.id)
-            assertIs<Result.Success<WorkItem>>(finalResult)
-            val finalItem = finalResult.data
+            assertNotNull(finalResult)
+            val finalItem = finalResult
 
             val nullCount =
                 listOf(finalItem.claimedBy, finalItem.claimedAt, finalItem.claimExpiresAt, finalItem.originalClaimedAt).count {
@@ -534,7 +535,7 @@ class SQLiteWorkItemRepositoryClaimTest {
         runBlocking {
             val item = WorkItem(title = "Terminal item", role = Role.TERMINAL)
             val createResult = repository.create(item)
-            assertIs<Result.Success<WorkItem>>(createResult)
+            assertNotNull(createResult)
 
             val result = repository.claim(item.id, "agent-x", 900)
             assertIs<ClaimResult.TerminalItem>(result)
@@ -641,10 +642,9 @@ class SQLiteWorkItemRepositoryClaimTest {
      *    state where ownership comparisons silently match an empty string.
      *
      * The repository attempts the claim under the parameterized SQL (no SQL exception), but
-     * the read-back through `toWorkItem()` triggers the validate() check and surfaces the
-     * blank-claimedBy violation as `ClaimResult.DBError` (the catch-all in `claim()` wraps
-     * unexpected exceptions, including ValidationException, into the structured DBError variant
-     * introduced by H1).
+     * the read-back through `toWorkItem()` triggers the validate() check, and the store throws the
+     * blank-claimedBy violation as a [ValidationException] (P5b: stores throw; before P5b the catch-all
+     * in `claim()` wrapped it as the H1 `ClaimResult.DBError` variant, now removed).
      */
     @Test
     fun `agentId with only whitespace is rejected by validate invariants`(): Unit =
@@ -652,18 +652,17 @@ class SQLiteWorkItemRepositoryClaimTest {
             val item = createItem()
             val whitespaceAgent = "   "
 
-            val result = repository.claim(item.id, whitespaceAgent, 900)
-            // validate() rejects blank claimedBy; the repository's catch block wraps
-            // the ValidationException as ClaimResult.DBError per H1.
-            assertIs<ClaimResult.DBError>(result)
-            assertNotNull(result.cause, "DBError should carry the underlying ValidationException as cause")
+            // validate() rejects blank claimedBy; the store now THROWS (P5b: stores throw; the fault
+            // is mapped at the unit boundary), where it used to wrap it as ClaimResult.DBError (H1).
+            val cause = assertFailsWith<ValidationException> { repository.claim(item.id, whitespaceAgent, 900) }
+            assertNotNull(cause, "the store fault should carry the underlying ValidationException")
             assertTrue(
-                result.cause.message?.contains("blank") == true ||
-                    result.cause.message?.contains("validate") == true ||
-                    result.cause.cause
+                cause.message?.contains("blank") == true ||
+                    cause.message?.contains("validate") == true ||
+                    cause.cause
                         ?.message
                         ?.contains("blank") == true,
-                "Expected validation error mentioning 'blank' claimedBy. Got: ${result.cause.message}"
+                "Expected validation error mentioning 'blank' claimedBy. Got: ${cause.message}"
             )
         }
 
@@ -763,8 +762,8 @@ class SQLiteWorkItemRepositoryClaimTest {
 
             // itemA must now be unclaimed (Step 1 auto-release fired)
             val aResult = repository.getById(itemA.id)
-            assertIs<Result.Success<WorkItem>>(aResult)
-            assertNull(aResult.data.claimedBy, "Item A must be auto-released even when agentId contains special characters")
+            assertNotNull(aResult)
+            assertNull(aResult.claimedBy, "Item A must be auto-released even when agentId contains special characters")
         }
 
     // -----------------------------------------------------------------------
@@ -803,25 +802,25 @@ class SQLiteWorkItemRepositoryClaimTest {
 
             // item-A's claim by agent-A must be PRESERVED (rollback / auto-release skipped)
             val aAfter = repository.getById(itemA.id)
-            assertIs<Result.Success<WorkItem>>(aAfter)
-            assertEquals("agent-A", aAfter.data.claimedBy, "item-A must still be claimed by agent-A")
-            assertNotNull(aAfter.data.originalClaimedAt, "originalClaimedAt must still be set on item-A")
+            assertNotNull(aAfter)
+            assertEquals("agent-A", aAfter.claimedBy, "item-A must still be claimed by agent-A")
+            assertNotNull(aAfter.originalClaimedAt, "originalClaimedAt must still be set on item-A")
             assertEquals(
                 originalClaimedAt.toEpochMilli() / 1000L,
-                aAfter.data.originalClaimedAt.toEpochMilli() / 1000L,
+                aAfter.originalClaimedAt.toEpochMilli() / 1000L,
                 "originalClaimedAt on item-A must be unchanged (within 1s)"
             )
             // claimExpiresAt must be unchanged (no re-write happened)
             assertEquals(
                 originalExpiresAt.toEpochMilli() / 1000L,
-                aAfter.data.claimExpiresAt!!.toEpochMilli() / 1000L,
+                aAfter.claimExpiresAt!!.toEpochMilli() / 1000L,
                 "claimExpiresAt on item-A must be unchanged after failed acquire attempt"
             )
 
             // item-B must still be held by agent-B
             val bAfter = repository.getById(itemB.id)
-            assertIs<Result.Success<WorkItem>>(bAfter)
-            assertEquals("agent-B", bAfter.data.claimedBy, "item-B must still be claimed by agent-B")
+            assertNotNull(bAfter)
+            assertEquals("agent-B", bAfter.claimedBy, "item-B must still be claimed by agent-B")
         }
 
     /**
@@ -851,11 +850,11 @@ class SQLiteWorkItemRepositoryClaimTest {
 
             // item-A's claim by agent-A must be PRESERVED
             val aAfter = repository.getById(itemA.id)
-            assertIs<Result.Success<WorkItem>>(aAfter)
-            assertEquals("agent-A", aAfter.data.claimedBy, "item-A must still be claimed by agent-A after TERMINAL attempt")
+            assertNotNull(aAfter)
+            assertEquals("agent-A", aAfter.claimedBy, "item-A must still be claimed by agent-A after TERMINAL attempt")
             assertEquals(
                 originalClaimedAt.toEpochMilli() / 1000L,
-                aAfter.data.originalClaimedAt!!.toEpochMilli() / 1000L,
+                aAfter.originalClaimedAt!!.toEpochMilli() / 1000L,
                 "originalClaimedAt on item-A must be unchanged"
             )
         }
@@ -884,16 +883,16 @@ class SQLiteWorkItemRepositoryClaimTest {
 
             // item-A must be auto-released
             val aAfter = repository.getById(itemA.id)
-            assertIs<Result.Success<WorkItem>>(aAfter)
-            assertNull(aAfter.data.claimedBy, "item-A must be auto-released when agent-A successfully claims item-B")
-            assertNull(aAfter.data.claimedAt, "claimedAt must be null after auto-release")
-            assertNull(aAfter.data.claimExpiresAt, "claimExpiresAt must be null after auto-release")
-            assertNull(aAfter.data.originalClaimedAt, "originalClaimedAt must be null after auto-release")
+            assertNotNull(aAfter)
+            assertNull(aAfter.claimedBy, "item-A must be auto-released when agent-A successfully claims item-B")
+            assertNull(aAfter.claimedAt, "claimedAt must be null after auto-release")
+            assertNull(aAfter.claimExpiresAt, "claimExpiresAt must be null after auto-release")
+            assertNull(aAfter.originalClaimedAt, "originalClaimedAt must be null after auto-release")
 
             // item-B must be claimed by agent-A
             val bAfter = repository.getById(itemB.id)
-            assertIs<Result.Success<WorkItem>>(bAfter)
-            assertEquals("agent-A", bAfter.data.claimedBy)
+            assertNotNull(bAfter)
+            assertEquals("agent-A", bAfter.claimedBy)
         }
 
     /**
@@ -920,8 +919,8 @@ class SQLiteWorkItemRepositoryClaimTest {
             assertIs<ClaimResult.Success>(repository.claim(itemA.id, "agent-A", 900))
 
             val firstClaim = repository.getById(itemA.id)
-            assertIs<Result.Success<WorkItem>>(firstClaim)
-            val firstOriginal = firstClaim.data.originalClaimedAt!!
+            assertNotNull(firstClaim)
+            val firstOriginal = firstClaim.originalClaimedAt!!
 
             Thread.sleep(1100) // ensure DB datetime('now') would advance
 
@@ -937,14 +936,14 @@ class SQLiteWorkItemRepositoryClaimTest {
             )
             // TTL must be extended
             assertTrue(
-                reClaim.item.claimExpiresAt!! > firstClaim.data.claimExpiresAt!!,
+                reClaim.item.claimExpiresAt!! > firstClaim.claimExpiresAt!!,
                 "re-claim should extend claimExpiresAt"
             )
 
             // item-B was never claimed — confirm it's still unclaimed (no spurious auto-release)
             val bAfter = repository.getById(itemB.id)
-            assertIs<Result.Success<WorkItem>>(bAfter)
-            assertNull(bAfter.data.claimedBy, "item-B should remain unclaimed when agent-A re-claims item-A")
+            assertNotNull(bAfter)
+            assertNull(bAfter.claimedBy, "item-B should remain unclaimed when agent-A re-claims item-A")
         }
 
     // -----------------------------------------------------------------------
@@ -989,53 +988,54 @@ class SQLiteWorkItemRepositoryClaimTest {
         }
 
     // -----------------------------------------------------------------------
-    // H1: DBError — unexpected database exception surfaces as DBError, not NotFound
+    // H1: an unexpected database exception surfaces as a thrown fault, not NotFound
     // -----------------------------------------------------------------------
 
     /**
-     * H1-D1: claim() with an uninitialized database returns ClaimResult.DBError with the
-     * itemId preserved and the cause attached — NOT ClaimResult.NotFound.
+     * H1-D1: claim() with an uninitialized database throws the IllegalStateException carrying the
+     * uninitialized-database message, NOT a ClaimResult.NotFound.
      *
-     * Constructs a DatabaseManager without calling initialize(), so getDatabase() throws
-     * IllegalStateException, simulating a severed database connection.
-     * The repository's catch block must classify this as DBError and attach the cause.
+     * Constructs a DatabaseManager without calling initialize(), so writer() throws
+     * IllegalStateException, simulating a severed database connection. P5b: stores throw, so the
+     * fault propagates to the caller instead of being classified as the removed DBError variant.
      */
     @Test
-    fun `claim on uninitialized database returns DBError with itemId and cause preserved`(): Unit =
+    fun `claim on uninitialized database throws the uninitialized-database fault`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
 
             // DatabaseManager with no customDatabase and no initialize() call.
             // getDatabase() will throw IllegalStateException("Database has not been initialized").
-            val uninitializedManager = DatabaseManager()
+            // IMPLICIT: under the production FAIL policy the outside-unit write would be refused before the
+            // uninitialized database is ever reached, so the test would not exercise what it names.
+            val uninitializedManager = DatabaseManager(outsideUnitPolicy = OutsideUnitPolicy.IMPLICIT)
             val faultyRepo = SQLiteWorkItemRepository(uninitializedManager)
 
-            val result = faultyRepo.claim(itemId, "agent-h1-test", 900)
-
-            assertIs<ClaimResult.DBError>(result)
-            assertEquals(itemId, result.itemId, "DBError.itemId must equal the requested itemId")
-            assertNotNull(result.cause, "DBError.cause must be non-null")
+            // P5b: stores throw; the fault is no longer a ClaimResult.DBError variant (no itemId field).
+            val cause = assertFailsWith<IllegalStateException> { faultyRepo.claim(itemId, "agent-h1-test", 900) }
+            assertNotNull(cause.message, "the store fault must carry its cause message")
+            assertTrue(cause.message!!.contains("not been initialized"), "the uninitialized-database fault expected: ${cause.message}")
         }
 
     /**
-     * H1-D2: release() with an uninitialized database returns ReleaseResult.DBError with the
-     * itemId preserved and the cause attached — NOT ReleaseResult.NotFound.
+     * H1-D2: release() with an uninitialized database throws the IllegalStateException carrying
+     * the uninitialized-database message, NOT a ReleaseResult.NotFound.
      *
      * Same strategy as H1-D1 but for the release path.
      */
     @Test
-    fun `release on uninitialized database returns DBError with itemId and cause preserved`(): Unit =
+    fun `release on uninitialized database throws the uninitialized-database fault`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
 
-            val uninitializedManager = DatabaseManager()
+            // IMPLICIT: see the claim test above; FAIL would refuse the write before reaching the database.
+            val uninitializedManager = DatabaseManager(outsideUnitPolicy = OutsideUnitPolicy.IMPLICIT)
             val faultyRepo = SQLiteWorkItemRepository(uninitializedManager)
 
-            val result = faultyRepo.release(itemId, "agent-h1-test")
-
-            assertIs<ReleaseResult.DBError>(result)
-            assertEquals(itemId, result.itemId, "DBError.itemId must equal the requested itemId")
-            assertNotNull(result.cause, "DBError.cause must be non-null")
+            // P5b: stores throw; the fault is no longer a ReleaseResult.DBError variant (no itemId field).
+            val cause = assertFailsWith<IllegalStateException> { faultyRepo.release(itemId, "agent-h1-test") }
+            assertNotNull(cause.message, "the store fault must carry its cause message")
+            assertTrue(cause.message!!.contains("not been initialized"), "the uninitialized-database fault expected: ${cause.message}")
         }
 
     // -----------------------------------------------------------------------
@@ -1076,8 +1076,8 @@ class SQLiteWorkItemRepositoryClaimTest {
             Thread.sleep(2000)
 
             val countResult = repository.countByClaimStatus(null)
-            assertIs<Result.Success<ClaimStatusCounts>>(countResult)
-            val counts = countResult.data
+            assertNotNull(countResult)
+            val counts = countResult
 
             val total = counts.active + counts.expired + counts.unclaimed
             assertEquals(
@@ -1136,8 +1136,8 @@ class SQLiteWorkItemRepositoryClaimTest {
 
             // After all concurrent operations complete, measure the invariant on a stable snapshot
             val countResult = repository.countByClaimStatus(null)
-            assertIs<Result.Success<ClaimStatusCounts>>(countResult)
-            val counts = countResult.data
+            assertNotNull(countResult)
+            val counts = countResult
 
             val total = counts.active + counts.expired + counts.unclaimed
             assertEquals(
@@ -1422,8 +1422,8 @@ class SQLiteWorkItemRepositoryClaimTest {
 
             // Verify the item is still held by the original claimer
             val fetchResult = repository.getById(item.id)
-            assertIs<Result.Success<WorkItem>>(fetchResult)
-            assertEquals("agent-holder-bug4", fetchResult.data.claimedBy, "Item must still be held by original claimer")
+            assertNotNull(fetchResult)
+            assertEquals("agent-holder-bug4", fetchResult.claimedBy, "Item must still be held by original claimer")
         }
 
     /**

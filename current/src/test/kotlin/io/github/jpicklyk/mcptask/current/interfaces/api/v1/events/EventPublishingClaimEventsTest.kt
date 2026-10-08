@@ -33,7 +33,7 @@ class EventPublishingClaimEventsTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(repositoryProvider, bus)
 
-            val y = provider.workItemRepository().create(WorkItem(title = "Y5", depth = 0)).getOrNull()!!
+            val y = provider.workItemRepository().create(WorkItem(title = "Y5", depth = 0))!!
 
             val flow = bus.subscribe("s5", emptySet(), lastEventId = null)
 
@@ -60,8 +60,8 @@ class EventPublishingClaimEventsTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(repositoryProvider, bus)
 
-            val x = provider.workItemRepository().create(WorkItem(title = "X6", depth = 0)).getOrNull()!!
-            val y = provider.workItemRepository().create(WorkItem(title = "Y6", depth = 0)).getOrNull()!!
+            val x = provider.workItemRepository().create(WorkItem(title = "X6", depth = 0))!!
+            val y = provider.workItemRepository().create(WorkItem(title = "Y6", depth = 0))!!
             val priorClaim = provider.workItemRepository().claim(x.id, "agent1", ttlSeconds = 900)
             assertTrue(priorClaim is ClaimResult.Success, "setup: expected agent1 to hold X, got: $priorClaim")
 
@@ -85,7 +85,7 @@ class EventPublishingClaimEventsTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(repositoryProvider, bus)
 
-            val y = provider.workItemRepository().create(WorkItem(title = "Y7", depth = 0)).getOrNull()!!
+            val y = provider.workItemRepository().create(WorkItem(title = "Y7", depth = 0))!!
             val claim = provider.workItemRepository().claim(y.id, "agent1", ttlSeconds = 900)
             assertTrue(claim is ClaimResult.Success, "setup: expected agent1 to hold Y, got: $claim")
 
@@ -110,8 +110,8 @@ class EventPublishingClaimEventsTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(repositoryProvider, bus)
 
-            val x = provider.workItemRepository().create(WorkItem(title = "X10", depth = 0)).getOrNull()!!
-            val y = provider.workItemRepository().create(WorkItem(title = "Y10", depth = 0)).getOrNull()!!
+            val x = provider.workItemRepository().create(WorkItem(title = "X10", depth = 0))!!
+            val y = provider.workItemRepository().create(WorkItem(title = "Y10", depth = 0))!!
             val claimX = provider.workItemRepository().claim(x.id, "agent1", ttlSeconds = 900)
             assertTrue(claimX is ClaimResult.Success, "setup: expected agent1 to hold X, got: $claimX")
             val claimY = provider.workItemRepository().claim(y.id, "agent2", ttlSeconds = 900)
@@ -133,7 +133,7 @@ class EventPublishingClaimEventsTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(repositoryProvider, bus)
 
-            val y = provider.workItemRepository().create(WorkItem(title = "Y13", depth = 0)).getOrNull()!!
+            val y = provider.workItemRepository().create(WorkItem(title = "Y13", depth = 0))!!
             val claim = provider.workItemRepository().claim(y.id, "holder", ttlSeconds = 900)
             assertTrue(claim is ClaimResult.Success, "setup: expected holder to hold Y, got: $claim")
 
@@ -160,7 +160,7 @@ class EventPublishingClaimEventsTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(repositoryProvider, bus)
 
-            val y = provider.workItemRepository().create(WorkItem(title = "Y16", depth = 0)).getOrNull()!!
+            val y = provider.workItemRepository().create(WorkItem(title = "Y16", depth = 0))!!
             val firstClaim = provider.workItemRepository().claim(y.id, "agent1", ttlSeconds = 900)
             assertTrue(firstClaim is ClaimResult.Success, "setup: expected agent1 to hold Y, got: $firstClaim")
 

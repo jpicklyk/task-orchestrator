@@ -7,12 +7,14 @@ import io.github.jpicklyk.mcptask.current.application.service.GatePredicate
 import io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView
 import io.github.jpicklyk.mcptask.current.application.service.computeMissingBySeat
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ItemSortFields
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
@@ -162,106 +164,108 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             val fetchLimit = if (tagScoped) TAG_SCOPE_SCAN_LIMIT else pp.pageSize
             val fetchOffset = if (tagScoped) 0 else pp.offset
 
-            val items =
-                if (effectiveScopeRootIds != null) {
-                    if (effectiveScopeRootIds.isEmpty()) {
-                        val total = 0L
-                        call.respond(HttpStatusCode.OK, buildPageDto(emptyList<ItemDto>(), pp, total))
-                        return@get
-                    }
-                    workItemRepo.findInScope(
-                        rootIds = effectiveScopeRootIds,
-                        parentId = parentId,
-                        role = role,
-                        priority = priority,
-                        tags = effectiveTags,
-                        createdAfter = createdAfter,
-                        createdBefore = createdBefore,
-                        modifiedAfter = modifiedAfter,
-                        modifiedBefore = modifiedBefore,
-                        sortBy = orderBy,
-                        sortOrder = orderDir,
-                        limit = fetchLimit,
-                        offset = fetchOffset,
-                        type = type,
-                        claimStatus = claimStatus,
-                    )
-                } else {
-                    // Unwrap ItemFetchResult to List<WorkItem> here so both branches of this
-                    // if/else agree on Result<List<WorkItem>>; skippedCount above carries the
-                    // dropped-row count forward for the response DTO.
-                    when (
-                        val r =
-                            workItemRepo.findByFilters(
-                                parentId = parentId,
-                                role = role,
-                                priority = priority,
-                                tags = effectiveTags,
-                                createdAfter = createdAfter,
-                                createdBefore = createdBefore,
-                                modifiedAfter = modifiedAfter,
-                                modifiedBefore = modifiedBefore,
-                                sortBy = orderBy,
-                                sortOrder = orderDir,
-                                limit = fetchLimit,
-                                offset = fetchOffset,
-                                type = type,
-                                claimStatus = claimStatus,
-                            )
-                    ) {
-                        is Result.Success -> {
-                            skippedCount = r.data.skipped
-                            Result.Success(r.data.items)
+            if (effectiveScopeRootIds != null && effectiveScopeRootIds.isEmpty()) {
+                val total = 0L
+                call.respond(HttpStatusCode.OK, buildPageDto(emptyList<ItemDto>(), pp, total))
+                return@get
+            }
+            val items: List<WorkItem> =
+                legacyRead({
+                    logger.warn("GET /items DB error: {}", it)
+                    call.respondDbError()
+                    return@get
+                }) {
+                    if (effectiveScopeRootIds != null) {
+                        workItemRepo.findInScope(
+                            rootIds = effectiveScopeRootIds,
+                            parentId = parentId,
+                            role = role,
+                            priority = priority,
+                            tags = effectiveTags,
+                            createdAfter = createdAfter,
+                            createdBefore = createdBefore,
+                            modifiedAfter = modifiedAfter,
+                            modifiedBefore = modifiedBefore,
+                            sortBy = orderBy,
+                            sortOrder = orderDir,
+                            limit = fetchLimit,
+                            offset = fetchOffset,
+                            type = type,
+                            claimStatus = claimStatus,
+                        )
+                    } else {
+                        // Unwrap ItemFetchResult to List<WorkItem> here so both branches of this
+                        // if/else agree on List<WorkItem>; skippedCount above carries the
+                        // dropped-row count forward for the response DTO.
+                        run {
+                            val r =
+                                workItemRepo.findByFilters(
+                                    parentId = parentId,
+                                    role = role,
+                                    priority = priority,
+                                    tags = effectiveTags,
+                                    createdAfter = createdAfter,
+                                    createdBefore = createdBefore,
+                                    modifiedAfter = modifiedAfter,
+                                    modifiedBefore = modifiedBefore,
+                                    sortBy = orderBy,
+                                    sortOrder = orderDir,
+                                    limit = fetchLimit,
+                                    offset = fetchOffset,
+                                    type = type,
+                                    claimStatus = claimStatus,
+                                )
+                            skippedCount = r.skipped
+                            r.items
                         }
-                        is Result.Error -> r
                     }
                 }
 
-            when (items) {
-                is Result.Error -> {
-                    logger.warn("GET /items DB error: {}", items.error.message)
-                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
-                }
-                is Result.Success -> {
+            run {
+                run {
                     if (tagScoped) {
                         // Filter first, paginate second: the surviving rows ARE the caller's
                         // universe, so totalItems is their count — never a DB count that
                         // includes items this token may not read.
-                        call.respond(HttpStatusCode.OK, pageOfVisible(items.data.filterByTagScope(principal), pp, skippedCount))
+                        call.respond(HttpStatusCode.OK, pageOfVisible(items.filterByTagScope(principal), pp, skippedCount))
                         return@get
                     }
                     val total =
                         if (effectiveScopeRootIds != null) {
-                            workItemRepo
-                                .countInScope(
-                                    rootIds = effectiveScopeRootIds,
-                                    parentId = parentId,
-                                    role = role,
-                                    priority = priority,
-                                    tags = effectiveTags,
-                                    createdAfter = createdAfter,
-                                    createdBefore = createdBefore,
-                                    modifiedAfter = modifiedAfter,
-                                    modifiedBefore = modifiedBefore,
-                                    type = type,
-                                    claimStatus = claimStatus,
-                                ).let { r -> if (r is Result.Success) r.data.toLong() else null }
+                            legacyReadOrNull {
+                                workItemRepo
+                                    .countInScope(
+                                        rootIds = effectiveScopeRootIds,
+                                        parentId = parentId,
+                                        role = role,
+                                        priority = priority,
+                                        tags = effectiveTags,
+                                        createdAfter = createdAfter,
+                                        createdBefore = createdBefore,
+                                        modifiedAfter = modifiedAfter,
+                                        modifiedBefore = modifiedBefore,
+                                        type = type,
+                                        claimStatus = claimStatus,
+                                    ).toLong()
+                            }
                         } else {
-                            workItemRepo
-                                .countByFilters(
-                                    parentId = parentId,
-                                    role = role,
-                                    priority = priority,
-                                    tags = effectiveTags,
-                                    createdAfter = createdAfter,
-                                    createdBefore = createdBefore,
-                                    modifiedAfter = modifiedAfter,
-                                    modifiedBefore = modifiedBefore,
-                                    type = type,
-                                    claimStatus = claimStatus,
-                                ).let { r -> if (r is Result.Success) r.data.toLong() else null }
+                            legacyReadOrNull {
+                                workItemRepo
+                                    .countByFilters(
+                                        parentId = parentId,
+                                        role = role,
+                                        priority = priority,
+                                        tags = effectiveTags,
+                                        createdAfter = createdAfter,
+                                        createdBefore = createdBefore,
+                                        modifiedAfter = modifiedAfter,
+                                        modifiedBefore = modifiedBefore,
+                                        type = type,
+                                        claimStatus = claimStatus,
+                                    ).toLong()
+                            }
                         }
-                    val dtos = items.data.map { it.toDto() }
+                    val dtos = items.map { it.toDto() }
                     call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, total, skippedCount))
                 }
             }
@@ -281,52 +285,51 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                 val roots =
                     scopeRootIds
                         .mapNotNull { rid ->
-                            val r = workItemRepo.getById(rid)
-                            if (r is Result.Success && r.data.parentId == null) r.data else null
+                            val r =
+                                legacyRead({
+                                    logger.warn("GET /items/roots DB error: {}", it)
+                                    call.respondDbError()
+                                    return@get
+                                }) { workItemRepo.getById(rid) }
+                            if (r != null && r.parentId == null) r else null
                         }.filterByTagScope(principal)
                 call.respond(HttpStatusCode.OK, pageOfVisible(roots, pp))
             } else if (principal.hasTagScope()) {
                 // Unrestricted rootIds but a tag allowlist: read a bounded candidate window,
                 // drop out-of-scope roots, then paginate the survivors (see TAG_SCOPE_SCAN_LIMIT).
-                val result = workItemRepo.findRootItems(limit = TAG_SCOPE_SCAN_LIMIT, offset = 0)
-                when (result) {
-                    is Result.Error -> {
-                        logger.warn("GET /items/roots DB error: {}", result.error.message)
-                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
-                    }
-                    is Result.Success -> {
-                        call.respond(
-                            HttpStatusCode.OK,
-                            pageOfVisible(result.data.items.filterByTagScope(principal), pp, result.data.skipped),
-                        )
-                    }
-                }
+                val result =
+                    legacyRead({
+                        logger.warn("GET /items/roots DB error: {}", it)
+                        call.respondDbError()
+                        return@get
+                    }) { workItemRepo.findRootItems(limit = TAG_SCOPE_SCAN_LIMIT, offset = 0) }
+                call.respond(
+                    HttpStatusCode.OK,
+                    pageOfVisible(result.items.filterByTagScope(principal), pp, result.skipped),
+                )
             } else {
                 // Unscoped/admin: true total from countRootItems() (unaffected by limit/offset or
                 // validation drops) and real limit/offset pagination — replaces the old silent
                 // 200-row cap so callers can page through every root.
-                val totalResult = workItemRepo.countRootItems()
-                val total =
-                    when (totalResult) {
-                        is Result.Error -> {
-                            logger.warn("GET /items/roots DB error (count): {}", totalResult.error.message)
-                            call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
-                            return@get
-                        }
-                        is Result.Success -> totalResult.data
-                    }
-
-                val result = workItemRepo.findRootItems(limit = pp.pageSize, offset = pp.offset)
-                when (result) {
-                    is Result.Error -> {
-                        logger.warn("GET /items/roots DB error: {}", result.error.message)
+                val totalResult =
+                    legacyRead({
+                        logger.warn("GET /items/roots DB error (count): {}", it)
                         call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
+                        return@get
+                    }) {
+                        workItemRepo.countRootItems()
                     }
-                    is Result.Success -> {
-                        val dtos = result.data.items.map { it.toDto() }
-                        call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, total, result.data.skipped))
-                    }
-                }
+                val total =
+                    totalResult
+
+                val result =
+                    legacyRead({
+                        logger.warn("GET /items/roots DB error: {}", it)
+                        call.respondDbError()
+                        return@get
+                    }) { workItemRepo.findRootItems(limit = pp.pageSize, offset = pp.offset) }
+                val dtos = result.items.map { it.toDto() }
+                call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, total, result.skipped))
             }
         }
 
@@ -338,17 +341,21 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                     return@get
                 }
             val id =
-                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
                     return@get
                 }
 
-            val itemResult = workItemRepo.getById(id)
-            if (itemResult is Result.Error) {
+            val itemResult =
+                legacyRead({
+                    call.respondDbError()
+                    return@get
+                }) { workItemRepo.getById(id) }
+            if (itemResult == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
                 return@get
             }
-            val item = (itemResult as Result.Success).data
+            val item = itemResult
 
             if (!enforceScopeForItem(call, id, workItemRepo)) {
                 call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
@@ -368,9 +375,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
 
             val noteDtos =
                 if ("notes" in includes) {
-                    noteRepo.findByItemId(id).let { r ->
-                        if (r is Result.Success) r.data.map { n -> redactor.redact(n.toDto(), call) } else null
-                    }
+                    legacyReadOrNull { noteRepo.findByItemId(id) }?.map { n -> redactor.redact(n.toDto(), call) }
                 } else {
                     null
                 }
@@ -388,9 +393,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             val principal = call.attributes.getOrNull(ApiPrincipalKey)
             val childrenDtos: List<ItemDto>? =
                 if ("children" in includes) {
-                    workItemRepo.findChildren(id).let { r ->
-                        if (r is Result.Success) r.data.filterByTagScope(principal).map { it.toDto() } else null
-                    }
+                    legacyReadOrNull { workItemRepo.findChildren(id) }?.filterByTagScope(principal)?.map { it.toDto() }
                 } else {
                     null
                 }
@@ -413,18 +416,22 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                     return@get
                 }
             val id =
-                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
                     return@get
                 }
             val maxDepth = (call.nonNegativeIntParamOrRespond("depth") ?: return@get).value
 
-            val itemResult = workItemRepo.getById(id)
-            if (itemResult is Result.Error) {
+            val itemResult =
+                legacyRead({
+                    call.respondDbError()
+                    return@get
+                }) { workItemRepo.getById(id) }
+            if (itemResult == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
                 return@get
             }
-            val root = (itemResult as Result.Success).data
+            val root = itemResult
 
             if (!enforceScopeForItem(call, id, workItemRepo)) {
                 call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
@@ -433,16 +440,16 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
 
             val pp = call.pageParamsOrRespond() ?: return@get
 
-            val descendantsResult = workItemRepo.findDescendants(id)
-            val descendants =
-                when (descendantsResult) {
-                    is Result.Error -> {
-                        logger.warn("GET /items/{}/tree DB error: {}", id, descendantsResult.error.message)
-                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
-                        return@get
-                    }
-                    is Result.Success -> descendantsResult.data
+            val descendantsResult =
+                legacyRead({
+                    logger.warn("GET /items/{}/tree DB error: {}", id, it)
+                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
+                    return@get
+                }) {
+                    workItemRepo.findDescendants(id)
                 }
+            val descendants =
+                descendantsResult
 
             // Apply depth filter if requested
             val relativeMaxDepth = if (maxDepth != null) root.depth + maxDepth else null
@@ -475,33 +482,34 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                     return@get
                 }
             val id =
-                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
                     return@get
                 }
 
-            val itemResult = workItemRepo.getById(id)
-            if (itemResult is Result.Error) {
+            val itemResult =
+                legacyRead({
+                    call.respondDbError()
+                    return@get
+                }) { workItemRepo.getById(id) }
+            if (itemResult == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
                 return@get
             }
-            val item = (itemResult as Result.Success).data
+            val item = itemResult
 
             if (!enforceScopeForItem(call, id, workItemRepo)) {
                 call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
                 return@get
             }
 
-            val chainResult = workItemRepo.findAncestorChains(setOf(id))
-            val ancestors =
-                when (chainResult) {
-                    is Result.Error -> {
-                        logger.warn("GET /items/{}/breadcrumbs DB error: {}", id, chainResult.error.message)
-                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
-                        return@get
-                    }
-                    is Result.Success -> chainResult.data[id] ?: emptyList()
-                }
+            val chainResult =
+                legacyRead({
+                    logger.warn("GET /items/{}/breadcrumbs DB error: {}", id, it)
+                    call.respondDbError()
+                    return@get
+                }) { workItemRepo.findAncestorChains(setOf(id)) }
+            val ancestors = chainResult[id] ?: emptyList()
 
             // ancestors is root-first (excludes item itself), so append item at end
             val chain = ancestors + item
@@ -535,13 +543,17 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                     return@get
                 }
             val id =
-                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
                     return@get
                 }
 
-            val itemResult = workItemRepo.getById(id)
-            if (itemResult is Result.Error) {
+            val itemResult =
+                legacyRead({
+                    call.respondDbError()
+                    return@get
+                }) { workItemRepo.getById(id) }
+            if (itemResult == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
                 return@get
             }
@@ -565,17 +577,19 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             val fetchOffset = if (tagScoped) 0 else pp.offset
 
             val childrenResult =
-                workItemRepo.findByFilters(
-                    parentId = id,
-                    limit = fetchLimit,
-                    offset = fetchOffset,
-                )
-            when (childrenResult) {
-                is Result.Error -> {
-                    logger.warn("GET /items/{}/children DB error: {}", id, childrenResult.error.message)
-                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
+                legacyRead({
+                    logger.warn("GET /items/{}/children DB error: {}", id, it)
+                    call.respondDbError()
+                    return@get
+                }) {
+                    workItemRepo.findByFilters(
+                        parentId = id,
+                        limit = fetchLimit,
+                        offset = fetchOffset,
+                    )
                 }
-                is Result.Success -> {
+            run {
+                run {
                     if (tagScoped) {
                         // Post-filter by tagsInclude when the principal's scope carries a tag
                         // allowlist. The entry-point check (enforceScopeForItem above) verified the
@@ -584,14 +598,13 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                         // this token may not read.
                         call.respond(
                             HttpStatusCode.OK,
-                            pageOfVisible(childrenResult.data.items.filterByTagScope(principalForChildren), pp),
+                            pageOfVisible(childrenResult.items.filterByTagScope(principalForChildren), pp),
                         )
                         return@get
                     }
 
-                    val totalResult = workItemRepo.countByFilters(parentId = id)
-                    val total = if (totalResult is Result.Success) totalResult.data.toLong() else null
-                    val dtos = childrenResult.data.items.map { it.toDto() }
+                    val total = legacyReadOrNull { workItemRepo.countByFilters(parentId = id) }?.toLong()
+                    val dtos = childrenResult.items.map { it.toDto() }
                     call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, total))
                 }
             }
@@ -644,17 +657,21 @@ fun Route.itemGateRoutes(
                     return@get
                 }
             val id =
-                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
                     return@get
                 }
 
-            val itemResult = workItemRepo.getById(id)
-            if (itemResult is Result.Error) {
+            val itemResult =
+                legacyRead({
+                    call.respondDbError()
+                    return@get
+                }) { workItemRepo.getById(id) }
+            if (itemResult == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
                 return@get
             }
-            val item = (itemResult as Result.Success).data
+            val item = itemResult
 
             if (!enforceScopeForItem(call, id, workItemRepo)) {
                 call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
@@ -675,8 +692,7 @@ fun Route.itemGateRoutes(
                     return@get
                 }
 
-            val notesResult = noteRepo.findByItemId(item.id)
-            val notes = if (notesResult is Result.Success) notesResult.data else emptyList()
+            val notes = legacyReadOrNull { noteRepo.findByItemId(item.id) } ?: emptyList()
             val notesByKey = notes.associateBy { it.key }
 
             val phaseContext = computePhaseNoteContext(item.role, resolvedSchema?.notes, notesByKey)
@@ -726,17 +742,21 @@ fun Route.itemGateRoutes(
                     return@get
                 }
             val id =
-                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
                     return@get
                 }
 
-            val itemResult = workItemRepo.getById(id)
-            if (itemResult is Result.Error) {
+            val itemResult =
+                legacyRead({
+                    call.respondDbError()
+                    return@get
+                }) { workItemRepo.getById(id) }
+            if (itemResult == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
                 return@get
             }
-            val item = (itemResult as Result.Success).data
+            val item = itemResult
 
             if (!enforceScopeForItem(call, id, workItemRepo)) {
                 call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))

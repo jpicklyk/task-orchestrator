@@ -1,10 +1,12 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.CountingUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.sqlite.assertNoOutsideUnitWrites
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -26,37 +28,37 @@ class WorkItemPlacementServiceTest {
     private lateinit var plainRepo: WorkItemRepository
 
     /**
-     * Counts top-level `inTransaction` calls and can script lookup / write failures. Every other
-     * member forwards to the real repository.
+     * Counts top-level write units ([units], a [CountingUnitOfWork] the service is handed) and can script
+     * lookup / write failures. Every other member forwards to the real repository.
      */
     private class SpyRepository(
-        private val delegate: WorkItemRepository
+        private val delegate: WorkItemRepository,
+        uow: UnitOfWork
     ) : WorkItemRepository by delegate {
-        var transactionCount = 0
         var failAncestorChains = false
         var failUpdateFor: UUID? = null
         var onFirstTransaction: (suspend () -> Unit)? = null
 
-        override suspend fun inTransaction(block: suspend () -> Unit) {
-            transactionCount++
-            delegate.inTransaction {
+        /** Runs [onFirstTransaction] once, inside the first unit, before the service's own block. */
+        val units =
+            CountingUnitOfWork(uow) { _ ->
                 onFirstTransaction?.let {
                     onFirstTransaction = null
                     it()
                 }
-                block()
             }
-        }
 
-        override suspend fun findAncestorChains(itemIds: Set<UUID>): Result<Map<UUID, List<WorkItem>>> =
+        val transactionCount: Int get() = units.writes
+
+        override suspend fun findAncestorChains(itemIds: Set<UUID>): Map<UUID, List<WorkItem>> =
             if (failAncestorChains) {
-                Result.Error(RepositoryError.DatabaseError("ancestor lookup boom"))
+                throw IllegalStateException("ancestor lookup boom")
             } else {
                 delegate.findAncestorChains(itemIds)
             }
 
-        override suspend fun update(item: WorkItem): Result<WorkItem> =
-            if (item.id == failUpdateFor) Result.Error(RepositoryError.DatabaseError("update boom")) else delegate.update(item)
+        override suspend fun update(item: WorkItem): WorkItem? =
+            if (item.id == failUpdateFor) throw IllegalStateException("update boom") else delegate.update(item)
     }
 
     @BeforeEach
@@ -67,8 +69,8 @@ class WorkItemPlacementServiceTest {
     }
 
     private suspend fun root(title: String): WorkItem {
-        val created = (plainRepo.create(WorkItem(title = title, depth = 0)) as Result.Success).data
-        return (plainRepo.update(created.copy(rootId = created.id)) as Result.Success).data
+        val created = plainRepo.create(WorkItem(title = title, depth = 0))
+        return plainRepo.update(created.copy(rootId = created.id))!!
     }
 
     private suspend fun child(
@@ -84,10 +86,10 @@ class WorkItemPlacementServiceTest {
                     rootId = parent.rootId ?: parent.id,
                     depth = depthOverride ?: (parent.depth + 1)
                 )
-            ) as Result.Success
-        ).data
+            )!!
+        )
 
-    private suspend fun load(id: UUID): WorkItem = (plainRepo.getById(id) as Result.Success).data
+    private suspend fun load(id: UUID): WorkItem = plainRepo.getById(id)!!
 
     // ───────────────────────── checkReparent ─────────────────────────
 
@@ -123,7 +125,7 @@ class WorkItemPlacementServiceTest {
             val r = root("R")
             val a = child(r, "A")
             val x = root("X")
-            val spy = SpyRepository(plainRepo).also { it.failAncestorChains = true }
+            val spy = SpyRepository(plainRepo, db.unitOfWork()).also { it.failAncestorChains = true }
 
             val check = WorkItemPlacementService(spy).checkReparent(x.id, a.id)
 
@@ -144,20 +146,22 @@ class WorkItemPlacementServiceTest {
     // ───────────────────────── create ─────────────────────────
 
     @Test
-    fun `create a root item stamps depth 0 and self rootId with no transaction`(): Unit =
+    fun `create a root item stamps depth 0 and self rootId in exactly one unit`(): Unit =
         runBlocking {
-            val spy = SpyRepository(plainRepo)
+            val spy = SpyRepository(plainRepo, db.unitOfWork())
             val id = UUID.randomUUID()
 
             val outcome =
-                WorkItemPlacementService(spy).create(id, null) { depth, rootId ->
-                    WorkItem(id = id, title = "root", depth = depth, rootId = rootId)
+                db.assertNoOutsideUnitWrites {
+                    WorkItemPlacementService(spy).create(spy.units, id, null) { depth, rootId ->
+                        WorkItem(id = id, title = "root", depth = depth, rootId = rootId)
+                    }
                 }
 
             assertIs<PlacedWriteOutcome.Written>(outcome)
             assertEquals(0, outcome.item.depth)
             assertEquals(id, outcome.item.rootId)
-            assertEquals(0, spy.transactionCount)
+            assertEquals(1, spy.transactionCount, "every write runs in exactly one unit (P5b D2)")
         }
 
     @Test
@@ -165,12 +169,14 @@ class WorkItemPlacementServiceTest {
         runBlocking {
             val r = root("R")
             val a = child(r, "A")
-            val spy = SpyRepository(plainRepo)
+            val spy = SpyRepository(plainRepo, db.unitOfWork())
             val id = UUID.randomUUID()
 
             val outcome =
-                WorkItemPlacementService(spy).create(id, a.id) { depth, rootId ->
-                    WorkItem(id = id, title = "leaf", parentId = a.id, depth = depth, rootId = rootId)
+                db.assertNoOutsideUnitWrites {
+                    WorkItemPlacementService(spy).create(spy.units, id, a.id) { depth, rootId ->
+                        WorkItem(id = id, title = "leaf", parentId = a.id, depth = depth, rootId = rootId)
+                    }
                 }
 
             assertIs<PlacedWriteOutcome.Written>(outcome)
@@ -184,16 +190,18 @@ class WorkItemPlacementServiceTest {
         runBlocking {
             val r = root("R")
             val a = child(r, "A")
-            val spy = SpyRepository(plainRepo).also { it.onFirstTransaction = { plainRepo.delete(a.id) } }
+            val spy = SpyRepository(plainRepo, db.unitOfWork()).also { it.onFirstTransaction = { plainRepo.delete(a.id) } }
             val id = UUID.randomUUID()
 
             val outcome =
-                WorkItemPlacementService(spy).create(id, a.id) { depth, rootId ->
-                    WorkItem(id = id, title = "leaf", parentId = a.id, depth = depth, rootId = rootId)
+                db.assertNoOutsideUnitWrites {
+                    WorkItemPlacementService(spy).create(spy.units, id, a.id) { depth, rootId ->
+                        WorkItem(id = id, title = "leaf", parentId = a.id, depth = depth, rootId = rootId)
+                    }
                 }
 
             assertEquals(PlacedWriteOutcome.ParentNotFound(a.id), outcome)
-            assertIs<Result.Error>(plainRepo.getById(id))
+            assertNull(plainRepo.getById(id))
         }
 
     @Test
@@ -203,29 +211,33 @@ class WorkItemPlacementServiceTest {
             val id = UUID.randomUUID()
 
             val outcome =
-                WorkItemPlacementService(plainRepo).create(id, r.id) { _, _ -> throw IllegalArgumentException("bad title") }
+                WorkItemPlacementService(
+                    plainRepo
+                ).create(db.unitOfWork(), id, r.id) { _, _ -> throw IllegalArgumentException("bad title") }
 
             assertEquals(PlacedWriteOutcome.BuildFailed("bad title"), outcome)
-            assertIs<Result.Error>(plainRepo.getById(id))
+            assertNull(plainRepo.getById(id))
         }
 
     // ───────────────────────── update ─────────────────────────
 
     @Test
-    fun `update without a parent change writes with no transaction`(): Unit =
+    fun `update without a parent change writes in exactly one unit`(): Unit =
         runBlocking {
             val r = root("R")
             val a = child(r, "A")
-            val spy = SpyRepository(plainRepo)
+            val spy = SpyRepository(plainRepo, db.unitOfWork())
 
             val outcome =
-                WorkItemPlacementService(spy).update(a, r.id, parentChanged = false) { depth, rootId ->
-                    a.update { it.copy(title = "A2", depth = depth, rootId = rootId) }
+                db.assertNoOutsideUnitWrites {
+                    WorkItemPlacementService(spy).update(spy.units, a, r.id, parentChanged = false) { depth, rootId ->
+                        a.update { it.copy(title = "A2", depth = depth, rootId = rootId) }
+                    }
                 }
 
             assertIs<PlacedWriteOutcome.Written>(outcome)
             assertEquals("A2", load(a.id).title)
-            assertEquals(0, spy.transactionCount)
+            assertEquals(1, spy.transactionCount, "every write runs in exactly one unit (P5b D2)")
         }
 
     @Test
@@ -235,11 +247,13 @@ class WorkItemPlacementServiceTest {
             val a = child(r, "A")
             val b = child(a, "B")
             val r2 = root("R2")
-            val spy = SpyRepository(plainRepo)
+            val spy = SpyRepository(plainRepo, db.unitOfWork())
 
             val outcome =
-                WorkItemPlacementService(spy).update(a, r2.id, parentChanged = true) { depth, rootId ->
-                    a.update { it.copy(parentId = r2.id, depth = depth, rootId = rootId) }
+                db.assertNoOutsideUnitWrites {
+                    WorkItemPlacementService(spy).update(spy.units, a, r2.id, parentChanged = true) { depth, rootId ->
+                        a.update { it.copy(parentId = r2.id, depth = depth, rootId = rootId) }
+                    }
                 }
 
             assertIs<PlacedWriteOutcome.Written>(outcome)
@@ -258,8 +272,10 @@ class WorkItemPlacementServiceTest {
             val b = child(a, "B")
 
             val outcome =
-                WorkItemPlacementService(plainRepo).update(a, null, parentChanged = true) { depth, rootId ->
-                    a.update { it.copy(parentId = null, depth = depth, rootId = rootId) }
+                db.assertNoOutsideUnitWrites {
+                    WorkItemPlacementService(plainRepo).update(db.unitOfWork(), a, null, parentChanged = true) { depth, rootId ->
+                        a.update { it.copy(parentId = null, depth = depth, rootId = rootId) }
+                    }
                 }
 
             assertIs<PlacedWriteOutcome.Written>(outcome)
@@ -278,11 +294,13 @@ class WorkItemPlacementServiceTest {
             val x = root("X")
             val c1 = child(x, "C1")
             val c2 = child(x, "C2")
-            val spy = SpyRepository(plainRepo).also { it.failUpdateFor = c2.id }
+            val spy = SpyRepository(plainRepo, db.unitOfWork()).also { it.failUpdateFor = c2.id }
 
             val outcome =
-                WorkItemPlacementService(spy).update(x, p.id, parentChanged = true) { depth, rootId ->
-                    x.update { it.copy(parentId = p.id, depth = depth, rootId = rootId) }
+                db.assertNoOutsideUnitWrites {
+                    WorkItemPlacementService(spy).update(spy.units, x, p.id, parentChanged = true) { depth, rootId ->
+                        x.update { it.copy(parentId = p.id, depth = depth, rootId = rootId) }
+                    }
                 }
 
             assertIs<PlacedWriteOutcome.CascadeFailed>(outcome)
@@ -301,12 +319,14 @@ class WorkItemPlacementServiceTest {
             plainRepo.update(a.update { it.copy(title = "other writer") })
 
             val outcome =
-                WorkItemPlacementService(plainRepo).update(a, r.id, parentChanged = false) { depth, rootId ->
-                    a.update { it.copy(title = "stale write", depth = depth, rootId = rootId) }
+                db.assertNoOutsideUnitWrites {
+                    WorkItemPlacementService(plainRepo).update(db.unitOfWork(), a, r.id, parentChanged = false) { depth, rootId ->
+                        a.update { it.copy(title = "stale write", depth = depth, rootId = rootId) }
+                    }
                 }
 
             assertIs<PlacedWriteOutcome.WriteFailed>(outcome)
-            assertIs<RepositoryError.ConflictError>(outcome.error)
+            assertEquals(ErrorCode.VERSION_CONFLICT, outcome.error.code)
         }
 
     @Test
@@ -317,8 +337,10 @@ class WorkItemPlacementServiceTest {
             val r2 = root("R2")
 
             val outcome =
-                WorkItemPlacementService(plainRepo).update(a, r2.id, parentChanged = true) { _, _ ->
-                    throw IllegalArgumentException("bad")
+                db.assertNoOutsideUnitWrites {
+                    WorkItemPlacementService(plainRepo).update(db.unitOfWork(), a, r2.id, parentChanged = true) { _, _ ->
+                        throw IllegalArgumentException("bad")
+                    }
                 }
 
             assertEquals(PlacedWriteOutcome.BuildFailed("bad"), outcome)

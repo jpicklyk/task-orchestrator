@@ -7,7 +7,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -61,8 +60,8 @@ class AdvanceItemToolCredentialRefTest {
         every { repoProvider.workItemRepository() } returns workItemRepo
         every { repoProvider.dependencyRepository() } returns depRepo
         val defaultNoteRepo = mockk<NoteRepository>()
-        coEvery { defaultNoteRepo.findByItemId(any()) } returns Result.Success(emptyList())
-        coEvery { defaultNoteRepo.findByItemId(any(), any()) } returns Result.Success(emptyList())
+        coEvery { defaultNoteRepo.findByItemId(any()) } returns emptyList()
+        coEvery { defaultNoteRepo.findByItemId(any(), any()) } returns emptyList()
         every { repoProvider.noteRepository() } returns defaultNoteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
         // AdvanceItemTool wires the lease store into AdvanceService on every transition; a strict
@@ -70,9 +69,6 @@ class AdvanceItemToolCredentialRefTest {
         // itself short-circuits before touching the repository).
         every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
         coEvery { workItemRepo.dbNow() } returns Instant.now()
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
-        }
 
         context = ToolExecutionContext(repoProvider)
     }
@@ -84,8 +80,8 @@ class AdvanceItemToolCredentialRefTest {
 
     private fun stubHappyPath(itemId: UUID) {
         val item = makeItem(id = itemId, role = Role.QUEUE)
-        coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+        coEvery { workItemRepo.getById(itemId) } returns item
+        coEvery { workItemRepo.update(any()) } answers { firstArg() }
         every { depRepo.findByToItemId(itemId) } returns emptyList()
         every { depRepo.findByFromItemId(itemId) } returns emptyList()
     }
@@ -106,7 +102,7 @@ class AdvanceItemToolCredentialRefTest {
             val itemId = UUID.randomUUID()
             stubHappyPath(itemId)
             val transitionSlot = slot<RoleTransition>()
-            coEvery { roleTransitionRepo.create(capture(transitionSlot)) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(capture(transitionSlot)) } answers { firstArg() }
 
             val params =
                 buildJsonObject {
@@ -142,7 +138,7 @@ class AdvanceItemToolCredentialRefTest {
             val itemId = UUID.randomUUID()
             stubHappyPath(itemId)
             val transitionSlot = slot<RoleTransition>()
-            coEvery { roleTransitionRepo.create(capture(transitionSlot)) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(capture(transitionSlot)) } answers { firstArg() }
 
             val params =
                 buildJsonObject {
@@ -187,7 +183,7 @@ class AdvanceItemToolCredentialRefTest {
             val itemId = UUID.randomUUID()
             stubHappyPath(itemId)
             val transitionSlot = slot<RoleTransition>()
-            coEvery { roleTransitionRepo.create(capture(transitionSlot)) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(capture(transitionSlot)) } answers { firstArg() }
 
             val params =
                 buildJsonObject {

@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
@@ -14,6 +13,7 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -39,8 +39,8 @@ class SQLiteResourceLeaseRepositoryTest {
 
     private suspend fun createHolder(title: String = "Holder"): UUID {
         val result = repositoryProvider.workItemRepository().create(WorkItem(title = title))
-        assertIs<Result.Success<WorkItem>>(result)
-        return result.data.id
+        assertNotNull(result)
+        return result.id
     }
 
     /** Backdates every lease row for (resourceKey, holderItemId) to an already-expired expires_at. */

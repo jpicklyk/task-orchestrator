@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -69,8 +68,8 @@ class ToolExecutionContextPerRootIntegrationTest {
             val workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
             val rootA = workItemRepository.create(WorkItem(title = "Root With Config"))
             val rootB = workItemRepository.create(WorkItem(title = "Root Without Config"))
-            rootWithConfig = (rootA as Result.Success).data.id
-            rootWithoutConfig = (rootB as Result.Success).data.id
+            rootWithConfig = rootA.id
+            rootWithoutConfig = rootB.id
 
             val perRootYaml =
                 """
@@ -83,7 +82,7 @@ class ToolExecutionContextPerRootIntegrationTest {
                 """.trimIndent()
             val upsertResult = repository.upsert(rootWithConfig, perRootYaml)
             assertTrue(
-                upsertResult is Result.Success,
+                upsertResult != null,
                 "Test setup precondition: per-root config upsert must succeed, got $upsertResult"
             )
             // rootWithoutConfig intentionally has no pushed config row.
@@ -99,7 +98,8 @@ class ToolExecutionContextPerRootIntegrationTest {
                 ToolExecutionContext(
                     repositoryProvider,
                     noteSchemaService,
-                    perRootConfigService = perRootConfigService
+                    perRootConfigService = perRootConfigService,
+                    unitOfWork = db.unitOfWork()
                 )
         }
 

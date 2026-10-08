@@ -2,7 +2,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.search.FtsQuerySanitizer
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -54,13 +55,17 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
                     return@get
                 }
             val id =
-                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
                     return@get
                 }
 
-            val itemResult = workItemRepo.getById(id)
-            if (itemResult is Result.Error) {
+            val itemResult =
+                legacyRead({
+                    call.respondDbError()
+                    return@get
+                }) { workItemRepo.getById(id) }
+            if (itemResult == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
                 return@get
             }
@@ -73,20 +78,17 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
             val role = call.request.queryParameters["role"]?.takeIf { it.isNotBlank() }
             val keyFilter = call.request.queryParameters["key"]?.takeIf { it.isNotBlank() }
 
-            val notesResult = noteRepo.findByItemId(id, role = role)
-            when (notesResult) {
-                is Result.Error -> {
-                    noteLogger.warn("GET /items/{}/notes DB error: {}", id, notesResult.error.message)
-                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
-                }
-                is Result.Success -> {
-                    val notes =
-                        notesResult.data
-                            .let { list -> if (keyFilter != null) list.filter { it.key == keyFilter } else list }
-                            .map { n -> redactor.redact(n.toDto(), call) }
-                    call.respond(HttpStatusCode.OK, notes)
-                }
-            }
+            val notesResult =
+                legacyRead({
+                    noteLogger.warn("GET /items/{}/notes DB error: {}", id, it)
+                    call.respondDbError()
+                    return@get
+                }) { noteRepo.findByItemId(id, role = role) }
+            val notes =
+                notesResult
+                    .let { list -> if (keyFilter != null) list.filter { it.key == keyFilter } else list }
+                    .map { n -> redactor.redact(n.toDto(), call) }
+            call.respond(HttpStatusCode.OK, notes)
         }
 
         // ─── GET /items/{id}/notes/{key} ────────────────────────────────────
@@ -97,7 +99,7 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
                     return@get
                 }
             val id =
-                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
                     return@get
                 }
@@ -107,8 +109,12 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
                     return@get
                 }
 
-            val itemResult = workItemRepo.getById(id)
-            if (itemResult is Result.Error) {
+            val itemResult =
+                legacyRead({
+                    call.respondDbError()
+                    return@get
+                }) { workItemRepo.getById(id) }
+            if (itemResult == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
                 return@get
             }
@@ -118,14 +124,14 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
                 return@get
             }
 
-            val noteResult = noteRepo.findByItemIdAndKey(id, key)
-            when (noteResult) {
-                is Result.Error -> {
-                    noteLogger.warn("GET /items/{}/notes/{} DB error: {}", id, key, noteResult.error.message)
-                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
-                }
-                is Result.Success -> {
-                    val note = noteResult.data
+            val note =
+                legacyRead({
+                    noteLogger.warn("GET /items/{}/notes/{} DB error: {}", id, key, it)
+                    call.respondDbError()
+                    return@get
+                }) { noteRepo.findByItemIdAndKey(id, key) }
+            run {
+                run {
                     if (note == null) {
                         call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Note '$key' not found on item $id"))
                     } else {

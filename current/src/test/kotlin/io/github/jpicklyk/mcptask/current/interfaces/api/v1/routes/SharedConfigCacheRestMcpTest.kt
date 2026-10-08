@@ -9,8 +9,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -88,7 +86,7 @@ class SharedConfigCacheRestMcpTest {
     ) {
         configureTestApp(makeWriteAuthConfig()) {
             itemGateRoutes(provider, ctx.configResolver)
-            itemWriteRoutes(provider, DegradedModePolicy.ACCEPT_CACHED, IdempotencyCache(), ctx.advanceServiceFactory())
+            itemWriteRoutes(provider, DegradedModePolicy.ACCEPT_CACHED, IdempotencyCache(), ctx.advanceServiceFactory(), ctx.unitOfWork)
         }
     }
 
@@ -102,10 +100,9 @@ class SharedConfigCacheRestMcpTest {
         @Volatile var failGet: Boolean = false
 
         override suspend fun getFingerprint(rootItemId: UUID) =
-            if (failFingerprint) Result.Error(RepositoryError.DatabaseError("x")) else delegate.getFingerprint(rootItemId)
+            if (failFingerprint) throw IllegalStateException("x") else delegate.getFingerprint(rootItemId)
 
-        override suspend fun get(rootItemId: UUID) =
-            if (failGet) Result.Error(RepositoryError.DatabaseError("x")) else delegate.get(rootItemId)
+        override suspend fun get(rootItemId: UUID) = if (failGet) throw IllegalStateException("x") else delegate.get(rootItemId)
     }
 
     private class FailableRepositoryProvider(
@@ -132,12 +129,18 @@ class SharedConfigCacheRestMcpTest {
             val sqlite = db.repositoryProvider()
             val failable = FailableProjectConfigRepository(sqlite.projectConfigRepository())
             val provider = FailableRepositoryProvider(sqlite, failable)
-            val ctx = ToolExecutionContext(provider, NoGlobalSchemaService, perRootConfigService = PerRootConfigService(failable))
+            val ctx =
+                ToolExecutionContext(
+                    provider,
+                    NoGlobalSchemaService,
+                    perRootConfigService = PerRootConfigService(failable),
+                    unitOfWork = db.unitOfWork()
+                )
 
             val item =
                 runBlocking {
-                    val root = sqlite.workItemRepository().create(WorkItem(title = "S4 root", depth = 0)).getOrNull()!!
-                    sqlite.projectConfigRepository().upsert(root.id, perRootYaml()).getOrNull()
+                    val root = sqlite.workItemRepository().create(WorkItem(title = "S4 root", depth = 0))!!
+                    sqlite.projectConfigRepository().upsert(root.id, perRootYaml())
                         ?: error("fixture: per-root config upsert failed")
                     val i =
                         sqlite
@@ -151,7 +154,7 @@ class SharedConfigCacheRestMcpTest {
                                     rootId = root.id,
                                     depth = 1,
                                 ),
-                            ).getOrNull()!!
+                            )!!
 
                     val warm = GetContextTool().execute(gateParams(i.id), ctx) as JsonObject
                     assertTrue(warm["success"]!!.jsonPrimitive.boolean, "sanity: the warm MCP read must succeed before injecting failures")
@@ -205,12 +208,18 @@ class SharedConfigCacheRestMcpTest {
             val sqlite = db.repositoryProvider()
             val failable = FailableProjectConfigRepository(sqlite.projectConfigRepository())
             val provider = FailableRepositoryProvider(sqlite, failable)
-            val ctx = ToolExecutionContext(provider, NoGlobalSchemaService, perRootConfigService = PerRootConfigService(failable))
+            val ctx =
+                ToolExecutionContext(
+                    provider,
+                    NoGlobalSchemaService,
+                    perRootConfigService = PerRootConfigService(failable),
+                    unitOfWork = db.unitOfWork()
+                )
 
             val item =
                 runBlocking {
-                    val root = sqlite.workItemRepository().create(WorkItem(title = "S5 root", depth = 0)).getOrNull()!!
-                    sqlite.projectConfigRepository().upsert(root.id, perRootYaml()).getOrNull()
+                    val root = sqlite.workItemRepository().create(WorkItem(title = "S5 root", depth = 0))!!
+                    sqlite.projectConfigRepository().upsert(root.id, perRootYaml())
                         ?: error("fixture: per-root config upsert failed")
                     sqlite
                         .workItemRepository()
@@ -223,7 +232,7 @@ class SharedConfigCacheRestMcpTest {
                                 rootId = root.id,
                                 depth = 1,
                             ),
-                        ).getOrNull()!!
+                        )!!
                 }
 
             application { configureSharedApp(provider, ctx) }
@@ -256,11 +265,17 @@ class SharedConfigCacheRestMcpTest {
             failable.failFingerprint = true
             failable.failGet = true
             val provider = FailableRepositoryProvider(sqlite, failable)
-            val ctx = ToolExecutionContext(provider, NoGlobalSchemaService, perRootConfigService = PerRootConfigService(failable))
+            val ctx =
+                ToolExecutionContext(
+                    provider,
+                    NoGlobalSchemaService,
+                    perRootConfigService = PerRootConfigService(failable),
+                    unitOfWork = db.unitOfWork()
+                )
 
             val item =
                 runBlocking {
-                    val root = sqlite.workItemRepository().create(WorkItem(title = "S6 root", depth = 0)).getOrNull()!!
+                    val root = sqlite.workItemRepository().create(WorkItem(title = "S6 root", depth = 0))!!
                     sqlite
                         .workItemRepository()
                         .create(
@@ -272,7 +287,7 @@ class SharedConfigCacheRestMcpTest {
                                 rootId = root.id,
                                 depth = 1,
                             ),
-                        ).getOrNull()!!
+                        )!!
                 }
 
             application { configureSharedApp(provider, ctx) }
@@ -303,19 +318,24 @@ class SharedConfigCacheRestMcpTest {
             val sqlite = db.repositoryProvider()
             val spyConfigRepo = spyk(sqlite.projectConfigRepository())
             val provider = SpyRepositoryProvider(sqlite, spyConfigRepo)
-            val ctx = ToolExecutionContext(provider, NoGlobalSchemaService, perRootConfigService = PerRootConfigService(spyConfigRepo))
+            val ctx =
+                ToolExecutionContext(
+                    provider,
+                    NoGlobalSchemaService,
+                    perRootConfigService = PerRootConfigService(spyConfigRepo),
+                    unitOfWork = db.unitOfWork()
+                )
 
             val item =
                 runBlocking {
-                    val root = sqlite.workItemRepository().create(WorkItem(title = "S7 root", depth = 0)).getOrNull()!!
-                    sqlite.projectConfigRepository().upsert(root.id, "work_item_schemas:\n  default:\n    notes: []\n").getOrNull()
+                    val root = sqlite.workItemRepository().create(WorkItem(title = "S7 root", depth = 0))!!
+                    sqlite.projectConfigRepository().upsert(root.id, "work_item_schemas:\n  default:\n    notes: []\n")
                         ?: error("fixture: per-root config upsert failed")
                     // Schema-free item type: the "start" transition must succeed with no gate
                     // involvement, isolating this scenario to config reads alone.
                     sqlite
                         .workItemRepository()
-                        .create(WorkItem(title = "S7 item", role = Role.QUEUE, parentId = root.id, rootId = root.id, depth = 1))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "S7 item", role = Role.QUEUE, parentId = root.id, rootId = root.id, depth = 1))!!
                 }
 
             application { configureSharedApp(provider, ctx) }

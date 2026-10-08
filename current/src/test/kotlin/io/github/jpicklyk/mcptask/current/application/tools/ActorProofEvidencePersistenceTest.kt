@@ -14,7 +14,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItem
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.CacheState
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
@@ -92,7 +91,7 @@ class ActorProofEvidencePersistenceTest {
     fun setUp() {
         database = db.database
         repositoryProvider = db.repositoryProvider()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         manageNotesTool = ManageNotesTool()
         advanceItemTool = AdvanceItemTool()
     }
@@ -143,11 +142,11 @@ class ActorProofEvidencePersistenceTest {
     private suspend fun createTestItem(title: String = "Test Item"): String {
         val item = WorkItem(title = title)
         val result = repositoryProvider.workItemRepository().create(item)
-        return ((result as Result.Success).data.id).toString()
+        return (result.id).toString()
     }
 
     private fun contextWithVerifier(verifier: ActorVerifier): ToolExecutionContext =
-        ToolExecutionContext(repositoryProvider = repositoryProvider, actorVerifier = verifier)
+        ToolExecutionContext(repositoryProvider = repositoryProvider, actorVerifier = verifier, unitOfWork = db.unitOfWork())
 
     private fun actorJson(
         id: String,
@@ -259,8 +258,8 @@ class ActorProofEvidencePersistenceTest {
             ) as JsonObject
 
             val persisted = context.noteRepository().findByItemIdAndKey(UUID.fromString(itemId), "s1-note")
-            assertTrue(persisted is Result.Success, "expected note to be found; got $persisted")
-            val note = persisted.data
+            assertNotNull(persisted, "expected note to be found; got $persisted")
+            val note = persisted
             assertNotNull(note, "note should be persisted")
             assertNull(note.actorClaim?.proof, "raw proof must be scrubbed to null per item 983615e7 D5")
             assertEquals(expectedHash, note.verification?.proofSha256, "sha256 must equal SHA-256(\"abc\")")
@@ -399,8 +398,8 @@ class ActorProofEvidencePersistenceTest {
             ) as JsonObject
 
             val transitions = repositoryProvider.roleTransitionRepository().findByItemId(UUID.fromString(itemId))
-            assertTrue(transitions is Result.Success, "expected transitions to be found; got $transitions")
-            val transition = transitions.data.single()
+            assertNotNull(transitions, "expected transitions to be found; got $transitions")
+            val transition = transitions.single()
             assertNull(transition.actorClaim?.proof, "raw proof must be scrubbed to null per item 983615e7 D5")
             assertEquals(expectedHash, transition.verification?.proofSha256)
             assertNull(transition.verification?.proofClaims)
@@ -434,8 +433,8 @@ class ActorProofEvidencePersistenceTest {
             ) as JsonObject
 
             val persisted = context.noteRepository().findByItemIdAndKey(UUID.fromString(itemId), "s3-note")
-            assertTrue(persisted is Result.Success)
-            val note = persisted.data
+            assertNotNull(persisted)
+            val note = persisted
             assertNotNull(note)
             assertNull(note.actorClaim?.proof)
             assertEquals(VerificationStatus.VERIFIED, note.verification?.status, "sanity: proof must actually verify")
@@ -482,8 +481,8 @@ class ActorProofEvidencePersistenceTest {
             ) as JsonObject
 
             val transitions = repositoryProvider.roleTransitionRepository().findByItemId(UUID.fromString(itemId))
-            assertTrue(transitions is Result.Success)
-            val transition = transitions.data.single()
+            assertNotNull(transitions)
+            val transition = transitions.single()
             assertNull(transition.actorClaim?.proof)
             assertEquals(VerificationStatus.VERIFIED, transition.verification?.status, "sanity: proof must actually verify")
             assertEquals(sha256Hex(jwt), transition.verification?.proofSha256)
@@ -527,8 +526,8 @@ class ActorProofEvidencePersistenceTest {
             ) as JsonObject
 
             val persisted = context.noteRepository().findByItemIdAndKey(UUID.fromString(itemId), "s11-note")
-            assertTrue(persisted is Result.Success)
-            val note = persisted.data
+            assertNotNull(persisted)
+            val note = persisted
             assertNotNull(note)
             assertNull(note.actorClaim?.proof)
             assertEquals(VerificationStatus.REJECTED, note.verification?.status, "sanity: this proof must actually be REJECTED")
@@ -569,9 +568,10 @@ class ActorProofEvidencePersistenceTest {
                 ) as JsonObject
 
                 val persisted = context.noteRepository().findByItemIdAndKey(UUID.fromString(itemId), "s13-note")
-                assertTrue(persisted is Result.Success, "expected note to persist for proof=$malformed")
-                val note = persisted.data
+                assertNotNull(persisted, "expected note to persist for proof=$malformed")
+                val note = persisted
                 assertNotNull(note, "note should be persisted for proof=$malformed")
+                assertNotNull(note)
                 assertNull(note.actorClaim?.proof)
                 assertEquals(
                     sha256Hex(malformed),
@@ -617,8 +617,8 @@ class ActorProofEvidencePersistenceTest {
             ) as JsonObject
 
             val persisted = context.noteRepository().findByItemIdAndKey(UUID.fromString(itemId), "s14-note")
-            assertTrue(persisted is Result.Success)
-            val note = persisted.data
+            assertNotNull(persisted)
+            val note = persisted
             assertNotNull(note)
             assertNull(note.actorClaim?.proof)
             val hash = note.verification?.proofSha256
@@ -660,8 +660,8 @@ class ActorProofEvidencePersistenceTest {
                 ) as JsonObject
 
                 val persisted = context.noteRepository().findByItemIdAndKey(UUID.fromString(itemId), "s15-note")
-                assertTrue(persisted is Result.Success, "expected note to persist for proof=\"$blank\"")
-                val note = persisted.data
+                assertNotNull(persisted, "expected note to persist for proof=\"$blank\"")
+                val note = persisted
                 assertNotNull(note)
                 assertNull(note.actorClaim?.proof)
                 assertNull(note.verification?.proofSha256, "a blank proof must not be hashed, for proof=\"$blank\"")
@@ -696,8 +696,8 @@ class ActorProofEvidencePersistenceTest {
             ) as JsonObject
 
             val persisted = context.noteRepository().findByItemIdAndKey(UUID.fromString(itemId), "s16-note")
-            assertTrue(persisted is Result.Success)
-            val note = persisted.data
+            assertNotNull(persisted)
+            val note = persisted
             assertNotNull(note)
             assertEquals(VerificationStatus.VERIFIED, note.verification?.status, "sanity: unicode-kid proof must actually verify")
             val claims = note.verification?.proofClaims
@@ -735,8 +735,8 @@ class ActorProofEvidencePersistenceTest {
                 context
             ) as JsonObject
             val firstRead = context.noteRepository().findByItemIdAndKey(UUID.fromString(itemId), "s18-note")
-            assertTrue(firstRead is Result.Success)
-            val firstNote = firstRead.data
+            assertNotNull(firstRead)
+            val firstNote = firstRead
             assertNotNull(firstNote)
             assertEquals(sha256Hex("abc"), firstNote.verification?.proofSha256, "sanity: first write must persist a hash")
 
@@ -763,8 +763,8 @@ class ActorProofEvidencePersistenceTest {
             ) as JsonObject
 
             val secondRead = context.noteRepository().findByItemIdAndKey(UUID.fromString(itemId), "s18-note")
-            assertTrue(secondRead is Result.Success)
-            val secondNote = secondRead.data
+            assertNotNull(secondRead)
+            val secondNote = secondRead
             assertNotNull(secondNote)
             assertEquals("Second body", secondNote.body)
             assertNull(secondNote.verification?.proofSha256, "last-writer-wins: the second (proof-less) write must clear the sha256")

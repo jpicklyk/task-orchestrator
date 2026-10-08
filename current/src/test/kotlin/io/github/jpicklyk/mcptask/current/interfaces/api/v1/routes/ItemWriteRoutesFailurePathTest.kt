@@ -19,9 +19,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ChildPlacement
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
@@ -30,6 +28,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryPr
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.CountingUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
@@ -60,7 +59,7 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -117,9 +116,9 @@ class ItemWriteRoutesFailurePathTest {
         private val delegate: RoleTransitionRepository,
         private val failFor: UUID
     ) : RoleTransitionRepository by delegate {
-        override suspend fun create(transition: RoleTransition): Result<RoleTransition> =
+        override suspend fun create(transition: RoleTransition): RoleTransition =
             if (transition.itemId == failFor) {
-                Result.Error(RepositoryError.DatabaseError("simulated apply failure for $failFor"))
+                throw IllegalStateException("simulated apply failure for $failFor")
             } else {
                 delegate.create(transition)
             }
@@ -137,9 +136,9 @@ class ItemWriteRoutesFailurePathTest {
         private val delegate: WorkItemRepository,
         private val failFor: UUID
     ) : WorkItemRepository by delegate {
-        override suspend fun update(item: WorkItem): Result<WorkItem> =
+        override suspend fun update(item: WorkItem): WorkItem? =
             if (item.id == failFor) {
-                Result.Error(RepositoryError.ConflictError("simulated descendant cascade failure for $failFor"))
+                throw IllegalStateException("simulated descendant cascade failure for $failFor")
             } else {
                 delegate.update(item)
             }
@@ -152,27 +151,21 @@ class ItemWriteRoutesFailurePathTest {
     ) : WorkItemRepository by delegate {
         private var hasFired = false
 
-        override suspend fun inTransaction(block: suspend () -> Unit) {
-            delegate.inTransaction {
-                if (!hasFired) {
-                    hasFired = true
-                    mutate(delegate)
-                }
-                block()
+        /** Fires [mutate] once, from the [CountingUnitOfWork] hook at the first top-level unit's open. */
+        suspend fun fireOnce() {
+            if (!hasFired) {
+                hasFired = true
+                mutate(delegate)
             }
         }
 
-        override suspend fun resolveChildPlacement(parentId: UUID): Result<ChildPlacement> =
-            when (val parent = getById(parentId)) {
-                is Result.Success ->
-                    Result.Success(
-                        ChildPlacement(
-                            parentId = parent.data.id,
-                            depth = parent.data.depth + 1,
-                            rootId = parent.data.rootId ?: parent.data.id
-                        )
-                    )
-                is Result.Error -> Result.Error(parent.error)
+        override suspend fun resolveChildPlacement(parentId: UUID): ChildPlacement? =
+            getById(parentId)?.let { parent ->
+                ChildPlacement(
+                    parentId = parent.id,
+                    depth = parent.depth + 1,
+                    rootId = parent.rootId ?: parent.id
+                )
             }
     }
 
@@ -284,6 +277,11 @@ class ItemWriteRoutesFailurePathTest {
         idempotencyCache: IdempotencyCache = IdempotencyCache(),
         authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig()
     ) {
+        // Fires a MutateOnFirstTransactionRepository's write at the first top-level unit's open.
+        val uow =
+            CountingUnitOfWork(
+                db.unitOfWork()
+            ) { (repositoryProvider.workItemRepository() as? MutateOnFirstTransactionRepository)?.fireOnce() }
         install(ContentNegotiation) { json(McpJson) }
         install(SSE)
         routing {
@@ -304,7 +302,9 @@ class ItemWriteRoutesFailurePathTest {
                         schemaService,
                         statusLabelService = NoOpStatusLabelService,
                         perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()),
+                        unitOfWork = uow
                     ).advanceServiceFactory(),
+                    uow,
                 )
             }
         }
@@ -315,7 +315,7 @@ class ItemWriteRoutesFailurePathTest {
     private suspend fun stampSelfRoot(
         repo: DefaultRepositoryProvider,
         item: WorkItem
-    ): WorkItem = (repo.workItemRepository().update(item.copy(rootId = item.id)) as Result.Success).data
+    ): WorkItem = (repo.workItemRepository().update(item.copy(rootId = item.id))!!)
 
     // ─────────────────────────────────────────────────────────────────────────
     // S1 — start apply failure: 422 transition_failed, role unchanged, lease released
@@ -329,8 +329,8 @@ class ItemWriteRoutesFailurePathTest {
                 (
                     sqlite.workItemRepository().create(
                         WorkItem(title = "Traited S1", role = Role.QUEUE, depth = 0, properties = """{"traits":["needs-staging-db"]}""")
-                    ) as Result.Success
-                ).data
+                    )!!
+                )
             val failingRoleTx = FailingRoleTransitionRepository(sqlite.roleTransitionRepository(), failFor = item.id)
             val leaseFake = SimpleLeaseFakeRepository()
             val provider = LeaseOverrideProvider(RoleTransitionOverrideProvider(sqlite, failingRoleTx), leaseFake)
@@ -348,8 +348,8 @@ class ItemWriteRoutesFailurePathTest {
             assertEquals("transition_failed", json["error"]?.jsonPrimitive?.content, "actual: $json")
 
             val persisted = runBlocking { sqlite.workItemRepository().getById(item.id) }
-            assertIs<Result.Success<WorkItem>>(persisted)
-            assertEquals(Role.QUEUE, persisted.data.role)
+            assertNotNull(persisted)
+            assertEquals(Role.QUEUE, persisted.role)
             assertTrue(leaseFake.findActiveForItem(item.id).isEmpty(), "the same-call fresh lease must be released on apply failure")
         }
 
@@ -366,8 +366,8 @@ class ItemWriteRoutesFailurePathTest {
                             depth = 0,
                             properties = """{"traits":["needs-staging-db"]}"""
                         )
-                    ) as Result.Success
-                ).data
+                    )!!
+                )
             val failingRoleTx = FailingRoleTransitionRepository(sqlite.roleTransitionRepository(), failFor = item.id)
             val leaseFake = SimpleLeaseFakeRepository()
             val provider = LeaseOverrideProvider(RoleTransitionOverrideProvider(sqlite, failingRoleTx), leaseFake)
@@ -399,15 +399,15 @@ class ItemWriteRoutesFailurePathTest {
                 (
                     sqlite.workItemRepository().create(
                         WorkItem(title = "P S4", role = Role.QUEUE, depth = 0, properties = """{"traits":["needs-staging-db"]}""")
-                    ) as Result.Success
-                ).data
-            val pStamped = (sqlite.workItemRepository().update(p.copy(rootId = p.id)) as Result.Success).data
+                    )!!
+                )
+            val pStamped = (sqlite.workItemRepository().update(p.copy(rootId = p.id))!!)
             val c =
                 (
                     sqlite.workItemRepository().create(
                         WorkItem(title = "C S4", role = Role.QUEUE, parentId = pStamped.id, depth = 1, rootId = pStamped.id)
-                    ) as Result.Success
-                ).data
+                    )!!
+                )
             val failingRoleTx = FailingRoleTransitionRepository(sqlite.roleTransitionRepository(), failFor = pStamped.id)
             val leaseFake = SimpleLeaseFakeRepository()
             val provider = LeaseOverrideProvider(RoleTransitionOverrideProvider(sqlite, failingRoleTx), leaseFake)
@@ -435,8 +435,8 @@ class ItemWriteRoutesFailurePathTest {
             )
 
             val persistedP = runBlocking { sqlite.workItemRepository().getById(pStamped.id) }
-            assertIs<Result.Success<WorkItem>>(persistedP)
-            assertEquals(Role.QUEUE, persistedP.data.role)
+            assertNotNull(persistedP)
+            assertEquals(Role.QUEUE, persistedP.role)
             assertTrue(
                 leaseFake.findActiveForItem(pStamped.id).isEmpty(),
                 "the cascade's own fresh lease must be released on apply failure"
@@ -451,8 +451,8 @@ class ItemWriteRoutesFailurePathTest {
     fun `S5 REST start blocked by an unsatisfied dependency returns 422 transition_blocked with blockers`(): Unit =
         testApplication {
             val sqlite = db.repositoryProvider()
-            val b = (sqlite.workItemRepository().create(WorkItem(title = "B S5", role = Role.QUEUE, depth = 0)) as Result.Success).data
-            val t = (sqlite.workItemRepository().create(WorkItem(title = "T S5", role = Role.QUEUE, depth = 0)) as Result.Success).data
+            val b = (sqlite.workItemRepository().create(WorkItem(title = "B S5", role = Role.QUEUE, depth = 0))!!)
+            val t = (sqlite.workItemRepository().create(WorkItem(title = "T S5", role = Role.QUEUE, depth = 0))!!)
             runBlocking {
                 sqlite.dependencyRepository().create(
                     Dependency(fromItemId = b.id, toItemId = t.id, type = DependencyType.BLOCKS)
@@ -478,8 +478,8 @@ class ItemWriteRoutesFailurePathTest {
             assertEquals("terminal", blocker["requiredRole"]?.jsonPrimitive?.content, "actual: $blocker")
 
             val persisted = runBlocking { sqlite.workItemRepository().getById(t.id) }
-            assertIs<Result.Success<WorkItem>>(persisted)
-            assertEquals(Role.QUEUE, persisted.data.role)
+            assertNotNull(persisted)
+            assertEquals(Role.QUEUE, persisted.role)
         }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -494,8 +494,8 @@ class ItemWriteRoutesFailurePathTest {
                 (
                     sqlite.workItemRepository().create(
                         WorkItem(title = "Terminal S6", role = Role.TERMINAL, depth = 0)
-                    ) as Result.Success
-                ).data
+                    )!!
+                )
             application { configureFailurePathTestApp(sqlite) }
 
             val response =
@@ -511,8 +511,8 @@ class ItemWriteRoutesFailurePathTest {
             assertTrue(json["message"]?.jsonPrimitive?.content?.isNotBlank() == true, "actual: $json")
 
             val persisted = runBlocking { sqlite.workItemRepository().getById(item.id) }
-            assertIs<Result.Success<WorkItem>>(persisted)
-            assertEquals(Role.TERMINAL, persisted.data.role)
+            assertNotNull(persisted)
+            assertEquals(Role.TERMINAL, persisted.role)
         }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -527,8 +527,8 @@ class ItemWriteRoutesFailurePathTest {
                 (
                     sqlite.workItemRepository().create(
                         WorkItem(title = "Typed S7", role = Role.QUEUE, depth = 0, tags = "s7-typed")
-                    ) as Result.Success
-                ).data
+                    )!!
+                )
             application { configureFailurePathTestApp(sqlite, schemaService = GateSchemaService()) }
 
             val response =
@@ -569,8 +569,8 @@ class ItemWriteRoutesFailurePathTest {
                 (
                     sqlite.workItemRepository().create(
                         WorkItem(title = "Traited S8", role = Role.QUEUE, depth = 0, properties = """{"traits":["needs-staging-db"]}""")
-                    ) as Result.Success
-                ).data
+                    )!!
+                )
             val leaseFake = SimpleLeaseFakeRepository()
             leaseFake.forceContended = listOf("staging-db-credential")
             leaseFake.forceRetryAfterMs = 1500
@@ -611,8 +611,8 @@ class ItemWriteRoutesFailurePathTest {
                             depth = 0,
                             properties = """{"traits":["needs-staging-db"]}"""
                         )
-                    ) as Result.Success
-                ).data
+                    )!!
+                )
             val leaseFake = SimpleLeaseFakeRepository()
             leaseFake.forceContended = listOf("staging-db-credential")
             leaseFake.forceRetryAfterMs = 1
@@ -643,8 +643,8 @@ class ItemWriteRoutesFailurePathTest {
                             depth = 0,
                             properties = """{"traits":["needs-staging-db"]}"""
                         )
-                    ) as Result.Success
-                ).data
+                    )!!
+                )
             val leaseFake = SimpleLeaseFakeRepository()
             leaseFake.forceContended = listOf("staging-db-credential")
             leaseFake.forceRetryAfterMs = 0
@@ -672,19 +672,19 @@ class ItemWriteRoutesFailurePathTest {
             val sqlite = db.repositoryProvider()
             val root =
                 runBlocking {
-                    stampSelfRoot(sqlite, (sqlite.workItemRepository().create(WorkItem(title = "R S10", depth = 0)) as Result.Success).data)
+                    stampSelfRoot(sqlite, (sqlite.workItemRepository().create(WorkItem(title = "R S10", depth = 0))!!))
                 }
             val p =
                 runBlocking {
                     (
                         sqlite.workItemRepository().create(
                             WorkItem(title = "P S10 (leaf, will be deleted)", parentId = root.id, depth = 1, rootId = root.id)
-                        ) as Result.Success
-                    ).data
+                        )!!
+                    )
                 }
             val x =
                 runBlocking {
-                    stampSelfRoot(sqlite, (sqlite.workItemRepository().create(WorkItem(title = "X S10", depth = 0)) as Result.Success).data)
+                    stampSelfRoot(sqlite, (sqlite.workItemRepository().create(WorkItem(title = "X S10", depth = 0))!!))
                 }
             val wrapped = MutateOnFirstTransactionRepository(sqlite.workItemRepository()) { d -> d.delete(p.id) }
             application { configureFailurePathTestApp(WorkItemRepoOverrideProvider(sqlite, wrapped)) }
@@ -702,9 +702,9 @@ class ItemWriteRoutesFailurePathTest {
             assertEquals("not_found", json["error"]?.jsonPrimitive?.content, "actual: $json")
 
             val persisted = runBlocking { sqlite.workItemRepository().getById(x.id) }
-            assertIs<Result.Success<WorkItem>>(persisted)
-            assertEquals(null, persisted.data.parentId, "X must be left unchanged")
-            assertEquals(0, persisted.data.depth, "X must be left unchanged")
+            assertNotNull(persisted)
+            assertEquals(null, persisted.parentId, "X must be left unchanged")
+            assertEquals(0, persisted.depth, "X must be left unchanged")
         }
 
     @Test
@@ -715,7 +715,7 @@ class ItemWriteRoutesFailurePathTest {
                 runBlocking {
                     stampSelfRoot(
                         sqlite,
-                        (sqlite.workItemRepository().create(WorkItem(title = "R S10 probe", depth = 0)) as Result.Success).data
+                        (sqlite.workItemRepository().create(WorkItem(title = "R S10 probe", depth = 0))!!)
                     )
                 }
             val p =
@@ -723,14 +723,14 @@ class ItemWriteRoutesFailurePathTest {
                     (
                         sqlite.workItemRepository().create(
                             WorkItem(title = "P S10 probe (leaf, will be deleted)", parentId = root.id, depth = 1, rootId = root.id)
-                        ) as Result.Success
-                    ).data
+                        )!!
+                    )
                 }
             val x =
                 runBlocking {
                     stampSelfRoot(
                         sqlite,
-                        (sqlite.workItemRepository().create(WorkItem(title = "X S10 probe", depth = 0)) as Result.Success).data
+                        (sqlite.workItemRepository().create(WorkItem(title = "X S10 probe", depth = 0))!!)
                     )
                 }
             val wrapped = MutateOnFirstTransactionRepository(sqlite.workItemRepository()) { d -> d.delete(p.id) }
@@ -760,27 +760,27 @@ class ItemWriteRoutesFailurePathTest {
             val sqlite = db.repositoryProvider()
             val r =
                 runBlocking {
-                    stampSelfRoot(sqlite, (sqlite.workItemRepository().create(WorkItem(title = "R S12", depth = 0)) as Result.Success).data)
+                    stampSelfRoot(sqlite, (sqlite.workItemRepository().create(WorkItem(title = "R S12", depth = 0))!!))
                 }
             val x =
                 runBlocking {
                     (
                         sqlite.workItemRepository().create(
                             WorkItem(title = "X S12", parentId = r.id, depth = 1, rootId = r.id)
-                        ) as Result.Success
-                    ).data
+                        )!!
+                    )
                 }
             val d =
                 runBlocking {
                     (
                         sqlite.workItemRepository().create(
                             WorkItem(title = "D S12 (child of X)", parentId = x.id, depth = 2, rootId = r.id)
-                        ) as Result.Success
-                    ).data
+                        )!!
+                    )
                 }
             val q =
                 runBlocking {
-                    stampSelfRoot(sqlite, (sqlite.workItemRepository().create(WorkItem(title = "Q S12", depth = 0)) as Result.Success).data)
+                    stampSelfRoot(sqlite, (sqlite.workItemRepository().create(WorkItem(title = "Q S12", depth = 0))!!))
                 }
             val wrapped = UpdateFailsForIdRepository(sqlite.workItemRepository(), failFor = d.id)
             application { configureFailurePathTestApp(WorkItemRepoOverrideProvider(sqlite, wrapped)) }
@@ -799,13 +799,13 @@ class ItemWriteRoutesFailurePathTest {
             assertEquals("Failed to update item", json["message"]?.jsonPrimitive?.content, "actual: $json")
 
             val persistedX = runBlocking { sqlite.workItemRepository().getById(x.id) }
-            assertIs<Result.Success<WorkItem>>(persistedX)
-            assertEquals(r.id, persistedX.data.parentId, "X must be left unchanged")
-            assertEquals(r.id, persistedX.data.rootId, "X must be left unchanged")
+            assertNotNull(persistedX)
+            assertEquals(r.id, persistedX.parentId, "X must be left unchanged")
+            assertEquals(r.id, persistedX.rootId, "X must be left unchanged")
             val persistedD = runBlocking { sqlite.workItemRepository().getById(d.id) }
-            assertIs<Result.Success<WorkItem>>(persistedD)
-            assertEquals(2, persistedD.data.depth, "D must be left unchanged")
-            assertEquals(r.id, persistedD.data.rootId, "D must be left unchanged")
+            assertNotNull(persistedD)
+            assertEquals(2, persistedD.depth, "D must be left unchanged")
+            assertEquals(r.id, persistedD.rootId, "D must be left unchanged")
         }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -815,7 +815,7 @@ class ItemWriteRoutesFailurePathTest {
     private suspend fun createQueueItem(
         sqlite: DefaultRepositoryProvider,
         title: String
-    ): WorkItem = (sqlite.workItemRepository().create(WorkItem(title = title, role = Role.QUEUE, depth = 0)) as Result.Success).data
+    ): WorkItem = (sqlite.workItemRepository().create(WorkItem(title = title, role = Role.QUEUE, depth = 0))!!)
 
     @Test
     fun `F7 advance with a non-JSON Content-Type returns 415 unsupported_media_type before the body is read`(): Unit =
@@ -973,7 +973,7 @@ class ItemWriteRoutesFailurePathTest {
             assertEquals("Use Content-Type: application/json", json["message"]?.jsonPrimitive?.content, "actual: $json")
 
             val persisted = runBlocking { sqlite.workItemRepository().findByFilters(limit = 500) }
-            val titles = (persisted as Result.Success).data.items.map { it.title }
+            val titles = persisted.items.map { it.title }
             assertTrue("F13 Should Not Persist" !in titles, "nothing must persist: $titles")
         }
 
@@ -1039,8 +1039,8 @@ class ItemWriteRoutesFailurePathTest {
             assertEquals("insufficient_capability", json["error"]?.jsonPrimitive?.content, "actual: $json")
 
             val persisted = runBlocking { sqlite.workItemRepository().getById(item.id) }
-            assertIs<Result.Success<WorkItem>>(persisted)
-            assertEquals(Role.QUEUE, persisted.data.role, "the flag must never be silently ignored")
+            assertNotNull(persisted)
+            assertEquals(Role.QUEUE, persisted.role, "the flag must never be silently ignored")
         }
 
     // Probe catalog, recorded per skill §6 (every probe attempted, including N/A ones):

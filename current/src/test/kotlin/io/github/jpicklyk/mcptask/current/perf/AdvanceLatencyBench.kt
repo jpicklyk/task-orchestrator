@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
@@ -120,7 +119,7 @@ class AdvanceLatencyBench {
             val rootId = UUID.randomUUID()
             val root =
                 WorkItem(id = rootId, rootId = rootId, title = "bench-root-$r", role = Role.QUEUE, depth = 0)
-            check(repo.create(root) is Result.Success) { "seed root $r failed" }
+            check(repo.create(root) != null) { "seed root $r failed" }
             (0 until ADVANCES).map { c ->
                 val child =
                     WorkItem(
@@ -131,8 +130,8 @@ class AdvanceLatencyBench {
                         depth = 1
                     )
                 val created = repo.create(child)
-                check(created is Result.Success) { "seed child $r/$c failed: $created" }
-                created.data.id
+                check(created != null) { "seed child $r/$c failed: $created" }
+                created.id
             }
         }
     }

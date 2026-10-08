@@ -2,6 +2,12 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.UnitResult
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
+import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.application.tools.ActorAware
 import io.github.jpicklyk.mcptask.current.application.tools.ActorParseResult
 import io.github.jpicklyk.mcptask.current.application.tools.BaseToolDefinition
@@ -17,7 +23,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.runBlocking
@@ -292,7 +297,8 @@ Call only in claim-mode deployments, to take ownership before working an item.
                         if (prim != null) {
                             try {
                                 Instant.parse(prim.content)
-                            } catch (_: Exception) {
+                            } catch (ignored: Exception) {
+                                ignored.rethrowIfCancellation()
                                 throw ToolValidationException(
                                     "claims[$index].selector.$field must be an ISO 8601 timestamp, got '${prim.content}'"
                                 )
@@ -505,30 +511,30 @@ Call only in claim-mode deployments, to take ownership before working an item.
             buildCriteria(selectorObj, resolvedSelectorParentId)
                 .copy(requestingAgentId = trustedAgentId)
 
-        return when (val recommendResult = context.nextItemRecommender.recommend(criteria, limit = 1)) {
-            is Result.Success -> {
-                val items = recommendResult.data
-                if (items.isEmpty()) {
-                    buildEmptySelectorOutcome(criteria, claimRef, context)
-                } else {
-                    // Resolved: take the top item and claim it
-                    val resolvedItem = items.first()
-                    logAgentIdOverride(claimObj, trustedAgentId)
-                    val claimResult = context.workItemRepository().claim(resolvedItem.id, trustedAgentId, ttlSeconds)
-                    mapClaimResult(claimResult, claimRef, trustedAgentId, selectorResolved = true)
-                }
-            }
-
-            is Result.Error -> {
-                // Could not resolve criteria into candidates at all — fall back to the existing
-                // db_error transient outcome rather than guessing.
-                buildJsonObject {
-                    put("outcome", JsonPrimitive("db_error"))
-                    put("kind", JsonPrimitive(ErrorKind.TRANSIENT.toJsonString()))
-                    put("code", JsonPrimitive("db_error"))
-                    put("message", JsonPrimitive("Database error during selector recommendation"))
-                    claimRef?.let { put("claimRef", JsonPrimitive(it)) }
-                }
+        return run {
+            val recommendResult =
+                legacyRead({
+                    return@run run {
+                        // Could not resolve criteria into candidates at all — fall back to the existing
+                        // db_error transient outcome rather than guessing.
+                        buildJsonObject {
+                            put("outcome", JsonPrimitive("db_error"))
+                            put("kind", JsonPrimitive(ErrorKind.TRANSIENT.toJsonString()))
+                            put("code", JsonPrimitive("db_error"))
+                            put("message", JsonPrimitive("Database error during selector recommendation"))
+                            claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                        }
+                    }
+                }) { context.nextItemRecommender.recommend(criteria, limit = 1) }
+            val items = recommendResult
+            if (items.isEmpty()) {
+                buildEmptySelectorOutcome(criteria, claimRef, context)
+            } else {
+                // Resolved: take the top item and claim it
+                val resolvedItem = items.first()
+                logAgentIdOverride(claimObj, trustedAgentId)
+                val claimResult = claimInUnit(context, resolvedItem.id, trustedAgentId, ttlSeconds)
+                mapClaimResult(claimResult, resolvedItem.id, claimRef, trustedAgentId, selectorResolved = true)
             }
         }
     }
@@ -543,46 +549,46 @@ Call only in claim-mode deployments, to take ownership before working an item.
         claimRef: String?,
         context: ToolExecutionContext
     ): JsonObject =
-        when (val explainResult = context.nextItemRecommender.explainEmpty(criteria)) {
-            is Result.Success -> {
-                val excluded = explainResult.data
-                if (excluded.total == 0) {
-                    // queue_empty: nothing matches the selector filters at all — permanent.
-                    buildJsonObject {
-                        put("outcome", JsonPrimitive("queue_empty"))
-                        put("kind", JsonPrimitive(ErrorKind.PERMANENT.toJsonString()))
-                        put("code", JsonPrimitive("queue_empty"))
-                        claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+        run {
+            val explainResult =
+                legacyRead({
+                    return@run run {
+                        // Could not determine why the selector matched nothing — fall back to the
+                        // existing db_error transient outcome rather than guessing.
+                        buildJsonObject {
+                            put("outcome", JsonPrimitive("db_error"))
+                            put("kind", JsonPrimitive(ErrorKind.TRANSIENT.toJsonString()))
+                            put("code", JsonPrimitive("db_error"))
+                            put("message", JsonPrimitive("Database error while explaining empty selector result"))
+                            claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                        }
                     }
-                } else {
-                    // none_eligible: matches exist but none is currently claimable — transient.
-                    // Aggregate counts only, never item/agent identities.
-                    buildJsonObject {
-                        put("outcome", JsonPrimitive("none_eligible"))
-                        put("kind", JsonPrimitive(ErrorKind.TRANSIENT.toJsonString()))
-                        put("code", JsonPrimitive("none_eligible"))
-                        put("retryAfterMs", JsonPrimitive(NONE_ELIGIBLE_RETRY_AFTER_MS))
-                        put(
-                            "excluded",
-                            buildJsonObject {
-                                put("claimed", JsonPrimitive(excluded.claimed))
-                                put("ancestorClaimed", JsonPrimitive(excluded.ancestorClaimed))
-                                put("dependencyBlocked", JsonPrimitive(excluded.dependencyBlocked))
-                            }
-                        )
-                        claimRef?.let { put("claimRef", JsonPrimitive(it)) }
-                    }
-                }
-            }
-
-            is Result.Error -> {
-                // Could not determine why the selector matched nothing — fall back to the
-                // existing db_error transient outcome rather than guessing.
+                }) { context.nextItemRecommender.explainEmpty(criteria) }
+            val excluded = explainResult
+            if (excluded.total == 0) {
+                // queue_empty: nothing matches the selector filters at all — permanent.
                 buildJsonObject {
-                    put("outcome", JsonPrimitive("db_error"))
+                    put("outcome", JsonPrimitive("queue_empty"))
+                    put("kind", JsonPrimitive(ErrorKind.PERMANENT.toJsonString()))
+                    put("code", JsonPrimitive("queue_empty"))
+                    claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                }
+            } else {
+                // none_eligible: matches exist but none is currently claimable — transient.
+                // Aggregate counts only, never item/agent identities.
+                buildJsonObject {
+                    put("outcome", JsonPrimitive("none_eligible"))
                     put("kind", JsonPrimitive(ErrorKind.TRANSIENT.toJsonString()))
-                    put("code", JsonPrimitive("db_error"))
-                    put("message", JsonPrimitive("Database error while explaining empty selector result"))
+                    put("code", JsonPrimitive("none_eligible"))
+                    put("retryAfterMs", JsonPrimitive(NONE_ELIGIBLE_RETRY_AFTER_MS))
+                    put(
+                        "excluded",
+                        buildJsonObject {
+                            put("claimed", JsonPrimitive(excluded.claimed))
+                            put("ancestorClaimed", JsonPrimitive(excluded.ancestorClaimed))
+                            put("dependencyBlocked", JsonPrimitive(excluded.dependencyBlocked))
+                        }
+                    )
                     claimRef?.let { put("claimRef", JsonPrimitive(it)) }
                 }
             }
@@ -610,9 +616,29 @@ Call only in claim-mode deployments, to take ownership before working an item.
 
         logAgentIdOverride(claimObj, trustedAgentId)
 
-        val result = context.workItemRepository().claim(itemId!!, trustedAgentId, ttlSeconds)
-        return mapClaimResult(result, claimRef, trustedAgentId, selectorResolved = false)
+        val result = claimInUnit(context, itemId!!, trustedAgentId, ttlSeconds)
+        return mapClaimResult(result, itemId, claimRef, trustedAgentId, selectorResolved = false)
     }
+
+    /**
+     * One claim as ONE write unit. A store fault rolls the unit back and returns null (the existing
+     * `db_error` outcome).
+     */
+    private suspend fun claimInUnit(
+        context: ToolExecutionContext,
+        itemId: UUID,
+        agentId: String,
+        ttlSeconds: Int
+    ): ClaimResult? =
+        context.unitOfWork.writeUnit<ClaimResult?>(
+            "ClaimItemTool.claim",
+            onFault = {
+                logger.warn("claim_item: claim of {} failed: {}", itemId, LegacyFaults.message(it))
+                null
+            }
+        ) {
+            UnitResult.Commit(context.workItemRepository().claim(itemId, agentId, ttlSeconds))
+        }
 
     /** Logs when a caller-supplied `agentId` differs from the verified trusted identity. */
     private fun logAgentIdOverride(
@@ -630,13 +656,14 @@ Call only in claim-mode deployments, to take ownership before working an item.
     }
 
     /**
-     * Maps a [ClaimResult] to its response JSON. Shared by the selector and ID-based paths,
+     * Maps a [ClaimResult] (null: a store fault on [itemId]) to its response JSON. Shared by the selector and ID-based paths,
      * which differ in exactly one way: the selector path's `success` result inserts
      * `selectorResolved:true` immediately after `outcome` (key order matters — [JsonObject]
      * is order-preserving and callers rely on it).
      */
     private fun mapClaimResult(
-        claimResult: ClaimResult,
+        claimResult: ClaimResult?,
+        itemId: UUID,
         claimRef: String?,
         trustedAgentId: String,
         selectorResolved: Boolean
@@ -697,16 +724,16 @@ Call only in claim-mode deployments, to take ownership before working an item.
                     claimRef?.let { put("claimRef", JsonPrimitive(it)) }
                 }
 
-            is ClaimResult.DBError -> {
+            null -> {
                 val dbError =
                     ToolError(
                         kind = ErrorKind.TRANSIENT,
                         code = "db_error",
                         message = "Database error during claim operation",
-                        contendedItemId = claimResult.itemId
+                        contendedItemId = itemId
                     )
                 buildJsonObject {
-                    put("itemId", JsonPrimitive(claimResult.itemId.toString()))
+                    put("itemId", JsonPrimitive(itemId.toString()))
                     put("outcome", JsonPrimitive("db_error"))
                     put("kind", JsonPrimitive(dbError.kind.toJsonString()))
                     put("code", JsonPrimitive(dbError.code))
@@ -737,7 +764,18 @@ Call only in claim-mode deployments, to take ownership before working an item.
             }
         }
 
-        return when (val result = context.workItemRepository().release(itemId!!, trustedAgentId)) {
+        // One release as ONE write unit; a store fault rolls it back and maps to the db_error outcome (null).
+        val released =
+            context.unitOfWork.writeUnit<ReleaseResult?>(
+                "ClaimItemTool.release",
+                onFault = {
+                    logger.warn("claim_item: release of {} failed: {}", itemId, LegacyFaults.message(it))
+                    null
+                }
+            ) {
+                UnitResult.Commit(context.workItemRepository().release(itemId!!, trustedAgentId))
+            }
+        return when (val result = released) {
             is ReleaseResult.Success ->
                 buildJsonObject {
                     put("itemId", JsonPrimitive(result.item.id.toString()))
@@ -756,16 +794,16 @@ Call only in claim-mode deployments, to take ownership before working an item.
                     put("outcome", JsonPrimitive("not_found"))
                 }
 
-            is ReleaseResult.DBError -> {
+            null -> {
                 val dbError =
                     ToolError(
                         kind = ErrorKind.TRANSIENT,
                         code = "db_error",
                         message = "Database error during release operation",
-                        contendedItemId = result.itemId
+                        contendedItemId = itemId
                     )
                 buildJsonObject {
-                    put("itemId", JsonPrimitive(result.itemId.toString()))
+                    put("itemId", JsonPrimitive(itemId.toString()))
                     put("outcome", JsonPrimitive("db_error"))
                     put("kind", JsonPrimitive(dbError.kind.toJsonString()))
                     put("code", JsonPrimitive(dbError.code))
@@ -803,16 +841,16 @@ Call only in claim-mode deployments, to take ownership before working an item.
         val complexityMax = complexityMaxStr?.toIntOrNull()
 
         val createdAfterStr = (selectorObj["createdAfter"] as? JsonPrimitive)?.content
-        val createdAfter = createdAfterStr?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        val createdAfter = createdAfterStr?.let { runCatchingNonCancellation { Instant.parse(it) }.getOrNull() }
 
         val createdBeforeStr = (selectorObj["createdBefore"] as? JsonPrimitive)?.content
-        val createdBefore = createdBeforeStr?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        val createdBefore = createdBeforeStr?.let { runCatchingNonCancellation { Instant.parse(it) }.getOrNull() }
 
         val roleChangedAfterStr = (selectorObj["roleChangedAfter"] as? JsonPrimitive)?.content
-        val roleChangedAfter = roleChangedAfterStr?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        val roleChangedAfter = roleChangedAfterStr?.let { runCatchingNonCancellation { Instant.parse(it) }.getOrNull() }
 
         val roleChangedBeforeStr = (selectorObj["roleChangedBefore"] as? JsonPrimitive)?.content
-        val roleChangedBefore = roleChangedBeforeStr?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        val roleChangedBefore = roleChangedBeforeStr?.let { runCatchingNonCancellation { Instant.parse(it) }.getOrNull() }
 
         val orderByStr = (selectorObj["orderBy"] as? JsonPrimitive)?.content
         val orderBy = orderByStr?.let { NextItemOrder.fromString(it) } ?: NextItemOrder.PRIORITY_THEN_COMPLEXITY

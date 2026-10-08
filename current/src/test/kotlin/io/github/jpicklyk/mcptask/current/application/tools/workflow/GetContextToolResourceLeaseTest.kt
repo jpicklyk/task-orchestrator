@@ -11,7 +11,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -129,8 +128,8 @@ class GetContextToolResourceLeaseTest {
                 )
             val context = contextWith(schemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
             val heldLease = makeLease("db-migration-lock", holderItemId = itemId, actorId = "agent-77")
             coEvery { leaseRepo.findActiveForItem(itemId) } returns listOf(heldLease)
             coEvery { leaseRepo.findActiveByKeys(listOf("db-migration-lock")) } returns listOf(heldLease)
@@ -169,8 +168,8 @@ class GetContextToolResourceLeaseTest {
                 )
             val context = contextWith(schemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
             coEvery { leaseRepo.findActiveForItem(itemId) } returns emptyList()
             coEvery { leaseRepo.findActiveByKeys(listOf("db-migration-lock")) } returns emptyList()
 
@@ -195,8 +194,8 @@ class GetContextToolResourceLeaseTest {
             val item = WorkItem(id = itemId, title = "Plain task", role = Role.WORK)
             val context = contextWith(NoOpNoteSchemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
             coEvery { leaseRepo.findActiveForItem(itemId) } returns emptyList()
 
             val data = extractData(tool.execute(JsonObject(mapOf("itemId" to JsonPrimitive(itemId.toString()))), context))
@@ -212,11 +211,11 @@ class GetContextToolResourceLeaseTest {
     fun `health-check mode contains no resourceLeases or lease identity`(): Unit =
         runBlocking {
             val context = contextWith(NoOpNoteSchemaService)
-            coEvery { workItemRepo.findByRole(Role.WORK, limit = any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.REVIEW, limit = any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.BLOCKED, limit = any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.WORK, limit = any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.REVIEW, limit = any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.BLOCKED, limit = any()) } returns emptyList()
             coEvery { workItemRepo.countByClaimStatus(null) } returns
-                Result.Success(ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0))
+                ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0)
 
             val result = tool.execute(JsonObject(emptyMap()), context)
             val serialized = result.toString()
@@ -231,9 +230,9 @@ class GetContextToolResourceLeaseTest {
         runBlocking {
             val context = contextWith(NoOpNoteSchemaService)
             val since = Instant.now().minusSeconds(3600)
-            coEvery { workItemRepo.findByRole(Role.WORK, limit = any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.REVIEW, limit = any()) } returns Result.Success(emptyList())
-            coEvery { roleTransitionRepo.findSince(any(), limit = any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.WORK, limit = any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.REVIEW, limit = any()) } returns emptyList()
+            coEvery { roleTransitionRepo.findSince(any(), limit = any()) } returns emptyList()
 
             val result = tool.execute(JsonObject(mapOf("since" to JsonPrimitive(since.toString()))), context)
             val serialized = result.toString()

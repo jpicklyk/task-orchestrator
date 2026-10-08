@@ -55,8 +55,8 @@ class EventPublishingRepositoryProviderTest {
             // Drain the warm-up subscriber in the background so its channel does not back-pressure.
             val warmupDrain = async { warmupFlow.take(Int.MAX_VALUE).toList() }
 
-            val rootR = provider.workItemRepository().create(WorkItem(title = "Root R", depth = 0)).getOrNull()!!
-            val rootS = provider.workItemRepository().create(WorkItem(title = "Root S", depth = 0)).getOrNull()!!
+            val rootR = provider.workItemRepository().create(WorkItem(title = "Root R", depth = 0))!!
+            val rootS = provider.workItemRepository().create(WorkItem(title = "Root S", depth = 0))!!
 
             // Create item A as a child of rootR (this primes the cache: itemA → {rootR.id})
             val itemA =
@@ -64,7 +64,7 @@ class EventPublishingRepositoryProviderTest {
                     .workItemRepository()
                     .create(
                         WorkItem(title = "Item A", parentId = rootR.id, depth = 1)
-                    ).getOrNull()!!
+                    )!!
 
             // Create item B as a child of rootR (needed for the dependency target)
             val itemB =
@@ -72,7 +72,7 @@ class EventPublishingRepositoryProviderTest {
                     .workItemRepository()
                     .create(
                         WorkItem(title = "Item B", parentId = rootR.id, depth = 1)
-                    ).getOrNull()!!
+                    )!!
 
             // Subscriber scoped to rootS should NOT receive dependency events for rootR items
             val flowS = bus.subscribe("sub-rootS", setOf(rootS.id), lastEventId = null)
@@ -123,19 +123,19 @@ class EventPublishingRepositoryProviderTest {
             val warmupDrain = async { warmupFlow.take(Int.MAX_VALUE).toList() }
 
             // Create root item and child (primes the cache: itemA → {rootR.id})
-            val rootR = provider.workItemRepository().create(WorkItem(title = "Root R2", depth = 0)).getOrNull()!!
+            val rootR = provider.workItemRepository().create(WorkItem(title = "Root R2", depth = 0))!!
             val itemA =
                 provider
                     .workItemRepository()
                     .create(
                         WorkItem(title = "Item A2", parentId = rootR.id, depth = 1)
-                    ).getOrNull()!!
+                    )!!
             val itemB =
                 provider
                     .workItemRepository()
                     .create(
                         WorkItem(title = "Item B2", parentId = rootR.id, depth = 1)
-                    ).getOrNull()!!
+                    )!!
 
             // Subscriber scoped to rootR SHOULD receive the dependency event
             val flowR = bus.subscribe("sub-rootR", setOf(rootR.id), lastEventId = null)

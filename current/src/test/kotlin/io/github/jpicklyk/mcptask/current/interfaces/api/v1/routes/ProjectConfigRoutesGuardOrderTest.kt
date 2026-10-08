@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
@@ -62,8 +61,8 @@ class ProjectConfigRoutesGuardOrderTest {
             (
                 repo.workItemRepository().create(
                     WorkItem(title = "Guard Order Root", type = "project", depth = 0),
-                ) as Result.Success
-            ).data
+                )!!
+            )
         }
 
     // ──────────────────────────────────────────────
@@ -75,7 +74,7 @@ class ProjectConfigRoutesGuardOrderTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
             val yamlA = GUARD_ORDER_VALID_YAML
             val yamlB = GUARD_ORDER_VALID_YAML + "\n"
 
@@ -104,7 +103,7 @@ class ProjectConfigRoutesGuardOrderTest {
             assertTrue(response.bodyAsText().contains("superseded"))
 
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertEquals(yamlB, (persisted as Result.Success).data?.configYaml, "the rejected push must not overwrite B")
+            assertEquals(yamlB, persisted?.configYaml, "the rejected push must not overwrite B")
         }
 
     // ──────────────────────────────────────────────
@@ -116,7 +115,7 @@ class ProjectConfigRoutesGuardOrderTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             client.put("/api/v1/roots/${root.id}/config") {
                 header("Authorization", "Bearer $WRITE_TOKEN")
@@ -145,7 +144,7 @@ class ProjectConfigRoutesGuardOrderTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             client.put("/api/v1/roots/${root.id}/config") {
                 header("Authorization", "Bearer $WRITE_TOKEN")
@@ -170,7 +169,7 @@ class ProjectConfigRoutesGuardOrderTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             client.put("/api/v1/roots/${root.id}/config") {
                 header("Authorization", "Bearer $WRITE_TOKEN")
@@ -194,7 +193,7 @@ class ProjectConfigRoutesGuardOrderTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/roots/${root.id}/config") {
@@ -216,7 +215,7 @@ class ProjectConfigRoutesGuardOrderTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val first =
                 client.put("/api/v1/roots/${root.id}/config") {
@@ -253,7 +252,7 @@ class ProjectConfigRoutesGuardOrderTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val first =
                 client.put("/api/v1/roots/${root.id}/config") {
@@ -286,7 +285,7 @@ class ProjectConfigRoutesGuardOrderTest {
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
             assertEquals(
                 crlfBody,
-                (persisted as Result.Success).data?.configYaml,
+                persisted?.configYaml,
                 "the STORED body is never normalized -- only the value fed into the fingerprint hash",
             )
         }
@@ -296,7 +295,7 @@ class ProjectConfigRoutesGuardOrderTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val first =
                 client.put("/api/v1/roots/${root.id}/config") {
@@ -324,7 +323,7 @@ class ProjectConfigRoutesGuardOrderTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val first =
                 client.put("/api/v1/roots/${root.id}/config") {
@@ -352,7 +351,7 @@ class ProjectConfigRoutesGuardOrderTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
             val yamlB = GUARD_ORDER_VALID_YAML + "\n"
 
             client.put("/api/v1/roots/${root.id}/config") {

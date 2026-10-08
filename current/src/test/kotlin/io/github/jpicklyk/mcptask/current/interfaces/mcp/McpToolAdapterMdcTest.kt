@@ -104,7 +104,7 @@ class McpToolAdapterMdcTest {
         arguments(JsonObject(mapOf("actor" to JsonObject(mapOf("id" to JsonPrimitive(actorId))))))
     }
 
-    private val dummyContext by lazy { ToolExecutionContext(repositoryProvider = db.repositoryProvider()) }
+    private val dummyContext by lazy { ToolExecutionContext(repositoryProvider = db.repositoryProvider(), unitOfWork = db.unitOfWork()) }
 
     /** A tool whose `execute` logs one INFO line, optionally hopping to [Dispatchers.IO] first. */
     private fun mdcProbeTool(hopDispatcher: Boolean): ToolDefinition =

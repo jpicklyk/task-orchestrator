@@ -40,8 +40,8 @@ class DependencyDuplicateRouteTest {
         titleA: String = "A",
         titleB: String = "B",
     ): Pair<WorkItem, WorkItem> {
-        val a = repo.workItemRepository().create(WorkItem(title = titleA, depth = 0)).getOrNull()!!
-        val b = repo.workItemRepository().create(WorkItem(title = titleB, depth = 0)).getOrNull()!!
+        val a = repo.workItemRepository().create(WorkItem(title = titleA, depth = 0))!!
+        val b = repo.workItemRepository().create(WorkItem(title = titleB, depth = 0))!!
         return Pair(a, b)
     }
 
@@ -54,7 +54,7 @@ class DependencyDuplicateRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val (a, b) = runBlocking { createPair(repo) }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val first =
                 client.post("/api/v1/dependencies") {
@@ -88,7 +88,7 @@ class DependencyDuplicateRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val (a, b) = runBlocking { createPair(repo, "A11", "B11") }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val first =
                 client.post("/api/v1/dependencies") {
@@ -120,7 +120,7 @@ class DependencyDuplicateRouteTest {
             runBlocking {
                 repo.dependencyRepository().create(Dependency(fromItemId = a.id, toItemId = b.id, type = DependencyType.BLOCKS))
             }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val reverseBlocks =
                 client.post("/api/v1/dependencies") {
@@ -156,7 +156,7 @@ class DependencyDuplicateRouteTest {
             runBlocking {
                 repo.dependencyRepository().create(Dependency(fromItemId = a.id, toItemId = b.id, type = DependencyType.RELATES_TO))
             }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val reverseRelatesTo =
                 client.post("/api/v1/dependencies") {
@@ -180,7 +180,7 @@ class DependencyDuplicateRouteTest {
             runBlocking {
                 repo.dependencyRepository().create(Dependency(fromItemId = a.id, toItemId = b.id, type = DependencyType.BLOCKS))
             }
-            application { configureWriteTestApp(repo) }
+            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/dependencies") {

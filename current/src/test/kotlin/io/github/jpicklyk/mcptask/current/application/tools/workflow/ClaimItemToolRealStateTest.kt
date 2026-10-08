@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -26,6 +25,7 @@ import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -122,6 +122,7 @@ class ClaimItemToolRealStateTest {
             repositoryProvider = repositoryProvider,
             actorVerifier = NoOpActorVerifier,
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
+            unitOfWork = db.unitOfWork(),
         )
 
     private fun firstResult(
@@ -134,8 +135,8 @@ class ClaimItemToolRealStateTest {
 
     private suspend fun createItem(title: String): WorkItem {
         val result = repository.create(WorkItem(title = title, role = Role.QUEUE))
-        assertIs<Result.Success<WorkItem>>(result)
-        return result.data
+        assertNotNull(result)
+        return result
     }
 
     // -----------------------------------------------------------------------
@@ -168,8 +169,8 @@ class ClaimItemToolRealStateTest {
             assertFalse("\"claimedBy\"" in serialized, "no claimedBy key on an already_claimed response")
 
             val dbItem = repository.getById(item.id)
-            assertIs<Result.Success<WorkItem>>(dbItem)
-            assertEquals(agentOther, dbItem.data.claimedBy, "the original holder's claim must be undisturbed")
+            assertNotNull(dbItem)
+            assertEquals(agentOther, dbItem.claimedBy, "the original holder's claim must be undisturbed")
         }
 
     // -----------------------------------------------------------------------
@@ -243,8 +244,8 @@ class ClaimItemToolRealStateTest {
             assertEquals("not_claimed_by_you", first["outcome"]!!.jsonPrimitive.content)
 
             val dbItem = repository.getById(item.id)
-            assertIs<Result.Success<WorkItem>>(dbItem)
-            assertEquals(agentOther, dbItem.data.claimedBy)
+            assertNotNull(dbItem)
+            assertEquals(agentOther, dbItem.claimedBy)
         }
 
     // -----------------------------------------------------------------------
@@ -340,8 +341,8 @@ class ClaimItemToolRealStateTest {
             assertEquals(agentSelf, first["claimedBy"]!!.jsonPrimitive.content)
 
             val dbItem = repository.getById(item.id)
-            assertIs<Result.Success<WorkItem>>(dbItem)
-            assertEquals(agentSelf, dbItem.data.claimedBy)
+            assertNotNull(dbItem)
+            assertEquals(agentSelf, dbItem.claimedBy)
         }
 
     // -----------------------------------------------------------------------

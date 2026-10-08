@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
@@ -25,6 +26,8 @@ class AdvanceServiceFactory(
     private val noteRepository: NoteRepository,
     private val resourceLeaseRepository: ResourceLeaseRepository?,
     val configResolver: EffectiveConfigResolver,
+    /** The transaction boundary every built [AdvanceService] runs its steps in. */
+    private val unitOfWork: UnitOfWork,
     private val resourceLeasesEnforced: () -> Boolean = { AdvanceService.resourceLeasesEnforcedFromEnv() },
 ) {
     /**
@@ -47,6 +50,7 @@ class AdvanceServiceFactory(
             noteRepository = noteRepository,
             statusLabelService = configResolver.rootBoundStatusLabels(item.rootId, trigger),
             schemaResolver = { configResolver.resolveSchema(it) },
+            unitOfWork = unitOfWork,
             resourceLeaseRepository = resourceLeaseRepository,
             resourceRequirementsResolver = { configResolver.resolveResourceRequirements(it) },
             resourceRegistryResolver = { configResolver.resolveResourceRegistry(it) },

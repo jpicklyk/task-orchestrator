@@ -10,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
@@ -71,7 +70,8 @@ class AdvanceParityTest {
     private fun mcpTool(
         repo: DefaultRepositoryProvider,
         schemaService: NoteSchemaService,
-    ): Pair<AdvanceItemTool, ToolExecutionContext> = AdvanceItemTool() to ToolExecutionContext(repo, schemaService)
+    ): Pair<AdvanceItemTool, ToolExecutionContext> =
+        AdvanceItemTool() to ToolExecutionContext(repo, schemaService, unitOfWork = db.unitOfWork())
 
     private fun advanceParams(
         itemId: UUID,
@@ -106,9 +106,9 @@ class AdvanceParityTest {
 
             // Two mirrored items, both gate-incomplete (no 'spec' note).
             val mcpItem =
-                repo.workItemRepository().create(WorkItem(title = "MCP", type = "gate-type", role = Role.QUEUE, depth = 0)).getOrNull()!!
+                repo.workItemRepository().create(WorkItem(title = "MCP", type = "gate-type", role = Role.QUEUE, depth = 0))!!
             val restItem =
-                repo.workItemRepository().create(WorkItem(title = "REST", type = "gate-type", role = Role.QUEUE, depth = 0)).getOrNull()!!
+                repo.workItemRepository().create(WorkItem(title = "REST", type = "gate-type", role = Role.QUEUE, depth = 0))!!
 
             // MCP path.
             val (tool, ctx) = mcpTool(repo, schemaService)
@@ -117,7 +117,7 @@ class AdvanceParityTest {
             // REST path.
             var restBody = ""
             testApplication {
-                application { configureWriteTestApp(repo, schemaService = schemaService) }
+                application { configureWriteTestApp(repo, schemaService = schemaService, unitOfWork = db.unitOfWork()) }
                 val r =
                     client.post("/api/v1/items/${restItem.id}/advance") {
                         header("Authorization", "Bearer $WRITE_TOKEN")
@@ -144,8 +144,8 @@ class AdvanceParityTest {
             assertEquals(mcpMissing, restMissing, "MCP and REST must report the same missing-note set")
 
             // Neither item advanced.
-            assertEquals(Role.QUEUE, (repo.workItemRepository().getById(mcpItem.id) as Result.Success).data.role)
-            assertEquals(Role.QUEUE, (repo.workItemRepository().getById(restItem.id) as Result.Success).data.role)
+            assertEquals(Role.QUEUE, (repo.workItemRepository().getById(mcpItem.id)!!).role)
+            assertEquals(Role.QUEUE, (repo.workItemRepository().getById(restItem.id)!!).role)
         }
 
     // ──────────────────────────────────────────────
@@ -161,14 +161,13 @@ class AdvanceParityTest {
             //   parent (WORK) → child (WORK, last child)   — completing child cascades parent→terminal
             //   child BLOCKS downstream (QUEUE)            — completing child unblocks downstream
             suspend fun buildTree(label: String): Triple<UUID, UUID, UUID> {
-                val parent = repo.workItemRepository().create(WorkItem(title = "$label-parent", role = Role.WORK, depth = 0)).getOrNull()!!
+                val parent = repo.workItemRepository().create(WorkItem(title = "$label-parent", role = Role.WORK, depth = 0))!!
                 val child =
                     repo
                         .workItemRepository()
-                        .create(WorkItem(title = "$label-child", role = Role.WORK, parentId = parent.id, depth = 1))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "$label-child", role = Role.WORK, parentId = parent.id, depth = 1))!!
                 val downstream =
-                    repo.workItemRepository().create(WorkItem(title = "$label-downstream", role = Role.QUEUE, depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "$label-downstream", role = Role.QUEUE, depth = 0))!!
                 repo.dependencyRepository().create(
                     Dependency(fromItemId = child.id, toItemId = downstream.id, type = DependencyType.BLOCKS),
                 )
@@ -193,7 +192,7 @@ class AdvanceParityTest {
             // REST path — complete the mirrored child.
             var restBody = ""
             testApplication {
-                application { configureWriteTestApp(repo) }
+                application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
                 val r =
                     client.post("/api/v1/items/$restChild/advance") {
                         header("Authorization", "Bearer $WRITE_TOKEN")
@@ -222,13 +221,13 @@ class AdvanceParityTest {
             assertEquals(mcpUnblocked.size, restUnblocked.size, "MCP and REST must unblock the same count")
 
             // Both parents cascaded to terminal, both children terminal.
-            assertEquals(Role.TERMINAL, (repo.workItemRepository().getById(mcpParent) as Result.Success).data.role)
-            assertEquals(Role.TERMINAL, (repo.workItemRepository().getById(restParent) as Result.Success).data.role)
-            assertEquals(Role.TERMINAL, (repo.workItemRepository().getById(mcpChild) as Result.Success).data.role)
-            assertEquals(Role.TERMINAL, (repo.workItemRepository().getById(restChild) as Result.Success).data.role)
+            assertEquals(Role.TERMINAL, (repo.workItemRepository().getById(mcpParent)!!).role)
+            assertEquals(Role.TERMINAL, (repo.workItemRepository().getById(restParent)!!).role)
+            assertEquals(Role.TERMINAL, (repo.workItemRepository().getById(mcpChild)!!).role)
+            assertEquals(Role.TERMINAL, (repo.workItemRepository().getById(restChild)!!).role)
 
             // Sanity: downstream items exist and were the unblock targets.
-            assertTrue(repo.workItemRepository().getById(mcpDownstream) is Result.Success)
-            assertTrue(repo.workItemRepository().getById(restDownstream) is Result.Success)
+            assertTrue(repo.workItemRepository().getById(mcpDownstream) != null)
+            assertTrue(repo.workItemRepository().getById(restDownstream) != null)
         }
 }

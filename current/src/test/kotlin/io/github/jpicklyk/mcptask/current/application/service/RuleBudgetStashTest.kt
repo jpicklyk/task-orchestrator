@@ -5,8 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkT
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
@@ -145,14 +143,14 @@ class RuleBudgetStashTest {
         @TempDir tempDir: Path,
     ) {
         val composition = buildComposition(tempDir)
-        val service = PlanDocumentService(composition.toolContext.repositoryProvider)
+        val service = PlanDocumentService(composition.toolContext.repositoryProvider, db.unitOfWork())
         val root =
             runBlocking {
                 composition.toolContext.repositoryProvider
                     .workItemRepository()
                     .create(
                         WorkItem(title = "S11 Root", depth = 0)
-                    ).getOrNull()!!
+                    )!!
             }
 
         val atLimit = runBlocking { service.stash(root.id, "rule/budget-at-limit", "x".repeat(16384)) }
@@ -170,14 +168,14 @@ class RuleBudgetStashTest {
         @TempDir tempDir: Path,
     ) {
         val composition = buildComposition(tempDir)
-        val service = PlanDocumentService(composition.toolContext.repositoryProvider)
+        val service = PlanDocumentService(composition.toolContext.repositoryProvider, db.unitOfWork())
         val root =
             runBlocking {
                 composition.toolContext.repositoryProvider
                     .workItemRepository()
                     .create(
                         WorkItem(title = "S11 Multibyte Root", depth = 0)
-                    ).getOrNull()!!
+                    )!!
             }
 
         // U+00E9 (e-acute) is 2 bytes in UTF-8: 8192 chars == 16384 bytes, exactly at the boundary.
@@ -202,14 +200,14 @@ class RuleBudgetStashTest {
         @TempDir tempDir: Path,
     ) {
         val composition = buildComposition(tempDir)
-        val service = PlanDocumentService(composition.toolContext.repositoryProvider)
+        val service = PlanDocumentService(composition.toolContext.repositoryProvider, db.unitOfWork())
         val root =
             runBlocking {
                 composition.toolContext.repositoryProvider
                     .workItemRepository()
                     .create(
                         WorkItem(title = "S11 Non-Rule Root", depth = 0)
-                    ).getOrNull()!!
+                    )!!
             }
 
         val body = "x".repeat(20000)
@@ -231,7 +229,7 @@ class RuleBudgetStashTest {
                     .workItemRepository()
                     .create(
                         WorkItem(title = "S11 MCP Root", depth = 0)
-                    ).getOrNull()!!
+                    )!!
             }
         val result =
             runBlocking {
@@ -266,7 +264,7 @@ class RuleBudgetStashTest {
                         .workItemRepository()
                         .create(
                             WorkItem(title = "S11 REST Root", depth = 0)
-                        ).getOrNull()!!
+                        )!!
                 }
             application { configureProductionApp(composition, makeWriteAuthConfig()) }
 
@@ -325,7 +323,7 @@ class RuleBudgetStashTest {
         runBlocking {
             val composition = buildComposition(tempDir)
             val repo = composition.toolContext.repositoryProvider
-            val root = repo.workItemRepository().create(WorkItem(title = "S12 MCP Root", depth = 0)).getOrNull()!!
+            val root = repo.workItemRepository().create(WorkItem(title = "S12 MCP Root", depth = 0))!!
             repo.planDocumentRepository().stash(root.id, "rule/x", "A rule document, not a feature plan.")
 
             val server =
@@ -373,10 +371,10 @@ class RuleBudgetStashTest {
                 )
 
                 val itemsResult = repo.workItemRepository().findByFilters(parentId = root.id, limit = 100)
-                val titles = (itemsResult as Result.Success).data.items.map { it.title }
+                val titles = itemsResult.items.map { it.title }
                 assertTrue("Feature via rule doc" !in titles, "zero items must be created when docRef.slug is rule/-prefixed; got: $titles")
 
-                val doc = (repo.planDocumentRepository().get(root.id, "rule/x") as Result.Success).data
+                val doc = (repo.planDocumentRepository().get(root.id, "rule/x")!!)
                 assertNotNull(doc, "the rule document must still exist")
                 assertEquals(
                     PlanDocumentStatus.PENDING,
@@ -386,7 +384,7 @@ class RuleBudgetStashTest {
 
                 // Re-stashable: pushing a new body to the same slug must still succeed.
                 val reStash = repo.planDocumentRepository().stash(root.id, "rule/x", "Updated rule body after the rejected docRef.")
-                assertTrue(reStash is Result.Success, "the document must remain re-stashable: $reStash")
+                assertNotNull(reStash, "the document must remain re-stashable: $reStash")
             } finally {
                 closeInMemoryPair(client, server)
             }
@@ -397,7 +395,7 @@ class RuleBudgetStashTest {
     // that fails with a repository error OTHER than not-found must yield RepositoryError from
     // RuleService.get / RuleService.list -- NOT RootNotFound. Tested through the public RuleService
     // (constructor takes domain repositories -- a WorkItemRepository double returning
-    // Result.Error(RepositoryError.DatabaseError(...)) is fault injection at a declared
+    // throw IllegalStateException(...) is fault injection at a declared
     // constructor seam, not a hand-built internal replica).
     // =========================================================================================
 
@@ -408,7 +406,7 @@ class RuleBudgetStashTest {
         val composition = buildComposition(tempDir)
         val repo = composition.toolContext.repositoryProvider
         val root =
-            runBlocking { repo.workItemRepository().create(WorkItem(title = "RuleService RepoError Root", depth = 0)).getOrNull()!! }
+            runBlocking { repo.workItemRepository().create(WorkItem(title = "RuleService RepoError Root", depth = 0))!! }
         runBlocking { repo.planDocumentRepository().stash(root.id, "rule/x", "body") }
         val unknownId = UUID.randomUUID()
 
@@ -440,9 +438,9 @@ private class RuleBudgetFailingWorkItemRepository(
     private val delegate: WorkItemRepository,
     private val failingId: UUID,
 ) : WorkItemRepository by delegate {
-    override suspend fun getById(id: UUID): Result<WorkItem> =
+    override suspend fun getById(id: UUID): WorkItem? =
         if (id == failingId) {
-            Result.Error(RepositoryError.DatabaseError("Simulated getById failure for $id"))
+            throw IllegalStateException("Simulated getById failure for $id")
         } else {
             delegate.getById(id)
         }

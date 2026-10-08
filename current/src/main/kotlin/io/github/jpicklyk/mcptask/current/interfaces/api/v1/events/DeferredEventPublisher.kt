@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import org.jetbrains.exposed.v1.core.Transaction
 import org.jetbrains.exposed.v1.core.statements.StatementInterceptor
@@ -44,8 +45,8 @@ data class PendingApiEvent(
  *
  * Every SQLite repository method opens its own `suspendTransaction`, so a standalone write is
  * already durable by the time the [EventPublishingRepositoryProvider] decorator publishes. But
- * when an OUTER transaction is open — `WorkItemRepository.inTransaction`, used by the
- * role-transition pipeline, the recursive delete handler and both reparent cascades — the inner
+ * when an OUTER transaction is open (a unit of work, `UnitOfWork.write`, which every write site
+ * runs in: the role-transition pipeline, the recursive delete handler, both reparent cascades) the inner
  * transaction merely joins the outer one and does not commit. A publish there escapes to SSE
  * subscribers describing a change that a later failure in the same transaction then rolls back:
  * a phantom event the client can never reconcile, since the read API will not show the change.
@@ -59,7 +60,7 @@ data class PendingApiEvent(
  *   ONE [StatementInterceptor] on it. On `afterCommit` the buffered descriptors are built and
  *   published in enqueue order; on `afterRollback` they are discarded and nothing is published,
  *   nothing enters the ring buffer, and nothing can be replayed later.
- * - Nested `inTransaction` calls reuse the same [Transaction] object, so there is one buffer and
+ * - Nested (joined) units reuse the same [Transaction] object, so there is one buffer and
  *   one flush, at the outermost commit.
  *
  * ## Guarantees and non-goals
@@ -126,6 +127,7 @@ class DeferredEventPublisher(
         try {
             TransactionManager.currentOrNull()
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             logger.debug("No transaction manager available; publishing immediately: {}", e.message)
             null
         }
@@ -168,6 +170,7 @@ class DeferredEventPublisher(
                 publishNow(pending)
             } catch (e: Exception) {
                 // One bad event must not strand the rest of the committed batch.
+                e.rethrowIfCancellation()
                 logger.warn("Failed to publish deferred event {}: {}", pending.eventType, e.message)
             }
         }

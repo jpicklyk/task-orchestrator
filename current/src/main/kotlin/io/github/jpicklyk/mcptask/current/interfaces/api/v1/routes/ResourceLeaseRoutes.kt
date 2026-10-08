@@ -1,6 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.UnitResult
+import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
@@ -67,7 +71,10 @@ private const val HISTORY_MAX_LIMIT = 500
  * **REST-only:** registered on the authenticated `/api/v1` pipeline only, like the other
  * `/api/v1/resources` routes — never reachable on the unauthenticated `/mcp` transport.
  */
-fun Route.resourceLeaseRoutes(repositoryProvider: RepositoryProvider) {
+fun Route.resourceLeaseRoutes(
+    repositoryProvider: RepositoryProvider,
+    unitOfWork: UnitOfWork,
+) {
     val leaseRepo = repositoryProvider.resourceLeaseRepository()
 
     route("/resources/leases") {
@@ -101,7 +108,14 @@ fun Route.resourceLeaseRoutes(repositoryProvider: RepositoryProvider) {
                 }
 
                 val principal = call.attributes.getOrNull(ApiPrincipalKey)
-                when (val result = leaseRepo.forceReleaseByKey(key, principal?.tokenId)) {
+                val released: Any =
+                    unitOfWork.writeUnit<Any>(
+                        "ResourceLeaseRoutes.forceRelease",
+                        onFault = { LegacyFaults.message(it) }
+                    ) {
+                        UnitResult.Commit(leaseRepo.forceReleaseByKey(key, principal?.tokenId))
+                    }
+                when (val result = released) {
                     is LeaseReleaseResult.Success -> {
                         if (result.releasedCount == 0) {
                             call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "No active lease found for key '$key'"))
@@ -120,8 +134,8 @@ fun Route.resourceLeaseRoutes(repositoryProvider: RepositoryProvider) {
                             ResourceLeaseReleaseResponseDto(resourceKey = key, releasedCount = result.releasedCount),
                         )
                     }
-                    is LeaseReleaseResult.DBError -> {
-                        resourceLeaseLogger.warn("DELETE /resources/leases/{} DB error: {}", key, result.cause.message)
+                    else -> {
+                        resourceLeaseLogger.warn("DELETE /resources/leases/{} DB error: {}", key, result)
                         call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to force-release lease"))
                     }
                 }

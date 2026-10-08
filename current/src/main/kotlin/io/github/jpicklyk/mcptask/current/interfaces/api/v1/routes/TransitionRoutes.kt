@@ -1,7 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
@@ -64,13 +65,17 @@ fun Route.transitionRoutes(
                     return@get
                 }
             val id =
-                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
                     return@get
                 }
 
-            val itemResult = workItemRepo.getById(id)
-            if (itemResult is Result.Error) {
+            val itemResult =
+                legacyRead({
+                    call.respondDbError()
+                    return@get
+                }) { workItemRepo.getById(id) }
+            if (itemResult == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
                 return@get
             }
@@ -81,14 +86,15 @@ fun Route.transitionRoutes(
             }
 
             val pp = call.pageParamsOrRespond() ?: return@get
-            val result = transitionRepo.findByItemId(id, limit = pp.pageSize + 1, offset = pp.offset)
-            when (result) {
-                is Result.Error -> {
-                    transitionLogger.warn("GET /items/{}/transitions DB error: {}", id, result.error.message)
-                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
-                }
-                is Result.Success -> {
-                    val all = result.data
+            val result =
+                legacyRead({
+                    transitionLogger.warn("GET /items/{}/transitions DB error: {}", id, it)
+                    call.respondDbError()
+                    return@get
+                }) { transitionRepo.findByItemId(id, limit = pp.pageSize + 1, offset = pp.offset) }
+            run {
+                run {
+                    val all = result
                     val page = all.take(pp.pageSize)
                     val hasMore = all.size > pp.pageSize
                     val dtos =
@@ -110,15 +116,16 @@ fun Route.transitionRoutes(
                     ?: Instant.now().minusSeconds(86400) // default: last 24 hours
             val fetchLimit =
                 minOf(pp.offset.toLong() + pp.pageSize.toLong() + 1L, TRANSITION_SCAN_LIMIT.toLong()).toInt()
-            val result = transitionRepo.findSince(since, limit = fetchLimit)
+            val result =
+                legacyRead({
+                    transitionLogger.warn("GET /transitions DB error: {}", it)
+                    call.respondDbError()
+                    return@get
+                }) { transitionRepo.findSince(since, limit = fetchLimit) }
 
-            when (result) {
-                is Result.Error -> {
-                    transitionLogger.warn("GET /transitions DB error: {}", result.error.message)
-                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
-                }
-                is Result.Success -> {
-                    var transitions = result.data
+            run {
+                run {
+                    var transitions = result
 
                     // Scope filter (root_ids ancestor walk, then tags_include) via the shared helper:
                     // one batched ancestor lookup, and a lookup error DROPS the rows (deny rather

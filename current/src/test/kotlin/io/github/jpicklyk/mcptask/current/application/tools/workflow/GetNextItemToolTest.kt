@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.*
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
@@ -24,7 +23,7 @@ class GetNextItemToolTest {
     @BeforeEach
     fun setUp() {
         val repositoryProvider = db.repositoryProvider()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         tool = GetNextItemTool()
     }
 
@@ -55,7 +54,7 @@ class GetNextItemToolTest {
                 depth = depth
             )
         val result = context.workItemRepository().create(item)
-        return (result as Result.Success).data
+        return result
     }
 
     /**
@@ -838,7 +837,7 @@ class GetNextItemToolTest {
                 originalClaimedAt = now.minusSeconds(60)
             )
         val result = context.workItemRepository().create(item)
-        return (result as Result.Success).data
+        return result
     }
 
     /**
@@ -860,7 +859,7 @@ class GetNextItemToolTest {
                 originalClaimedAt = now.minusSeconds(7200)
             )
         val result = context.workItemRepository().create(item)
-        return (result as Result.Success).data
+        return result
     }
 
     @Test
@@ -1166,9 +1165,8 @@ class GetNextItemToolTest {
                 )
             val createdTyped =
                 (
-                    context.workItemRepository().create(typedItem)
-                        as Result.Success
-                ).data
+                    context.workItemRepository().create(typedItem)!!
+                )
 
             val result =
                 tool.execute(
@@ -1222,9 +1220,8 @@ class GetNextItemToolTest {
                 )
             val createdPast =
                 (
-                    context.workItemRepository().create(pastItem)
-                        as Result.Success
-                ).data
+                    context.workItemRepository().create(pastItem)!!
+                )
 
             val recentItem =
                 WorkItem(
@@ -1234,9 +1231,8 @@ class GetNextItemToolTest {
                 )
             val createdRecent =
                 (
-                    context.workItemRepository().create(recentItem)
-                        as Result.Success
-                ).data
+                    context.workItemRepository().create(recentItem)!!
+                )
 
             val threshold = now.minusSeconds(3600).toString() // 1 hour ago
 
@@ -1269,9 +1265,8 @@ class GetNextItemToolTest {
                 )
             val createdPast =
                 (
-                    context.workItemRepository().create(pastItem)
-                        as Result.Success
-                ).data
+                    context.workItemRepository().create(pastItem)!!
+                )
 
             val recentItem =
                 WorkItem(
@@ -1281,9 +1276,8 @@ class GetNextItemToolTest {
                 )
             val createdRecent =
                 (
-                    context.workItemRepository().create(recentItem)
-                        as Result.Success
-                ).data
+                    context.workItemRepository().create(recentItem)!!
+                )
 
             val threshold = now.minusSeconds(1800).toString() // 30 minutes ago
 
@@ -1317,9 +1311,8 @@ class GetNextItemToolTest {
                 )
             val createdOld =
                 (
-                    context.workItemRepository().create(oldItem)
-                        as Result.Success
-                ).data
+                    context.workItemRepository().create(oldItem)!!
+                )
 
             // Item modified recently (after the threshold)
             val recentItem =
@@ -1330,9 +1323,8 @@ class GetNextItemToolTest {
                 )
             val createdRecent =
                 (
-                    context.workItemRepository().create(recentItem)
-                        as Result.Success
-                ).data
+                    context.workItemRepository().create(recentItem)!!
+                )
 
             val threshold = now.minusSeconds(3600).toString() // 1 hour ago
 
@@ -1369,9 +1361,8 @@ class GetNextItemToolTest {
                 )
             val createdOld =
                 (
-                    context.workItemRepository().create(oldItem)
-                        as Result.Success
-                ).data
+                    context.workItemRepository().create(oldItem)!!
+                )
 
             // Item modified recently (after the threshold)
             val recentItem =
@@ -1382,9 +1373,8 @@ class GetNextItemToolTest {
                 )
             val createdRecent =
                 (
-                    context.workItemRepository().create(recentItem)
-                        as Result.Success
-                ).data
+                    context.workItemRepository().create(recentItem)!!
+                )
 
             val threshold = now.minusSeconds(1800).toString() // 30 minutes ago
 
@@ -1417,9 +1407,8 @@ class GetNextItemToolTest {
                 )
             val createdOld =
                 (
-                    context.workItemRepository().create(oldRoleItem)
-                        as Result.Success
-                ).data
+                    context.workItemRepository().create(oldRoleItem)!!
+                )
 
             val recentRoleItem =
                 WorkItem(
@@ -1429,9 +1418,8 @@ class GetNextItemToolTest {
                 )
             val createdRecent =
                 (
-                    context.workItemRepository().create(recentRoleItem)
-                        as Result.Success
-                ).data
+                    context.workItemRepository().create(recentRoleItem)!!
+                )
 
             val threshold = now.minusSeconds(3600).toString()
 
@@ -1464,9 +1452,8 @@ class GetNextItemToolTest {
                 )
             val createdOld =
                 (
-                    context.workItemRepository().create(oldRoleItem)
-                        as Result.Success
-                ).data
+                    context.workItemRepository().create(oldRoleItem)!!
+                )
 
             val recentRoleItem =
                 WorkItem(
@@ -1476,9 +1463,8 @@ class GetNextItemToolTest {
                 )
             val createdRecent =
                 (
-                    context.workItemRepository().create(recentRoleItem)
-                        as Result.Success
-                ).data
+                    context.workItemRepository().create(recentRoleItem)!!
+                )
 
             val threshold = now.minusSeconds(1800).toString()
 
@@ -1540,20 +1526,20 @@ class GetNextItemToolTest {
                 )
 
             val repo = context.workItemRepository()
-            val createdLow = (repo.create(lowItem) as Result.Success).data
+            val createdLow = repo.create(lowItem)
             val createdHighComplex =
                 (
                     repo.create(
                         highComplexItem
-                    ) as Result.Success
-                ).data
+                    )!!
+                )
             val createdHighSimple =
                 (
                     repo.create(
                         highSimpleItem
-                    ) as Result.Success
-                ).data
-            val createdMed = (repo.create(medItem) as Result.Success).data
+                    )!!
+                )
+            val createdMed = repo.create(medItem)
 
             val result =
                 tool.execute(
@@ -1603,9 +1589,9 @@ class GetNextItemToolTest {
                     createdAt = now.minusSeconds(1000)
                 )
 
-            val createdOldest = (repo.create(oldestItem) as Result.Success).data
-            val createdMiddle = (repo.create(middleItem) as Result.Success).data
-            val createdNewest = (repo.create(newestItem) as Result.Success).data
+            val createdOldest = repo.create(oldestItem)
+            val createdMiddle = repo.create(middleItem)
+            val createdNewest = repo.create(newestItem)
 
             val result =
                 tool.execute(
@@ -1654,9 +1640,9 @@ class GetNextItemToolTest {
                     createdAt = now.minusSeconds(1000)
                 )
 
-            val createdOldest = (repo.create(oldestItem) as Result.Success).data
-            val createdMiddle = (repo.create(middleItem) as Result.Success).data
-            val createdNewest = (repo.create(newestItem) as Result.Success).data
+            val createdOldest = repo.create(oldestItem)
+            val createdMiddle = repo.create(middleItem)
+            val createdNewest = repo.create(newestItem)
 
             val result =
                 tool.execute(
@@ -1789,7 +1775,7 @@ class GetNextItemToolTest {
                 originalClaimedAt = now.minusSeconds(60)
             )
         val result = context.workItemRepository().create(parent)
-        return (result as Result.Success).data
+        return result
     }
 
     @Test
@@ -1881,9 +1867,8 @@ class GetNextItemToolTest {
                 )
             val savedExpiredParent =
                 (
-                    context.workItemRepository().create(expiredParent)
-                        as Result.Success
-                ).data
+                    context.workItemRepository().create(expiredParent)!!
+                )
 
             val subTask = createItem("Sub-task (recovery eligible)", parentId = savedExpiredParent.id, depth = 1, role = Role.QUEUE)
 

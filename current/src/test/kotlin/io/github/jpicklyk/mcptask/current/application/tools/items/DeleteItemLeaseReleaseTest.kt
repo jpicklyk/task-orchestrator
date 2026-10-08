@@ -4,9 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -40,14 +38,14 @@ private class LeaseFailOnIdResourceLeaseRepository(
 ) : ResourceLeaseRepository by delegate {
     override suspend fun releaseAllForItem(holderItemId: UUID): LeaseReleaseResult =
         if (holderItemId == failingHolderId) {
-            LeaseReleaseResult.DBError(RuntimeException("Simulated lease release failure for $holderItemId"))
+            throw RuntimeException("Simulated lease release failure for $holderItemId")
         } else {
             delegate.releaseAllForItem(holderItemId)
         }
 
     override suspend fun releaseAllForItems(holderItemIds: Set<UUID>): LeaseReleaseResult =
         if (failingHolderId in holderItemIds) {
-            LeaseReleaseResult.DBError(RuntimeException("Simulated lease release failure for $failingHolderId"))
+            throw RuntimeException("Simulated lease release failure for $failingHolderId")
         } else {
             delegate.releaseAllForItems(holderItemIds)
         }
@@ -76,16 +74,16 @@ private class DeleteFailOnIdWorkItemRepository(
     private val delegate: WorkItemRepository,
     private val failingId: UUID,
 ) : WorkItemRepository by delegate {
-    override suspend fun delete(id: UUID): Result<Boolean> =
+    override suspend fun delete(id: UUID): Boolean =
         if (id == failingId) {
-            Result.Error(RepositoryError.DatabaseError("Simulated delete failure for $id"))
+            throw IllegalStateException("Simulated delete failure for $id")
         } else {
             delegate.delete(id)
         }
 
-    override suspend fun deleteAll(ids: Set<UUID>): Result<Int> =
+    override suspend fun deleteAll(ids: Set<UUID>): Int =
         if (failingId in ids) {
-            Result.Error(RepositoryError.DatabaseError("Simulated bulk delete failure for $failingId"))
+            throw IllegalStateException("Simulated bulk delete failure for $failingId")
         } else {
             delegate.deleteAll(ids)
         }
@@ -134,7 +132,7 @@ class DeleteItemLeaseReleaseTest {
 
     @org.junit.jupiter.api.BeforeEach
     fun setUpContext() {
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
     }
 
     private fun idsArray(vararg ids: UUID) = JsonArray(ids.map { JsonPrimitive(it.toString()) })
@@ -146,11 +144,11 @@ class DeleteItemLeaseReleaseTest {
     ): WorkItem {
         val item = WorkItem(parentId = parentId, depth = depth, title = title)
         val result = repositoryProvider.workItemRepository().create(item)
-        assertTrue(result is Result.Success, "fixture creation of '$title' failed: $result")
-        return (result as Result.Success).data
+        assertNotNull(result, "fixture creation of '$title' failed: $result")
+        return result
     }
 
-    private suspend fun exists(id: UUID): Boolean = repositoryProvider.workItemRepository().getById(id).let { it is Result.Success }
+    private suspend fun exists(id: UUID): Boolean = repositoryProvider.workItemRepository().getById(id).let { it != null }
 
     private data class Tree(
         val root: WorkItem,
@@ -257,7 +255,8 @@ class DeleteItemLeaseReleaseTest {
             )
 
             val failing = LeaseFailOnIdResourceLeaseRepository(leaseRepo, tree.grandchild.id)
-            val failingContext = ToolExecutionContext(LeaseFailOnIdRepositoryProvider(repositoryProvider, failing))
+            val failingContext =
+                ToolExecutionContext(LeaseFailOnIdRepositoryProvider(repositoryProvider, failing), unitOfWork = db.unitOfWork())
 
             val response = handler.execute(idsArray(tree.root.id), true, failingContext) as JsonObject
             val data = response["data"] as JsonObject
@@ -290,7 +289,11 @@ class DeleteItemLeaseReleaseTest {
             assertIs<LeaseAcquireResult.Success>(leaseRepo.acquireAll(item.id, "agent-a", listOf("k-b1a" to 900)))
 
             val failingWorkItemRepo = DeleteFailOnIdWorkItemRepository(repositoryProvider.workItemRepository(), item.id)
-            val failingContext = ToolExecutionContext(DeleteFailOnIdRepositoryProvider(repositoryProvider, failingWorkItemRepo))
+            val failingContext =
+                ToolExecutionContext(
+                    DeleteFailOnIdRepositoryProvider(repositoryProvider, failingWorkItemRepo),
+                    unitOfWork = db.unitOfWork()
+                )
 
             val response = handler.execute(idsArray(item.id), false, failingContext) as JsonObject
             val data = response["data"] as JsonObject
@@ -325,7 +328,11 @@ class DeleteItemLeaseReleaseTest {
             )
 
             val failingWorkItemRepo = DeleteFailOnIdWorkItemRepository(repositoryProvider.workItemRepository(), tree.root.id)
-            val failingContext = ToolExecutionContext(DeleteFailOnIdRepositoryProvider(repositoryProvider, failingWorkItemRepo))
+            val failingContext =
+                ToolExecutionContext(
+                    DeleteFailOnIdRepositoryProvider(repositoryProvider, failingWorkItemRepo),
+                    unitOfWork = db.unitOfWork()
+                )
 
             val response = handler.execute(idsArray(tree.root.id), true, failingContext) as JsonObject
             val data = response["data"] as JsonObject

@@ -1,10 +1,13 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.UnitResult
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import java.util.UUID
 
@@ -38,7 +41,7 @@ sealed interface WorkItemDeleteOutcome {
 
 /**
  * Deletes a work item, optionally cascading to its descendants, releasing each deleted row's
- * resource leases (closing their lease-history intervals) inside the SAME transaction as that
+ * resource leases (closing their lease-history intervals) inside the SAME unit of work as that
  * row's delete — so release and delete commit, or roll back, together. Shared by the MCP
  * `manage_items` delete operation ([DeleteItemHandler]) and the REST `DELETE /api/v1/items/{id}`
  * route ([io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemWriteRoutes]) so both
@@ -51,14 +54,15 @@ sealed interface WorkItemDeleteOutcome {
  * must abort the delete rather than silently leaving the interval open forever.
  */
 class WorkItemDeletion(
-    private val repositoryProvider: RepositoryProvider
+    private val repositoryProvider: RepositoryProvider,
+    private val unitOfWork: UnitOfWork
 ) {
     /**
      * @param id The item to delete.
      * @param recursive When `false` and [id] has one or more direct children, returns
      *   [WorkItemDeleteOutcome.HasChildren] without deleting anything. When `true`, deletes [id]
      *   and every descendant in traversal-level batches (deepest level first, so a parent is
-     *   never deleted before its children) inside ONE transaction — all-or-nothing: a failure anywhere in the subtree rolls back every row
+     *   never deleted before its children) inside ONE unit of work: all-or-nothing, a failure anywhere in the subtree rolls back every row
      *   deleted so far for this call.
      */
     suspend fun delete(
@@ -80,45 +84,18 @@ class WorkItemDeletion(
         leaseRepo: ResourceLeaseRepository,
         id: UUID
     ): WorkItemDeleteOutcome {
-        val childrenResult = repo.findChildren(id)
-        if (childrenResult is Result.Error) {
-            return WorkItemDeleteOutcome.Failed(id, "Failed to check children: ${childrenResult.error.message}")
-        }
-        val children = (childrenResult as Result.Success).data
+        val children = legacyRead({ return WorkItemDeleteOutcome.Failed(id, "Failed to check children: $it") }) { repo.findChildren(id) }
         if (children.isNotEmpty()) {
             return WorkItemDeleteOutcome.HasChildren(id, children.size)
         }
 
-        // Release and delete must commit (or roll back) together: repo.delete() reports failure
-        // via Result.Error rather than by throwing, and a returned Result.Error does not by itself
-        // abort or roll back a transaction. Both a delete Result.Error and a not-found
-        // Result.Success(false) are converted into a thrown DeleteFailureException inside the
-        // block, which is what actually forces the lease release to roll back together with the
-        // failed/no-op delete — without this, the block would COMMIT the release while the row
-        // (for Result.Error) survives, or leave the release orphaned for an item that was never
-        // there to delete.
-        var notFound = false
-        try {
-            repo.inTransaction {
-                releaseLeasesOrThrow(leaseRepo, id)
-                when (val result = repo.delete(id)) {
-                    is Result.Success ->
-                        if (!result.data) {
-                            notFound = true
-                            throw DeleteFailureException("Item '$id' not found")
-                        }
-                    is Result.Error -> throw DeleteFailureException(result.error.message)
-                }
-            }
-        } catch (e: DeleteFailureException) {
-            return if (notFound) {
-                WorkItemDeleteOutcome.NotFound(id)
-            } else {
-                WorkItemDeleteOutcome.Failed(id, e.message ?: "Failed to delete item '$id'")
-            }
+        // Release and delete must commit (or roll back) together: a failed delete and a not-found
+        // (false) delete both roll the unit back, so the lease release never commits while the row
+        // survives, or for an item that was never there.
+        return deleteUnit(id, "WorkItemDeletion.delete") {
+            releaseLeases(leaseRepo, id)?.let { return@deleteUnit UnitResult.Rollback(it) }
+            rootDelete(repo, id, descendantsDeleted = 0)
         }
-
-        return WorkItemDeleteOutcome.Deleted(id, descendantsDeleted = 0)
     }
 
     private suspend fun deleteRecursive(
@@ -126,59 +103,59 @@ class WorkItemDeletion(
         leaseRepo: ResourceLeaseRepository,
         id: UUID
     ): WorkItemDeleteOutcome {
-        var localDescendantsDeleted = 0
-        var notFound = false
-
-        try {
-            repo.inTransaction {
-                // Find all descendants, release their leases in bulk, delete them level by level
-                // (deepest level first), then the root.
-                val descendantsResult = repo.findDescendants(id)
-                if (descendantsResult is Result.Error) {
-                    throw DeleteFailureException("Failed to find descendants: ${descendantsResult.error.message}")
+        return deleteUnit(id, "WorkItemDeletion.deleteRecursive") {
+            var localDescendantsDeleted = 0
+            // Find all descendants, release their leases in bulk, delete them level by level
+            // (deepest level first), then the root.
+            val descendants =
+                legacyRead({
+                    return@deleteUnit UnitResult.Rollback(WorkItemDeleteOutcome.Failed(id, "Failed to find descendants: $it"))
+                }) { repo.findDescendants(id) }
+            if (descendants.isNotEmpty()) {
+                releaseLeasesBulk(leaseRepo, id, descendants.map { it.id }.toSet())?.let {
+                    return@deleteUnit UnitResult.Rollback(it)
                 }
-                val descendants = (descendantsResult as Result.Success).data
-                if (descendants.isNotEmpty()) {
-                    releaseLeasesBulkOrThrow(leaseRepo, descendants.map { it.id }.toSet())
-                    // Group by traversal level computed from the parentId links, NOT the stored
-                    // `depth` column (which can be stale). Within one level no row is the parent
-                    // of another, so each batch DELETE is FK-safe regardless of chunk boundaries
-                    // or whether FK checks run per row or at statement end.
-                    for (levelIds in descendantLevelsDeepestFirst(id, descendants)) {
-                        when (val delResult = repo.deleteAll(levelIds)) {
-                            is Result.Success -> localDescendantsDeleted += delResult.data
-                            is Result.Error ->
-                                throw DeleteFailureException(
-                                    "Failed to delete descendants: ${delResult.error.message}"
-                                )
-                        }
-                    }
-                }
-
-                releaseLeasesOrThrow(leaseRepo, id)
-                // Root not-found (Result.Success(false)) must ALSO throw, not just fall through:
-                // the descendant deletes and releases above are inside this SAME transaction block,
-                // so failing to throw here would let them all COMMIT even though the root itself was
-                // never there to delete — breaking the all-or-nothing guarantee this class's KDoc
-                // promises for a recursive delete.
-                when (val result = repo.delete(id)) {
-                    is Result.Success ->
-                        if (!result.data) {
-                            notFound = true
-                            throw DeleteFailureException("Item '$id' not found")
-                        }
-                    is Result.Error -> throw DeleteFailureException(result.error.message)
+                // Group by traversal level computed from the parentId links, NOT the stored
+                // `depth` column (which can be stale). Within one level no row is the parent
+                // of another, so each batch DELETE is FK-safe regardless of chunk boundaries
+                // or whether FK checks run per row or at statement end.
+                for (levelIds in descendantLevelsDeepestFirst(id, descendants)) {
+                    localDescendantsDeleted +=
+                        legacyRead({
+                            return@deleteUnit UnitResult.Rollback(WorkItemDeleteOutcome.Failed(id, "Failed to delete descendants: $it"))
+                        }) { repo.deleteAll(levelIds) }
                 }
             }
-        } catch (e: DeleteFailureException) {
-            return if (notFound) {
-                WorkItemDeleteOutcome.NotFound(id)
-            } else {
-                WorkItemDeleteOutcome.Failed(id, e.message ?: "Failed to delete item '$id'")
-            }
+
+            releaseLeases(leaseRepo, id)?.let { return@deleteUnit UnitResult.Rollback(it) }
+            // Root not-found (false) must ALSO roll back, not just fall through:
+            // the descendant deletes and releases above are in this SAME unit, so committing here
+            // would keep them even though the root itself was never there to delete, breaking the
+            // all-or-nothing guarantee this class's KDoc promises for a recursive delete.
+            rootDelete(repo, id, localDescendantsDeleted)
         }
+    }
 
-        return WorkItemDeleteOutcome.Deleted(id, localDescendantsDeleted)
+    /** One write unit for a delete of [id]; a fault of the unit itself becomes [WorkItemDeleteOutcome.Failed]. */
+    private suspend fun deleteUnit(
+        id: UUID,
+        op: String,
+        block: suspend () -> UnitResult<WorkItemDeleteOutcome>
+    ): WorkItemDeleteOutcome =
+        unitOfWork.writeUnit(op, onFault = { WorkItemDeleteOutcome.Failed(id, LegacyFaults.message(it)) }) { block() }
+
+    /** Deletes the root row [id]: commit on success, roll back on a failure or a missing row. */
+    private suspend fun rootDelete(
+        repo: WorkItemRepository,
+        id: UUID,
+        descendantsDeleted: Int
+    ): UnitResult<WorkItemDeleteOutcome> {
+        val deleted = legacyRead({ return UnitResult.Rollback(WorkItemDeleteOutcome.Failed(id, it)) }) { repo.delete(id) }
+        return if (deleted) {
+            UnitResult.Commit(WorkItemDeleteOutcome.Deleted(id, descendantsDeleted))
+        } else {
+            UnitResult.Rollback(WorkItemDeleteOutcome.NotFound(id))
+        }
     }
 
     /**
@@ -225,51 +202,35 @@ class WorkItemDeletion(
     }
 
     /**
-     * Releases every resource lease held by any item in [itemIds] in one bulk call, throwing
-     * [DeleteFailureException] on [LeaseReleaseResult.DBError] (same fail-closed contract as
-     * [releaseLeasesOrThrow]).
+     * Releases every resource lease held by any item in [itemIds] in one bulk call. Returns the
+     * [WorkItemDeleteOutcome.Failed] (for the delete of [rootId]) that must roll the unit back when the
+     * release throws (same fail-closed contract as [releaseLeases]), or null.
      */
-    private suspend fun releaseLeasesBulkOrThrow(
+    private suspend fun releaseLeasesBulk(
         leaseRepo: ResourceLeaseRepository,
+        rootId: UUID,
         itemIds: Set<UUID>
-    ) {
-        when (val release = leaseRepo.releaseAllForItems(itemIds)) {
-            is LeaseReleaseResult.Success -> Unit
-            is LeaseReleaseResult.DBError ->
-                throw DeleteFailureException(
-                    "Failed to release resource leases for ${itemIds.size} descendants: ${release.cause.message}"
-                )
-        }
+    ): WorkItemDeleteOutcome.Failed? {
+        legacyRead({
+            return WorkItemDeleteOutcome.Failed(rootId, "Failed to release resource leases for ${itemIds.size} descendants: $it")
+        }) { leaseRepo.releaseAllForItems(itemIds) }
+        return null
     }
 
     /**
      * Releases every resource lease held by [itemId], closing its lease-history interval(s), before
-     * the caller deletes the row. Called inside the same [WorkItemRepository.inTransaction] block
-     * as the delete so release and delete commit (or roll back) together. Throws
-     * [DeleteFailureException] on [LeaseReleaseResult.DBError] so the enclosing transaction rolls
-     * back — see this class's KDoc for why a release failure must abort rather than continue.
+     * the caller deletes the row, in the same unit as the delete so release and delete commit (or roll
+     * back) together. Returns the [WorkItemDeleteOutcome.Failed] that must roll the unit back when the
+     * release throws (see this class's KDoc for why a release failure must abort rather than
+     * continue), or null.
      */
-    private suspend fun releaseLeasesOrThrow(
+    private suspend fun releaseLeases(
         leaseRepo: ResourceLeaseRepository,
         itemId: UUID
-    ) {
-        when (val release = leaseRepo.releaseAllForItem(itemId)) {
-            is LeaseReleaseResult.Success -> Unit
-            is LeaseReleaseResult.DBError ->
-                throw DeleteFailureException(
-                    "Failed to release resource leases for '$itemId': ${release.cause.message}"
-                )
-        }
+    ): WorkItemDeleteOutcome.Failed? {
+        legacyRead({
+            return WorkItemDeleteOutcome.Failed(itemId, "Failed to release resource leases for '$itemId': $it")
+        }) { leaseRepo.releaseAllForItem(itemId) }
+        return null
     }
-
-    /**
-     * Internal marker exception used to abort the shared [WorkItemRepository.inTransaction] block
-     * for a recursive delete when any descendant lookup, lease release, or delete (or the root
-     * delete itself) fails. Thrown inside the block so the transaction rolls back every row
-     * deleted so far; caught immediately outside the block and converted to
-     * [WorkItemDeleteOutcome.Failed]. Never surfaced past [deleteRecursive].
-     */
-    private class DeleteFailureException(
-        message: String?
-    ) : Exception(message)
 }

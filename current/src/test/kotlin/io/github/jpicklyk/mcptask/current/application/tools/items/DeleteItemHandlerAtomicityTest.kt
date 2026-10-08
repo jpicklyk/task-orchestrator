@@ -4,8 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -25,6 +23,7 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -44,16 +43,16 @@ private class FailOnIdWorkItemRepository(
     private val delegate: WorkItemRepository,
     private val failingId: UUID
 ) : WorkItemRepository by delegate {
-    override suspend fun delete(id: UUID): Result<Boolean> =
+    override suspend fun delete(id: UUID): Boolean =
         if (id == failingId) {
-            Result.Error(RepositoryError.DatabaseError("Simulated delete failure for $id"))
+            throw IllegalStateException("Simulated delete failure for $id")
         } else {
             delegate.delete(id)
         }
 
-    override suspend fun deleteAll(ids: Set<UUID>): Result<Int> =
+    override suspend fun deleteAll(ids: Set<UUID>): Int =
         if (failingId in ids) {
-            Result.Error(RepositoryError.DatabaseError("Simulated bulk delete failure for $failingId"))
+            throw IllegalStateException("Simulated bulk delete failure for $failingId")
         } else {
             delegate.deleteAll(ids)
         }
@@ -95,13 +94,13 @@ class DeleteItemHandlerAtomicityTest {
     @BeforeEach
     fun setUp() {
         repositoryProvider = db.repositoryProvider()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
     }
 
     /** A context whose workItemRepository().delete() fails for [failingId]; everything else is real. */
     private fun contextFailingOn(failingId: UUID): ToolExecutionContext {
         val failing = FailOnIdWorkItemRepository(repositoryProvider.workItemRepository(), failingId)
-        return ToolExecutionContext(FailOnIdRepositoryProvider(repositoryProvider, failing))
+        return ToolExecutionContext(FailOnIdRepositoryProvider(repositoryProvider, failing), unitOfWork = db.unitOfWork())
     }
 
     private fun idsArray(vararg ids: UUID) = JsonArray(ids.map { JsonPrimitive(it.toString()) })
@@ -113,11 +112,11 @@ class DeleteItemHandlerAtomicityTest {
     ): WorkItem {
         val item = WorkItem(parentId = parentId, depth = depth, title = title)
         val result = repositoryProvider.workItemRepository().create(item)
-        assertTrue(result is Result.Success, "fixture creation of '$title' failed: $result")
-        return (result as Result.Success).data
+        assertNotNull(result, "fixture creation of '$title' failed: $result")
+        return result
     }
 
-    private suspend fun exists(id: UUID): Boolean = repositoryProvider.workItemRepository().getById(id).isSuccess()
+    private suspend fun exists(id: UUID): Boolean = repositoryProvider.workItemRepository().getById(id) != null
 
     private data class Tree(
         val root: WorkItem,
@@ -290,7 +289,7 @@ class DeleteItemHandlerAtomicityTest {
             assertEquals(3, data["deleted"]!!.jsonPrimitive.int)
 
             val notes = repositoryProvider.noteRepository().findByItemId(tree.grandchild.id)
-            assertTrue(notes is Result.Success && notes.data.isEmpty(), "note must cascade-delete (O4): $notes")
+            assertTrue(notes.isEmpty(), "note must cascade-delete (O4): $notes")
             assertEquals(null, repositoryProvider.dependencyRepository().findById(dependency.id), "dependency must cascade-delete (O4)")
         }
 
@@ -312,7 +311,7 @@ class DeleteItemHandlerAtomicityTest {
             assertEquals(1, data["failed"]!!.jsonPrimitive.int)
 
             val notes = repositoryProvider.noteRepository().findByItemId(tree.grandchild.id)
-            assertTrue(notes is Result.Success && notes.data.any { it.key == "test-note" }, "note must survive rollback: $notes")
+            assertTrue(notes.any { it.key == "test-note" }, "note must survive rollback: $notes")
             assertTrue(
                 repositoryProvider.dependencyRepository().findById(dependency.id) != null,
                 "dependency must survive rollback"

@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -10,7 +9,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
-import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -41,8 +40,8 @@ class SQLiteNoteRepositoryFtsTest {
     private suspend fun createItem(title: String = "Test item"): WorkItem {
         val item = WorkItem(title = title)
         val result = itemRepo().create(item)
-        assertIs<Result.Success<WorkItem>>(result)
-        return result.data
+        assertNotNull(result)
+        return result
     }
 
     private suspend fun createNote(
@@ -53,8 +52,8 @@ class SQLiteNoteRepositoryFtsTest {
     ): Note {
         val note = Note(itemId = itemId, key = key, role = role, body = body)
         val result = noteRepo().upsert(note)
-        assertIs<Result.Success<Note>>(result)
-        return result.data
+        assertNotNull(result)
+        return result
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -168,15 +167,15 @@ class SQLiteNoteRepositoryFtsTest {
             // Build a 3-level hierarchy
             val root = createItem("Root feature")
             val childResult = itemRepo().create(WorkItem(title = "Child task", parentId = root.id, depth = 1))
-            assertIs<Result.Success<WorkItem>>(childResult)
-            val childItem = childResult.data
+            assertNotNull(childResult)
+            val childItem = childResult
 
             val grandchildResult =
                 itemRepo().create(
                     WorkItem(title = "Grandchild task", parentId = childItem.id, depth = 2)
                 )
-            assertIs<Result.Success<WorkItem>>(grandchildResult)
-            val grandchildItem = grandchildResult.data
+            assertNotNull(grandchildResult)
+            val grandchildItem = grandchildResult
 
             val outsideItem = createItem("Outside feature")
 

@@ -144,7 +144,7 @@ work_item_schemas:
             repo
                 .workItemRepository()
                 .create(WorkItem(id = ROOT_ID, title = "Seat parity root", type = "project", depth = 0))
-                .getOrNull() ?: error("fixture: root creation failed")
+                ?: error("fixture: root creation failed")
             repo
                 .workItemRepository()
                 .create(
@@ -157,7 +157,7 @@ work_item_schemas:
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ).getOrNull() ?: error("fixture: item creation failed")
+                ) ?: error("fixture: item creation failed")
         }
     }
 
@@ -167,7 +167,7 @@ work_item_schemas:
             repo
                 .workItemRepository()
                 .create(WorkItem(id = ROOT_ID, title = "Seat parity root", type = "project", depth = 0))
-                .getOrNull() ?: error("fixture: root creation failed")
+                ?: error("fixture: root creation failed")
             repo
                 .workItemRepository()
                 .create(
@@ -180,7 +180,7 @@ work_item_schemas:
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ).getOrNull() ?: error("fixture: item creation failed")
+                ) ?: error("fixture: item creation failed")
         }
     }
 

@@ -1,5 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.UnitResult
+import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
@@ -19,7 +25,6 @@ import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean
@@ -277,6 +282,8 @@ class AdvanceService(
     private val noteRepository: NoteRepository,
     private val statusLabelService: StatusLabelService,
     private val schemaResolver: suspend (WorkItem) -> WorkItemSchema?,
+    /** The transaction boundary: every advance STEP (lease acquire, apply, lease release, each cascade apply) is one unit. */
+    private val unitOfWork: UnitOfWork,
     private val resourceLeaseRepository: ResourceLeaseRepository? = null,
     private val resourceRequirementsResolver: suspend (WorkItem) -> List<ResourceRequirement> = { emptyList() },
     private val resourceRegistryResolver: suspend (java.util.UUID?) -> Map<String, ResourceDefinition> = { emptyMap() },
@@ -303,10 +310,9 @@ class AdvanceService(
         const val MAX_RESOURCE_TTL_SECONDS = 86400
 
         /**
-         * Backoff hint surfaced when the lease store returns
-         * [LeaseAcquireResult.DBError] — its KDoc documents that a lost cross-transaction race can
-         * surface as a DB error rather than a [LeaseAcquireResult.Contended], with no computable
-         * expiry, so callers treat it as transient with a fixed default.
+         * Backoff hint surfaced when the lease-acquire step fails with a store fault (no
+         * [LeaseAcquireResult.Contended] expiry to compute), so callers treat it as transient with a
+         * fixed default.
          */
         const val LEASE_DB_ERROR_RETRY_AFTER_MS = 1000L
 
@@ -460,6 +466,7 @@ class AdvanceService(
                 effectiveLabel,
                 workItemRepository,
                 roleTransitionRepository,
+                unitOfWork,
                 actorClaim = actorClaim,
                 verification = verification,
                 roleChangedAt = dbNow,
@@ -559,11 +566,7 @@ class AdvanceService(
         trigger: String,
         targetRole: Role
     ): GateCheckOutcome {
-        val existingNotes =
-            when (val notesResult = noteRepository.findByItemId(item.id)) {
-                is Result.Success -> notesResult.data
-                is Result.Error -> emptyList()
-            }
+        val existingNotes = (legacyReadOrNull { noteRepository.findByItemId(item.id) } ?: emptyList())
         val filledKeys = GatePredicate.filledNoteKeys(existingNotes)
 
         val missingEntries =
@@ -694,7 +697,8 @@ class AdvanceService(
                     requirements
                         .filter { it.mode == ResourceMode.EXCLUSIVE }
                         .map { it.key to resolveTtlSeconds(it, registry) }
-                when (val acquire = leaseRepo.acquireAll(item.id, actorClaim?.id, leaseRequests)) {
+                val step = acquireInUnit(leaseRepo, item.id, actorClaim?.id, leaseRequests)
+                when (val acquire = (step as? AcquireStep.Done)?.result) {
                     is LeaseAcquireResult.Success -> acquiredLeases = acquire.leases
                     is LeaseAcquireResult.Contended ->
                         return ResourceGateOutcome.Rejected(
@@ -707,12 +711,12 @@ class AdvanceService(
                                 retryAfterMs = acquire.retryAfterMs
                             )
                         )
-                    is LeaseAcquireResult.DBError -> {
+                    null -> {
                         logger.warn(
                             "Resource lease acquire failed for item {} on keys {}: {}",
                             item.id,
                             exclusiveKeys,
-                            acquire.cause.message
+                            (step as AcquireStep.Faulted).message
                         )
                         return ResourceGateOutcome.Rejected(
                             AdvanceFailure.ResourceLeaseUnavailable(
@@ -768,18 +772,25 @@ class AdvanceService(
         reason: String
     ) {
         val leaseRepo = resourceLeaseRepository ?: return
-        when (val release = leaseRepo.releaseAllForItem(itemId)) {
+        val release: Any =
+            unitOfWork.writeUnit<Any>(
+                "AdvanceService.releaseLeases",
+                onFault = { LegacyFaults.message(it) }
+            ) {
+                UnitResult.Commit(leaseRepo.releaseAllForItem(itemId))
+            }
+        when (release) {
             is LeaseReleaseResult.Success ->
                 if (release.releasedCount > 0) {
                     logger.debug("Released {} resource lease(s) for item {} on {}", release.releasedCount, itemId, reason)
                 }
-            is LeaseReleaseResult.DBError ->
+            else ->
                 logger.warn(
                     "Failed to release resource leases for item {} on {}: {}. The transition is NOT failed; " +
                         "the lease TTL remains the backstop.",
                     itemId,
                     reason,
-                    release.cause.message
+                    release
                 )
         }
     }
@@ -821,9 +832,13 @@ class AdvanceService(
         }
 
         val rereadRole =
-            when (val reread = workItemRepository.getById(itemId)) {
-                is Result.Success -> reread.data.role
-                is Result.Error -> null
+            legacyReadOrNull {
+                try {
+                    workItemRepository.getById(itemId)?.role
+                } catch (e: Exception) {
+                    e.rethrowIfCancellation()
+                    null
+                }
             }
         if (rereadRole == null) {
             logger.warn(
@@ -892,11 +907,7 @@ class AdvanceService(
             // stale DB state prior to this cascade's apply.
             val event = events.first()
 
-            val parentItem =
-                when (val parentResult = workItemRepository.getById(event.itemId)) {
-                    is Result.Success -> parentResult.data
-                    is Result.Error -> break
-                }
+            val parentItem = legacyReadOrNull { workItemRepository.getById(event.itemId) } ?: break
 
             // Role guard + dependency check: every terminal cascade (including cancel-originated)
             // is suppressed for a held (BLOCKED) parent or one with an unmet blocking dependency,
@@ -953,11 +964,7 @@ class AdvanceService(
                         break
                     }
                 if (parentSchema != null) {
-                    val parentNotes =
-                        when (val nr = noteRepository.findByItemId(parentItem.id)) {
-                            is Result.Success -> nr.data
-                            is Result.Error -> emptyList()
-                        }
+                    val parentNotes = (legacyReadOrNull { noteRepository.findByItemId(parentItem.id) } ?: emptyList())
                     val filledKeys = GatePredicate.filledNoteKeys(parentNotes)
                     val missingEntries = GatePredicate.missingForComplete(parentSchema, filledKeys)
                     val cascadePolicy = independencePolicyResolver(parentItem)
@@ -989,6 +996,7 @@ class AdvanceService(
                     "Auto-cascaded from child completion",
                     workItemRepository,
                     roleTransitionRepository,
+                    unitOfWork,
                     statusLabel = statusLabelService.resolveLabel("cascade")
                 )
 
@@ -1084,11 +1092,7 @@ class AdvanceService(
         enforceNoteGate: Boolean = false
     ) {
         for (event in events) {
-            val parentItem =
-                when (val parentResult = workItemRepository.getById(event.itemId)) {
-                    is Result.Success -> parentResult.data
-                    is Result.Error -> continue
-                }
+            val parentItem = legacyReadOrNull { workItemRepository.getById(event.itemId) } ?: continue
 
             // Note gate for a START cascade into work: the parent's CURRENT-phase required notes
             // must be filled, exactly as a direct `start` on the parent would require. Runs BEFORE
@@ -1112,11 +1116,7 @@ class AdvanceService(
                         continue
                     }
                 if (parentSchema != null) {
-                    val parentNotes =
-                        when (val nr = noteRepository.findByItemId(parentItem.id)) {
-                            is Result.Success -> nr.data
-                            is Result.Error -> emptyList()
-                        }
+                    val parentNotes = (legacyReadOrNull { noteRepository.findByItemId(parentItem.id) } ?: emptyList())
                     val filledKeys = GatePredicate.filledNoteKeys(parentNotes)
                     val missingEntries = GatePredicate.missingForStart(parentSchema, event.currentRole, filledKeys)
                     val cascadePolicy = independencePolicyResolver(parentItem)
@@ -1190,6 +1190,7 @@ class AdvanceService(
                     reason,
                     workItemRepository,
                     roleTransitionRepository,
+                    unitOfWork,
                     statusLabel = statusLabelService.resolveLabel("cascade")
                 )
 
@@ -1261,7 +1262,8 @@ class AdvanceService(
 
         // Cascades have no actor by construction (see RoleTransitionHandler.cascadeTransition),
         // so the lease's audit actor is null here.
-        return when (val acquire = leaseRepo.acquireAll(parentItem.id, null, leaseRequests)) {
+        val step = acquireInUnit(leaseRepo, parentItem.id, null, leaseRequests)
+        return when (val acquire = (step as? AcquireStep.Done)?.result) {
             is LeaseAcquireResult.Success -> CascadeAcquireOutcome(emptyList(), acquire.leases)
             is LeaseAcquireResult.Contended -> {
                 logger.info(
@@ -1271,17 +1273,45 @@ class AdvanceService(
                 )
                 CascadeAcquireOutcome(acquire.contendedKeys, emptyList())
             }
-            is LeaseAcquireResult.DBError -> {
+            null -> {
                 logger.warn(
                     "Start cascade into work suppressed for item {}: lease store error on keys {}: {}",
                     parentItem.id,
                     exclusive.map { it.key },
-                    acquire.cause.message
+                    (step as AcquireStep.Faulted).message
                 )
                 CascadeAcquireOutcome(exclusive.map { it.key }, emptyList())
             }
         }
     }
+
+    /** Outcome of one lease-acquire STEP: the store's result, or the legacy message of a store fault. */
+    private sealed interface AcquireStep {
+        data class Done(
+            val result: LeaseAcquireResult
+        ) : AcquireStep
+
+        data class Faulted(
+            val message: String
+        ) : AcquireStep
+    }
+
+    /**
+     * One lease-acquire STEP as its own write unit. A store fault (translated at the unit boundary, or
+     * thrown) rolls the unit back and becomes [AcquireStep.Faulted].
+     */
+    private suspend fun acquireInUnit(
+        leaseRepo: ResourceLeaseRepository,
+        holderItemId: java.util.UUID,
+        actorId: String?,
+        requests: List<Pair<String, Int>>
+    ): AcquireStep =
+        unitOfWork.writeUnit<AcquireStep>(
+            "AdvanceService.acquireLeases",
+            onFault = { AcquireStep.Faulted(LegacyFaults.message(it)) }
+        ) {
+            UnitResult.Commit(AcquireStep.Done(leaseRepo.acquireAll(holderItemId, actorId, requests)))
+        }
 }
 
 /**

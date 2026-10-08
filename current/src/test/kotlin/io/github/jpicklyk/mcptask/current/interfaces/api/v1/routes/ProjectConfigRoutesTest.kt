@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
@@ -68,6 +68,7 @@ private val VALID_YAML =
 fun Application.configureProjectConfigTestApp(
     repo: DefaultRepositoryProvider,
     authConfig: ApiAuthConfig = makeWriteAuthConfig(),
+    unitOfWork: UnitOfWork
 ) {
     install(ContentNegotiation) { json(McpJson) }
     install(SSE)
@@ -80,7 +81,7 @@ fun Application.configureProjectConfigTestApp(
                         BearerTokenStore.TokenEntry(p, expiresAt = null)
                     } ?: emptyMap()
             }
-            projectConfigRoutes(repo)
+            projectConfigRoutes(repo, unitOfWork)
         }
     }
 }
@@ -91,7 +92,7 @@ private fun createRoot(
     type: String? = "project",
 ): WorkItem =
     runBlocking {
-        (repo.workItemRepository().create(WorkItem(title = title, type = type, depth = 0)) as Result.Success).data
+        (repo.workItemRepository().create(WorkItem(title = title, type = type, depth = 0))!!)
     }
 
 class ProjectConfigPutRouteTest {
@@ -103,7 +104,7 @@ class ProjectConfigPutRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/roots/${root.id}/config") {
@@ -120,8 +121,8 @@ class ProjectConfigPutRouteTest {
             assertTrue(etag.startsWith("\"cfg-"), "ETag should use the cfg- prefix: $etag")
 
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue(persisted is Result.Success)
-            val config = (persisted as Result.Success).data
+            assertNotNull(persisted)
+            val config = persisted
             assertNotNull(config, "Config should be persisted")
             assertEquals(VALID_YAML, config!!.configYaml)
         }
@@ -131,7 +132,7 @@ class ProjectConfigPutRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/roots/${root.id}/config") {
@@ -151,7 +152,7 @@ class ProjectConfigPutRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/roots/${root.id}/config") {
@@ -170,7 +171,7 @@ class ProjectConfigPutRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/roots/${root.id}/config") {
@@ -181,7 +182,7 @@ class ProjectConfigPutRouteTest {
 
             assertEquals(HttpStatusCode.Forbidden, response.status)
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue((persisted as Result.Success).data == null, "Config should NOT be created")
+            assertTrue(persisted == null, "Config should NOT be created")
         }
 
     @Test
@@ -191,7 +192,13 @@ class ProjectConfigPutRouteTest {
             val root = createRoot(repo)
             val otherRoot = createRoot(repo, title = "Other Root")
             // WRITE_TOKEN scoped to a DIFFERENT root than the one we're pushing to.
-            application { configureProjectConfigTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(otherRoot.id))) }
+            application {
+                configureProjectConfigTestApp(
+                    repo,
+                    authConfig = makeWriteAuthConfig(scopeRootIds = setOf(otherRoot.id)),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val response =
                 client.put("/api/v1/roots/${root.id}/config") {
@@ -202,7 +209,7 @@ class ProjectConfigPutRouteTest {
 
             assertEquals(HttpStatusCode.Forbidden, response.status)
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue((persisted as Result.Success).data == null, "Config should NOT be created outside token scope")
+            assertTrue(persisted == null, "Config should NOT be created outside token scope")
         }
 
     @Test
@@ -210,7 +217,7 @@ class ProjectConfigPutRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/roots/${root.id}/config") {
@@ -224,7 +231,7 @@ class ProjectConfigPutRouteTest {
             assertTrue(body.contains("parse_error") || body.contains("failed to parse"), "Should report a parse error: $body")
 
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue((persisted as Result.Success).data == null, "Malformed YAML must never be stored")
+            assertTrue(persisted == null, "Malformed YAML must never be stored")
         }
 
     @Test
@@ -232,7 +239,7 @@ class ProjectConfigPutRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             // A !!-tagged non-standard type — SafeConstructor must refuse to instantiate it (CWE-502).
             val response =
@@ -244,7 +251,7 @@ class ProjectConfigPutRouteTest {
 
             assertEquals(HttpStatusCode.UnprocessableEntity, response.status)
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue((persisted as Result.Success).data == null, "A type-tagged payload must never be stored")
+            assertTrue(persisted == null, "A type-tagged payload must never be stored")
         }
 
     @Test
@@ -252,7 +259,7 @@ class ProjectConfigPutRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val oversized = "x".repeat(131_073) // MAX_CONFIG_YAML_BYTES (131072) + 1
             val response =
@@ -264,7 +271,7 @@ class ProjectConfigPutRouteTest {
 
             assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue((persisted as Result.Success).data == null, "Oversized payload must never be stored")
+            assertTrue(persisted == null, "Oversized payload must never be stored")
         }
 
     @Test
@@ -272,7 +279,7 @@ class ProjectConfigPutRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             // First push creates the row.
             client.put("/api/v1/roots/${root.id}/config") {
@@ -298,7 +305,7 @@ class ProjectConfigPutRouteTest {
     fun `PUT roots rootId config to unknown root returns 404`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/roots/${UUID.randomUUID()}/config") {
@@ -320,10 +327,10 @@ class ProjectConfigPutRouteTest {
                     (
                         repo.workItemRepository().create(
                             WorkItem(title = "Child", parentId = parent.id, depth = 1),
-                        ) as Result.Success
-                    ).data
+                        )!!
+                    )
                 }
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/roots/${child.id}/config") {
@@ -343,7 +350,7 @@ class ProjectConfigPutRouteTest {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
             val otherRootId = UUID.randomUUID()
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/roots/${root.id}/config") {
@@ -359,7 +366,7 @@ class ProjectConfigPutRouteTest {
             assertTrue(body.contains(otherRootId.toString()), "Should name the embedded rootId: $body")
 
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue((persisted as Result.Success).data == null, "Mismatched embedded rootId must never be stored")
+            assertTrue(persisted == null, "Mismatched embedded rootId must never be stored")
         }
 
     @Test
@@ -368,7 +375,7 @@ class ProjectConfigPutRouteTest {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
             val otherRootId = UUID.randomUUID()
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/roots/${root.id}/config?force=true") {
@@ -379,7 +386,7 @@ class ProjectConfigPutRouteTest {
 
             assertEquals(HttpStatusCode.OK, response.status)
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue((persisted as Result.Success).data != null, "force=true should allow the push to persist")
+            assertTrue(persisted != null, "force=true should allow the push to persist")
         }
 
     @Test
@@ -387,7 +394,7 @@ class ProjectConfigPutRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
             val yamlB = VALID_YAML + "\n"
 
             client.put("/api/v1/roots/${root.id}/config") {
@@ -415,7 +422,7 @@ class ProjectConfigPutRouteTest {
             assertTrue(body.contains("superseded"), "Should report the superseded error code: $body")
 
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertEquals(yamlB, (persisted as Result.Success).data?.configYaml, "Rejected push must not overwrite the current row")
+            assertEquals(yamlB, persisted?.configYaml, "Rejected push must not overwrite the current row")
         }
 
     @Test
@@ -423,7 +430,7 @@ class ProjectConfigPutRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
             val yamlB = VALID_YAML + "\n"
 
             client.put("/api/v1/roots/${root.id}/config") {
@@ -446,7 +453,7 @@ class ProjectConfigPutRouteTest {
 
             assertEquals(HttpStatusCode.OK, response.status)
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertEquals(VALID_YAML, (persisted as Result.Success).data?.configYaml)
+            assertEquals(VALID_YAML, persisted?.configYaml)
         }
 }
 
@@ -459,7 +466,7 @@ class ProjectConfigGetRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             client.put("/api/v1/roots/${root.id}/config") {
                 header("Authorization", "Bearer $WRITE_TOKEN")
@@ -482,7 +489,7 @@ class ProjectConfigGetRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             client.put("/api/v1/roots/${root.id}/config") {
                 header("Authorization", "Bearer $WRITE_TOKEN")
@@ -512,7 +519,13 @@ class ProjectConfigGetRouteTest {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
             val otherRoot = createRoot(repo, title = "Other Root")
-            application { configureProjectConfigTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(otherRoot.id))) }
+            application {
+                configureProjectConfigTestApp(
+                    repo,
+                    authConfig = makeWriteAuthConfig(scopeRootIds = setOf(otherRoot.id)),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val response =
                 client.get("/api/v1/roots/${root.id}/config") {
@@ -527,7 +540,7 @@ class ProjectConfigGetRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.get("/api/v1/roots/${root.id}/config") {
@@ -542,7 +555,7 @@ class ProjectConfigGetRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             client.put("/api/v1/roots/${root.id}/config") {
                 header("Authorization", "Bearer $WRITE_TOKEN")
@@ -564,7 +577,7 @@ class ProjectConfigGetRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             client.put("/api/v1/roots/${root.id}/config") {
                 header("Authorization", "Bearer $WRITE_TOKEN")
@@ -587,7 +600,7 @@ class ProjectConfigGetRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
             val yamlB = VALID_YAML + "\n"
 
             client.put("/api/v1/roots/${root.id}/config") {
@@ -616,7 +629,7 @@ class ProjectConfigGetRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             client.put("/api/v1/roots/${root.id}/config") {
                 header("Authorization", "Bearer $WRITE_TOKEN")
@@ -643,7 +656,7 @@ class ProjectConfigDeleteRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             client.put("/api/v1/roots/${root.id}/config") {
                 header("Authorization", "Bearer $WRITE_TOKEN")
@@ -658,7 +671,7 @@ class ProjectConfigDeleteRouteTest {
 
             assertEquals(HttpStatusCode.NoContent, response.status)
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue((persisted as Result.Success).data == null, "Config row should be deleted")
+            assertTrue(persisted == null, "Config row should be deleted")
         }
 
     @Test
@@ -667,7 +680,13 @@ class ProjectConfigDeleteRouteTest {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
             val otherRoot = createRoot(repo, title = "Other Root")
-            application { configureProjectConfigTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(otherRoot.id))) }
+            application {
+                configureProjectConfigTestApp(
+                    repo,
+                    authConfig = makeWriteAuthConfig(scopeRootIds = setOf(otherRoot.id)),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val response =
                 client.delete("/api/v1/roots/${root.id}/config") {
@@ -682,7 +701,7 @@ class ProjectConfigDeleteRouteTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.delete("/api/v1/roots/${root.id}/config") {
@@ -709,7 +728,7 @@ class ProjectConfigUnauthenticatedModeTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo, authConfig = ApiAuthConfig.Unauthenticated) }
+            application { configureProjectConfigTestApp(repo, authConfig = ApiAuthConfig.Unauthenticated, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/roots/${root.id}/config") {
@@ -720,8 +739,8 @@ class ProjectConfigUnauthenticatedModeTest {
 
             assertEquals(HttpStatusCode.OK, response.status)
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue(persisted is Result.Success)
-            val config = (persisted as Result.Success).data
+            assertNotNull(persisted)
+            val config = persisted
             assertNotNull(config, "Config should be persisted even with no token")
             assertEquals(VALID_YAML, config!!.configYaml)
         }
@@ -731,7 +750,7 @@ class ProjectConfigUnauthenticatedModeTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo, authConfig = ApiAuthConfig.Unauthenticated) }
+            application { configureProjectConfigTestApp(repo, authConfig = ApiAuthConfig.Unauthenticated, unitOfWork = db.unitOfWork()) }
 
             client.put("/api/v1/roots/${root.id}/config") {
                 contentType(ContentType.Text.Plain)
@@ -766,7 +785,7 @@ class ProjectConfigConvergenceTest {
 
             // Push via the MCP tool.
             val tool = ManageProjectConfigTool(YamlConfigDocumentParser)
-            val context = ToolExecutionContext(repo)
+            val context = ToolExecutionContext(repo, unitOfWork = db.unitOfWork())
             runBlocking {
                 tool.execute(
                     buildJsonObject {
@@ -779,7 +798,7 @@ class ProjectConfigConvergenceTest {
             }
 
             // Push the SAME content via the REST route.
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
             val response =
                 client.put("/api/v1/roots/${rootViaRest.id}/config") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
@@ -788,8 +807,8 @@ class ProjectConfigConvergenceTest {
                 }
             assertEquals(HttpStatusCode.OK, response.status)
 
-            val configViaTool = (runBlocking { repo.projectConfigRepository().get(rootViaTool.id) } as Result.Success).data
-            val configViaRest = (runBlocking { repo.projectConfigRepository().get(rootViaRest.id) } as Result.Success).data
+            val configViaTool = (runBlocking { repo.projectConfigRepository().get(rootViaTool.id) }!!)
+            val configViaRest = (runBlocking { repo.projectConfigRepository().get(rootViaRest.id) }!!)
             assertNotNull(configViaTool)
             assertNotNull(configViaRest)
             assertEquals(configViaTool!!.fingerprint, configViaRest!!.fingerprint, "Fingerprints must match for identical content")

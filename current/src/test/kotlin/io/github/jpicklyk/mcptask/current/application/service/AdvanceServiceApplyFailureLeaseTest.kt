@@ -12,11 +12,10 @@ import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
 import io.mockk.Called
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -68,12 +67,9 @@ class AdvanceServiceApplyFailureLeaseTest {
         leaseRepo = mockk()
 
         coEvery { workItemRepo.dbNow() } returns Instant.now()
-        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
-        }
-        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
-        coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.update(any()) } answers { firstArg() }
+        coEvery { roleTransitionRepo.create(any()) } returns mockk()
+        coEvery { noteRepo.findByItemId(any()) } returns emptyList()
         every { depRepo.findByToItemId(any()) } returns emptyList()
         every { depRepo.findByFromItemId(any()) } returns emptyList()
 
@@ -120,6 +116,7 @@ class AdvanceServiceApplyFailureLeaseTest {
             },
             resourceRegistryResolver = { emptyMap() },
             resourceLeasesEnforced = resourceLeasesEnforced,
+            unitOfWork = unscopedUnitOfWork(),
         )
 
     private fun exclusive(key: String): ResourceRequirement = ResourceRequirement(key, ResourceMode.EXCLUSIVE, null)
@@ -148,7 +145,7 @@ class AdvanceServiceApplyFailureLeaseTest {
         id: UUID,
         message: String = "row version moved underneath the request",
     ) {
-        coEvery { workItemRepo.update(match { it.id == id }) } returns Result.Error(RepositoryError.ConflictError(message))
+        coEvery { workItemRepo.update(match { it.id == id }) } throws IllegalStateException(message)
     }
 
     // ──────────────────────────────────────────────
@@ -159,7 +156,7 @@ class AdvanceServiceApplyFailureLeaseTest {
     fun `S1 start into work with a freshly acquired exclusive lease releases it when apply fails`(): Unit =
         runBlocking {
             val item = makeItem(role = Role.QUEUE)
-            coEvery { workItemRepo.getById(item.id) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(item.id) } returns item
             coEvery { leaseRepo.acquireAll(item.id, any(), any()) } returns
                 LeaseAcquireResult.Success(listOf(lease(item.id, "staging-db")))
             failApplyFor(item.id)
@@ -184,7 +181,7 @@ class AdvanceServiceApplyFailureLeaseTest {
     fun `S2 resume from BLOCKED into work with a freshly acquired lease releases it when apply fails`(): Unit =
         runBlocking {
             val item = makeItem(role = Role.BLOCKED, previousRole = Role.WORK)
-            coEvery { workItemRepo.getById(item.id) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(item.id) } returns item
             coEvery { leaseRepo.acquireAll(item.id, any(), any()) } returns
                 LeaseAcquireResult.Success(listOf(lease(item.id, "staging-db")))
             failApplyFor(item.id)
@@ -216,7 +213,7 @@ class AdvanceServiceApplyFailureLeaseTest {
             val parent = makeItem(id = parentId, role = Role.QUEUE, title = "Parent")
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(parentId) } returns parent
             coEvery { leaseRepo.acquireAll(parentId, any(), any()) } returns
                 LeaseAcquireResult.Success(listOf(lease(parentId, "staging-db")))
             failApplyFor(parentId)
@@ -246,9 +243,9 @@ class AdvanceServiceApplyFailureLeaseTest {
             val parent = makeItem(id = parentId, role = Role.WORK, title = "Parent")
             val child = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(child)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
-            coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
+            coEvery { workItemRepo.getById(childId) } returns child
+            coEvery { workItemRepo.getById(parentId) } returns parent
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns mapOf(Role.TERMINAL to 1)
             failApplyFor(parentId)
 
             val outcome =
@@ -279,18 +276,17 @@ class AdvanceServiceApplyFailureLeaseTest {
             val conflictMessage = "row version moved underneath the request"
 
             val baseline = makeItem(role = Role.QUEUE)
-            coEvery { workItemRepo.getById(baseline.id) } returns Result.Success(baseline)
+            coEvery { workItemRepo.getById(baseline.id) } returns baseline
             failApplyFor(baseline.id, conflictMessage)
             val baselineOutcome =
                 serviceWith().advance(baseline, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
             val baselineFailure = assertIs<AdvanceFailure.ApplyFailed>(assertIs<AdvanceOutcome.Failure>(baselineOutcome).failure)
 
             val withResource = makeItem(role = Role.QUEUE)
-            coEvery { workItemRepo.getById(withResource.id) } returns Result.Success(withResource)
+            coEvery { workItemRepo.getById(withResource.id) } returns withResource
             coEvery { leaseRepo.acquireAll(withResource.id, any(), any()) } returns
                 LeaseAcquireResult.Success(listOf(lease(withResource.id, "staging-db")))
-            coEvery { leaseRepo.releaseAllForItem(withResource.id) } returns
-                LeaseReleaseResult.DBError(IllegalStateException("db down"))
+            coEvery { leaseRepo.releaseAllForItem(withResource.id) } throws IllegalStateException("db down")
             failApplyFor(withResource.id, conflictMessage)
             val withResourceOutcome =
                 serviceWith(requirements = listOf(exclusive("staging-db"))).advance(
@@ -325,7 +321,7 @@ class AdvanceServiceApplyFailureLeaseTest {
                 LeaseAcquireResult.Success(listOf(lease(item.id, "staging-db")))
             failApplyFor(item.id)
             // A concurrent call already moved the item into WORK and now legitimately owns the lease.
-            coEvery { workItemRepo.getById(item.id) } returns Result.Success(item.update { it.copy(role = Role.WORK) })
+            coEvery { workItemRepo.getById(item.id) } returns item.update { it.copy(role = Role.WORK) }
 
             val outcome =
                 serviceWith(requirements = listOf(exclusive("staging-db"))).advance(
@@ -350,7 +346,7 @@ class AdvanceServiceApplyFailureLeaseTest {
     fun `S9 a mixed fresh-and-refreshed acquire result is never released on apply failure`(): Unit =
         runBlocking {
             val item = makeItem(role = Role.QUEUE)
-            coEvery { workItemRepo.getById(item.id) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(item.id) } returns item
             coEvery { leaseRepo.acquireAll(item.id, any(), any()) } returns
                 LeaseAcquireResult.Success(
                     listOf(lease(item.id, "k1", version = 0), lease(item.id, "k2", version = 1)),
@@ -376,7 +372,7 @@ class AdvanceServiceApplyFailureLeaseTest {
     fun `S9b an acquire result that is entirely refreshed (all version greater than zero) is never released`(): Unit =
         runBlocking {
             val item = makeItem(role = Role.QUEUE)
-            coEvery { workItemRepo.getById(item.id) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(item.id) } returns item
             coEvery { leaseRepo.acquireAll(item.id, any(), any()) } returns
                 LeaseAcquireResult.Success(listOf(lease(item.id, "staging-db", version = 3)))
             failApplyFor(item.id)
@@ -496,7 +492,7 @@ class AdvanceServiceApplyFailureLeaseTest {
             val parent = makeItem(id = parentId, role = Role.QUEUE, title = "Parent")
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(parentId) } returns parent
             coEvery { leaseRepo.acquireAll(parentId, any(), any()) } returns
                 LeaseAcquireResult.Contended(listOf("staging-db"), retryAfterMs = 5_000)
 
@@ -520,11 +516,11 @@ class AdvanceServiceApplyFailureLeaseTest {
             val child = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
             val parentSchema = schemaOf(NoteSchemaEntry("review", Role.REVIEW, required = true, description = "review"))
 
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(child)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
-            coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
-            coEvery { noteRepo.findByItemId(childId) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemId(parentId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(childId) } returns child
+            coEvery { workItemRepo.getById(parentId) } returns parent
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns mapOf(Role.TERMINAL to 1)
+            coEvery { noteRepo.findByItemId(childId) } returns emptyList()
+            coEvery { noteRepo.findByItemId(parentId) } returns emptyList()
 
             val outcome =
                 serviceWith(
@@ -546,7 +542,7 @@ class AdvanceServiceApplyFailureLeaseTest {
     fun `probe two requirements with only one contended still releases zero leases`(): Unit =
         runBlocking {
             val item = makeItem(role = Role.QUEUE)
-            coEvery { workItemRepo.getById(item.id) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(item.id) } returns item
             coEvery { leaseRepo.acquireAll(item.id, any(), any()) } returns
                 LeaseAcquireResult.Contended(listOf("prod-cred"), retryAfterMs = 10_000)
             failApplyFor(item.id)
@@ -570,7 +566,7 @@ class AdvanceServiceApplyFailureLeaseTest {
     fun `probe a release Success with zero rows released does not alter the ApplyFailed outcome`(): Unit =
         runBlocking {
             val item = makeItem(role = Role.QUEUE)
-            coEvery { workItemRepo.getById(item.id) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(item.id) } returns item
             coEvery { leaseRepo.acquireAll(item.id, any(), any()) } returns
                 LeaseAcquireResult.Success(listOf(lease(item.id, "staging-db")))
             coEvery { leaseRepo.releaseAllForItem(item.id) } returns LeaseReleaseResult.Success(0)
@@ -596,7 +592,7 @@ class AdvanceServiceApplyFailureLeaseTest {
     fun `probe an acquireAll Success with an empty lease list is a no-op on apply failure`(): Unit =
         runBlocking {
             val item = makeItem(role = Role.QUEUE)
-            coEvery { workItemRepo.getById(item.id) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(item.id) } returns item
             coEvery { leaseRepo.acquireAll(item.id, any(), any()) } returns LeaseAcquireResult.Success(emptyList())
             failApplyFor(item.id)
 
@@ -619,7 +615,7 @@ class AdvanceServiceApplyFailureLeaseTest {
     fun `probe replaying two failing advances releases once per call`(): Unit =
         runBlocking {
             val item = makeItem(role = Role.QUEUE)
-            coEvery { workItemRepo.getById(item.id) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(item.id) } returns item
             coEvery { leaseRepo.acquireAll(item.id, any(), any()) } returns
                 LeaseAcquireResult.Success(listOf(lease(item.id, "staging-db")))
             failApplyFor(item.id)

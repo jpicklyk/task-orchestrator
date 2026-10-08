@@ -57,7 +57,7 @@ class EtagSupportTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "ETag stable", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "ETag stable", depth = 0))!!
                 }
             application {
                 configureTestApp { itemRoutes(repo) }
@@ -83,7 +83,7 @@ class EtagSupportTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "ETag cache test", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "ETag cache test", depth = 0))!!
                 }
             application {
                 configureTestApp { itemRoutes(repo) }
@@ -109,7 +109,7 @@ class EtagSupportTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Stale ETag test", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Stale ETag test", depth = 0))!!
                 }
             application {
                 configureTestApp { itemRoutes(repo) }
@@ -133,7 +133,7 @@ class EtagSupportTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Include notes", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Include notes", depth = 0))!!
                 }
             application { configureTestApp { itemRoutes(repo) } }
             val validator = etagFor(item.modifiedAt)
@@ -156,7 +156,7 @@ class EtagSupportTest {
             val repo = db.repositoryProvider()
             val parent =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Include parent", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Include parent", depth = 0))!!
                 }
             application { configureTestApp { itemRoutes(repo) } }
             val validator = etagFor(parent.modifiedAt)
@@ -179,7 +179,7 @@ class EtagSupportTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Include deps", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Include deps", depth = 0))!!
                 }
             application { configureTestApp { itemRoutes(repo) } }
             val response =
@@ -197,7 +197,7 @@ class EtagSupportTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Preserve 304", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Preserve 304", depth = 0))!!
                 }
             application { configureTestApp { itemRoutes(repo) } }
             for (suffix in listOf("", "?include=foo", "?include=")) {
@@ -222,7 +222,7 @@ class EtagSupportTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Body etag", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Body etag", depth = 0))!!
                 }
             application { configureTestApp { itemRoutes(repo) } }
             val response =

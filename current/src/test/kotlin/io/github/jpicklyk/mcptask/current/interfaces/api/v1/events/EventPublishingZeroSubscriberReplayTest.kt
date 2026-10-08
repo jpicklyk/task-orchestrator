@@ -48,12 +48,11 @@ class EventPublishingZeroSubscriberReplayTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
-            val x = provider.workItemRepository().create(WorkItem(title = "X-S1", depth = 0)).getOrNull()!!
+            val x = provider.workItemRepository().create(WorkItem(title = "X-S1", depth = 0))!!
             val note =
                 provider
                     .noteRepository()
-                    .upsert(Note(itemId = x.id, key = "note-s1", role = "work", body = "a"))
-                    .getOrNull()!!
+                    .upsert(Note(itemId = x.id, key = "note-s1", role = "work", body = "a"))!!
 
             val w = lastBufferedId(bus)
             assertEquals(0, bus.subscriberCount(), "setup must leave zero subscribers connected")
@@ -81,8 +80,8 @@ class EventPublishingZeroSubscriberReplayTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
-            val a = provider.workItemRepository().create(WorkItem(title = "A-S2", depth = 0)).getOrNull()!!
-            val b = provider.workItemRepository().create(WorkItem(title = "B-S2", depth = 0)).getOrNull()!!
+            val a = provider.workItemRepository().create(WorkItem(title = "A-S2", depth = 0))!!
+            val b = provider.workItemRepository().create(WorkItem(title = "B-S2", depth = 0))!!
             val dep = provider.dependencyRepository().create(Dependency(fromItemId = a.id, toItemId = b.id, type = DependencyType.BLOCKS))
 
             val w = lastBufferedId(bus)
@@ -110,9 +109,9 @@ class EventPublishingZeroSubscriberReplayTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
-            val a = provider.workItemRepository().create(WorkItem(title = "A-S3", depth = 0)).getOrNull()!!
-            val b = provider.workItemRepository().create(WorkItem(title = "B-S3", depth = 0)).getOrNull()!!
-            val c = provider.workItemRepository().create(WorkItem(title = "C-S3", depth = 0)).getOrNull()!!
+            val a = provider.workItemRepository().create(WorkItem(title = "A-S3", depth = 0))!!
+            val b = provider.workItemRepository().create(WorkItem(title = "B-S3", depth = 0))!!
+            val c = provider.workItemRepository().create(WorkItem(title = "C-S3", depth = 0))!!
             provider.dependencyRepository().create(Dependency(fromItemId = a.id, toItemId = b.id, type = DependencyType.BLOCKS))
             provider.dependencyRepository().create(Dependency(fromItemId = b.id, toItemId = c.id, type = DependencyType.BLOCKS))
 
@@ -141,8 +140,8 @@ class EventPublishingZeroSubscriberReplayTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
-            val a = provider.workItemRepository().create(WorkItem(title = "A-S4", depth = 0)).getOrNull()!!
-            val b = provider.workItemRepository().create(WorkItem(title = "B-S4", depth = 0)).getOrNull()!!
+            val a = provider.workItemRepository().create(WorkItem(title = "A-S4", depth = 0))!!
+            val b = provider.workItemRepository().create(WorkItem(title = "B-S4", depth = 0))!!
             val missingId = UUID.randomUUID()
 
             val w = lastBufferedId(bus)
@@ -175,7 +174,7 @@ class EventPublishingZeroSubscriberReplayTest {
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
             run {
-                val x = provider.workItemRepository().create(WorkItem(title = "X-S5a", depth = 0)).getOrNull()!!
+                val x = provider.workItemRepository().create(WorkItem(title = "X-S5a", depth = 0))!!
                 val w = lastBufferedId(bus)
                 assertEquals(0, bus.subscriberCount())
 
@@ -189,7 +188,7 @@ class EventPublishingZeroSubscriberReplayTest {
             }
 
             run {
-                val y = provider.workItemRepository().create(WorkItem(title = "Y-S5b", depth = 0)).getOrNull()!!
+                val y = provider.workItemRepository().create(WorkItem(title = "Y-S5b", depth = 0))!!
                 provider.noteRepository().upsert(Note(itemId = y.id, key = "note-s5b", role = "work", body = "a"))
                 val w = lastBufferedId(bus)
                 assertEquals(0, bus.subscriberCount())
@@ -251,7 +250,7 @@ class EventPublishingZeroSubscriberReplayTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
-            val lonely = provider.workItemRepository().create(WorkItem(title = "Lonely-S7", depth = 0)).getOrNull()!!
+            val lonely = provider.workItemRepository().create(WorkItem(title = "Lonely-S7", depth = 0))!!
 
             run {
                 val w = lastBufferedId(bus)
@@ -297,12 +296,11 @@ class EventPublishingZeroSubscriberReplayTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
-            val x = provider.workItemRepository().create(WorkItem(title = "X-S8", depth = 0)).getOrNull()!!
+            val x = provider.workItemRepository().create(WorkItem(title = "X-S8", depth = 0))!!
             val note =
                 provider
                     .noteRepository()
-                    .upsert(Note(itemId = x.id, key = "note-s8", role = "work", body = "a"))
-                    .getOrNull()!!
+                    .upsert(Note(itemId = x.id, key = "note-s8", role = "work", body = "a"))!!
 
             val w = lastBufferedId(bus)
             assertEquals(0, bus.subscriberCount(), "setup must leave zero subscribers connected")

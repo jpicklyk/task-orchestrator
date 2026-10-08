@@ -32,7 +32,7 @@ class ManageDependenciesToolTest {
     @BeforeEach
     fun setUp() {
         val repositoryProvider = db.repositoryProvider()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         tool = ManageDependenciesTool()
         workItemRepo = repositoryProvider.workItemRepository()
 
@@ -49,7 +49,7 @@ class ManageDependenciesToolTest {
     private suspend fun createWorkItem(title: String): UUID {
         val item = WorkItem(title = title)
         val result = workItemRepo.create(item)
-        return (result as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data.id
+        return result.id
     }
 
     private fun params(vararg pairs: Pair<String, JsonElement>) = JsonObject(mapOf(*pairs))

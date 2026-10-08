@@ -9,8 +9,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService
@@ -173,7 +171,8 @@ class LegacyPrecedenceCharacterizationTest {
     private fun contextFor(
         global: NoteSchemaService,
         perRoot: PerRootConfigService?
-    ): ToolExecutionContext = ToolExecutionContext(mockk(relaxed = true), global, perRootConfigService = perRoot)
+    ): ToolExecutionContext =
+        ToolExecutionContext(mockk(relaxed = true), global, perRootConfigService = perRoot, unitOfWork = db.unitOfWork())
 
     // ──────────────────────────────────────────────
     // S1 oracle — Q1-Q4: whole-algorithm-first per-root-then-global precedence, both for the
@@ -424,7 +423,8 @@ class LegacyPrecedenceCharacterizationTest {
                     mockk(relaxed = true),
                     s3Global,
                     statusLabelService = YamlStatusLabelService(s3GlobalPath),
-                    perRootConfigService = perRootConfigService
+                    perRootConfigService = perRootConfigService,
+                    unitOfWork = db.unitOfWork()
                 )
         }
 
@@ -573,7 +573,7 @@ class LegacyPrecedenceCharacterizationTest {
 
         override suspend fun getFingerprint(rootItemId: UUID) =
             if (failFingerprint) {
-                Result.Error(RepositoryError.DatabaseError("boom"))
+                throw IllegalStateException("boom")
             } else {
                 delegate.getFingerprint(rootItemId)
             }

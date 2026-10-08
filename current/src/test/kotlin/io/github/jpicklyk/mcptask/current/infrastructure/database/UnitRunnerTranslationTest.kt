@@ -17,8 +17,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
@@ -321,7 +319,7 @@ class UnitRunnerTranslationTest {
 
         override suspend fun getFingerprint(rootItemId: UUID) =
             if (failFingerprint) {
-                Result.Error(RepositoryError.DatabaseError("fingerprint read failed", cause))
+                throw IllegalStateException("fingerprint read failed", cause)
             } else {
                 delegate.getFingerprint(rootItemId)
             }
@@ -402,7 +400,7 @@ class UnitRunnerTranslationTest {
             val runner = dm.units
             val repo = db.repositoryProvider().workItemRepository()
             val base = runner.outsideUnitWrites.values.sum()
-            assertIs<Result.Success<WorkItem>>(repo.create(WorkItem(title = "outside")))
+            assertNotNull(repo.create(WorkItem(title = "outside")))
             val afterOutside = runner.outsideUnitWrites.values.sum()
             assertTrue(afterOutside >= base + 1, "repository write outside a unit must be counted ($base -> $afterOutside)")
             assertTrue(
@@ -413,7 +411,7 @@ class UnitRunnerTranslationTest {
             )
 
             db.uow().write("S13.repo") {
-                assertIs<Result.Success<WorkItem>>(repositories.workItemRepository().create(WorkItem(title = "inside")))
+                assertNotNull(repositories.workItemRepository().create(WorkItem(title = "inside")))
                 Outcome.Ok(Unit)
             }
             assertEquals(afterOutside, runner.outsideUnitWrites.values.sum(), "a repository write inside a unit is not counted")

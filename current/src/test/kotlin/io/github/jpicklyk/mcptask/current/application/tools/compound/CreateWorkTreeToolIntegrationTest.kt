@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.tools.compound
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteNoteRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
@@ -49,7 +48,7 @@ class CreateWorkTreeToolIntegrationTest {
         noteRepository = repositoryProvider.noteRepository() as SQLiteNoteRepository
 
         tool = CreateWorkTreeTool()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -116,22 +115,22 @@ class CreateWorkTreeToolIntegrationTest {
 
             // Both items are in the DB
             val rootResult = workItemRepository.getById(rootId)
-            assertTrue(rootResult is Result.Success, "Root item should be in DB; got: $rootResult")
+            assertNotNull(rootResult, "Root item should be in DB; got: $rootResult")
             val childResult = workItemRepository.getById(childId)
-            assertTrue(childResult is Result.Success, "Child item should be in DB; got: $childResult")
+            assertNotNull(childResult, "Child item should be in DB; got: $childResult")
 
             // Notes persisted with verbatim bodies, correct itemId binding, and roles
             val rootNoteResult = noteRepository.findByItemIdAndKey(rootId, "requirements")
-            assertTrue(rootNoteResult is Result.Success, "Root note lookup should succeed")
-            val rootNote = (rootNoteResult as Result.Success).data
+            assertNotNull(rootNoteResult, "Root note lookup should succeed")
+            val rootNote = rootNoteResult
             assertNotNull(rootNote, "Root note should exist in DB")
             assertEquals(rootId, rootNote.itemId, "Root note must be bound to root item")
             assertEquals("queue", rootNote.role)
             assertEquals("Root requirements body", rootNote.body, "Root note body must round-trip verbatim")
 
             val childNoteResult = noteRepository.findByItemIdAndKey(childId, "approach")
-            assertTrue(childNoteResult is Result.Success, "Child note lookup should succeed")
-            val childNote = (childNoteResult as Result.Success).data
+            assertNotNull(childNoteResult, "Child note lookup should succeed")
+            val childNote = childNoteResult
             assertNotNull(childNote, "Child note should exist in DB")
             assertEquals(childId, childNote.itemId, "Child note must be bound to child item")
             assertEquals("work", childNote.role)
@@ -188,8 +187,8 @@ class CreateWorkTreeToolIntegrationTest {
 
             // Only one note row exists for (rootId, "notes"), with the LAST body
             val notesResult = noteRepository.findByItemId(rootId)
-            assertTrue(notesResult is Result.Success, "findByItemId should succeed")
-            val noteList = (notesResult as Result.Success).data
+            assertNotNull(notesResult, "findByItemId should succeed")
+            val noteList = notesResult
             assertEquals(
                 1,
                 noteList.size,
@@ -243,8 +242,8 @@ class CreateWorkTreeToolIntegrationTest {
             // should be in the DB. Verify by scanning all work items: none should
             // have the rootTitle we tried to create.
             val allItemsResult = workItemRepository.search(query = rootTitle)
-            assertTrue(allItemsResult is Result.Success, "Search should succeed")
-            val foundItems = (allItemsResult as Result.Success).data
+            assertNotNull(allItemsResult, "Search should succeed")
+            val foundItems = allItemsResult
             assertEquals(
                 0,
                 foundItems.size,
@@ -276,8 +275,8 @@ class CreateWorkTreeToolIntegrationTest {
                 UUID.fromString(
                     (createResult["data"] as JsonObject)["root"]!!.jsonObject["id"]!!.jsonPrimitive.content
                 )
-            val existingRoot = (workItemRepository.getById(existingRootId) as Result.Success).data
-            assertEquals(0, existingRoot.depth, "Pre-created root should be at depth 0")
+            val existingRoot = workItemRepository.getById(existingRootId)
+            assertEquals(0, existingRoot!!.depth, "Pre-created root should be at depth 0")
 
             // 2. Attach two children + a dep (root→c1) + a note on root
             val attachParams =
@@ -343,16 +342,16 @@ class CreateWorkTreeToolIntegrationTest {
             val c1Id = UUID.fromString(childrenArr[0].jsonObject["id"]!!.jsonPrimitive.content)
             val c2Id = UUID.fromString(childrenArr[1].jsonObject["id"]!!.jsonPrimitive.content)
 
-            val c1 = (workItemRepository.getById(c1Id) as Result.Success).data
-            val c2 = (workItemRepository.getById(c2Id) as Result.Success).data
-            assertEquals(1, c1.depth, "c1 should be at depth 1")
-            assertEquals(1, c2.depth, "c2 should be at depth 1")
-            assertEquals(existingRootId, c1.parentId, "c1 parent should be the existing root")
-            assertEquals(existingRootId, c2.parentId, "c2 parent should be the existing root")
+            val c1 = workItemRepository.getById(c1Id)
+            val c2 = workItemRepository.getById(c2Id)
+            assertEquals(1, c1!!.depth, "c1 should be at depth 1")
+            assertEquals(1, c2!!.depth, "c2 should be at depth 1")
+            assertEquals(existingRootId, c1!!.parentId, "c1 parent should be the existing root")
+            assertEquals(existingRootId, c2!!.parentId, "c2 parent should be the existing root")
 
             // Existing root is NOT duplicated in DB (still exactly 1 item with that id)
             val rootRefetch = workItemRepository.getById(existingRootId)
-            assertTrue(rootRefetch is Result.Success, "Existing root should still be fetchable after attach")
+            assertNotNull(rootRefetch, "Existing root should still be fetchable after attach")
 
             // Dep root→c1 resolves to existingRootId
             val depsArr = data["dependencies"] as JsonArray
@@ -364,8 +363,8 @@ class CreateWorkTreeToolIntegrationTest {
 
             // Note on root binds to existingRootId
             val noteResult = noteRepository.findByItemIdAndKey(existingRootId, "attach-note")
-            assertTrue(noteResult is Result.Success, "Note lookup should succeed")
-            val note = (noteResult as Result.Success).data
+            assertNotNull(noteResult, "Note lookup should succeed")
+            val note = noteResult
             assertNotNull(note, "Note on root should be in DB")
             assertEquals(existingRootId, note.itemId, "Note must be bound to the existing root")
             assertEquals("note on existing root", note.body)
@@ -438,13 +437,13 @@ class CreateWorkTreeToolIntegrationTest {
             val childId = UUID.fromString(childrenArr[0].jsonObject["id"]!!.jsonPrimitive.content)
             val grandchildId = UUID.fromString(childrenArr[1].jsonObject["id"]!!.jsonPrimitive.content)
 
-            val root = (workItemRepository.getById(rootId) as Result.Success).data
-            val child = (workItemRepository.getById(childId) as Result.Success).data
-            val grandchild = (workItemRepository.getById(grandchildId) as Result.Success).data
+            val root = workItemRepository.getById(rootId)
+            val child = workItemRepository.getById(childId)
+            val grandchild = workItemRepository.getById(grandchildId)
 
-            assertEquals(rootId, root.rootId, "A newly created root with no parentId must be its own root")
-            assertEquals(rootId, child.rootId, "Child must inherit the new root's id")
-            assertEquals(rootId, grandchild.rootId, "Grandchild must inherit the same root id transitively")
+            assertEquals(rootId, root!!.rootId, "A newly created root with no parentId must be its own root")
+            assertEquals(rootId, child!!.rootId, "Child must inherit the new root's id")
+            assertEquals(rootId, grandchild!!.rootId, "Grandchild must inherit the same root id transitively")
         }
 
     @Test
@@ -480,15 +479,15 @@ class CreateWorkTreeToolIntegrationTest {
             val newRootId = UUID.fromString((data["root"] as JsonObject)["id"]!!.jsonPrimitive.content)
             val childId = UUID.fromString((data["children"] as JsonArray)[0].jsonObject["id"]!!.jsonPrimitive.content)
 
-            val newRoot = (workItemRepository.getById(newRootId) as Result.Success).data
-            val child = (workItemRepository.getById(childId) as Result.Success).data
+            val newRoot = workItemRepository.getById(newRootId)
+            val child = workItemRepository.getById(childId)
 
             assertEquals(
                 existingRootId,
-                newRoot.rootId,
+                newRoot!!.rootId,
                 "A new root created under parentId must inherit the parent's root (or the parent's own id)"
             )
-            assertEquals(existingRootId, child.rootId, "Child must inherit the same inherited root id")
+            assertEquals(existingRootId, child!!.rootId, "Child must inherit the same inherited root id")
         }
 
     @Test
@@ -502,8 +501,8 @@ class CreateWorkTreeToolIntegrationTest {
             val createResult = tool.execute(existingItemParams, context) as JsonObject
             val existingRootId =
                 UUID.fromString((createResult["data"] as JsonObject)["root"]!!.jsonObject["id"]!!.jsonPrimitive.content)
-            val existingRoot = (workItemRepository.getById(existingRootId) as Result.Success).data
-            assertEquals(existingRootId, existingRoot.rootId, "Pre-created root should be its own root")
+            val existingRoot = workItemRepository.getById(existingRootId)
+            assertEquals(existingRootId, existingRoot!!.rootId, "Pre-created root should be its own root")
 
             // 2. Attach two children (one direct, one grandchild) to the existing root.
             val attachParams =
@@ -535,11 +534,11 @@ class CreateWorkTreeToolIntegrationTest {
             val c1Id = UUID.fromString(childrenArr[0].jsonObject["id"]!!.jsonPrimitive.content)
             val gc1Id = UUID.fromString(childrenArr[1].jsonObject["id"]!!.jsonPrimitive.content)
 
-            val c1 = (workItemRepository.getById(c1Id) as Result.Success).data
-            val gc1 = (workItemRepository.getById(gc1Id) as Result.Success).data
+            val c1 = workItemRepository.getById(c1Id)
+            val gc1 = workItemRepository.getById(gc1Id)
 
-            assertEquals(existingRootId, c1.rootId, "Direct child must inherit the existing root's effective rootId")
-            assertEquals(existingRootId, gc1.rootId, "Grandchild must inherit the same root id transitively")
+            assertEquals(existingRootId, c1!!.rootId, "Direct child must inherit the existing root's effective rootId")
+            assertEquals(existingRootId, gc1!!.rootId, "Grandchild must inherit the same root id transitively")
         }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -591,8 +590,8 @@ class CreateWorkTreeToolIntegrationTest {
             val rootId = UUID.fromString(rootIdStr)
 
             val noteResult = noteRepository.findByItemIdAndKey(rootId, "authored-note")
-            assertTrue(noteResult is Result.Success, "Note lookup should succeed")
-            val persisted = (noteResult as Result.Success).data
+            assertNotNull(noteResult, "Note lookup should succeed")
+            val persisted = noteResult
             assertNotNull(persisted, "Note must exist in DB")
 
             assertNotNull(persisted.actorClaim, "Persisted note must carry the actor claim")
@@ -620,7 +619,7 @@ class CreateWorkTreeToolIntegrationTest {
 
     private suspend fun createProjectRoot(title: String = "Project"): UUID {
         val result = workItemRepository.create(WorkItem(title = title, type = "project"))
-        return (result as Result.Success).data.id
+        return result.id
     }
 
     @Test
@@ -684,15 +683,15 @@ class CreateWorkTreeToolIntegrationTest {
             val childId =
                 UUID.fromString(((data["children"] as JsonArray)[0] as JsonObject)["id"]!!.jsonPrimitive.content)
 
-            val rootNote = (noteRepository.findByItemIdAndKey(rootId, "requirements") as Result.Success).data
+            val rootNote = noteRepository.findByItemIdAndKey(rootId, "requirements")
             assertNotNull(rootNote)
             assertEquals("# Overview\nFeature overview text.", rootNote.body)
 
-            val childNote = (noteRepository.findByItemIdAndKey(childId, "task-scope") as Result.Success).data
+            val childNote = noteRepository.findByItemIdAndKey(childId, "task-scope")
             assertNotNull(childNote)
             assertEquals("# Task 1\nTask 1 detail text.", childNote.body)
 
-            val doc = (repositoryProvider.planDocumentRepository().get(projectRootId, "my-plan") as Result.Success).data
+            val doc = (repositoryProvider.planDocumentRepository().get(projectRootId, "my-plan")!!)
             assertNotNull(doc)
             assertEquals(PlanDocumentStatus.ADOPTED, doc.status)
             // Adopted by the newly-created FEATURE root, not the project root the doc was stashed against.
@@ -733,10 +732,10 @@ class CreateWorkTreeToolIntegrationTest {
             assertTrue(!result["success"]!!.jsonPrimitive.boolean, "Expected failure; got: $result")
 
             val itemsResult = workItemRepository.findByFilters(parentId = projectRootId, limit = 100)
-            val titles = (itemsResult as Result.Success).data.items.map { it.title }
+            val titles = itemsResult.items.map { it.title }
             assertTrue("Feature X" !in titles, "Root item must NOT be created on anchor miss; got: $titles")
 
-            val doc = (repositoryProvider.planDocumentRepository().get(projectRootId, "my-plan") as Result.Success).data
+            val doc = (repositoryProvider.planDocumentRepository().get(projectRootId, "my-plan")!!)
             assertNotNull(doc)
             assertEquals(PlanDocumentStatus.PENDING, doc.status, "Document must remain PENDING after a failed materialization")
         }
@@ -748,7 +747,7 @@ class CreateWorkTreeToolIntegrationTest {
             val earlierAdopterId = createProjectRoot("Earlier Adopter") // FK-valid target for adoptedByItemId
             repositoryProvider.planDocumentRepository().stash(projectRootId, "my-plan", planBody)
             val adoptResult = repositoryProvider.planDocumentRepository().markAdopted(projectRootId, "my-plan", earlierAdopterId)
-            assertTrue(adoptResult is Result.Success, "Pre-test setup: markAdopted must succeed; got: $adoptResult")
+            assertNotNull(adoptResult, "Pre-test setup: markAdopted must succeed; got: $adoptResult")
 
             val params =
                 buildJsonObject {
@@ -761,7 +760,7 @@ class CreateWorkTreeToolIntegrationTest {
             assertTrue(!result["success"]!!.jsonPrimitive.boolean, "Expected failure; got: $result")
 
             val itemsResult = workItemRepository.findByFilters(parentId = projectRootId, limit = 100)
-            val titles = (itemsResult as Result.Success).data.items.map { it.title }
+            val titles = itemsResult.items.map { it.title }
             assertTrue("Feature X" !in titles, "Root item must NOT be created against an already-adopted document; got: $titles")
         }
 
@@ -813,7 +812,7 @@ class CreateWorkTreeToolIntegrationTest {
 
             val data = result["data"] as JsonObject
             val rootId = UUID.fromString((data["root"] as JsonObject)["id"]!!.jsonPrimitive.content)
-            val rootNote = (noteRepository.findByItemIdAndKey(rootId, "requirements") as Result.Success).data
+            val rootNote = noteRepository.findByItemIdAndKey(rootId, "requirements")
             assertNotNull(rootNote)
             assertEquals("Explicit body wins", rootNote.body, "Explicit notes must win over noteAnchors")
         }
@@ -842,7 +841,7 @@ class CreateWorkTreeToolIntegrationTest {
             assertTrue(!result["success"]!!.jsonPrimitive.boolean, "Expected failure; got: $result")
 
             val itemsResult = workItemRepository.findByFilters(parentId = projectRootId, limit = 100)
-            val titles = (itemsResult as Result.Success).data.items.map { it.title }
+            val titles = itemsResult.items.map { it.title }
             assertTrue("Feature X" !in titles, "Root item must NOT be created on a docRef.rootId mismatch; got: $titles")
         }
 

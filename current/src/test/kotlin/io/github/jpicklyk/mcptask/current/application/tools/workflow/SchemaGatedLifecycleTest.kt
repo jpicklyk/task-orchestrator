@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.*
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
@@ -125,7 +124,7 @@ class SchemaGatedLifecycleTest {
                 override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = tags.firstNotNullOfOrNull { schemas[it] }
             }
 
-        context = ToolExecutionContext(repositoryProvider, noteSchemaService)
+        context = ToolExecutionContext(repositoryProvider, noteSchemaService, unitOfWork = db.unitOfWork())
         transitionTool = AdvanceItemTool()
     }
 
@@ -143,13 +142,13 @@ class SchemaGatedLifecycleTest {
         val depth =
             if (parentId != null) {
                 val parentResult = context.workItemRepository().getById(parentId)
-                (parentResult as Result.Success).data.depth + 1
+                parentResult!!.depth + 1
             } else {
                 0
             }
         val item = WorkItem(title = title, tags = tags, parentId = parentId, depth = depth, type = type, properties = properties)
         val result = context.workItemRepository().create(item)
-        return (result as Result.Success).data
+        return result
     }
 
     private suspend fun createNote(
@@ -160,10 +159,10 @@ class SchemaGatedLifecycleTest {
     ): Note {
         val note = Note(itemId = itemId, key = key, role = role.name.lowercase(), body = body)
         val result = context.noteRepository().upsert(note)
-        return (result as Result.Success).data
+        return result
     }
 
-    private suspend fun getItem(itemId: UUID): WorkItem = (context.workItemRepository().getById(itemId) as Result.Success).data
+    private suspend fun getItem(itemId: UUID): WorkItem = (context.workItemRepository().getById(itemId)!!)
 
     private fun buildTransitionParams(vararg transitions: JsonObject): JsonObject =
         buildJsonObject {
@@ -1336,7 +1335,7 @@ class SchemaGatedLifecycleTest {
                     if (type != null) typeSchemas[type]?.defaultTraits ?: emptyList() else emptyList()
             }
 
-        return ToolExecutionContext(repoProvider, schemaService)
+        return ToolExecutionContext(repoProvider, schemaService, unitOfWork = db.unitOfWork())
     }
 
     private suspend fun createItemIn(
@@ -1349,12 +1348,12 @@ class SchemaGatedLifecycleTest {
         val depth =
             if (parentId != null) {
                 val p = ctx.workItemRepository().getById(parentId)
-                (p as Result.Success).data.depth + 1
+                p!!.depth + 1
             } else {
                 0
             }
         val item = WorkItem(title = title, type = type, parentId = parentId, depth = depth, properties = properties)
-        return (ctx.workItemRepository().create(item) as Result.Success).data
+        return (ctx.workItemRepository().create(item)!!)
     }
 
     private suspend fun createNoteIn(
@@ -1370,7 +1369,7 @@ class SchemaGatedLifecycleTest {
     private suspend fun getItemIn(
         ctx: ToolExecutionContext,
         id: UUID
-    ): WorkItem = (ctx.workItemRepository().getById(id) as Result.Success).data
+    ): WorkItem = (ctx.workItemRepository().getById(id)!!)
 
     private fun advanceParams(
         itemId: UUID,

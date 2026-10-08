@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.mockk.coEvery
 import io.mockk.every
@@ -75,9 +74,7 @@ class CascadeDetectorTest {
 
                 // One child is terminal, one is still in WORK
                 coEvery { workItemRepository.countChildrenByRole(parentId) } returns
-                    Result.Success(
-                        mapOf(Role.TERMINAL to 1, Role.WORK to 1)
-                    )
+                    mapOf(Role.TERMINAL to 1, Role.WORK to 1)
 
                 val result = detector.detectCascades(child, workItemRepository)
                 assertTrue(result.isEmpty())
@@ -91,10 +88,8 @@ class CascadeDetectorTest {
                 val child = workItem(parentId = parentId, role = Role.TERMINAL)
 
                 coEvery { workItemRepository.countChildrenByRole(parentId) } returns
-                    Result.Success(
-                        mapOf(Role.TERMINAL to 3)
-                    )
-                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+                    mapOf(Role.TERMINAL to 3)
+                coEvery { workItemRepository.getById(parentId) } returns parent
 
                 val result = detector.detectCascades(child, workItemRepository)
                 assertEquals(1, result.size)
@@ -112,8 +107,8 @@ class CascadeDetectorTest {
                 val child = workItem(parentId = parentId, role = Role.TERMINAL)
 
                 coEvery { workItemRepository.countChildrenByRole(parentId) } returns
-                    Result.Success(mapOf(Role.TERMINAL to 1))
-                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+                    mapOf(Role.TERMINAL to 1)
+                coEvery { workItemRepository.getById(parentId) } returns parent
 
                 val result = detector.detectCascades(child, workItemRepository)
                 assertEquals(1, result.size)
@@ -130,10 +125,8 @@ class CascadeDetectorTest {
                 val child = workItem(parentId = parentId, role = Role.TERMINAL)
 
                 coEvery { workItemRepository.countChildrenByRole(parentId) } returns
-                    Result.Success(
-                        mapOf(Role.TERMINAL to 2)
-                    )
-                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+                    mapOf(Role.TERMINAL to 2)
+                coEvery { workItemRepository.getById(parentId) } returns parent
 
                 val result = detector.detectCascades(child, workItemRepository)
                 assertTrue(result.isEmpty())
@@ -150,17 +143,13 @@ class CascadeDetectorTest {
 
                 // All children of parent are terminal
                 coEvery { workItemRepository.countChildrenByRole(parentId) } returns
-                    Result.Success(
-                        mapOf(Role.TERMINAL to 2)
-                    )
-                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+                    mapOf(Role.TERMINAL to 2)
+                coEvery { workItemRepository.getById(parentId) } returns parent
 
                 // All children of grandparent are terminal (the parent will be cascaded)
                 coEvery { workItemRepository.countChildrenByRole(grandparentId) } returns
-                    Result.Success(
-                        mapOf(Role.TERMINAL to 1)
-                    )
-                coEvery { workItemRepository.getById(grandparentId) } returns Result.Success(grandparent)
+                    mapOf(Role.TERMINAL to 1)
+                coEvery { workItemRepository.getById(grandparentId) } returns grandparent
 
                 val result = detector.detectCascades(child, workItemRepository)
                 assertEquals(2, result.size)
@@ -193,10 +182,8 @@ class CascadeDetectorTest {
                     val item = workItem(id = ids[i], parentId = parentOfThis, role = Role.WORK, depth = depth)
 
                     coEvery { workItemRepository.countChildrenByRole(ids[i]) } returns
-                        Result.Success(
-                            mapOf(Role.TERMINAL to 1)
-                        )
-                    coEvery { workItemRepository.getById(ids[i]) } returns Result.Success(item)
+                        mapOf(Role.TERMINAL to 1)
+                    coEvery { workItemRepository.getById(ids[i]) } returns item
                 }
 
                 val result = detector.detectCascades(child, workItemRepository)
@@ -215,11 +202,7 @@ class CascadeDetectorTest {
                 val parentId = UUID.randomUUID()
                 val child = workItem(parentId = parentId, role = Role.TERMINAL)
 
-                coEvery { workItemRepository.countChildrenByRole(parentId) } returns
-                    Result.Error(
-                        io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-                            .DatabaseError("DB error")
-                    )
+                coEvery { workItemRepository.countChildrenByRole(parentId) } throws IllegalStateException("DB error")
 
                 val result = detector.detectCascades(child, workItemRepository)
                 assertTrue(result.isEmpty())
@@ -231,7 +214,7 @@ class CascadeDetectorTest {
                 val parentId = UUID.randomUUID()
                 val child = workItem(parentId = parentId, role = Role.TERMINAL)
 
-                coEvery { workItemRepository.countChildrenByRole(parentId) } returns Result.Success(emptyMap())
+                coEvery { workItemRepository.countChildrenByRole(parentId) } returns emptyMap()
 
                 val result = detector.detectCascades(child, workItemRepository)
                 assertTrue(result.isEmpty())
@@ -249,8 +232,8 @@ class CascadeDetectorTest {
                 val child = workItem(parentId = parentId, role = Role.TERMINAL)
 
                 coEvery { workItemRepository.countChildrenByRole(parentId) } returns
-                    Result.Success(mapOf(Role.TERMINAL to 2))
-                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+                    mapOf(Role.TERMINAL to 2)
+                coEvery { workItemRepository.getById(parentId) } returns parent
 
                 val schemaResolver: (WorkItem) -> WorkItemSchema? = { item ->
                     if (item.id == parentId) schemaWithLifecycle(LifecycleMode.MANUAL) else null
@@ -268,8 +251,8 @@ class CascadeDetectorTest {
                 val child = workItem(parentId = parentId, role = Role.TERMINAL)
 
                 coEvery { workItemRepository.countChildrenByRole(parentId) } returns
-                    Result.Success(mapOf(Role.TERMINAL to 1))
-                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+                    mapOf(Role.TERMINAL to 1)
+                coEvery { workItemRepository.getById(parentId) } returns parent
 
                 val schemaResolver: (WorkItem) -> WorkItemSchema? = { item ->
                     if (item.id == parentId) schemaWithLifecycle(LifecycleMode.PERMANENT) else null
@@ -287,8 +270,8 @@ class CascadeDetectorTest {
                 val child = workItem(parentId = parentId, role = Role.TERMINAL)
 
                 coEvery { workItemRepository.countChildrenByRole(parentId) } returns
-                    Result.Success(mapOf(Role.TERMINAL to 3))
-                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+                    mapOf(Role.TERMINAL to 3)
+                coEvery { workItemRepository.getById(parentId) } returns parent
 
                 val schemaResolver: (WorkItem) -> WorkItemSchema? = { item ->
                     if (item.id == parentId) schemaWithLifecycle(LifecycleMode.AUTO) else null
@@ -307,8 +290,8 @@ class CascadeDetectorTest {
                 val child = workItem(parentId = parentId, role = Role.TERMINAL)
 
                 coEvery { workItemRepository.countChildrenByRole(parentId) } returns
-                    Result.Success(mapOf(Role.TERMINAL to 1))
-                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+                    mapOf(Role.TERMINAL to 1)
+                coEvery { workItemRepository.getById(parentId) } returns parent
 
                 // No schemaResolver passed — should use default behavior (cascade allowed)
                 val result = detector.detectCascades(child, workItemRepository)
@@ -329,7 +312,7 @@ class CascadeDetectorTest {
                 val parent = workItem(id = parentId, role = Role.QUEUE)
                 val child = workItem(parentId = parentId, role = Role.WORK)
 
-                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+                coEvery { workItemRepository.getById(parentId) } returns parent
 
                 val result = detector.detectStartCascades(child, workItemRepository)
                 assertEquals(1, result.size)
@@ -346,7 +329,7 @@ class CascadeDetectorTest {
                 val parent = workItem(id = parentId, role = Role.WORK)
                 val child = workItem(parentId = parentId, role = Role.WORK)
 
-                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+                coEvery { workItemRepository.getById(parentId) } returns parent
 
                 val result = detector.detectStartCascades(child, workItemRepository)
                 assertTrue(result.isEmpty())
@@ -378,7 +361,7 @@ class CascadeDetectorTest {
                 val parent = workItem(id = parentId, role = Role.REVIEW)
                 val child = workItem(parentId = parentId, role = Role.WORK)
 
-                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+                coEvery { workItemRepository.getById(parentId) } returns parent
 
                 val result = detector.detectStartCascades(child, workItemRepository)
                 assertTrue(result.isEmpty())
@@ -390,11 +373,7 @@ class CascadeDetectorTest {
                 val parentId = UUID.randomUUID()
                 val child = workItem(parentId = parentId, role = Role.WORK)
 
-                coEvery { workItemRepository.getById(parentId) } returns
-                    Result.Error(
-                        io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-                            .DatabaseError("DB error")
-                    )
+                coEvery { workItemRepository.getById(parentId) } throws IllegalStateException("DB error")
 
                 val result = detector.detectStartCascades(child, workItemRepository)
                 assertTrue(result.isEmpty())
@@ -414,7 +393,7 @@ class CascadeDetectorTest {
                 val parent = workItem(id = parentId, role = Role.TERMINAL)
                 val child = workItem(parentId = parentId, role = Role.QUEUE)
 
-                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+                coEvery { workItemRepository.getById(parentId) } returns parent
 
                 val result = detector.detectReopenCascades(child, workItemRepository)
                 assertEquals(1, result.size)
@@ -431,7 +410,7 @@ class CascadeDetectorTest {
                 val parent = workItem(id = parentId, role = Role.WORK)
                 val child = workItem(parentId = parentId, role = Role.QUEUE)
 
-                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+                coEvery { workItemRepository.getById(parentId) } returns parent
 
                 val result = detector.detectReopenCascades(child, workItemRepository)
                 assertTrue(result.isEmpty())
@@ -463,11 +442,7 @@ class CascadeDetectorTest {
                 val parentId = UUID.randomUUID()
                 val child = workItem(parentId = parentId, role = Role.QUEUE)
 
-                coEvery { workItemRepository.getById(parentId) } returns
-                    Result.Error(
-                        io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-                            .DatabaseError("DB error")
-                    )
+                coEvery { workItemRepository.getById(parentId) } throws IllegalStateException("DB error")
 
                 val result = detector.detectReopenCascades(child, workItemRepository)
                 assertTrue(result.isEmpty())
@@ -484,7 +459,7 @@ class CascadeDetectorTest {
                 val parent = workItem(id = parentId, role = Role.TERMINAL)
                 val child = workItem(parentId = parentId, role = Role.QUEUE)
 
-                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+                coEvery { workItemRepository.getById(parentId) } returns parent
 
                 val schemaResolver: (WorkItem) -> WorkItemSchema? = { item ->
                     if (item.id == parentId) schemaWithLifecycle(LifecycleMode.MANUAL) else null
@@ -501,7 +476,7 @@ class CascadeDetectorTest {
                 val parent = workItem(id = parentId, role = Role.TERMINAL)
                 val child = workItem(parentId = parentId, role = Role.QUEUE)
 
-                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+                coEvery { workItemRepository.getById(parentId) } returns parent
 
                 val schemaResolver: (WorkItem) -> WorkItemSchema? = { item ->
                     if (item.id == parentId) schemaWithLifecycle(LifecycleMode.PERMANENT) else null
@@ -518,7 +493,7 @@ class CascadeDetectorTest {
                 val parent = workItem(id = parentId, role = Role.TERMINAL)
                 val child = workItem(parentId = parentId, role = Role.QUEUE)
 
-                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+                coEvery { workItemRepository.getById(parentId) } returns parent
 
                 val schemaResolver: (WorkItem) -> WorkItemSchema? = { item ->
                     if (item.id == parentId) schemaWithLifecycle(LifecycleMode.AUTO) else null
@@ -539,7 +514,7 @@ class CascadeDetectorTest {
                 val parent = workItem(id = parentId, role = Role.QUEUE)
                 val child = workItem(parentId = parentId, role = Role.WORK)
 
-                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
+                coEvery { workItemRepository.getById(parentId) } returns parent
 
                 // detectStartCascades has no schemaResolver — always allows cascade
                 val result = detector.detectStartCascades(child, workItemRepository)
@@ -589,8 +564,8 @@ class CascadeDetectorTest {
                 every { dependencyRepository.findByFromItemId(targetId) } returns emptyList()
 
                 // Blocker is TERMINAL, which satisfies the default "terminal" threshold
-                coEvery { workItemRepository.getById(blockerId) } returns Result.Success(blocker)
-                coEvery { workItemRepository.getById(targetId) } returns Result.Success(target)
+                coEvery { workItemRepository.getById(blockerId) } returns blocker
+                coEvery { workItemRepository.getById(targetId) } returns target
 
                 val result = detector.findUnblockedItems(blocker, dependencyRepository, workItemRepository)
                 assertEquals(1, result.size)
@@ -621,9 +596,9 @@ class CascadeDetectorTest {
                 every { dependencyRepository.findByFromItemId(targetId) } returns emptyList()
 
                 // blocker1 is TERMINAL (satisfied), blocker2 is WORK (not terminal yet)
-                coEvery { workItemRepository.getById(blocker1Id) } returns Result.Success(blocker1)
-                coEvery { workItemRepository.getById(blocker2Id) } returns Result.Success(blocker2)
-                coEvery { workItemRepository.getById(targetId) } returns Result.Success(target)
+                coEvery { workItemRepository.getById(blocker1Id) } returns blocker1
+                coEvery { workItemRepository.getById(blocker2Id) } returns blocker2
+                coEvery { workItemRepository.getById(targetId) } returns target
 
                 val result = detector.findUnblockedItems(blocker1, dependencyRepository, workItemRepository)
                 assertTrue(result.isEmpty())
@@ -664,8 +639,8 @@ class CascadeDetectorTest {
                 every { dependencyRepository.findByToItemId(targetId) } returns listOf(dep)
                 every { dependencyRepository.findByFromItemId(targetId) } returns emptyList()
 
-                coEvery { workItemRepository.getById(blockerId) } returns Result.Success(blocker)
-                coEvery { workItemRepository.getById(targetId) } returns Result.Success(target)
+                coEvery { workItemRepository.getById(blockerId) } returns blocker
+                coEvery { workItemRepository.getById(targetId) } returns target
 
                 val result = detector.findUnblockedItems(blocker, dependencyRepository, workItemRepository)
                 assertEquals(1, result.size)
@@ -687,7 +662,7 @@ class CascadeDetectorTest {
                 every { dependencyRepository.findByToItemId(blockerId) } returns emptyList()
                 every { dependencyRepository.findByToItemId(targetId) } returns listOf(dep)
 
-                coEvery { workItemRepository.getById(blockerId) } returns Result.Success(blocker)
+                coEvery { workItemRepository.getById(blockerId) } returns blocker
 
                 val result = detector.findUnblockedItems(blocker, dependencyRepository, workItemRepository)
                 assertTrue(result.isEmpty())
@@ -708,7 +683,7 @@ class CascadeDetectorTest {
                 every { dependencyRepository.findByToItemId(blockerId) } returns emptyList()
                 every { dependencyRepository.findByToItemId(targetId) } returns listOf(dep)
 
-                coEvery { workItemRepository.getById(blockerId) } returns Result.Success(blocker)
+                coEvery { workItemRepository.getById(blockerId) } returns blocker
 
                 val result = detector.findUnblockedItems(blocker, dependencyRepository, workItemRepository)
                 assertTrue(result.isEmpty())
@@ -734,8 +709,8 @@ class CascadeDetectorTest {
                 every { dependencyRepository.findByToItemId(targetId) } returns listOf(blockDep, relatesDep)
                 every { dependencyRepository.findByFromItemId(targetId) } returns emptyList()
 
-                coEvery { workItemRepository.getById(blockerId) } returns Result.Success(blocker)
-                coEvery { workItemRepository.getById(targetId) } returns Result.Success(target)
+                coEvery { workItemRepository.getById(blockerId) } returns blocker
+                coEvery { workItemRepository.getById(targetId) } returns target
 
                 val result = detector.findUnblockedItems(blocker, dependencyRepository, workItemRepository)
                 assertEquals(1, result.size)
@@ -770,8 +745,8 @@ class CascadeDetectorTest {
                 every { dependencyRepository.findByToItemId(targetId) } returns emptyList()
                 every { dependencyRepository.findByFromItemId(targetId) } returns listOf(dep)
 
-                coEvery { workItemRepository.getById(blockerId) } returns Result.Success(blocker)
-                coEvery { workItemRepository.getById(targetId) } returns Result.Success(target)
+                coEvery { workItemRepository.getById(blockerId) } returns blocker
+                coEvery { workItemRepository.getById(targetId) } returns target
 
                 val result = detector.findUnblockedItems(blocker, dependencyRepository, workItemRepository)
                 assertEquals(1, result.size, "IS_BLOCKED_BY target should appear in unblocked items when blocker completes")
@@ -808,9 +783,9 @@ class CascadeDetectorTest {
                 every { dependencyRepository.findByToItemId(targetId) } returns listOf(blocksDep)
                 every { dependencyRepository.findByFromItemId(targetId) } returns listOf(isBlockedByDep)
 
-                coEvery { workItemRepository.getById(blockerId) } returns Result.Success(blocker)
-                coEvery { workItemRepository.getById(otherBlockerId) } returns Result.Success(otherBlocker)
-                coEvery { workItemRepository.getById(targetId) } returns Result.Success(target)
+                coEvery { workItemRepository.getById(blockerId) } returns blocker
+                coEvery { workItemRepository.getById(otherBlockerId) } returns otherBlocker
+                coEvery { workItemRepository.getById(targetId) } returns target
 
                 val result = detector.findUnblockedItems(blocker, dependencyRepository, workItemRepository)
                 assertTrue(result.isEmpty(), "Target should remain blocked when it has an unsatisfied IS_BLOCKED_BY dep")
@@ -840,8 +815,8 @@ class CascadeDetectorTest {
                 every { dependencyRepository.findByToItemId(targetId) } returns emptyList()
                 every { dependencyRepository.findByFromItemId(targetId) } returns listOf(dep)
 
-                coEvery { workItemRepository.getById(blockerId) } returns Result.Success(blocker)
-                coEvery { workItemRepository.getById(targetId) } returns Result.Success(target)
+                coEvery { workItemRepository.getById(blockerId) } returns blocker
+                coEvery { workItemRepository.getById(targetId) } returns target
 
                 val result = detector.findUnblockedItems(blocker, dependencyRepository, workItemRepository)
                 assertEquals(1, result.size, "IS_BLOCKED_BY with unblockAt=work should unblock when blocker reaches WORK")
@@ -867,14 +842,8 @@ class CascadeDetectorTest {
                 val dep2 = blocksDep(fromItemId = missingBlockerId, toItemId = targetId)
                 every { dependencyRepository.findByToItemId(targetId) } returns listOf(dep, dep2)
 
-                coEvery { workItemRepository.getById(blockerId) } returns Result.Success(blocker)
-                coEvery { workItemRepository.getById(missingBlockerId) } returns
-                    Result.Error(
-                        io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError.NotFound(
-                            missingBlockerId,
-                            "WorkItem not found"
-                        )
-                    )
+                coEvery { workItemRepository.getById(blockerId) } returns blocker
+                coEvery { workItemRepository.getById(missingBlockerId) } returns null
 
                 val result = detector.findUnblockedItems(blocker, dependencyRepository, workItemRepository)
                 assertTrue(result.isEmpty())

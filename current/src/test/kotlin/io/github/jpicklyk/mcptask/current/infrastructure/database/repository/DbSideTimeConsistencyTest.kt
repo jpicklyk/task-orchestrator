@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -63,8 +62,8 @@ class DbSideTimeConsistencyTest {
         role: Role = Role.QUEUE
     ): WorkItem {
         val result = repository.create(WorkItem(title = title, role = role))
-        assertIs<Result.Success<WorkItem>>(result)
-        return result.data
+        assertNotNull(result)
+        return result
     }
 
     // -----------------------------------------------------------------------
@@ -124,8 +123,8 @@ class DbSideTimeConsistencyTest {
 
             // Immediately after claiming, the item should be excluded from next-item results.
             val beforeExpiry = repository.findForNextItem(Role.QUEUE, excludeActiveClaims = true)
-            assertIs<Result.Success<List<WorkItem>>>(beforeExpiry)
-            val beforeIds = beforeExpiry.data.map { it.id }.toSet()
+            assertNotNull(beforeExpiry)
+            val beforeIds = beforeExpiry.map { it.id }.toSet()
             assertTrue(
                 item.id !in beforeIds,
                 "Item should be excluded from findForNextItem while claim is active"
@@ -136,8 +135,8 @@ class DbSideTimeConsistencyTest {
 
             // After expiry, the item should reappear (DB-side comparison now sees it as expired).
             val afterExpiry = repository.findForNextItem(Role.QUEUE, excludeActiveClaims = true)
-            assertIs<Result.Success<List<WorkItem>>>(afterExpiry)
-            val afterIds = afterExpiry.data.map { it.id }.toSet()
+            assertNotNull(afterExpiry)
+            val afterIds = afterExpiry.map { it.id }.toSet()
             assertTrue(
                 item.id in afterIds,
                 "Item should reappear in findForNextItem once DB-side claim has expired"
@@ -268,9 +267,9 @@ class DbSideTimeConsistencyTest {
 
             // Immediately: active=1, expired=0.
             val beforeResult = repository.countByClaimStatus()
-            assertIs<Result.Success<io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts>>(beforeResult)
+            assertNotNull(beforeResult)
             assertTrue(
-                beforeResult.data.active >= 1,
+                beforeResult.active >= 1,
                 "There should be at least 1 active claim right after claiming"
             )
 
@@ -279,14 +278,14 @@ class DbSideTimeConsistencyTest {
 
             // After expiry: active should have decreased, expired should have increased.
             val afterResult = repository.countByClaimStatus()
-            assertIs<Result.Success<io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts>>(afterResult)
+            assertNotNull(afterResult)
             assertEquals(
                 0,
-                afterResult.data.active,
+                afterResult.active,
                 "Active claim count should be 0 after TTL expires (DB-side evaluation)"
             )
             assertTrue(
-                afterResult.data.expired >= 1,
+                afterResult.expired >= 1,
                 "Expired claim count should be >= 1 after TTL expires (DB-side evaluation)"
             )
         }

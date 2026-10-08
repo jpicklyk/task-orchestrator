@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -71,7 +70,7 @@ class GetContextToolDispatchTest {
         schemaContext = ToolExecutionContext(repoProvider, noteSchemaService)
 
         coEvery { workItemRepo.countByClaimStatus(any()) } returns
-            Result.Success(ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0))
+            ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0)
         coEvery { workItemRepo.dbNow() } returns Instant.now()
     }
 
@@ -119,8 +118,8 @@ class GetContextToolDispatchTest {
             every { noteSchemaService.getTraitDispatch("delegated") } returns
                 mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer"))
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val result = tool.execute(callParams("itemId" to JsonPrimitive(itemId.toString())), schemaContext)
             val data = extractData(result)
@@ -145,8 +144,8 @@ class GetContextToolDispatchTest {
             every { noteSchemaService.getTraitDispatch("delegated") } returns
                 mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer", effort = "medium"))
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val requestParams = callParams("itemId" to JsonPrimitive(itemId.toString()))
             val dispatch1 = extractData(tool.execute(requestParams, schemaContext))["dispatch"]!!.jsonObject
@@ -165,8 +164,8 @@ class GetContextToolDispatchTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val result = tool.execute(callParams("itemId" to JsonPrimitive(itemId.toString())), context)
             val data = extractData(result)
@@ -188,8 +187,8 @@ class GetContextToolDispatchTest {
                     Role.REVIEW to DispatchProfile(agent = "task-orchestrator:reviewer")
                 )
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val result = tool.execute(callParams("itemId" to JsonPrimitive(itemId.toString())), schemaContext)
             val data = extractData(result)

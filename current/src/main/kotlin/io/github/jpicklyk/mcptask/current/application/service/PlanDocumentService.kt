@@ -1,11 +1,14 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.UnitResult
+import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocument
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentSummary
 import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentStashOutcome
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import java.util.UUID
 
 /**
@@ -24,6 +27,8 @@ import java.util.UUID
  */
 class PlanDocumentService(
     private val repositoryProvider: RepositoryProvider,
+    /** The transaction boundary: the root check and the stash run in ONE write unit. */
+    private val unitOfWork: UnitOfWork,
 ) {
     /**
      * Validates and persists [body] as the PENDING document at `(rootItemId, slug)`. See
@@ -48,23 +53,23 @@ class PlanDocumentService(
             return PlanDocumentStashResult.TooLarge(sizeBytes, maxBytes)
         }
 
-        val item =
-            when (val itemResult = repositoryProvider.workItemRepository().getById(rootItemId)) {
-                is Result.Success -> itemResult.data
-                is Result.Error -> return PlanDocumentStashResult.NotFound(rootItemId)
+        return unitOfWork.writeUnit(
+            "PlanDocumentService.stash",
+            onFault = { PlanDocumentStashResult.RepositoryError(LegacyFaults.message(it)) }
+        ) {
+            val item =
+                repositoryProvider.workItemRepository().getById(rootItemId)
+                    ?: return@writeUnit UnitResult.Rollback(PlanDocumentStashResult.NotFound(rootItemId))
+
+            if (item.depth != 0) {
+                return@writeUnit UnitResult.Rollback(PlanDocumentStashResult.NotDepthZero(rootItemId, item.depth))
             }
 
-        if (item.depth != 0) {
-            return PlanDocumentStashResult.NotDepthZero(rootItemId, item.depth)
-        }
-
-        return when (val result = repositoryProvider.planDocumentRepository().stash(rootItemId, slug, body)) {
-            is Result.Success ->
-                when (val outcome = result.data) {
-                    is PlanDocumentStashOutcome.Stored -> PlanDocumentStashResult.Success(outcome.document)
-                    is PlanDocumentStashOutcome.AdoptedConflict -> PlanDocumentStashResult.AdoptedConflict(outcome.existing)
-                }
-            is Result.Error -> PlanDocumentStashResult.RepositoryError(result.error.message)
+            when (val outcome = repositoryProvider.planDocumentRepository().stash(rootItemId, slug, body)) {
+                is PlanDocumentStashOutcome.Stored -> UnitResult.Commit(PlanDocumentStashResult.Success(outcome.document))
+                is PlanDocumentStashOutcome.AdoptedConflict ->
+                    UnitResult.Rollback(PlanDocumentStashResult.AdoptedConflict(outcome.existing))
+            }
         }
     }
 
@@ -72,13 +77,13 @@ class PlanDocumentService(
     suspend fun get(
         rootItemId: UUID,
         slug: String,
-    ): Result<PlanDocument?> = repositoryProvider.planDocumentRepository().get(rootItemId, slug)
+    ): PlanDocument? = repositoryProvider.planDocumentRepository().get(rootItemId, slug)
 
     /** Lists metadata-only summaries (no body) for every document under [rootItemId], optionally filtered by [status]. */
     suspend fun list(
         rootItemId: UUID,
         status: PlanDocumentStatus? = null,
-    ): Result<List<PlanDocumentSummary>> = repositoryProvider.planDocumentRepository().list(rootItemId, status)
+    ): List<PlanDocumentSummary> = repositoryProvider.planDocumentRepository().list(rootItemId, status)
 
     /**
      * Computes the SHA-256 hex digest [body] would be stored under — the exact algorithm [stash]

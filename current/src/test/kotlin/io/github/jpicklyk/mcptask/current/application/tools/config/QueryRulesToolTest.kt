@@ -149,7 +149,7 @@ class QueryRulesToolTest {
     ) {
         val composition = buildComposition(tempDir)
         val repo = composition.toolContext.repositoryProvider
-        val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "S1 Root", depth = 0)).getOrNull()!! }
+        val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "S1 Root", depth = 0))!! }
         stashViaTool(composition.toolContext, root.id, "rule/protocol.entry-seat", FIXTURE_B)
 
         val result =
@@ -183,7 +183,7 @@ class QueryRulesToolTest {
     ) {
         val composition = buildComposition(tempDir)
         val repo = composition.toolContext.repositoryProvider
-        val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "S2 Root", depth = 0)).getOrNull()!! }
+        val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "S2 Root", depth = 0))!! }
         val stashResult = stashViaTool(composition.toolContext, root.id, "rule/versioned", FIXTURE_B)
         val contentHash = dataOf(stashResult)["contentHash"]!!.jsonPrimitive.content
 
@@ -260,7 +260,7 @@ class QueryRulesToolTest {
             """.trimIndent()
         val composition = buildComposition(tempDir, globalConfig)
         val repo = composition.toolContext.repositoryProvider
-        val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "S3 Root", depth = 0)).getOrNull()!! }
+        val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "S3 Root", depth = 0))!! }
         val item =
             runBlocking {
                 repo
@@ -274,7 +274,7 @@ class QueryRulesToolTest {
                             rootId = root.id,
                             depth = 1,
                         ),
-                    ).getOrNull()!!
+                    )!!
             }
         stashViaTool(composition.toolContext, root.id, "rule/test-author", "Test-author rule body.")
         stashViaTool(composition.toolContext, root.id, "rule/spec-quality", "Spec-quality rule body.")
@@ -328,7 +328,7 @@ class QueryRulesToolTest {
     ) {
         val composition = buildComposition(tempDir)
         val repo = composition.toolContext.repositoryProvider
-        val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "S4 Root", depth = 0)).getOrNull()!! }
+        val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "S4 Root", depth = 0))!! }
 
         stashDirect(repo, root.id, "rule/test-author", "test-author body")
         stashDirect(repo, root.id, "rule/protocol.entry-seat", "entry-seat body")
@@ -372,8 +372,7 @@ class QueryRulesToolTest {
             runBlocking {
                 composition.toolContext.repositoryProvider
                     .workItemRepository()
-                    .create(WorkItem(title = "S6 Root", depth = 0))
-                    .getOrNull()!!
+                    .create(WorkItem(title = "S6 Root", depth = 0))!!
             }
         val result =
             queryRules(
@@ -415,12 +414,11 @@ class QueryRulesToolTest {
         val repo = composition.toolContext.repositoryProvider
         val (_, child) =
             runBlocking {
-                val r = repo.workItemRepository().create(WorkItem(title = "S6 Root", depth = 0)).getOrNull()!!
+                val r = repo.workItemRepository().create(WorkItem(title = "S6 Root", depth = 0))!!
                 val c =
                     repo
                         .workItemRepository()
-                        .create(WorkItem(title = "S6 Child", parentId = r.id, rootId = r.id, depth = 1))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "S6 Child", parentId = r.id, rootId = r.id, depth = 1))!!
                 r to c
             }
         val result =
@@ -461,11 +459,10 @@ class QueryRulesToolTest {
         val repo = composition.toolContext.repositoryProvider
         val child =
             runBlocking {
-                val r = repo.workItemRepository().create(WorkItem(title = "List VALIDATION_ERROR Root", depth = 0)).getOrNull()!!
+                val r = repo.workItemRepository().create(WorkItem(title = "List VALIDATION_ERROR Root", depth = 0))!!
                 repo
                     .workItemRepository()
-                    .create(WorkItem(title = "List VALIDATION_ERROR Child", parentId = r.id, rootId = r.id, depth = 1))
-                    .getOrNull()!!
+                    .create(WorkItem(title = "List VALIDATION_ERROR Child", parentId = r.id, rootId = r.id, depth = 1))!!
             }
         val result =
             queryRules(composition.toolContext, "operation" to JsonPrimitive("list"), "rootId" to JsonPrimitive(child.id.toString()))
@@ -493,7 +490,7 @@ class QueryRulesToolTest {
             """.trimIndent()
         val composition = buildComposition(tempDir, globalConfig)
         val repo = composition.toolContext.repositoryProvider
-        val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "Skill Grammar Root", depth = 0)).getOrNull()!! }
+        val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "Skill Grammar Root", depth = 0))!! }
         val item =
             runBlocking {
                 repo
@@ -507,7 +504,7 @@ class QueryRulesToolTest {
                             rootId = root.id,
                             depth = 1,
                         ),
-                    ).getOrNull()!!
+                    )!!
             }
         val result =
             queryRules(
@@ -535,8 +532,7 @@ class QueryRulesToolTest {
             runBlocking {
                 composition.toolContext.repositoryProvider
                     .workItemRepository()
-                    .create(WorkItem(title = "Null rootId Root", depth = 0))
-                    .getOrNull()!!
+                    .create(WorkItem(title = "Null rootId Root", depth = 0))!!
             }
         val result =
             queryRules(
@@ -688,7 +684,7 @@ class QueryRulesToolTest {
             """.trimIndent()
         val composition = buildComposition(tempDir, globalConfig)
         val repo = composition.toolContext.repositoryProvider
-        val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "S10 Root", depth = 0)).getOrNull()!! }
+        val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "S10 Root", depth = 0))!! }
         val item =
             runBlocking {
                 repo
@@ -702,7 +698,7 @@ class QueryRulesToolTest {
                             rootId = root.id,
                             depth = 1,
                         ),
-                    ).getOrNull()!!
+                    )!!
             }
 
         // (a) noteKey absent from the effective schema entirely.
@@ -754,7 +750,7 @@ class QueryRulesToolTest {
     ) {
         val composition = buildComposition(tempDir)
         val repo = composition.toolContext.repositoryProvider
-        val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "P6 Root", depth = 0)).getOrNull()!! }
+        val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "P6 Root", depth = 0))!! }
         val item =
             runBlocking {
                 repo
@@ -768,7 +764,7 @@ class QueryRulesToolTest {
                             rootId = root.id,
                             depth = 1,
                         ),
-                    ).getOrNull()!!
+                    )!!
             }
         val result =
             queryRules(
@@ -791,7 +787,7 @@ class QueryRulesToolTest {
     ) {
         val composition = buildComposition(tempDir)
         val repo = composition.toolContext.repositoryProvider
-        val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "P2 Root", depth = 0)).getOrNull()!! }
+        val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "P2 Root", depth = 0))!! }
         stashDirect(repo, root.id, "rule/hexprefix", "hex prefix body")
         val hexPrefix =
             root.id
@@ -825,7 +821,7 @@ class QueryRulesToolTest {
     ) {
         val composition = buildComposition(tempDir)
         val repo = composition.toolContext.repositoryProvider
-        val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "P4 Root", depth = 0)).getOrNull()!! }
+        val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "P4 Root", depth = 0))!! }
         stashViaTool(composition.toolContext, root.id, "rule/adoptable", "Adoptable rule body.")
         val before =
             queryRules(
@@ -834,7 +830,7 @@ class QueryRulesToolTest {
                 "rootId" to JsonPrimitive(root.id.toString()),
                 "key" to JsonPrimitive("adoptable"),
             )
-        val adopter = runBlocking { repo.workItemRepository().create(WorkItem(title = "Adopter")).getOrNull()!! }
+        val adopter = runBlocking { repo.workItemRepository().create(WorkItem(title = "Adopter"))!! }
         runBlocking { repo.planDocumentRepository().markAdopted(root.id, "rule/adoptable", adopter.id) }
 
         val after =
@@ -859,8 +855,8 @@ class QueryRulesToolTest {
     ) {
         val composition = buildComposition(tempDir)
         val repo = composition.toolContext.repositoryProvider
-        val root1 = runBlocking { repo.workItemRepository().create(WorkItem(title = "P7 Root 1", depth = 0)).getOrNull()!! }
-        val root2 = runBlocking { repo.workItemRepository().create(WorkItem(title = "P7 Root 2", depth = 0)).getOrNull()!! }
+        val root1 = runBlocking { repo.workItemRepository().create(WorkItem(title = "P7 Root 1", depth = 0))!! }
+        val root2 = runBlocking { repo.workItemRepository().create(WorkItem(title = "P7 Root 2", depth = 0))!! }
         stashDirect(repo, root1.id, "rule/shared-key", "Root 1's body")
         stashDirect(repo, root2.id, "rule/shared-key", "Root 2's body")
 
@@ -896,7 +892,7 @@ class QueryRulesToolTest {
     ) {
         val composition = buildComposition(tempDir)
         val repo = composition.toolContext.repositoryProvider
-        val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "P8 Root", depth = 0)).getOrNull()!! }
+        val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "P8 Root", depth = 0))!! }
         stashDirect(repo, root.id, "rule/empty", "")
 
         val result =

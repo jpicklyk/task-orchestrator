@@ -3,10 +3,17 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.UnitResult
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
+import io.github.jpicklyk.mcptask.current.application.support.writeUnit
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
 import io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.ProjectConfig
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import java.time.Instant
 import java.util.UUID
 
@@ -29,6 +36,8 @@ import java.util.UUID
 class ProjectConfigPushService(
     private val repositoryProvider: RepositoryProvider,
     private val parser: ConfigDocumentParser,
+    /** The transaction boundary: each write ([push]'s guarded upsert, [delete]) is ONE write unit. */
+    private val unitOfWork: UnitOfWork,
 ) {
     /**
      * Validates and persists [configYaml] for [rootItemId]. See [ProjectConfigPushResult] for the
@@ -70,10 +79,9 @@ class ProjectConfigPushService(
         }
 
         val item =
-            when (val itemResult = repositoryProvider.workItemRepository().getById(rootItemId)) {
-                is Result.Success -> itemResult.data
-                is Result.Error -> return ProjectConfigPushResult.NotFound(rootItemId)
-            }
+            legacyRead({ return ProjectConfigPushResult.RepositoryError(it) }) {
+                repositoryProvider.workItemRepository().getById(rootItemId)
+            } ?: return ProjectConfigPushResult.NotFound(rootItemId)
 
         if (item.depth != 0) {
             return ProjectConfigPushResult.NotDepthZero(rootItemId, item.depth)
@@ -102,8 +110,11 @@ class ProjectConfigPushService(
 
         val projectConfigRepository = repositoryProvider.projectConfigRepository()
 
-        return when (
-            val result =
+        return unitOfWork.writeUnit(
+            "ProjectConfigPushService.push",
+            onFault = { ProjectConfigPushResult.RepositoryError(LegacyFaults.message(it)) }
+        ) {
+            val outcome =
                 projectConfigRepository.upsertGuarded(
                     rootItemId = rootItemId,
                     configYaml = configYaml,
@@ -113,9 +124,8 @@ class ProjectConfigPushService(
                     expectedFingerprint = expectedFingerprint,
                     rejectSuperseded = !force,
                 )
-        ) {
-            is Result.Success ->
-                when (val outcome = result.data) {
+            UnitResult.Commit(
+                when (outcome) {
                     is GuardedUpsertOutcome.Applied ->
                         ProjectConfigPushResult.Success(
                             rootItemId = outcome.config.rootItemId,
@@ -129,7 +139,7 @@ class ProjectConfigPushService(
                     is GuardedUpsertOutcome.PreconditionFailed ->
                         ProjectConfigPushResult.PreconditionFailed(rootItemId, outcome.currentFingerprint)
                 }
-            is Result.Error -> ProjectConfigPushResult.RepositoryError(result.error.message)
+            )
         }
     }
 
@@ -146,7 +156,7 @@ class ProjectConfigPushService(
         parsedRoot?.keys?.filterNot { it in ConfigDocument.PER_ROOT_HONORED_SECTIONS } ?: emptyList()
 
     /** Reads back the stored config for [rootItemId], or a null payload when no row exists. */
-    suspend fun get(rootItemId: UUID): Result<ProjectConfig?> = repositoryProvider.projectConfigRepository().get(rootItemId)
+    suspend fun get(rootItemId: UUID): ProjectConfig? = repositoryProvider.projectConfigRepository().get(rootItemId)
 
     /**
      * Classifies [fingerprint] against [rootItemId]'s stored fingerprint (+ history) and returns
@@ -158,20 +168,26 @@ class ProjectConfigPushService(
      * `get` operation and [io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.projectConfigRoutes]'s
      * `GET` route — both need the exact same "unclassifiable = absent from the response, not an
      * error surfaced to the caller" policy, which is why a repository error swallows to null here
-     * rather than propagating a [Result.Error]: an unclassifiable fingerprint is deliberately
+     * rather than propagating the fault: an unclassifiable fingerprint is deliberately
      * treated as if the caller simply hadn't supplied one.
      */
     suspend fun classifyRelation(
         rootItemId: UUID,
         fingerprint: String,
     ): String? =
-        when (val result = repositoryProvider.projectConfigRepository().classifyFingerprint(rootItemId, fingerprint)) {
-            is Result.Success -> result.data.name.lowercase()
-            is Result.Error -> null
+        legacyReadOrNull {
+            repositoryProvider
+                .projectConfigRepository()
+                .classifyFingerprint(rootItemId, fingerprint)
+                .name
+                .lowercase()
         }
 
     /** Deletes the stored config row for [rootItemId]. Returns true when a row was deleted. */
-    suspend fun delete(rootItemId: UUID): Result<Boolean> = repositoryProvider.projectConfigRepository().delete(rootItemId)
+    suspend fun delete(rootItemId: UUID): Outcome<Boolean> =
+        unitOfWork.write("ProjectConfigPushService.delete") {
+            Outcome.Ok(repositoryProvider.projectConfigRepository().delete(rootItemId))
+        }
 
     /**
      * Parses [configYaml] the same way [io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService]
@@ -215,7 +231,7 @@ class ProjectConfigPushService(
     private fun extractEmbeddedRootId(root: Map<String, Any>): UUID? {
         val project = root["project"] as? Map<*, *> ?: return null
         val rawRootId = project["rootId"] as? String ?: return null
-        return runCatching { UUID.fromString(rawRootId) }.getOrNull()
+        return runCatchingNonCancellation { UUID.fromString(rawRootId) }.getOrNull()
     }
 
     /** Outcome of a single [parser] parse pass over `configYaml`. */

@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.VarCharColumnType
@@ -46,8 +45,8 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
 
     private suspend fun createHolder(title: String = "Holder"): UUID {
         val result = repositoryProvider.workItemRepository().create(WorkItem(title = title))
-        assertIs<Result.Success<WorkItem>>(result)
-        return result.data.id
+        assertNotNull(result)
+        return result.id
     }
 
     /**
@@ -374,7 +373,7 @@ class SQLiteResourceLeaseRepositoryHistoryTest {
             assertIs<LeaseReleaseResult.Success>(repository.releaseAllForItem(holder))
 
             val deleteResult = repositoryProvider.workItemRepository().delete(holder)
-            assertIs<Result.Success<Boolean>>(deleteResult)
+            assertNotNull(deleteResult)
 
             val intervals = repository.findRecentIntervals("staging-db", 10)
             assertEquals(1, intervals.size, "the history row must survive holder deletion — no FK, no CASCADE")

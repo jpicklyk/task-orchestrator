@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
@@ -13,6 +14,10 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkItemPlacementS
 import io.github.jpicklyk.mcptask.current.application.service.rest.MergePatchApplier
 import io.github.jpicklyk.mcptask.current.application.service.rest.WorkItemPatchProjection
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDeleteOutcome
 import io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDeletion
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers
@@ -21,8 +26,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableE
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.UserTrigger
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -328,6 +331,7 @@ fun Route.itemWriteRoutes(
     degradedModePolicy: DegradedModePolicy,
     idempotencyCache: IdempotencyCache,
     advanceServiceFactory: AdvanceServiceFactory,
+    unitOfWork: UnitOfWork,
     warnOnClaimedAdvance: Boolean = defaultWarnOnClaimedAdvance,
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
@@ -446,7 +450,7 @@ fun Route.itemWriteRoutes(
 
                 val parentId =
                     dto.parentId?.let { pid ->
-                        runCatching { UUID.fromString(pid) }.getOrNull()
+                        runCatchingNonCancellation { UUID.fromString(pid) }.getOrNull()
                             ?: return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid parentId UUID: $pid")
                     }
 
@@ -466,8 +470,11 @@ fun Route.itemWriteRoutes(
                 // concurrent reparent/delete of the parent between this check and that write cannot
                 // leave the new item stamped with stale placement (AR-19).
                 if (parentId != null) {
-                    val parentResult = workItemRepo.getById(parentId)
-                    if (parentResult is Result.Error) {
+                    val parentResult =
+                        legacyRead(
+                            { return errorCaptured(HttpStatusCode.InternalServerError, "db_error", DB_QUERY_FAILED) }
+                        ) { workItemRepo.getById(parentId) }
+                    if (parentResult == null) {
                         return errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $parentId not found")
                     }
                     if (!enforceScopeForItem(call, parentId, workItemRepo)) {
@@ -521,7 +528,7 @@ fun Route.itemWriteRoutes(
                     val outcome =
                         withEventActor(actorClaim) {
                             WorkItemPlacementService(workItemRepo)
-                                .create(itemId, parentId) { depth, rootId -> buildItem(depth, rootId) }
+                                .create(unitOfWork, itemId, parentId) { depth, rootId -> buildItem(depth, rootId) }
                         }
                 ) {
                     is PlacedWriteOutcome.ParentNotFound ->
@@ -574,7 +581,7 @@ fun Route.itemWriteRoutes(
                     return@patch
                 }
             val id =
-                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
                     return@patch
                 }
@@ -596,11 +603,14 @@ fun Route.itemWriteRoutes(
             // stays outside (a replay carries the same Content-Type).
             suspend fun executePatch(): CachedHttpResponse {
                 val actorClaim = ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey])
-                val itemResult = workItemRepo.getById(id)
-                if (itemResult is Result.Error) {
+                val itemResult =
+                    legacyRead(
+                        { return errorCaptured(HttpStatusCode.InternalServerError, "db_error", DB_QUERY_FAILED) }
+                    ) { workItemRepo.getById(id) }
+                if (itemResult == null) {
                     return errorCaptured(HttpStatusCode.NotFound, "not_found", "Item $id not found")
                 }
-                val existing = (itemResult as Result.Success).data
+                val existing = itemResult
 
                 if (!enforceScopeForItem(call, id, workItemRepo)) {
                     return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for item $id")
@@ -639,6 +649,7 @@ fun Route.itemWriteRoutes(
                     } catch (e: Exception) {
                         // Log the parse detail server-side; do not echo the raw exception message back
                         // to the client (avoids leaking parser internals / input fragments).
+                        e.rethrowIfCancellation()
                         writeLogger.debug("PATCH body JSON parse failed: {}", e.message)
                         return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid JSON in request body")
                     }
@@ -678,6 +689,7 @@ fun Route.itemWriteRoutes(
                         Json.decodeFromJsonElement<ItemPatchDto>(normalizedMerged)
                     } catch (e: Exception) {
                         // Log the decode detail server-side; return a generic message to the client.
+                        e.rethrowIfCancellation()
                         writeLogger.debug("PATCH patch-value decode failed: {}", e.message)
                         return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid patch values")
                     }
@@ -703,7 +715,7 @@ fun Route.itemWriteRoutes(
                 // (AR-19).
                 val newParentId =
                     patchDto.parentId?.let { pid ->
-                        runCatching { UUID.fromString(pid) }.getOrNull()
+                        runCatchingNonCancellation { UUID.fromString(pid) }.getOrNull()
                             ?: return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid parentId UUID: $pid")
                     }
                 val parentChanged = newParentId != existing.parentId
@@ -723,8 +735,11 @@ fun Route.itemWriteRoutes(
                             return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied to move item $id to root")
                         }
                     } else {
-                        val parentResult = workItemRepo.getById(newParentId)
-                        if (parentResult is Result.Error) {
+                        val parentResult =
+                            legacyRead(
+                                { return errorCaptured(HttpStatusCode.InternalServerError, "db_error", DB_QUERY_FAILED) }
+                            ) { workItemRepo.getById(newParentId) }
+                        if (parentResult == null) {
                             return errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $newParentId not found")
                         }
                         // A re-parent target is the same authorization object as a create-time parent,
@@ -798,7 +813,7 @@ fun Route.itemWriteRoutes(
                 val outcome =
                     withEventActor(actorClaim) {
                         WorkItemPlacementService(workItemRepo)
-                            .update(existing, newParentId, parentChanged) { depth, rootId -> buildUpdated(depth, rootId) }
+                            .update(unitOfWork, existing, newParentId, parentChanged) { depth, rootId -> buildUpdated(depth, rootId) }
                     }
 
                 return when (outcome) {
@@ -817,7 +832,7 @@ fun Route.itemWriteRoutes(
                         // is ever called: If-Match matched here, but another writer's update() won the
                         // version race in between). Map it to 409 so REST clients can safely retry with
                         // a fresh GET + If-Match, instead of treating it as an opaque server error.
-                        if (outcome.error is RepositoryError.ConflictError) {
+                        if (LegacyFaults.isVersionConflict(outcome.error)) {
                             writeLogger.debug("PATCH /items/{} optimistic-lock conflict: {}", id, outcome.error.message)
                             errorCaptured(
                                 HttpStatusCode.Conflict,
@@ -851,7 +866,7 @@ fun Route.itemWriteRoutes(
                     return@delete
                 }
             val id =
-                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
                     return@delete
                 }
@@ -876,12 +891,16 @@ fun Route.itemWriteRoutes(
                     }
                 }
 
-            val itemResult = workItemRepo.getById(id)
-            if (itemResult is Result.Error) {
+            val itemResult =
+                legacyRead({
+                    call.respondDbError()
+                    return@delete
+                }) { workItemRepo.getById(id) }
+            if (itemResult == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
                 return@delete
             }
-            val existing = (itemResult as Result.Success).data
+            val existing = itemResult
 
             if (!enforceScopeForItem(call, id, workItemRepo)) {
                 call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
@@ -903,7 +922,7 @@ fun Route.itemWriteRoutes(
             // Delegate to the shared helper (see WorkItemDeletion's KDoc) — release-before-delete,
             // the non-recursive children guard, and the recursive all-or-nothing subtree delete are
             // all identical to the MCP `manage_items` delete operation (DeleteItemHandler).
-            val deletion = WorkItemDeletion(repositoryProvider)
+            val deletion = WorkItemDeletion(repositoryProvider, unitOfWork)
             val actorClaim = ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey])
             when (
                 val outcome =
@@ -964,7 +983,7 @@ fun Route.itemWriteRoutes(
                     return@post
                 }
             val id =
-                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
                     return@post
                 }
@@ -980,12 +999,16 @@ fun Route.itemWriteRoutes(
             val overrideResourceLeases = parsedRequest.overrideResourceLeases
             if (!checkLeaseOverrideAllowed(call, overrideResourceLeases)) return@post
 
-            val itemResult = workItemRepo.getById(id)
-            if (itemResult is Result.Error) {
+            val itemResult =
+                legacyRead({
+                    call.respondDbError()
+                    return@post
+                }) { workItemRepo.getById(id) }
+            if (itemResult == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
                 return@post
             }
-            val item = (itemResult as Result.Success).data
+            val item = itemResult
 
             if (!enforceScopeForItem(call, id, workItemRepo)) {
                 call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
@@ -1087,9 +1110,9 @@ fun Route.itemWriteRoutes(
 
             // Build expectedNotes parity: fetch the item's current note keys for the `exists` flag.
             val existingNoteKeys =
-                when (val notesResult = repositoryProvider.noteRepository().findByItemId(id)) {
-                    is Result.Success -> notesResult.data.map { it.key }.toSet()
-                    is Result.Error -> emptySet()
+                run {
+                    val notesResult = legacyRead({ return@run emptySet() }) { repositoryProvider.noteRepository().findByItemId(id) }
+                    notesResult.map { it.key }.toSet()
                 }
 
             // Response body MUST NOT disclose claimedBy (tiered-disclosure principle)

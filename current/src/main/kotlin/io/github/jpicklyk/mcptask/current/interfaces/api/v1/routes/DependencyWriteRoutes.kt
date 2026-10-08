@@ -1,16 +1,16 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.EventActor
-import io.github.jpicklyk.mcptask.current.application.support.UnscopedUnitOfWork
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.validation.DuplicateDependencyException
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -32,7 +32,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import org.slf4j.LoggerFactory
-import java.time.Instant
 import java.util.UUID
 
 private val depWriteLogger = LoggerFactory.getLogger("DependencyWriteRoutes")
@@ -66,7 +65,7 @@ private val JSON_WRITE_CONTENT_TYPES = setOf("application/json", "*/*")
 fun Route.dependencyWriteRoutes(
     repositoryProvider: RepositoryProvider,
     @Suppress("UNUSED_PARAMETER") degradedModePolicy: DegradedModePolicy,
-    unitOfWork: UnitOfWork = UnscopedUnitOfWork(repositoryProvider, Clock { Instant.now() }),
+    unitOfWork: UnitOfWork,
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
     val depRepo = repositoryProvider.dependencyRepository()
@@ -106,12 +105,12 @@ fun Route.dependencyWriteRoutes(
                 }
 
             val fromId =
-                runCatching { UUID.fromString(dto.fromItemId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(dto.fromItemId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", "Invalid fromItemId UUID"))
                     return@post
                 }
             val toId =
-                runCatching { UUID.fromString(dto.toItemId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(dto.toItemId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", "Invalid toItemId UUID"))
                     return@post
                 }
@@ -143,13 +142,21 @@ fun Route.dependencyWriteRoutes(
             }
 
             // Verify both items exist and are in scope
-            val fromResult = workItemRepo.getById(fromId)
-            if (fromResult is Result.Error) {
+            val fromResult =
+                legacyRead({
+                    call.respondDbError()
+                    return@post
+                }) { workItemRepo.getById(fromId) }
+            if (fromResult == null) {
                 call.respond(HttpStatusCode.BadRequest, ErrorDto("not_found", "fromItemId $fromId not found"))
                 return@post
             }
-            val toResult = workItemRepo.getById(toId)
-            if (toResult is Result.Error) {
+            val toResult =
+                legacyRead({
+                    call.respondDbError()
+                    return@post
+                }) { workItemRepo.getById(toId) }
+            if (toResult == null) {
                 call.respond(HttpStatusCode.BadRequest, ErrorDto("not_found", "toItemId $toId not found"))
                 return@post
             }
@@ -173,6 +180,7 @@ fun Route.dependencyWriteRoutes(
                         unblockAt = dto.unblockAt,
                     )
                 } catch (e: Exception) {
+                    e.rethrowIfCancellation()
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", e.message ?: "Validation failed"))
                     return@post
                 }
@@ -235,12 +243,16 @@ fun Route.dependencyWriteRoutes(
                     return@delete
                 }
             val id =
-                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
                     return@delete
                 }
 
-            val existing: Dependency? = withContext(Dispatchers.IO) { depRepo.findById(id) }
+            val existing: Dependency? =
+                legacyRead({
+                    call.respondDbError()
+                    return@delete
+                }) { withContext(Dispatchers.IO) { depRepo.findById(id) } }
             if (existing == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Dependency $id not found"))
                 return@delete
@@ -260,10 +272,21 @@ fun Route.dependencyWriteRoutes(
                 return@delete
             }
 
-            val deleted: Boolean =
+            val deleteOutcome =
                 withContext(
                     Dispatchers.IO + EventActor(ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey]))
-                ) { depRepo.delete(id) }
+                ) { unitOfWork.write("dependency.delete") { Outcome.Ok(depRepo.delete(id)) } }
+            val deleted: Boolean =
+                when (deleteOutcome) {
+                    is Outcome.Ok -> deleteOutcome.value
+                    is Outcome.Err -> {
+                        // The legacy write-fault shape (F4): 500 db_error with the route's fixed text; the SQL text
+                        // goes to the log only.
+                        depWriteLogger.warn("DELETE /dependencies/{} DB error: {}", id, deleteOutcome.error.message)
+                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to delete dependency"))
+                        return@delete
+                    }
+                }
             if (!deleted) {
                 depWriteLogger.warn("DELETE /dependencies/{} returned false (race?)", id)
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Dependency $id not found or already deleted"))

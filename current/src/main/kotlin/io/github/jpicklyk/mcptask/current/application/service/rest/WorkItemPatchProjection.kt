@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service.rest
 
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
@@ -75,7 +76,7 @@ object WorkItemPatchProjection {
             // sub-object when the patch for "properties" is a JsonObject.
             if (item.properties != null) {
                 val parsed =
-                    runCatching {
+                    runCatchingNonCancellation {
                         lenientJson.parseToJsonElement(item.properties).jsonObject
                     }.getOrNull()
                 if (parsed != null) {

@@ -87,8 +87,7 @@ class SeatPerRootResolverTest {
         runBlocking {
             composition.toolContext.repositoryProvider
                 .workItemRepository()
-                .create(WorkItem(title = title, type = "project", depth = 0))
-                .getOrNull()!!
+                .create(WorkItem(title = title, type = "project", depth = 0))!!
                 .id
         }
 
@@ -101,7 +100,7 @@ class SeatPerRootResolverTest {
             composition.toolContext.repositoryProvider
                 .projectConfigRepository()
                 .upsert(rootId, yaml)
-                .getOrNull() ?: error("fixture: per-root push failed for $rootId")
+                ?: error("fixture: per-root push failed for $rootId")
         }
     }
 
@@ -125,7 +124,7 @@ class SeatPerRootResolverTest {
                         depth = 1,
                         properties = properties,
                     ),
-                ).getOrNull()!!
+                )!!
         }
 
     private fun schemaByType(

@@ -13,9 +13,9 @@ import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
 import io.mockk.Called
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -56,12 +56,9 @@ class AdvanceServiceLeaseGateTest {
         leaseRepo = mockk()
 
         coEvery { workItemRepo.dbNow() } returns Instant.now()
-        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
-        }
-        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
-        coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.update(any()) } answers { firstArg() }
+        coEvery { roleTransitionRepo.create(any()) } returns mockk()
+        coEvery { noteRepo.findByItemId(any()) } returns emptyList()
         every { depRepo.findByToItemId(any()) } returns emptyList()
         every { depRepo.findByFromItemId(any()) } returns emptyList()
 
@@ -111,13 +108,14 @@ class AdvanceServiceLeaseGateTest {
                 requirementsByItem?.get(item.id) ?: requirements
             },
             resourceRegistryResolver = { registry },
-            resourceLeasesEnforced = resourceLeasesEnforced
+            resourceLeasesEnforced = resourceLeasesEnforced,
+            unitOfWork = unscopedUnitOfWork()
         )
 
     /** Captures the [RoleTransition] audit row written by the primary transition. */
     private fun captureTransition(): io.mockk.CapturingSlot<RoleTransition> {
         val slot = slot<RoleTransition>()
-        coEvery { roleTransitionRepo.create(capture(slot)) } returns Result.Success(mockk())
+        coEvery { roleTransitionRepo.create(capture(slot)) } returns mockk()
         return slot
     }
 
@@ -251,8 +249,7 @@ class AdvanceServiceLeaseGateTest {
     fun `lease store DBError is surfaced as a transient rejection with the default backoff`(): Unit =
         runBlocking {
             val item = makeItem(role = Role.QUEUE)
-            coEvery { leaseRepo.acquireAll(any(), any(), any()) } returns
-                LeaseAcquireResult.DBError(IllegalStateException("SQLITE_BUSY_SNAPSHOT"))
+            coEvery { leaseRepo.acquireAll(any(), any(), any()) } throws IllegalStateException("SQLITE_BUSY_SNAPSHOT")
 
             val outcome =
                 serviceWith(requirements = listOf(exclusive("staging-db"))).advance(
@@ -578,8 +575,7 @@ class AdvanceServiceLeaseGateTest {
     fun `a release DBError is logged and does NOT fail the transition`(): Unit =
         runBlocking {
             val item = makeItem(role = Role.WORK)
-            coEvery { leaseRepo.releaseAllForItem(any()) } returns
-                LeaseReleaseResult.DBError(IllegalStateException("db down"))
+            coEvery { leaseRepo.releaseAllForItem(any()) } throws IllegalStateException("db down")
 
             val outcome =
                 serviceWith().advance(item, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
@@ -600,7 +596,7 @@ class AdvanceServiceLeaseGateTest {
             val parent = makeItem(id = parentId, role = Role.QUEUE, title = "Parent")
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(parentId) } returns parent
             // The child declares nothing; the parent needs an exclusive resource that is taken.
             coEvery { leaseRepo.acquireAll(parentId, any(), any()) } returns
                 LeaseAcquireResult.Contended(listOf("staging-db"), retryAfterMs = 5_000)
@@ -627,7 +623,7 @@ class AdvanceServiceLeaseGateTest {
             val parent = makeItem(id = parentId, role = Role.QUEUE, title = "Parent")
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(parentId) } returns parent
 
             val outcome =
                 serviceWith(
@@ -649,7 +645,7 @@ class AdvanceServiceLeaseGateTest {
             val parent = makeItem(id = parentId, role = Role.QUEUE, title = "Parent")
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(parentId) } returns parent
 
             val outcome =
                 serviceWith(

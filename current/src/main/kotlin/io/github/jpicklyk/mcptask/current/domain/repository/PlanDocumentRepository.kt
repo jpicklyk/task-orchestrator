@@ -57,13 +57,13 @@ interface PlanDocumentRepository {
         rootItemId: UUID,
         slug: String,
         body: String
-    ): Result<PlanDocumentStashOutcome>
+    ): PlanDocumentStashOutcome
 
     /** Returns the full stored document (including body) for `(rootItemId, slug)`, or null if none exists. */
     suspend fun get(
         rootItemId: UUID,
         slug: String
-    ): Result<PlanDocument?>
+    ): PlanDocument?
 
     /**
      * Returns metadata-only summaries (no body) for every document under [rootItemId], optionally
@@ -72,7 +72,7 @@ interface PlanDocumentRepository {
     suspend fun list(
         rootItemId: UUID,
         status: PlanDocumentStatus? = null
-    ): Result<List<PlanDocumentSummary>>
+    ): List<PlanDocumentSummary>
 
     /**
      * Transitions the document at `(rootItemId, slug)` from PENDING to ADOPTED, recording
@@ -84,7 +84,7 @@ interface PlanDocumentRepository {
         rootItemId: UUID,
         slug: String,
         adoptedByItemId: UUID
-    ): Result<PlanDocumentAdoptOutcome>
+    ): PlanDocumentAdoptOutcome
 
     /**
      * Computes the SHA-256 hex digest of [body]'s UTF-8 bytes — the exact algorithm [stash] uses

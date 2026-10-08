@@ -73,7 +73,7 @@ class ItemGateRouteTest {
             val svc = GateFixtureSchemaService()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Gate S1", type = "gt", role = Role.WORK, depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Gate S1", type = "gt", role = Role.WORK, depth = 0))!!
                 }
             application { configureGateApp(repo, svc) }
 
@@ -114,8 +114,7 @@ class ItemGateRouteTest {
                     val i =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "Gate S2", type = "gt", role = Role.WORK, depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "Gate S2", type = "gt", role = Role.WORK, depth = 0))!!
                     repo.noteRepository().upsert(Note(itemId = i.id, key = "w1", role = "work", body = "done"))
                     i
                 }
@@ -153,8 +152,7 @@ class ItemGateRouteTest {
                 runBlocking {
                     repo
                         .workItemRepository()
-                        .create(WorkItem(title = "Gate S4", type = "gt", role = Role.TERMINAL, depth = 0))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "Gate S4", type = "gt", role = Role.TERMINAL, depth = 0))!!
                 }
             application { configureGateApp(repo, svc) }
 
@@ -188,8 +186,7 @@ class ItemGateRouteTest {
                 runBlocking {
                     repo
                         .workItemRepository()
-                        .create(WorkItem(title = "Gate S5", type = "free", role = Role.WORK, depth = 0))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "Gate S5", type = "free", role = Role.WORK, depth = 0))!!
                 }
             application { configureGateApp(repo, svc) }
 
@@ -224,8 +221,7 @@ class ItemGateRouteTest {
                     val i =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "Gate S6", type = "gt", role = Role.WORK, depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "Gate S6", type = "gt", role = Role.WORK, depth = 0))!!
                     repo.noteRepository().upsert(Note(itemId = i.id, key = "w1", role = "work", body = "   "))
                     i
                 }
@@ -260,8 +256,7 @@ class ItemGateRouteTest {
                     val i =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "Gate S7", type = "gt", role = Role.WORK, depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "Gate S7", type = "gt", role = Role.WORK, depth = 0))!!
                     repo.noteRepository().upsert(Note(itemId = i.id, key = "w1", role = "work", body = "done"))
                     // q1 (queue, required) and wo (work, optional) are deliberately left absent.
                     i
@@ -301,7 +296,7 @@ class ItemGateRouteTest {
                                     depth = 0,
                                     properties = """{"traits": ["tr"]}""",
                                 ),
-                            ).getOrNull()!!
+                            )!!
                     repo.noteRepository().upsert(Note(itemId = i.id, key = "w1", role = "work", body = "done"))
                     i
                 }
@@ -334,7 +329,7 @@ class ItemGateRouteTest {
             val (root, item) =
                 runBlocking {
                     val r =
-                        repo.workItemRepository().create(WorkItem(title = "Gate S9 Root", depth = 0)).getOrNull()!!
+                        repo.workItemRepository().create(WorkItem(title = "Gate S9 Root", depth = 0))!!
                     val i =
                         repo
                             .workItemRepository()
@@ -347,7 +342,7 @@ class ItemGateRouteTest {
                                     rootId = r.id,
                                     depth = 1,
                                 ),
-                            ).getOrNull()!!
+                            )!!
                     val yaml =
                         """
                         work_item_schemas:
@@ -358,7 +353,7 @@ class ItemGateRouteTest {
                                 required: true
                                 description: "Per-root required note"
                         """.trimIndent()
-                    repo.projectConfigRepository().upsert(r.id, yaml).getOrNull()
+                    repo.projectConfigRepository().upsert(r.id, yaml)
                         ?: error("fixture: per-root config upsert failed")
                     r to i
                 }
@@ -422,7 +417,7 @@ class ItemGateRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Gate S11b", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Gate S11b", depth = 0))!!
                 }
             application { configureGateApp(repo) }
 
@@ -447,7 +442,7 @@ class ItemGateRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Gate S12", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Gate S12", depth = 0))!!
                 }
             application { configureGateApp(repo) }
 
@@ -461,7 +456,7 @@ class ItemGateRouteTest {
             val repo = db.repositoryProvider()
             val outsideScopeItem =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Gate S13", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Gate S13", depth = 0))!!
                 }
             val authConfig = makeTestAuthConfig(scopeRootIds = setOf(UUID.randomUUID()))
             application { configureGateApp(repo, authConfig = authConfig) }
@@ -480,7 +475,7 @@ class ItemGateRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Gate S14", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Gate S14", depth = 0))!!
                 }
             val notesOnlyToken = "notes-only-token-for-gate-test"
             val principal =
@@ -512,8 +507,7 @@ class ItemGateRouteTest {
                 runBlocking {
                     repo
                         .workItemRepository()
-                        .create(WorkItem(title = "Gate S15", type = "gt", role = Role.WORK, depth = 0))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "Gate S15", type = "gt", role = Role.WORK, depth = 0))!!
                 }
             val authConfig = makeTestAuthConfig()
             val tokenEntries = authConfig.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) }
@@ -574,15 +568,14 @@ class ItemGateRouteTest {
                     val i =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "Gate S16", type = "gt", role = Role.WORK, depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "Gate S16", type = "gt", role = Role.WORK, depth = 0))!!
                     repo.noteRepository().upsert(Note(itemId = i.id, key = "w1", role = "work", body = "done"))
                     i
                 }
             application { configureGateApp(repo, svc) }
 
-            val before = runBlocking { repo.workItemRepository().getById(item.id).getOrNull()!! }
-            val notesBefore = runBlocking { repo.noteRepository().findByItemId(item.id).getOrNull()!! }
+            val before = runBlocking { repo.workItemRepository().getById(item.id)!! }
+            val notesBefore = runBlocking { repo.noteRepository().findByItemId(item.id) }
 
             val response =
                 client.get("/api/v1/items/${item.id}/gate") {
@@ -590,8 +583,8 @@ class ItemGateRouteTest {
                 }
             assertEquals(HttpStatusCode.OK, response.status)
 
-            val after = runBlocking { repo.workItemRepository().getById(item.id).getOrNull()!! }
-            val notesAfter = runBlocking { repo.noteRepository().findByItemId(item.id).getOrNull()!! }
+            val after = runBlocking { repo.workItemRepository().getById(item.id)!! }
+            val notesAfter = runBlocking { repo.noteRepository().findByItemId(item.id) }
 
             assertEquals(before.role, after.role)
             assertEquals(before.modifiedAt, after.modifiedAt, "GET /gate must not touch modifiedAt")
@@ -611,8 +604,7 @@ class ItemGateRouteTest {
                     val i =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "Gate P1", type = "gt", role = Role.WORK, depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "Gate P1", type = "gt", role = Role.WORK, depth = 0))!!
                     repo.noteRepository().upsert(Note(itemId = i.id, key = "w1", role = "work", body = "done"))
                     i
                 }
@@ -668,8 +660,7 @@ class ItemGateRouteTest {
                 runBlocking {
                     repo
                         .workItemRepository()
-                        .create(WorkItem(title = "Gate P2P3", type = "probe-guidance", role = Role.WORK, depth = 0))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "Gate P2P3", type = "probe-guidance", role = Role.WORK, depth = 0))!!
                 }
             application { configureGateApp(repo, svc) }
 
@@ -703,7 +694,7 @@ class ItemGateRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Gate P4", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Gate P4", depth = 0))!!
                 }
             application { configureGateApp(repo) }
 
@@ -725,8 +716,7 @@ class ItemGateRouteTest {
                 runBlocking {
                     repo
                         .workItemRepository()
-                        .create(WorkItem(title = "Gate P5", type = "gt", role = Role.BLOCKED, depth = 0))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "Gate P5", type = "gt", role = Role.BLOCKED, depth = 0))!!
                 }
             application { configureGateApp(repo, svc) }
 
@@ -770,7 +760,12 @@ class ItemGateRouteTest {
         itemId: UUID,
     ): JsonObject {
         val context =
-            ToolExecutionContext(repo, schemaService, perRootConfigService = PerRootConfigService(repo.projectConfigRepository()))
+            ToolExecutionContext(
+                repo,
+                schemaService,
+                perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
+                unitOfWork = db.unitOfWork()
+            )
         val params = JsonObject(mapOf("itemId" to JsonPrimitive(itemId.toString())))
         val result = runBlocking { GetContextTool().execute(params, context) }
         return (result as JsonObject)["data"] as JsonObject

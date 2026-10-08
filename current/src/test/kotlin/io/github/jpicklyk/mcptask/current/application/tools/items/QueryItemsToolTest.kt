@@ -11,7 +11,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
@@ -45,7 +44,7 @@ class QueryItemsToolTest {
     fun setUp() {
         database = db.database
         repositoryProvider = db.repositoryProvider()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         tool = QueryItemsTool()
         manageTool = ManageItemsTool()
         advanceTool = AdvanceItemTool()
@@ -2023,7 +2022,7 @@ class QueryItemsToolTest {
     @Test
     fun `schema operation by type returns full entries and fingerprint`(): Unit =
         runBlocking {
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp())
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), unitOfWork = db.unitOfWork())
 
             val result =
                 tool.execute(
@@ -2060,7 +2059,7 @@ class QueryItemsToolTest {
     @Test
     fun `schema operation by itemId resolves schema via item tags`(): Unit =
         runBlocking {
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp())
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), unitOfWork = db.unitOfWork())
             val itemId = createItem("Tagged item", tags = "feature-task")
 
             val result =
@@ -2083,7 +2082,7 @@ class QueryItemsToolTest {
     @Test
     fun `schema operation fingerprint is stable across calls`(): Unit =
         runBlocking {
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp())
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), unitOfWork = db.unitOfWork())
             val schemaParams =
                 params(
                     "operation" to JsonPrimitive("schema"),
@@ -2102,7 +2101,7 @@ class QueryItemsToolTest {
     @Test
     fun `schema operation with unknown type returns error`(): Unit =
         runBlocking {
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp())
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), unitOfWork = db.unitOfWork())
 
             val result =
                 tool.execute(
@@ -2119,7 +2118,7 @@ class QueryItemsToolTest {
     @Test
     fun `schema operation for schema-free item returns error`(): Unit =
         runBlocking {
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp())
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), unitOfWork = db.unitOfWork())
             val itemId = createItem("Untagged item")
 
             val result =
@@ -2137,7 +2136,8 @@ class QueryItemsToolTest {
     @Test
     fun `schema operation null fingerprint serializes as JsonNull`(): Unit =
         runBlocking {
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(fingerprint = null))
+            val schemaContext =
+                ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(fingerprint = null), unitOfWork = db.unitOfWork())
 
             val result =
                 tool.execute(
@@ -2180,7 +2180,7 @@ class QueryItemsToolTest {
 
                     override fun getSchemaForType(type: String?): WorkItemSchema? = if (type == "limited-task") schema else null
                 }
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaService)
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaService, unitOfWork = db.unitOfWork())
 
             val result =
                 tool.execute(
@@ -2246,7 +2246,13 @@ class QueryItemsToolTest {
                     source = ConfigSource.PER_ROOT,
                 )
 
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), perRootConfigService = perRoot)
+            val schemaContext =
+                ToolExecutionContext(
+                    repositoryProvider,
+                    schemaServiceForSchemaOp(),
+                    perRootConfigService = perRoot,
+                    unitOfWork = db.unitOfWork()
+                )
 
             val result =
                 tool.execute(
@@ -2291,7 +2297,13 @@ class QueryItemsToolTest {
                     source = ConfigSource.PER_ROOT,
                 )
 
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), perRootConfigService = perRoot)
+            val schemaContext =
+                ToolExecutionContext(
+                    repositoryProvider,
+                    schemaServiceForSchemaOp(),
+                    perRootConfigService = perRoot,
+                    unitOfWork = db.unitOfWork()
+                )
 
             val result =
                 tool.execute(
@@ -2317,7 +2329,13 @@ class QueryItemsToolTest {
             val perRoot = mockk<PerRootConfigService>()
             coEvery { perRoot.layer(rootId) } returns null
 
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), perRootConfigService = perRoot)
+            val schemaContext =
+                ToolExecutionContext(
+                    repositoryProvider,
+                    schemaServiceForSchemaOp(),
+                    perRootConfigService = perRoot,
+                    unitOfWork = db.unitOfWork()
+                )
 
             val result =
                 tool.execute(
@@ -2339,7 +2357,7 @@ class QueryItemsToolTest {
     @Test
     fun `schema operation with type and no rootId is unchanged global behavior`(): Unit =
         runBlocking {
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp())
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), unitOfWork = db.unitOfWork())
 
             val result =
                 tool.execute(
@@ -2385,7 +2403,13 @@ class QueryItemsToolTest {
                     source = ConfigSource.PER_ROOT,
                 )
 
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), perRootConfigService = perRoot)
+            val schemaContext =
+                ToolExecutionContext(
+                    repositoryProvider,
+                    schemaServiceForSchemaOp(),
+                    perRootConfigService = perRoot,
+                    unitOfWork = db.unitOfWork()
+                )
 
             val result =
                 tool.execute(
@@ -2417,10 +2441,16 @@ class QueryItemsToolTest {
                     rootId = null
                 )
             val created = context.workItemRepository().create(legacyItem)
-            assertTrue(created is Result.Success)
+            assertNotNull(created)
 
             val perRoot = mockk<PerRootConfigService>()
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), perRootConfigService = perRoot)
+            val schemaContext =
+                ToolExecutionContext(
+                    repositoryProvider,
+                    schemaServiceForSchemaOp(),
+                    perRootConfigService = perRoot,
+                    unitOfWork = db.unitOfWork()
+                )
 
             val result =
                 tool.execute(

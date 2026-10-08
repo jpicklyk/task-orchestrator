@@ -3,8 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.tools.notes
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -97,7 +95,7 @@ class ManageNotesConfigUnavailableTest {
     ): UUID {
         val item = WorkItem(title = title, rootId = rootId)
         val result = repositoryProvider.workItemRepository().create(item)
-        return (result as Result.Success).data.id
+        return result.id
     }
 
     private fun noteObj(
@@ -165,11 +163,11 @@ class ManageNotesConfigUnavailableTest {
             assertEquals("note-b", storedB["key"]?.jsonPrimitive?.content)
 
             // (2) nothing persisted for the failed note.
-            val notesForA = (repositoryProvider.noteRepository().findByItemId(itemA) as Result.Success).data
+            val notesForA = (repositoryProvider.noteRepository().findByItemId(itemA)!!)
             assertTrue(notesForA.isEmpty(), "D10: nothing is stored for the note that failed schema/limits resolution")
 
             // (3) the rootId-less note really landed in the repository, not just in the response.
-            val notesForB = (repositoryProvider.noteRepository().findByItemId(itemB) as Result.Success).data
+            val notesForB = (repositoryProvider.noteRepository().findByItemId(itemB)!!)
             assertEquals(1, notesForB.size)
             assertEquals("note-b", notesForB[0].key)
             assertEquals("Body B", notesForB[0].body)
@@ -206,14 +204,14 @@ class ManageNotesConfigUnavailableTest {
             assertEquals("transient", failure["errorKind"]?.jsonPrimitive?.content)
             assertEquals("config_unavailable", failure["errorCode"]?.jsonPrimitive?.content)
 
-            val notesForA = (repositoryProvider.noteRepository().findByItemId(itemA) as Result.Success).data
+            val notesForA = (repositoryProvider.noteRepository().findByItemId(itemA)!!)
             assertTrue(notesForA.isEmpty(), "the single failed note must not be persisted")
         }
 }
 
 /**
  * Wraps a real [ProjectConfigRepository] and lets tests force [get]/[getFingerprint] to return
- * `Result.Error(RepositoryError.DatabaseError("x"))` on demand. Own copy for this file — see the
+ * `throw IllegalStateException("x")` on demand. Own copy for this file — see the
  * identical class in the sibling config-unavailable test files for the full rationale (no shared
  * harness file per this item's file-ownership rule).
  */
@@ -225,7 +223,7 @@ private class FailableProjectConfigRepository(
     @Volatile var failGet: Boolean = false
 
     override suspend fun getFingerprint(rootItemId: UUID) =
-        if (failFingerprint) Result.Error(RepositoryError.DatabaseError("x")) else delegate.getFingerprint(rootItemId)
+        if (failFingerprint) throw IllegalStateException("x") else delegate.getFingerprint(rootItemId)
 
-    override suspend fun get(rootItemId: UUID) = if (failGet) Result.Error(RepositoryError.DatabaseError("x")) else delegate.get(rootItemId)
+    override suspend fun get(rootItemId: UUID) = if (failGet) throw IllegalStateException("x") else delegate.get(rootItemId)
 }

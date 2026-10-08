@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotes
 import io.github.jpicklyk.mcptask.current.application.service.buildMissingBySeatJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
+import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
@@ -20,7 +21,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.github.jpicklyk.mcptask.current.domain.model.UserTrigger
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.runBlocking
@@ -594,19 +594,16 @@ Call to move an item between phases once its work is done — never edit status 
         // Fetch the WorkItem
         val itemResult = context.workItemRepository().getById(itemId)
         val item =
-            when (itemResult) {
-                is Result.Success -> itemResult.data
-                is Result.Error -> {
-                    return PreCheckResult.Failed(
-                        buildErrorResult(
-                            itemId,
-                            trigger,
-                            "WorkItem not found: $itemId",
-                            errorCode = ITEM_NOT_FOUND,
-                            errorKind = ErrorKind.PERMANENT
-                        )
+            itemResult ?: run {
+                return PreCheckResult.Failed(
+                    buildErrorResult(
+                        itemId,
+                        trigger,
+                        "WorkItem not found: $itemId",
+                        errorCode = ITEM_NOT_FOUND,
+                        errorKind = ErrorKind.PERMANENT
                     )
-                }
+                )
             }
 
         return PreCheckResult.Ready(trigger, summary, credentialRefs, actorClaim, verification, item)
@@ -701,10 +698,7 @@ Call to move an item between phases once its work is done — never edit status 
             noteProgress = null
         } else {
             val existingNotes =
-                when (val notesResult = context.noteRepository().findByItemId(item.id)) {
-                    is Result.Success -> notesResult.data
-                    is Result.Error -> emptyList()
-                }
+                (legacyReadOrNull { context.noteRepository().findByItemId(item.id) } ?: emptyList())
             val notesByKey = existingNotes.associateBy { it.key }
             val existingKeys = notesByKey.keys
 

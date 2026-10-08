@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItem
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -93,7 +92,7 @@ class RequestIdValidationTest {
         title: String
     ): UUID {
         val result = context.workItemRepository().create(WorkItem(title = title))
-        return (result as Result.Success).data.id
+        return result.id
     }
 
     /** Returns a copy of this object with `requestId` replaced (or removed, if [value] is null). */
@@ -122,7 +121,7 @@ class RequestIdValidationTest {
     private fun toolCases(): List<ToolCase> =
         listOf(
             ToolCase("manage_items", ManageItemsTool()) { context, actorId ->
-                val baseline = (context.workItemRepository().findRootItems() as Result.Success).data.items.size
+                val baseline = (context.workItemRepository().findRootItems()!!).items.size
                 val params =
                     buildJsonObject {
                         put("operation", JsonPrimitive("create"))
@@ -135,7 +134,7 @@ class RequestIdValidationTest {
                         put("actor", actorJson(actorId))
                     }
                 val check: suspend () -> Boolean = {
-                    val count = (context.workItemRepository().findRootItems() as Result.Success).data.items.size
+                    val count = (context.workItemRepository().findRootItems()!!).items.size
                     count > baseline
                 }
                 params to check
@@ -162,7 +161,7 @@ class RequestIdValidationTest {
                     }
                 val check: suspend () -> Boolean = {
                     val notes = context.noteRepository().findByItemId(itemId)
-                    (notes as? Result.Success)?.data?.isNotEmpty() == true
+                    notes?.isNotEmpty() == true
                 }
                 params to check
             },
@@ -209,7 +208,7 @@ class RequestIdValidationTest {
                     }
                 val check: suspend () -> Boolean = {
                     val res = context.workItemRepository().getById(itemId)
-                    (res as? Result.Success)?.data?.role != Role.QUEUE
+                    res?.role != Role.QUEUE
                 }
                 params to check
             },
@@ -223,19 +222,19 @@ class RequestIdValidationTest {
                     }
                 val check: suspend () -> Boolean = {
                     val res = context.workItemRepository().getById(itemId)
-                    (res as? Result.Success)?.data?.role != Role.QUEUE
+                    res?.role != Role.QUEUE
                 }
                 params to check
             },
             ToolCase("create_work_tree", CreateWorkTreeTool()) { context, actorId ->
-                val baseline = (context.workItemRepository().findRootItems() as Result.Success).data.items.size
+                val baseline = (context.workItemRepository().findRootItems()!!).items.size
                 val params =
                     buildJsonObject {
                         put("root", buildJsonObject { put("title", JsonPrimitive("Tree Root ${UUID.randomUUID()}")) })
                         put("actor", actorJson(actorId))
                     }
                 val check: suspend () -> Boolean = {
-                    val count = (context.workItemRepository().findRootItems() as Result.Success).data.items.size
+                    val count = (context.workItemRepository().findRootItems()!!).items.size
                     count > baseline
                 }
                 params to check
@@ -343,7 +342,7 @@ class RequestIdValidationTest {
                     case.tool.execute(params, context)
                     case.tool.execute(params, context)
 
-                    val allItems = (context.workItemRepository().findRootItems() as Result.Success).data.items
+                    val allItems = (context.workItemRepository().findRootItems()!!).items
                     assertEquals(
                         2,
                         allItems.size,
@@ -388,7 +387,7 @@ class RequestIdValidationTest {
             case.tool.execute(params, context)
             case.tool.execute(params, context)
 
-            val allItems = (context.workItemRepository().findRootItems() as Result.Success).data.items
+            val allItems = (context.workItemRepository().findRootItems()!!).items
             assertEquals(
                 2,
                 allItems.size,

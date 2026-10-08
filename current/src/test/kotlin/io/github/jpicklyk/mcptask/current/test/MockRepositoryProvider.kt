@@ -13,7 +13,6 @@ import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -46,13 +45,9 @@ class MockRepositoryProvider {
         every { provider.workTreeExecutor() } returns workTreeExecutor
         // Default: workItemRepo.dbNow() returns JVM time (suitable for tests not exercising clock skew)
         coEvery { workItemRepo.dbNow() } returns Instant.now()
-        // Default: inTransaction delegates to its block directly — no real DB transaction in unit tests
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
-        }
         // Default: noteRepo returns empty lists for any query
-        coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
-        coEvery { noteRepo.findByItemId(any(), any()) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemId(any()) } returns emptyList()
+        coEvery { noteRepo.findByItemId(any(), any()) } returns emptyList()
     }
 
     /** Build a ToolExecutionContext with optional schema, status label, and actor verifier services. */

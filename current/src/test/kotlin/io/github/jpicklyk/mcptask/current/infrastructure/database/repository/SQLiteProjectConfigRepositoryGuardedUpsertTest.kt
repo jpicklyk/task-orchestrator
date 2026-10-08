@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.database.repository
 import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
 import io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
@@ -19,6 +18,7 @@ import kotlin.concurrent.thread
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 
 /**
  * Guarded compare-and-set upsert tests for item `fab1b3ea` ("Move the project-config fingerprint
@@ -68,8 +68,8 @@ class SQLiteProjectConfigRepositoryGuardedUpsertTest {
 
     private suspend fun createRoot(workItemRepository: SQLiteWorkItemRepository): UUID {
         val created = workItemRepository.create(WorkItem(title = "Project Root", type = "project"))
-        assertIs<Result.Success<WorkItem>>(created)
-        return created.data.id
+        assertNotNull(created)
+        return created.id
     }
 
     // ──────────────────────────────────────────────
@@ -87,18 +87,18 @@ class SQLiteProjectConfigRepositoryGuardedUpsertTest {
 
         val yamlA = "work_item_schemas:\n  a: {}\n"
         val yamlB = "work_item_schemas:\n  b: {}\n"
-        val fpA = (repo.upsert(rootId, yamlA) as Result.Success).data.fingerprint
+        val fpA = repo.upsert(rootId, yamlA).fingerprint
 
         val result = repo.upsertGuarded(rootId, yamlB, expectedFingerprint = fpA)
 
-        assertIs<Result.Success<GuardedUpsertOutcome>>(result)
-        val outcome = result.data
+        assertNotNull(result)
+        val outcome = result
         assertIs<GuardedUpsertOutcome.Applied>(outcome)
         assertEquals(yamlB, outcome.config.configYaml)
 
         assertEquals(
             FingerprintRelation.SUPERSEDED,
-            (repo.classifyFingerprint(rootId, fpA) as Result.Success).data,
+            repo.classifyFingerprint(rootId, fpA),
             "the replaced fingerprint must now classify as SUPERSEDED",
         )
     }
@@ -117,8 +117,8 @@ class SQLiteProjectConfigRepositoryGuardedUpsertTest {
         // exists yet (per the upsertGuarded KDoc: "IGNORED when no row exists yet").
         val result = repo.upsertGuarded(rootId, yaml, expectedFingerprint = "0".repeat(64))
 
-        assertIs<Result.Success<GuardedUpsertOutcome>>(result)
-        val outcome = result.data
+        assertNotNull(result)
+        val outcome = result
         assertIs<GuardedUpsertOutcome.Applied>(outcome)
         assertEquals(yaml, outcome.config.configYaml)
     }
@@ -140,12 +140,12 @@ class SQLiteProjectConfigRepositoryGuardedUpsertTest {
         val yamlA = "work_item_schemas:\n  a: {}\n"
         val yamlB = "work_item_schemas:\n  b: {}\n"
         val yamlC = "work_item_schemas:\n  c: {}\n"
-        val fpA = (plainRepo.upsert(rootId, yamlA) as Result.Success).data.fingerprint
+        val fpA = plainRepo.upsert(rootId, yamlA).fingerprint
 
         val competingRepo = SQLiteProjectConfigRepository(manager)
         val fired = AtomicBoolean(false)
         var competingThread: Thread? = null
-        var competingResult: Result<GuardedUpsertOutcome>? = null
+        var competingResult: GuardedUpsertOutcome? = null
         val repoX =
             SQLiteProjectConfigRepository(manager) { rid ->
                 // Fire only on the FIRST guard-read (retries must not re-trigger a nested race).
@@ -167,25 +167,25 @@ class SQLiteProjectConfigRepositoryGuardedUpsertTest {
         val result = repoX.upsertGuarded(rootId, yamlB, expectedFingerprint = fpA)
         competingThread?.join()
 
-        assertIs<Result.Success<GuardedUpsertOutcome>>(result)
-        val outcome = result.data
+        assertNotNull(result)
+        val outcome = result
         assertIs<GuardedUpsertOutcome.Applied>(outcome, "X holds the write lock from BEGIN under IMMEDIATE, so X always wins")
         assertEquals(yamlB, outcome.config.configYaml)
 
         val fpB = plainRepo.computeFingerprint(yamlB)
         val loserOutcome = competingResult
-        assertIs<Result.Success<GuardedUpsertOutcome>>(loserOutcome, "the late competitor must still complete")
-        val loserData = loserOutcome.data
+        assertNotNull(loserOutcome, "the late competitor must still complete")
+        val loserData = loserOutcome
         assertIs<GuardedUpsertOutcome.PreconditionFailed>(loserData)
         assertEquals(fpB, loserData.currentFingerprint, "the competitor must be told B's fingerprint — X's (the winner's) row")
 
-        val stored = (plainRepo.get(rootId) as Result.Success).data
+        val stored = plainRepo.get(rootId)
         assertEquals(yamlB, stored?.configYaml, "B (X's, the winner's content) must be the row actually stored")
 
         val fpC = plainRepo.computeFingerprint(yamlC)
         assertEquals(
             FingerprintRelation.UNKNOWN,
-            (plainRepo.classifyFingerprint(rootId, fpC) as Result.Success).data,
+            plainRepo.classifyFingerprint(rootId, fpC),
             "C (the competitor's rejected content) was never written, so it must not appear in history either",
         )
     }
@@ -211,7 +211,7 @@ class SQLiteProjectConfigRepositoryGuardedUpsertTest {
         val competingRepo = SQLiteProjectConfigRepository(manager)
         val fired = AtomicBoolean(false)
         var competingThread: Thread? = null
-        var competingResult: Result<GuardedUpsertOutcome>? = null
+        var competingResult: GuardedUpsertOutcome? = null
         val repoX =
             SQLiteProjectConfigRepository(manager) { rid ->
                 // See S3's comment: start the competitor but join it only after X returns, so it
@@ -232,17 +232,17 @@ class SQLiteProjectConfigRepositoryGuardedUpsertTest {
         val result = repoX.upsertGuarded(rootId, yamlB)
         competingThread?.join()
 
-        assertIs<Result.Success<GuardedUpsertOutcome>>(result)
-        val outcome = result.data
+        assertNotNull(result)
+        val outcome = result
         assertIs<GuardedUpsertOutcome.Applied>(outcome, "X holds the write lock from BEGIN under IMMEDIATE, so X always wins")
         assertEquals(yamlB, outcome.config.configYaml)
 
-        val stored = (plainRepo.get(rootId) as Result.Success).data
+        val stored = plainRepo.get(rootId)
         assertEquals(yamlB, stored?.configYaml, "B (X's, the winner's content) must be the row actually stored")
 
         val loserOutcome = competingResult
-        assertIs<Result.Success<GuardedUpsertOutcome>>(loserOutcome, "the late competitor must still complete")
-        val loserData = loserOutcome.data
+        assertNotNull(loserOutcome, "the late competitor must still complete")
+        val loserData = loserOutcome
         assertIs<GuardedUpsertOutcome.Superseded>(loserData)
         assertEquals(
             stored?.updatedAt,
@@ -273,7 +273,7 @@ class SQLiteProjectConfigRepositoryGuardedUpsertTest {
         val competingRepo = SQLiteProjectConfigRepository(manager)
         val fired = AtomicBoolean(false)
         var competingThread: Thread? = null
-        var competingResult: Result<GuardedUpsertOutcome>? = null
+        var competingResult: GuardedUpsertOutcome? = null
         val repoX =
             SQLiteProjectConfigRepository(manager) { rid ->
                 // See S3's comment: start the competitor but join it only after X returns.
@@ -290,8 +290,8 @@ class SQLiteProjectConfigRepositoryGuardedUpsertTest {
         val result = repoX.upsertGuarded(rootId, yamlC)
         competingThread?.join()
 
-        assertIs<Result.Success<GuardedUpsertOutcome>>(result)
-        val outcome = result.data
+        assertNotNull(result)
+        val outcome = result
         assertIs<GuardedUpsertOutcome.Applied>(
             outcome,
             "X holds the write lock from BEGIN under IMMEDIATE, so X always wins the race to write first",
@@ -299,19 +299,19 @@ class SQLiteProjectConfigRepositoryGuardedUpsertTest {
         assertEquals(yamlC, outcome.config.configYaml)
 
         val loserOutcome = competingResult
-        assertIs<Result.Success<GuardedUpsertOutcome>>(loserOutcome, "the late competitor must still complete")
-        val loserData = loserOutcome.data
+        assertNotNull(loserOutcome, "the late competitor must still complete")
+        val loserData = loserOutcome
         assertIs<GuardedUpsertOutcome.Applied>(loserData, "unguarded means unconditional — Y applies even though it ran after X")
         assertEquals(yamlB, loserData.config.configYaml)
 
-        val stored = (plainRepo.get(rootId) as Result.Success).data
+        val stored = plainRepo.get(rootId)
         assertEquals(yamlB, stored?.configYaml, "Y (the late, unguarded write) ends up as the current row — it wrote last")
         assertNotEquals(yamlC, stored?.configYaml)
 
         val fpC = plainRepo.computeFingerprint(yamlC)
         assertEquals(
             FingerprintRelation.SUPERSEDED,
-            (plainRepo.classifyFingerprint(rootId, fpC) as Result.Success).data,
+            plainRepo.classifyFingerprint(rootId, fpC),
             "X's content (C) was written and then overwritten by Y, so it must be SUPERSEDED, not vanish untracked",
         )
     }

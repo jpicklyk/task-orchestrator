@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.database
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.FlywayDatabaseSchemaManager
@@ -30,10 +31,14 @@ import java.sql.Connection
  * @param appConfig Typed env snapshot supplying the busy_timeout value, FLYWAY_REPAIR and the raw env resolver. Defaults to
  *   a fresh [AppConfig.fromEnv] snapshot so existing no-arg construction (and tests) keep the prior
  *   env-driven behavior unchanged.
+ * @param outsideUnitPolicy what a store write outside any unit of work does (always counted first).
+ *   Production uses the default, [OutsideUnitPolicy.FAIL]: every write site runs inside a unit, so an
+ *   outside-unit write is a bug and throws. Only the test fixture opts into IMPLICIT (store-level seeding).
  */
 class DatabaseManager(
     private val customDatabase: Database? = null,
-    private val appConfig: AppConfig = AppConfig.fromEnv()
+    private val appConfig: AppConfig = AppConfig.fromEnv(),
+    outsideUnitPolicy: OutsideUnitPolicy = OutsideUnitPolicy.FAIL
 ) {
     private val logger = LoggerFactory.getLogger(DatabaseManager::class.java)
     private var writerDb: Database? = customDatabase
@@ -44,7 +49,7 @@ class DatabaseManager(
     private lateinit var schemaManager: DatabaseSchemaManager
 
     /** Runs units of work: the writer Mutex, BUSY retry, boundary translation and the outside-unit write counter. */
-    val units: UnitRunner = UnitRunner(this)
+    val units: UnitRunner = UnitRunner(this, outsideUnitPolicy)
 
     /**
      * Initializes the database connection pools.
@@ -112,6 +117,7 @@ class DatabaseManager(
             )
             return true
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             logger.error("Failed to initialize database: ${e.message}", e)
             closePools()
             return false
@@ -199,6 +205,7 @@ class DatabaseManager(
 
             return result
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             logger.error("Error updating database schema: ${e.message}", e)
             return false
         }
@@ -247,6 +254,7 @@ class DatabaseManager(
                 }
             }
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             logger.warn("Could not run parent-cycle integrity check: ${e.message}")
         }
     }
@@ -262,7 +270,7 @@ class DatabaseManager(
         if (!appConfig.dbCompactOnUpgrade) return
 
         val url = jdbcUrl ?: return
-        runCatching {
+        runCatchingNonCancellation {
             StartupCompaction.runOnce(url, appConfig.databaseBusyTimeoutMs)
         }.onSuccess { outcome ->
             when (outcome) {
@@ -346,6 +354,7 @@ class DatabaseManager(
 
             logger.info("Database shutdown complete")
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             logger.error("Error shutting down database", e)
         }
     }

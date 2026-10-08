@@ -14,7 +14,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
 import io.mockk.coEvery
@@ -771,7 +770,7 @@ class ClaimItemToolTest {
     fun `claim DBError surfaces as db_error outcome with transient kind and contendedItemId`(): Unit =
         runBlocking {
             val cause = SQLException("internal db failure — must not appear in response")
-            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.DBError(itemId1, cause)
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } throws cause
 
             val result = tool.execute(params(claims = listOf(claimEntry(itemId1))), defaultContext())
 
@@ -805,7 +804,7 @@ class ClaimItemToolTest {
     fun `release DBError surfaces as db_error outcome with transient kind and contendedItemId`(): Unit =
         runBlocking {
             val cause = SQLException("release db failure — must not appear in response")
-            coEvery { workItemRepo.release(itemId1, agentId) } returns ReleaseResult.DBError(itemId1, cause)
+            coEvery { workItemRepo.release(itemId1, agentId) } throws cause
 
             val result = tool.execute(params(releases = listOf(releaseEntry(itemId1))), defaultContext())
 
@@ -836,7 +835,7 @@ class ClaimItemToolTest {
     fun `claim DBError surfaces as failed outcome without a summary block`(): Unit =
         runBlocking {
             val cause = SQLException("db error for summary test")
-            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.DBError(itemId1, cause)
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } throws cause
 
             val result = tool.execute(params(claims = listOf(claimEntry(itemId1))), defaultContext())
 
@@ -1201,7 +1200,7 @@ class ClaimItemToolTest {
 
     private fun mockRecommender(items: List<WorkItem>): NextItemRecommender {
         val recommender = mockk<NextItemRecommender>()
-        coEvery { recommender.recommend(any(), any()) } returns Result.Success(items)
+        coEvery { recommender.recommend(any(), any()) } returns items
         return recommender
     }
 
@@ -1215,7 +1214,7 @@ class ClaimItemToolTest {
                     match { it.tags == listOf("my-tag") },
                     1
                 )
-            } returns Result.Success(listOf(matchedItem))
+            } returns listOf(matchedItem)
             coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(makeSuccessItem())
 
             val selectorFields = buildJsonObject { put("tags", "my-tag") }
@@ -1238,7 +1237,7 @@ class ClaimItemToolTest {
             val matchedItem = WorkItem(id = itemId1, title = "High Priority Item", role = Role.QUEUE)
             val recommender = mockk<NextItemRecommender>()
             val criteriaSlot = slot<NextItemRecommender.Criteria>()
-            coEvery { recommender.recommend(capture(criteriaSlot), 1) } returns Result.Success(listOf(matchedItem))
+            coEvery { recommender.recommend(capture(criteriaSlot), 1) } returns listOf(matchedItem)
             coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(makeSuccessItem())
 
             val selectorFields = buildJsonObject { put("priority", "HIGH") }
@@ -1256,7 +1255,7 @@ class ClaimItemToolTest {
             val matchedItem = WorkItem(id = itemId1, title = "Typed Item", role = Role.QUEUE)
             val recommender = mockk<NextItemRecommender>()
             val criteriaSlot = slot<NextItemRecommender.Criteria>()
-            coEvery { recommender.recommend(capture(criteriaSlot), 1) } returns Result.Success(listOf(matchedItem))
+            coEvery { recommender.recommend(capture(criteriaSlot), 1) } returns listOf(matchedItem)
             coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(makeSuccessItem())
 
             val selectorFields = buildJsonObject { put("type", "feature-task") }
@@ -1274,7 +1273,7 @@ class ClaimItemToolTest {
             val matchedItem = WorkItem(id = itemId1, title = "Simple Item", role = Role.QUEUE)
             val recommender = mockk<NextItemRecommender>()
             val criteriaSlot = slot<NextItemRecommender.Criteria>()
-            coEvery { recommender.recommend(capture(criteriaSlot), 1) } returns Result.Success(listOf(matchedItem))
+            coEvery { recommender.recommend(capture(criteriaSlot), 1) } returns listOf(matchedItem)
             coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(makeSuccessItem())
 
             val selectorFields = buildJsonObject { put("complexityMax", 3) }
@@ -1292,7 +1291,7 @@ class ClaimItemToolTest {
             val matchedItem = WorkItem(id = itemId1, title = "Oldest Item", role = Role.QUEUE)
             val recommender = mockk<NextItemRecommender>()
             val criteriaSlot = slot<NextItemRecommender.Criteria>()
-            coEvery { recommender.recommend(capture(criteriaSlot), 1) } returns Result.Success(listOf(matchedItem))
+            coEvery { recommender.recommend(capture(criteriaSlot), 1) } returns listOf(matchedItem)
             coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(makeSuccessItem())
 
             val selectorFields = buildJsonObject { put("orderBy", "oldest") }
@@ -1309,7 +1308,7 @@ class ClaimItemToolTest {
         runBlocking {
             val recommender = mockRecommender(emptyList())
             coEvery { recommender.explainEmpty(any()) } returns
-                Result.Success(NextItemRecommender.ExclusionCounts(0, 0, 0))
+                NextItemRecommender.ExclusionCounts(0, 0, 0)
 
             val result =
                 tool.execute(
@@ -1360,8 +1359,8 @@ class ClaimItemToolTest {
             // First call returns matchedItem; second call returns a different item (simulates queue state change)
             coEvery { recommender.recommend(any(), 1) } returnsMany
                 listOf(
-                    Result.Success(listOf(matchedItem)),
-                    Result.Success(listOf(differentItem))
+                    listOf(matchedItem),
+                    listOf(differentItem)
                 )
             coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(makeSuccessItem(itemId1))
 
@@ -1412,7 +1411,7 @@ class ClaimItemToolTest {
         runBlocking {
             val recommender = mockRecommender(emptyList())
             coEvery { recommender.explainEmpty(any()) } returns
-                Result.Success(NextItemRecommender.ExclusionCounts(0, 0, 0))
+                NextItemRecommender.ExclusionCounts(0, 0, 0)
 
             val result =
                 tool.execute(
@@ -1510,9 +1509,9 @@ class ClaimItemToolTest {
             // Recommender returns empty — simulates the repository ancestor-claim filter
             // having excluded the only candidate because its parent is claimed by a different agent.
             val recommender = mockk<NextItemRecommender>()
-            coEvery { recommender.recommend(any(), 1) } returns Result.Success(emptyList())
+            coEvery { recommender.recommend(any(), 1) } returns emptyList()
             coEvery { recommender.explainEmpty(any()) } returns
-                Result.Success(NextItemRecommender.ExclusionCounts(claimed = 0, ancestorClaimed = 1, dependencyBlocked = 0))
+                NextItemRecommender.ExclusionCounts(claimed = 0, ancestorClaimed = 1, dependencyBlocked = 0)
 
             val result =
                 tool.execute(
@@ -1539,7 +1538,7 @@ class ClaimItemToolTest {
             val matchedItem = WorkItem(id = itemId1, title = "Eligible Item", role = Role.QUEUE)
             val recommender = mockk<NextItemRecommender>()
             val criteriaSlot = slot<NextItemRecommender.Criteria>()
-            coEvery { recommender.recommend(capture(criteriaSlot), 1) } returns Result.Success(listOf(matchedItem))
+            coEvery { recommender.recommend(capture(criteriaSlot), 1) } returns listOf(matchedItem)
             coEvery { workItemRepo.claim(itemId1, "agent-x", 900) } returns ClaimResult.Success(makeSuccessItem(claimedBy = "agent-x"))
 
             // actor is agent-x — the criteria.requestingAgentId must be set to "agent-x"
@@ -1576,7 +1575,7 @@ class ClaimItemToolTest {
                     match { it.requestingAgentId == "agent-x" },
                     1
                 )
-            } returns Result.Success(listOf(matchedItem))
+            } returns listOf(matchedItem)
             coEvery { workItemRepo.claim(itemId1, "agent-x", 900) } returns ClaimResult.Success(makeSuccessItem(claimedBy = "agent-x"))
 
             val result =

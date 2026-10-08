@@ -95,10 +95,12 @@ class WriteRouteAuthInvariantTest {
                         repo,
                         NoOpNoteSchemaService,
                         perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
+                        unitOfWork = db.unitOfWork()
                     ).advanceServiceFactory(),
+                    db.unitOfWork(),
                 )
-                noteWriteRoutes(repo, degradedModePolicy, IdempotencyCache())
-                dependencyWriteRoutes(repo, degradedModePolicy)
+                noteWriteRoutes(repo, degradedModePolicy, IdempotencyCache(), db.unitOfWork())
+                dependencyWriteRoutes(repo, degradedModePolicy, db.unitOfWork())
             }
         }
     }

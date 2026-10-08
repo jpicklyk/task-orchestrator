@@ -40,13 +40,11 @@ class TagScopeSearchRoutesIntegrationTest {
                     val a =
                         repositoryProvider
                             .workItemRepository()
-                            .create(WorkItem(title = "TagScopeUniqueTerm741 Alpha", tags = "alpha", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "TagScopeUniqueTerm741 Alpha", tags = "alpha", depth = 0))!!
                     val b =
                         repositoryProvider
                             .workItemRepository()
-                            .create(WorkItem(title = "TagScopeUniqueTerm741 Beta", tags = "beta", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "TagScopeUniqueTerm741 Beta", tags = "beta", depth = 0))!!
                     a to b
                 }
             val authConfig = makeTestAuthConfig(tagsInclude = setOf("alpha"))
@@ -84,13 +82,11 @@ class TagScopeSearchRoutesIntegrationTest {
                     val a =
                         repositoryProvider
                             .workItemRepository()
-                            .create(WorkItem(title = "AlphaNoteContainer", tags = "alpha", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "AlphaNoteContainer", tags = "alpha", depth = 0))!!
                     val b =
                         repositoryProvider
                             .workItemRepository()
-                            .create(WorkItem(title = "BetaNoteContainer", tags = "beta", depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "BetaNoteContainer", tags = "beta", depth = 0))!!
                     repositoryProvider.noteRepository().upsert(
                         Note(itemId = a.id, key = "spec", role = "queue", body = "TagScopeNoteTerm852 in alpha item")
                     )

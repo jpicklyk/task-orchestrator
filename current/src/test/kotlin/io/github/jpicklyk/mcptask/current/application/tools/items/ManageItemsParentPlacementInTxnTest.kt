@@ -3,11 +3,12 @@ package io.github.jpicklyk.mcptask.current.application.tools.items
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ChildPlacement
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.CountingUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.sqlite.assertNoOutsideUnitWrites
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -80,7 +81,7 @@ class ManageItemsParentPlacementInTxnTest {
     @BeforeEach
     fun setUp() {
         repositoryProvider = db.repositoryProvider()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
     }
 
     // ──────────────────────────────────────────────
@@ -88,10 +89,10 @@ class ManageItemsParentPlacementInTxnTest {
     // ──────────────────────────────────────────────
 
     /**
-     * Wraps a real [WorkItemRepository]. The FIRST time [inTransaction] is entered, runs [mutate]
-     * against [delegate] (bypassing any interception) before running the caller's `block` — placing
-     * a "concurrent" write immediately at transaction-open time, before any read the wrapped `block`
-     * performs. Every other member delegates to [delegate] unchanged, EXCEPT [resolveChildPlacement],
+     * Wraps a real [WorkItemRepository]. The FIRST time a top-level write unit is entered ([fireOnce], called
+     * by the [CountingUnitOfWork] hook [contextWith] installs), runs [mutate] against [delegate] (bypassing any
+     * interception) before running the caller's block, placing a "concurrent" write immediately at
+     * unit-open time, before any read the wrapped block performs. Every other member delegates to [delegate] unchanged, EXCEPT [resolveChildPlacement],
      * which is re-implemented here to call `this.getById` rather than `delegate.getById` — Kotlin's
      * `by delegate` clause forwards a default-bodied interface member to the delegate as a single
      * unit, so without this override a call to `resolveChildPlacement` would bypass this wrapper
@@ -103,46 +104,36 @@ class ManageItemsParentPlacementInTxnTest {
     ) : WorkItemRepository by delegate {
         private var hasFired = false
 
-        override suspend fun inTransaction(block: suspend () -> Unit) {
-            delegate.inTransaction {
-                if (!hasFired) {
-                    hasFired = true
-                    mutate(delegate)
-                }
-                block()
+        suspend fun fireOnce() {
+            if (!hasFired) {
+                hasFired = true
+                mutate(delegate)
             }
         }
 
-        override suspend fun resolveChildPlacement(parentId: UUID): Result<ChildPlacement> =
-            when (val parent = getById(parentId)) {
-                is Result.Success ->
-                    Result.Success(
-                        ChildPlacement(
-                            parentId = parent.data.id,
-                            depth = parent.data.depth + 1,
-                            rootId =
-                                parent.data.rootId ?: parent.data.id
-                        )
-                    )
-                is Result.Error -> Result.Error(parent.error)
+        override suspend fun resolveChildPlacement(parentId: UUID): ChildPlacement? =
+            getById(parentId)?.let { parent ->
+                ChildPlacement(
+                    parentId = parent.id,
+                    depth = parent.depth + 1,
+                    rootId =
+                        parent.rootId ?: parent.id
+                )
             }
     }
 
     /**
      * Wraps a real [WorkItemRepository], recording — for [resolveChildPlacement], [create], and
-     * [update] — the ordinal of the top-level [inTransaction] call each was invoked under. Ordinals
-     * increment only on entry from depth 0 (a genuinely new top-level transaction); a NESTED
-     * `inTransaction` re-entry (e.g. `create`'s own internal wrapping while already inside the
-     * caller's transaction) keeps the same ordinal. Proves O2: `resolveChildPlacement` and the
-     * write it feeds must share one ordinal.
+     * [update]: the ordinal of the top-level write unit ([CountingUnitOfWork]) each was invoked under.
+     * Ordinals increment only on a genuinely new top-level unit; a NESTED (joined) unit keeps the same
+     * ordinal. Proves O2: `resolveChildPlacement` and the write it feeds must share one ordinal.
      */
     private class InTransactionOrdinalSpy(
         private val delegate: WorkItemRepository
     ) : WorkItemRepository by delegate {
-        private var depth = 0
-        private var instanceCounter = 0
-        var topLevelEntryCount: Int = 0
-            private set
+        /** The ordinal of the top-level write unit the caller runs in (0 outside any unit). */
+        private suspend fun instanceCounter(): Int = CountingUnitOfWork.currentOrdinal() ?: 0
+
         var resolveChildPlacementOrdinal: Int? = null
             private set
         var createOrdinal: Int? = null
@@ -150,31 +141,18 @@ class ManageItemsParentPlacementInTxnTest {
         var updateOrdinal: Int? = null
             private set
 
-        override suspend fun inTransaction(block: suspend () -> Unit) {
-            if (depth == 0) {
-                instanceCounter++
-                topLevelEntryCount++
-            }
-            depth++
-            try {
-                delegate.inTransaction { block() }
-            } finally {
-                depth--
-            }
-        }
-
-        override suspend fun resolveChildPlacement(parentId: UUID): Result<ChildPlacement> {
-            resolveChildPlacementOrdinal = instanceCounter
+        override suspend fun resolveChildPlacement(parentId: UUID): ChildPlacement? {
+            resolveChildPlacementOrdinal = instanceCounter()
             return delegate.resolveChildPlacement(parentId)
         }
 
-        override suspend fun create(item: WorkItem): Result<WorkItem> {
-            createOrdinal = instanceCounter
+        override suspend fun create(item: WorkItem): WorkItem {
+            createOrdinal = instanceCounter()
             return delegate.create(item)
         }
 
-        override suspend fun update(item: WorkItem): Result<WorkItem> {
-            updateOrdinal = instanceCounter
+        override suspend fun update(item: WorkItem): WorkItem? {
+            updateOrdinal = instanceCounter()
             return delegate.update(item)
         }
     }
@@ -191,10 +169,10 @@ class ManageItemsParentPlacementInTxnTest {
     // Fixture helpers
     // ──────────────────────────────────────────────
 
-    private suspend fun create(item: WorkItem): WorkItem = (repositoryProvider.workItemRepository().create(item) as Result.Success).data
+    private suspend fun create(item: WorkItem): WorkItem = (repositoryProvider.workItemRepository().create(item)!!)
 
     private suspend fun stampSelfRoot(item: WorkItem): WorkItem =
-        (repositoryProvider.workItemRepository().update(item.copy(rootId = item.id)) as Result.Success).data
+        (repositoryProvider.workItemRepository().update(item.copy(rootId = item.id))!!)
 
     /** R (root, self-rooted) -> A (depth1) -> P (depth2); Q is a second, unrelated self-rooted root. */
     private data class Tree(
@@ -216,7 +194,10 @@ class ManageItemsParentPlacementInTxnTest {
         MutateOnFirstTransactionRepository(repositoryProvider.workItemRepository(), mutate)
 
     private fun contextWith(workItemRepo: WorkItemRepository) =
-        ToolExecutionContext(WorkItemRepoOverrideProvider(repositoryProvider, workItemRepo))
+        ToolExecutionContext(
+            WorkItemRepoOverrideProvider(repositoryProvider, workItemRepo),
+            unitOfWork = CountingUnitOfWork(db.unitOfWork()) { (workItemRepo as? MutateOnFirstTransactionRepository)?.fireOnce() }
+        )
 
     private fun params(vararg pairs: Pair<String, kotlinx.serialization.json.JsonElement>) = JsonObject(mapOf(*pairs))
 
@@ -272,7 +253,13 @@ class ManageItemsParentPlacementInTxnTest {
                     d.update(tree.p.copy(parentId = tree.q.id, depth = 1, rootId = tree.q.id))
                 }
 
-            val result = tool.execute(createParams("Child of P", tree.p.id), contextWith(wrapped)) as JsonObject
+            val result =
+                db.assertNoOutsideUnitWrites {
+                    tool.execute(
+                        createParams("Child of P", tree.p.id),
+                        contextWith(wrapped)
+                    )
+                } as JsonObject
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val data = result["data"] as JsonObject
@@ -284,7 +271,7 @@ class ManageItemsParentPlacementInTxnTest {
             // the manage_items create response item does not carry a rootId field (arbitration,
             // 3da296d8), so rootId is read back through the UNDERLYING (unwrapped) repository.
             val childId = UUID.fromString(child["id"]!!.jsonPrimitive.content)
-            val persisted = (repositoryProvider.workItemRepository().getById(childId) as Result.Success).data
+            val persisted = (repositoryProvider.workItemRepository().getById(childId)!!)
             assertEquals(
                 tree.q.id,
                 persisted.rootId,
@@ -306,12 +293,18 @@ class ManageItemsParentPlacementInTxnTest {
                     d.update(tree.p.copy(parentId = tree.q.id, depth = 1, rootId = tree.q.id))
                 }
 
-            val result = tool.execute(updateParentParams(x.id, tree.p.id), contextWith(wrapped)) as JsonObject
+            val result =
+                db.assertNoOutsideUnitWrites {
+                    tool.execute(
+                        updateParentParams(x.id, tree.p.id),
+                        contextWith(wrapped)
+                    )
+                } as JsonObject
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             assertEquals(1, (result["data"] as JsonObject)["updated"]!!.jsonPrimitive.int)
 
-            val persisted = (repositoryProvider.workItemRepository().getById(x.id) as Result.Success).data
+            val persisted = (repositoryProvider.workItemRepository().getById(x.id)!!)
             assertEquals(2, persisted.depth, "O1: X must land at P's LIVE depth (1) + 1")
             assertEquals(tree.q.id, persisted.rootId, "O1: X must inherit P's LIVE rootId (Q)")
         }
@@ -327,7 +320,13 @@ class ManageItemsParentPlacementInTxnTest {
             val p = create(WorkItem(title = "P S9 (leaf, will be deleted)", parentId = root.id, depth = 1, rootId = root.id))
             val wrapped = mutateOnFirstTxn { d -> d.delete(p.id) }
 
-            val result = tool.execute(createParams("Orphan Child S9", p.id), contextWith(wrapped)) as JsonObject
+            val result =
+                db.assertNoOutsideUnitWrites {
+                    tool.execute(
+                        createParams("Orphan Child S9", p.id),
+                        contextWith(wrapped)
+                    )
+                } as JsonObject
 
             assertTrue(
                 result["success"]!!.jsonPrimitive.boolean,
@@ -340,8 +339,8 @@ class ManageItemsParentPlacementInTxnTest {
             assertTrue(failure["error"]!!.jsonPrimitive.content.contains("not found"), "actual: $failure")
 
             val all = repositoryProvider.workItemRepository().findByFilters()
-            assertTrue(all is Result.Success)
-            val orphan = (all as Result.Success).data.items.filter { it.title == "Orphan Child S9" }
+            assertNotNull(all)
+            val orphan = all.items.filter { it.title == "Orphan Child S9" }
             assertTrue(orphan.isEmpty(), "O3: a parent deleted inside the write transaction must leave NO orphan row: $orphan")
         }
 
@@ -356,7 +355,7 @@ class ManageItemsParentPlacementInTxnTest {
             val p = create(WorkItem(title = "P S12a", parentId = root.id, depth = 1, rootId = root.id))
             val spy = InTransactionOrdinalSpy(repositoryProvider.workItemRepository())
 
-            val result = tool.execute(createParams("Child S12a", p.id), contextWith(spy)) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(createParams("Child S12a", p.id), contextWith(spy)) } as JsonObject
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             assertNotNull(spy.resolveChildPlacementOrdinal, "O2/NEW-SURFACE: resolveChildPlacement must be called for a parented create")
@@ -376,7 +375,7 @@ class ManageItemsParentPlacementInTxnTest {
             val x = stampSelfRoot(create(WorkItem(title = "X S12b", depth = 0)))
             val spy = InTransactionOrdinalSpy(repositoryProvider.workItemRepository())
 
-            val result = tool.execute(updateParentParams(x.id, p.id), contextWith(spy)) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(updateParentParams(x.id, p.id), contextWith(spy)) } as JsonObject
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             assertNotNull(spy.resolveChildPlacementOrdinal, "O2/NEW-SURFACE: resolveChildPlacement must be called for a reparent")
@@ -397,13 +396,15 @@ class ManageItemsParentPlacementInTxnTest {
         runBlocking {
             val spy = InTransactionOrdinalSpy(repositoryProvider.workItemRepository())
             val result =
-                tool.execute(
-                    params(
-                        "operation" to JsonPrimitive("create"),
-                        "items" to JsonArray(listOf(buildJsonObject { put("title", JsonPrimitive("Root S13")) }))
-                    ),
-                    contextWith(spy)
-                ) as JsonObject
+                db.assertNoOutsideUnitWrites {
+                    tool.execute(
+                        params(
+                            "operation" to JsonPrimitive("create"),
+                            "items" to JsonArray(listOf(buildJsonObject { put("title", JsonPrimitive("Root S13")) }))
+                        ),
+                        contextWith(spy)
+                    )
+                } as JsonObject
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val item = (result["data"] as JsonObject)["items"]!!.jsonArray[0] as JsonObject
@@ -412,7 +413,7 @@ class ManageItemsParentPlacementInTxnTest {
             // rootId is not carried on the response item (arbitration, 3da296d8) — read the
             // persisted row through the underlying repository instead.
             val itemId = UUID.fromString(item["id"]!!.jsonPrimitive.content)
-            val persisted = (repositoryProvider.workItemRepository().getById(itemId) as Result.Success).data
+            val persisted = (repositoryProvider.workItemRepository().getById(itemId)!!)
             assertEquals(itemId, persisted.rootId)
             assertEquals(null, spy.resolveChildPlacementOrdinal, "a parentless create must never resolve a child placement")
         }
@@ -427,7 +428,7 @@ class ManageItemsParentPlacementInTxnTest {
             val legacyParent = create(WorkItem(title = "Legacy Parent S14", depth = 0))
             assertNull(legacyParent.rootId, "fixture precondition: no stamped rootId")
 
-            val result = tool.execute(createParams("Child S14", legacyParent.id), context) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(createParams("Child S14", legacyParent.id), context) } as JsonObject
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val child = (result["data"] as JsonObject)["items"]!!.jsonArray[0] as JsonObject
@@ -435,7 +436,7 @@ class ManageItemsParentPlacementInTxnTest {
             // rootId is not carried on the response item (arbitration, 3da296d8) — read the
             // persisted row through the underlying repository instead.
             val childId = UUID.fromString(child["id"]!!.jsonPrimitive.content)
-            val persisted = (repositoryProvider.workItemRepository().getById(childId) as Result.Success).data
+            val persisted = (repositoryProvider.workItemRepository().getById(childId)!!)
             assertEquals(legacyParent.id, persisted.rootId, "O1 fallback: rootId ?: id")
         }
 
@@ -449,10 +450,10 @@ class ManageItemsParentPlacementInTxnTest {
             val root = stampSelfRoot(create(WorkItem(title = "R S15", depth = 0)))
             val x = create(WorkItem(title = "X S15", parentId = root.id, depth = 1, rootId = root.id))
 
-            val result = tool.execute(updateParentParams(x.id, null), context) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(updateParentParams(x.id, null), context) } as JsonObject
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
-            val persisted = (repositoryProvider.workItemRepository().getById(x.id) as Result.Success).data
+            val persisted = (repositoryProvider.workItemRepository().getById(x.id)!!)
             assertEquals(null, persisted.parentId)
             assertEquals(0, persisted.depth)
             assertEquals(x.id, persisted.rootId)
@@ -470,11 +471,11 @@ class ManageItemsParentPlacementInTxnTest {
             val y = create(WorkItem(title = "Y S16 (child of X)", parentId = x.id, depth = 2, rootId = rootA.id))
             val rootB = stampSelfRoot(create(WorkItem(title = "RootB S16", depth = 0)))
 
-            val result = tool.execute(updateParentParams(x.id, rootB.id), context) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(updateParentParams(x.id, rootB.id), context) } as JsonObject
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
-            val persistedX = (repositoryProvider.workItemRepository().getById(x.id) as Result.Success).data
-            val persistedY = (repositoryProvider.workItemRepository().getById(y.id) as Result.Success).data
+            val persistedX = (repositoryProvider.workItemRepository().getById(x.id)!!)
+            val persistedY = (repositoryProvider.workItemRepository().getById(y.id)!!)
             assertEquals(rootB.id, persistedX.rootId, "X must be restamped to RootB")
             assertEquals(rootB.id, persistedY.rootId, "Y (X's descendant) must cascade-restamp to RootB too")
         }
@@ -489,8 +490,8 @@ class ManageItemsParentPlacementInTxnTest {
             val root = stampSelfRoot(create(WorkItem(title = "R Replay", depth = 0)))
             val p = create(WorkItem(title = "P Replay", parentId = root.id, depth = 1, rootId = root.id))
 
-            val first = tool.execute(createParams("Child Replay 1", p.id), context) as JsonObject
-            val second = tool.execute(createParams("Child Replay 2", p.id), context) as JsonObject
+            val first = db.assertNoOutsideUnitWrites { tool.execute(createParams("Child Replay 1", p.id), context) } as JsonObject
+            val second = db.assertNoOutsideUnitWrites { tool.execute(createParams("Child Replay 2", p.id), context) } as JsonObject
 
             for (r in listOf(first, second)) {
                 val child = (r["data"] as JsonObject)["items"]!!.jsonArray[0] as JsonObject
@@ -498,7 +499,7 @@ class ManageItemsParentPlacementInTxnTest {
                 // rootId is not carried on the response item (arbitration, 3da296d8) — read the
                 // persisted row through the underlying repository instead.
                 val childId = UUID.fromString(child["id"]!!.jsonPrimitive.content)
-                val persisted = (repositoryProvider.workItemRepository().getById(childId) as Result.Success).data
+                val persisted = (repositoryProvider.workItemRepository().getById(childId)!!)
                 assertEquals(root.id, persisted.rootId, "actual: $r")
             }
         }
@@ -510,20 +511,22 @@ class ManageItemsParentPlacementInTxnTest {
             val p = create(WorkItem(title = "P Batch", parentId = root.id, depth = 1, rootId = root.id))
 
             val result =
-                tool.execute(
-                    params(
-                        "operation" to JsonPrimitive("create"),
-                        "parentId" to JsonPrimitive(p.id.toString()),
-                        "items" to
-                            JsonArray(
-                                listOf(
-                                    buildJsonObject { put("title", JsonPrimitive("Batch Child A")) },
-                                    buildJsonObject { put("title", JsonPrimitive("Batch Child B")) }
+                db.assertNoOutsideUnitWrites {
+                    tool.execute(
+                        params(
+                            "operation" to JsonPrimitive("create"),
+                            "parentId" to JsonPrimitive(p.id.toString()),
+                            "items" to
+                                JsonArray(
+                                    listOf(
+                                        buildJsonObject { put("title", JsonPrimitive("Batch Child A")) },
+                                        buildJsonObject { put("title", JsonPrimitive("Batch Child B")) }
+                                    )
                                 )
-                            )
-                    ),
-                    context
-                ) as JsonObject
+                        ),
+                        context
+                    )
+                } as JsonObject
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val items = (result["data"] as JsonObject)["items"]!!.jsonArray
@@ -534,7 +537,7 @@ class ManageItemsParentPlacementInTxnTest {
                 // rootId is not carried on the response item (arbitration, 3da296d8) — read the
                 // persisted row through the underlying repository instead.
                 val childId = UUID.fromString(obj["id"]!!.jsonPrimitive.content)
-                val persisted = (repositoryProvider.workItemRepository().getById(childId) as Result.Success).data
+                val persisted = (repositoryProvider.workItemRepository().getById(childId)!!)
                 assertEquals(root.id, persisted.rootId, "actual: $obj")
             }
         }

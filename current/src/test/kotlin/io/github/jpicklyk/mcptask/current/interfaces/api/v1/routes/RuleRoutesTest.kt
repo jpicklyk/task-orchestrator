@@ -2,8 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -169,7 +167,7 @@ class RuleRoutesTest {
         testApplication {
             val composition = buildComposition(tempDir)
             val repo = composition.toolContext.repositoryProvider
-            val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "S1 REST Root", depth = 0)).getOrNull()!! }
+            val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "S1 REST Root", depth = 0))!! }
             stashViaTool(composition.toolContext, root.id, "rule/protocol.entry-seat", FIXTURE_B)
             application { configureProductionRuleApp(composition) }
 
@@ -207,7 +205,7 @@ class RuleRoutesTest {
                         .workItemRepository()
                         .create(
                             WorkItem(title = "P1 Root", depth = 0)
-                        ).getOrNull()!!
+                        )!!
                 }
             application { configureProductionRuleApp(composition, authConfig = makeWriteAuthConfig()) }
 
@@ -247,7 +245,7 @@ class RuleRoutesTest {
         testApplication {
             val composition = buildComposition(tempDir)
             val repo = composition.toolContext.repositoryProvider
-            val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "S4 REST Root", depth = 0)).getOrNull()!! }
+            val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "S4 REST Root", depth = 0))!! }
             stashDirect(repo, root.id, "rule/test-author", "a")
             stashDirect(repo, root.id, "rule/protocol.entry-seat", "b")
             stashDirect(repo, root.id, "rules/x", "c")
@@ -300,7 +298,7 @@ class RuleRoutesTest {
                         .workItemRepository()
                         .create(
                             WorkItem(title = "S6 REST Root", depth = 0)
-                        ).getOrNull()!!
+                        )!!
                 }
             application { configureProductionRuleApp(composition) }
 
@@ -339,13 +337,13 @@ class RuleRoutesTest {
             val repo = composition.toolContext.repositoryProvider
             val (_, child) =
                 runBlocking {
-                    val r = repo.workItemRepository().create(WorkItem(title = "S6 REST Root", depth = 0)).getOrNull()!!
+                    val r = repo.workItemRepository().create(WorkItem(title = "S6 REST Root", depth = 0))!!
                     val c =
                         repo
                             .workItemRepository()
                             .create(
                                 WorkItem(title = "S6 REST Child", parentId = r.id, rootId = r.id, depth = 1)
-                            ).getOrNull()!!
+                            )!!
                     r to c
                 }
             application { configureProductionRuleApp(composition) }
@@ -369,7 +367,7 @@ class RuleRoutesTest {
         testApplication {
             val composition = buildComposition(tempDir)
             val repo = composition.toolContext.repositoryProvider
-            val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "S7 Root", depth = 0)).getOrNull()!! }
+            val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "S7 Root", depth = 0))!! }
             stashDirect(repo, root.id, "rule/protected", "protected body")
             val scopedAuthConfig = makeTestAuthConfig(scopeRootIds = setOf(UUID.randomUUID()))
             application { configureProductionRuleApp(composition, authConfig = scopedAuthConfig) }
@@ -406,7 +404,7 @@ class RuleRoutesTest {
                         .workItemRepository()
                         .create(
                             WorkItem(title = "S8 REST Root", depth = 0)
-                        ).getOrNull()!!
+                        )!!
                 }
             application { configureProductionRuleApp(composition) }
 
@@ -448,7 +446,7 @@ class RuleRoutesTest {
                         .workItemRepository()
                         .create(
                             WorkItem(title = "S8 Slash Root", depth = 0)
-                        ).getOrNull()!!
+                        )!!
                 }
             application { configureProductionRuleApp(composition) }
 
@@ -472,7 +470,7 @@ class RuleRoutesTest {
                         .workItemRepository()
                         .create(
                             WorkItem(title = "S8 Dot Root", depth = 0)
-                        ).getOrNull()!!
+                        )!!
                 }
             application { configureProductionRuleApp(composition) }
 
@@ -496,7 +494,7 @@ class RuleRoutesTest {
                         .workItemRepository()
                         .create(
                             WorkItem(title = "S8 Long Root", depth = 0)
-                        ).getOrNull()!!
+                        )!!
                 }
             application { configureProductionRuleApp(composition) }
 
@@ -524,7 +522,7 @@ class RuleRoutesTest {
                         .workItemRepository()
                         .create(
                             WorkItem(title = "P2 REST Root", depth = 0)
-                        ).getOrNull()!!
+                        )!!
                 }
             application { configureProductionRuleApp(composition) }
 
@@ -584,7 +582,7 @@ class RuleRoutesRootLookupFailureTest {
         testApplication {
             val composition = buildComposition(tempDir)
             val repo = composition.toolContext.repositoryProvider
-            val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "RepoError Root", depth = 0)).getOrNull()!! }
+            val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "RepoError Root", depth = 0))!! }
             runBlocking { repo.planDocumentRepository().stash(root.id, "rule/x", "unreachable body") }
             val unknownId = UUID.randomUUID()
 
@@ -642,9 +640,9 @@ private class RuleRoutesFailingWorkItemRepository(
     private val delegate: WorkItemRepository,
     private val failingId: UUID,
 ) : WorkItemRepository by delegate {
-    override suspend fun getById(id: UUID): Result<WorkItem> =
+    override suspend fun getById(id: UUID): WorkItem? =
         if (id == failingId) {
-            Result.Error(RepositoryError.DatabaseError("Simulated getById failure for $id"))
+            throw IllegalStateException("Simulated getById failure for $id")
         } else {
             delegate.getById(id)
         }

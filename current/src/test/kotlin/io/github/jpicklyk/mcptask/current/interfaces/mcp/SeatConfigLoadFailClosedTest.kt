@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
@@ -76,9 +75,9 @@ class SeatConfigLoadFailClosedTest {
         val repo = db.repositoryProvider()
         val rootId =
             runBlocking {
-                (repo.workItemRepository().create(WorkItem(title = "Push Root", type = "project")) as Result.Success).data.id
+                (repo.workItemRepository().create(WorkItem(title = "Push Root", type = "project"))!!).id
             }
-        return ToolExecutionContext(repo) to rootId
+        return ToolExecutionContext(repo, unitOfWork = db.unitOfWork()) to rootId
     }
 
     private fun push(
@@ -210,9 +209,9 @@ class SeatConfigLoadFailClosedTest {
             val repo = db.repositoryProvider()
             val root =
                 runBlocking {
-                    (repo.workItemRepository().create(WorkItem(title = "REST Push Root", depth = 0)) as Result.Success).data
+                    (repo.workItemRepository().create(WorkItem(title = "REST Push Root", depth = 0))!!)
                 }
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.put("/api/v1/roots/${root.id}/config") {
@@ -225,7 +224,7 @@ class SeatConfigLoadFailClosedTest {
             assertTrue(response.bodyAsText().contains("parse_error"), "body: ${response.bodyAsText()}")
 
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue((persisted as Result.Success).data == null, "a two-enters:true config must never be stored")
+            assertTrue(persisted == null, "a two-enters:true config must never be stored")
         }
 
     // ─── S4 -- F2 dup seat name, F3 reserved 'unowned' name, F4 after-cycle: fatal like S3 ──
@@ -295,9 +294,9 @@ class SeatConfigLoadFailClosedTest {
             val repo = db.repositoryProvider()
             val root =
                 runBlocking {
-                    (repo.workItemRepository().create(WorkItem(title = "F2 REST Root", depth = 0)) as Result.Success).data
+                    (repo.workItemRepository().create(WorkItem(title = "F2 REST Root", depth = 0))!!)
                 }
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
             val restResponse =
                 client.put("/api/v1/roots/${root.id}/config") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
@@ -307,7 +306,7 @@ class SeatConfigLoadFailClosedTest {
             assertEquals(HttpStatusCode.UnprocessableEntity, restResponse.status)
             assertTrue(restResponse.bodyAsText().contains("parse_error"), "body: ${restResponse.bodyAsText()}")
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue((persisted as Result.Success).data == null, "a duplicate seat name config must never be stored")
+            assertTrue(persisted == null, "a duplicate seat name config must never be stored")
         }
 
     @Test
@@ -335,9 +334,9 @@ class SeatConfigLoadFailClosedTest {
             val repo = db.repositoryProvider()
             val root =
                 runBlocking {
-                    (repo.workItemRepository().create(WorkItem(title = "F3 REST Root", depth = 0)) as Result.Success).data
+                    (repo.workItemRepository().create(WorkItem(title = "F3 REST Root", depth = 0))!!)
                 }
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
             val restResponse =
                 client.put("/api/v1/roots/${root.id}/config") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
@@ -347,7 +346,7 @@ class SeatConfigLoadFailClosedTest {
             assertEquals(HttpStatusCode.UnprocessableEntity, restResponse.status)
             assertTrue(restResponse.bodyAsText().contains("parse_error"), "body: ${restResponse.bodyAsText()}")
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue((persisted as Result.Success).data == null, "a config with a seat named 'unowned' must never be stored")
+            assertTrue(persisted == null, "a config with a seat named 'unowned' must never be stored")
         }
 
     @Test
@@ -374,9 +373,9 @@ class SeatConfigLoadFailClosedTest {
             val repo = db.repositoryProvider()
             val root =
                 runBlocking {
-                    (repo.workItemRepository().create(WorkItem(title = "F4 REST Root", depth = 0)) as Result.Success).data
+                    (repo.workItemRepository().create(WorkItem(title = "F4 REST Root", depth = 0))!!)
                 }
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
             val restResponse =
                 client.put("/api/v1/roots/${root.id}/config") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
@@ -386,7 +385,7 @@ class SeatConfigLoadFailClosedTest {
             assertEquals(HttpStatusCode.UnprocessableEntity, restResponse.status)
             assertTrue(restResponse.bodyAsText().contains("parse_error"), "body: ${restResponse.bodyAsText()}")
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue((persisted as Result.Success).data == null, "an after-cycle config must never be stored")
+            assertTrue(persisted == null, "an after-cycle config must never be stored")
         }
 
     // ─── S4 -- W1/W2/W3/W4/W6 warnings: load succeeds, push surfaces schemaWarnings ──

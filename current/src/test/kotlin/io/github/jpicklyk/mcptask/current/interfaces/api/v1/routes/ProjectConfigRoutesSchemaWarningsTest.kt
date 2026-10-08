@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
@@ -43,8 +42,8 @@ class ProjectConfigRoutesSchemaWarningsTest {
             (
                 repo.workItemRepository().create(
                     WorkItem(title = "Project Root", type = "project", depth = 0)
-                ) as Result.Success
-            ).data
+                )!!
+            )
         }
 
     // ──────────────────────────────────────────────
@@ -56,7 +55,7 @@ class ProjectConfigRoutesSchemaWarningsTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val yaml =
                 """
@@ -86,7 +85,7 @@ class ProjectConfigRoutesSchemaWarningsTest {
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
             assertEquals(
                 yaml,
-                (persisted as Result.Success).data?.configYaml,
+                persisted?.configYaml,
                 "the document must be stored despite the soft warning"
             )
         }
@@ -100,7 +99,7 @@ class ProjectConfigRoutesSchemaWarningsTest {
         testApplication {
             val repo = db.repositoryProvider()
             val root = createRoot(repo)
-            application { configureProjectConfigTestApp(repo) }
+            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val yaml =
                 """

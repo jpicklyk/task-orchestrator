@@ -5,13 +5,13 @@ import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigReso
 import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.security.sha256Hex
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
@@ -75,17 +75,17 @@ fun Route.effectiveConfigRoutes(
                 return@get
             }
 
-            val itemResult = workItemRepo.getById(rootId)
-            if (itemResult is Result.Error) {
-                if (itemResult.error is RepositoryError.NotFound) {
-                    call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Root WorkItem not found: $rootId"))
-                } else {
-                    effectiveConfigLogger.warn("GET /roots/{}/config/effective DB error: {}", rootId, itemResult.error.message)
-                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to read root WorkItem"))
-                }
+            val itemResult =
+                legacyRead({
+                    effectiveConfigLogger.warn("GET /roots/{}/config/effective DB error: {}", rootId, it)
+                    call.respondDbError("Failed to read root WorkItem")
+                    return@get
+                }) { workItemRepo.getById(rootId) }
+            if (itemResult == null) {
+                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Root WorkItem not found: $rootId"))
                 return@get
             }
-            val item = (itemResult as Result.Success).data
+            val item = itemResult
             if (item.depth != 0) {
                 call.respond(
                     HttpStatusCode.UnprocessableEntity,
@@ -222,7 +222,7 @@ private suspend fun ApplicationCall.parseEffectiveConfigRootId(): UUID? {
             respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing rootId"))
             return null
         }
-    return runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+    return runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
         respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
         null
     }

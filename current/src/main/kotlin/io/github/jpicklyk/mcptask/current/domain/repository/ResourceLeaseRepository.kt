@@ -11,7 +11,7 @@ import java.util.UUID
  * Acquisition is all-or-nothing across every requested key: if any key is held by a different
  * item, NOTHING is written for this call — not even for the keys that were free — and every
  * contended key (not just the first one found) is reported back in [Contended.contendedKeys] so
- * the caller can surface a complete picture in a single round trip.
+ * the caller can surface a complete picture in a single round trip. A database failure is thrown.
  */
 sealed class LeaseAcquireResult {
     /** Every requested key was acquired (or refreshed, for keys already held by [holderItemId]). */
@@ -29,23 +29,13 @@ sealed class LeaseAcquireResult {
         val contendedKeys: List<String>,
         val retryAfterMs: Long
     ) : LeaseAcquireResult()
-
-    /** An unexpected database exception occurred; the operation did not complete. */
-    data class DBError(
-        val cause: Exception
-    ) : LeaseAcquireResult()
 }
 
-/** Outcome of [ResourceLeaseRepository.releaseAllForItem] / [ResourceLeaseRepository.forceReleaseByKey]. */
+/** Outcome of [ResourceLeaseRepository.releaseAllForItem] / [ResourceLeaseRepository.forceReleaseByKey]. A database failure is thrown. */
 sealed class LeaseReleaseResult {
     /** The delete succeeded; [releasedCount] rows were removed (0 if none matched — not an error). */
     data class Success(
         val releasedCount: Int
-    ) : LeaseReleaseResult()
-
-    /** An unexpected database exception occurred; the operation did not complete. */
-    data class DBError(
-        val cause: Exception
     ) : LeaseReleaseResult()
 }
 
@@ -91,11 +81,9 @@ interface ResourceLeaseRepository {
      *   (registry default vs. per-requirement override) is the caller's responsibility; this method
      *   performs no config lookups. Each `ttlSeconds` must be positive.
      *
-     * Concurrency note: under a genuine cross-transaction race on the same key, the losing writer
-     * may surface as [LeaseAcquireResult.DBError] (SQLite write-conflict) rather than
-     * [LeaseAcquireResult.Contended] — mutual exclusion still holds, but `retryAfterMs` is not
-     * available on that path. Callers should treat a `DBError` from this method as transient and
-     * retry with a default backoff.
+     * Concurrency: the call runs inside the caller's write unit (IMMEDIATE, single writer), so the
+     * contention pre-pass and the writes cannot interleave with another writer; SQLITE_BUSY is retried
+     * by the unit itself. A database failure is thrown.
      */
     suspend fun acquireAll(
         holderItemId: UUID,
@@ -112,15 +100,14 @@ interface ResourceLeaseRepository {
      * round trip per descendant. Returns [LeaseReleaseResult.Success] with the total number of
      * lease rows removed; an empty set is a no-op returning `Success(0)`.
      *
-     * The default implementation loops [releaseAllForItem] (sums the counts, returns the first
-     * [LeaseReleaseResult.DBError]); implementations with a set-based statement should override it.
+     * The default implementation loops [releaseAllForItem] (sums the counts); implementations with a
+     * set-based statement should override it.
      */
     suspend fun releaseAllForItems(holderItemIds: Set<UUID>): LeaseReleaseResult {
         var total = 0
         for (holderItemId in holderItemIds) {
             when (val result = releaseAllForItem(holderItemId)) {
                 is LeaseReleaseResult.Success -> total += result.releasedCount
-                is LeaseReleaseResult.DBError -> return result
             }
         }
         return LeaseReleaseResult.Success(total)

@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import java.time.Instant
 import java.util.UUID
@@ -66,12 +66,12 @@ class NextItemRecommender(
      *    (active-claim exclusion is always applied by the repository).
      * 2. Propagate repository errors immediately.
      * 3. Walk each candidate through [isBlocked] and discard blocked items.
-     * 4. Take the top [limit] unblocked items and return them as [Result.Success].
+     * 4. Take the top [limit] unblocked items and return them.
      */
     suspend fun recommend(
         criteria: Criteria,
         limit: Int
-    ): Result<List<WorkItem>> {
+    ): List<WorkItem> {
         val candidatesResult =
             workItemRepo.findClaimable(
                 role = criteria.role,
@@ -92,11 +92,7 @@ class NextItemRecommender(
                 rootIds = criteria.ancestorIds,
             )
 
-        if (candidatesResult is Result.Error) {
-            return candidatesResult
-        }
-
-        val candidates = (candidatesResult as Result.Success).data
+        val candidates = candidatesResult
 
         // Early-exit walk: stop once we have `limit` unblocked items. Sequences cannot
         // call suspending isBlocked, so this is a manual loop. Each isBlocked() call costs
@@ -110,7 +106,7 @@ class NextItemRecommender(
             }
         }
 
-        return Result.Success(unblocked)
+        return unblocked
     }
 
     /**
@@ -135,7 +131,7 @@ class NextItemRecommender(
      * `matched == 0` iff the caller should report `queue_empty`; otherwise the three counts here
      * are the transient `none_eligible` outcome's `excluded` breakdown.
      */
-    suspend fun explainEmpty(criteria: Criteria): Result<ExclusionCounts> {
+    suspend fun explainEmpty(criteria: Criteria): ExclusionCounts {
         val countsResult =
             workItemRepo.countSelectorMatches(
                 role = criteria.role,
@@ -152,13 +148,10 @@ class NextItemRecommender(
                 roleChangedBefore = criteria.roleChangedBefore,
                 rootIds = criteria.ancestorIds,
             )
-        if (countsResult is Result.Error) {
-            return countsResult
-        }
-        val counts = (countsResult as Result.Success).data
+        val counts = countsResult
 
         if (counts.matched == 0) {
-            return Result.Success(ExclusionCounts(claimed = 0, ancestorClaimed = 0, dependencyBlocked = 0))
+            return ExclusionCounts(claimed = 0, ancestorClaimed = 0, dependencyBlocked = 0)
         }
 
         // Re-derive the same claimable candidate set `recommend` ranked (unclaimed at the item
@@ -182,10 +175,7 @@ class NextItemRecommender(
                 requestingAgentId = criteria.requestingAgentId,
                 rootIds = criteria.ancestorIds,
             )
-        if (candidatesResult is Result.Error) {
-            return candidatesResult
-        }
-        val candidates = (candidatesResult as Result.Success).data
+        val candidates = candidatesResult
 
         var dependencyBlocked = 0
         for (item in candidates) {
@@ -194,12 +184,10 @@ class NextItemRecommender(
 
         val ancestorClaimed = maxOf(0, counts.matched - counts.activelyClaimed - dependencyBlocked)
 
-        return Result.Success(
-            ExclusionCounts(
-                claimed = counts.activelyClaimed,
-                ancestorClaimed = ancestorClaimed,
-                dependencyBlocked = dependencyBlocked,
-            )
+        return ExclusionCounts(
+            claimed = counts.activelyClaimed,
+            ancestorClaimed = ancestorClaimed,
+            dependencyBlocked = dependencyBlocked,
         )
     }
 
@@ -237,12 +225,9 @@ class NextItemRecommender(
                 val threshold = dep.effectiveUnblockRole() ?: continue
                 val thresholdRole = Role.fromString(threshold) ?: continue
                 // Blocker is dep.fromItemId
-                val blockerResult = workItemRepo.getById(dep.fromItemId)
+                val blockerResult = legacyReadOrNull { workItemRepo.getById(dep.fromItemId) }
                 val blocker =
-                    when (blockerResult) {
-                        is Result.Success -> blockerResult.data
-                        is Result.Error -> continue // Skip — can't determine blocker state
-                    }
+                    blockerResult ?: continue // Skip — can't determine blocker state
                 if (!Role.isAtOrBeyond(blocker.role, thresholdRole)) {
                     return true // Unsatisfied dependency
                 }
@@ -256,12 +241,9 @@ class NextItemRecommender(
                 val threshold = dep.effectiveUnblockRole() ?: continue
                 val thresholdRole = Role.fromString(threshold) ?: continue
                 // Blocker is dep.toItemId
-                val blockerResult = workItemRepo.getById(dep.toItemId)
+                val blockerResult = legacyReadOrNull { workItemRepo.getById(dep.toItemId) }
                 val blocker =
-                    when (blockerResult) {
-                        is Result.Success -> blockerResult.data
-                        is Result.Error -> continue // Skip — can't determine blocker state
-                    }
+                    blockerResult ?: continue // Skip — can't determine blocker state
                 if (!Role.isAtOrBeyond(blocker.role, thresholdRole)) {
                     return true // Unsatisfied dependency
                 }

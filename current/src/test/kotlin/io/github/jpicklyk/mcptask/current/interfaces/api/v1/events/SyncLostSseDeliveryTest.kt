@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
@@ -103,7 +102,7 @@ class SyncLostSseDeliveryTest {
         ): WorkItem {
             val item = WorkItem(id = UUID.randomUUID(), parentId = null, title = "sync-lost-fixture", depth = 0, tags = tags)
             val result = provider.workItemRepository().create(item)
-            check(result is Result.Success) { "fixture item create failed: $result" }
+            check(result != null) { "fixture item create failed: $result" }
             return item
         }
 

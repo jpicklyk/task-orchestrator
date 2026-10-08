@@ -1,10 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
@@ -119,35 +120,20 @@ Call when work appears stalled or someone asks why an item cannot start.
         val allCandidates = mutableListOf<WorkItem>()
 
         for (role in candidateRoles) {
-            val items =
-                if (ancestorId != null) {
-                    // Scoped path: findInScope composes ancestorId's subtree restriction with the
-                    // existing optional parentId filter in a single call.
-                    when (
-                        val result =
-                            workItemRepo.findInScope(rootIds = setOf(ancestorId), parentId = parentId, role = role, limit = 500)
-                    ) {
-                        is Result.Success -> result.data
-                        is Result.Error -> {
-                            logger.warn("Failed to query items for role $role: ${result.error.message}")
-                            emptyList()
-                        }
-                    }
-                } else if (parentId != null) {
-                    when (val result = workItemRepo.findByFilters(parentId = parentId, role = role, limit = 500)) {
-                        is Result.Success -> result.data.items
-                        is Result.Error -> {
-                            logger.warn("Failed to query items for role $role: ${result.error.message}")
-                            emptyList()
-                        }
-                    }
-                } else {
-                    when (val result = workItemRepo.findByRole(role, limit = 500)) {
-                        is Result.Success -> result.data
-                        is Result.Error -> {
-                            logger.warn("Failed to query items for role $role: ${result.error.message}")
-                            emptyList()
-                        }
+            // A failed role query is logged and skipped (the scan degrades, it does not fail).
+            val items: List<WorkItem> =
+                legacyRead({
+                    logger.warn("Failed to query items for role $role: $it")
+                    continue
+                }) {
+                    if (ancestorId != null) {
+                        // Scoped path: findInScope composes ancestorId's subtree restriction with the
+                        // existing optional parentId filter in a single call.
+                        workItemRepo.findInScope(rootIds = setOf(ancestorId), parentId = parentId, role = role, limit = 500)
+                    } else if (parentId != null) {
+                        workItemRepo.findByFilters(parentId = parentId, role = role, limit = 500).items
+                    } else {
+                        workItemRepo.findByRole(role, limit = 500)
                     }
                 }
             allCandidates.addAll(items)
@@ -225,10 +211,7 @@ Call when work appears stalled or someone asks why an item cannot start.
         val ancestorChains: Map<UUID, List<WorkItem>> =
             if (includeAncestors && blockedItemsList.isNotEmpty()) {
                 val allIds = blockedItemsList.map { (item, _) -> item.id }.toSet()
-                when (val r = workItemRepo.findAncestorChains(allIds)) {
-                    is Result.Success -> r.data
-                    is Result.Error -> emptyMap()
-                }
+                (legacyReadOrNull { workItemRepo.findAncestorChains(allIds) } ?: emptyMap())
             } else {
                 emptyMap()
             }
@@ -282,10 +265,7 @@ Call when work appears stalled or someone asks why an item cannot start.
         val entries =
             blockerInfos.map { info ->
                 val blockerItem =
-                    when (val result = workItemRepo.getById(info.blockerItemId)) {
-                        is Result.Success -> result.data
-                        is Result.Error -> null
-                    }
+                    legacyReadOrNull { workItemRepo.getById(info.blockerItemId) }
                 val blockerRole = blockerItem?.role ?: Role.QUEUE
                 val thresholdRole = info.effectiveUnblockRole?.let { Role.fromString(it) } ?: Role.TERMINAL
                 val satisfied = Role.isAtOrBeyond(blockerRole, thresholdRole)

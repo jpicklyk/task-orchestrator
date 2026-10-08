@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
@@ -30,7 +29,7 @@ class QueryItemsToolAncestorScopeTest {
     @BeforeEach
     fun setUp() {
         val repositoryProvider = db.repositoryProvider()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         tool = QueryItemsTool()
         manageTool = ManageItemsTool()
     }
@@ -166,7 +165,7 @@ class QueryItemsToolAncestorScopeTest {
             val workChild =
                 run {
                     val id = createItemId("Work child", parentId = r1)
-                    val item = (context.workItemRepository().getById(id) as Result.Success).data
+                    val item = (context.workItemRepository().getById(id)!!)
                     context.workItemRepository().update(
                         item.copy(role = io.github.jpicklyk.mcptask.current.domain.model.Role.WORK)
                     )
@@ -177,7 +176,7 @@ class QueryItemsToolAncestorScopeTest {
             val r2WorkChild =
                 run {
                     val id = createItemId("R2 work child", parentId = r2)
-                    val item = (context.workItemRepository().getById(id) as Result.Success).data
+                    val item = (context.workItemRepository().getById(id)!!)
                     context.workItemRepository().update(
                         item.copy(role = io.github.jpicklyk.mcptask.current.domain.model.Role.WORK)
                     )

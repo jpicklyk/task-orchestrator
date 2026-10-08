@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -14,7 +13,7 @@ import java.sql.Connection
 import java.sql.DriverManager
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -73,8 +72,8 @@ class DeepHierarchyTest {
                         depth = currentDepth,
                     )
                 val result = repository.create(item)
-                assertIs<Result.Success<WorkItem>>(result, "Expected depth-$level item to be created without error")
-                currentParentId = result.data.id
+                assertNotNull(result, "Expected depth-$level item to be created without error")
+                currentParentId = result.id
                 currentDepth++
             }
 
@@ -86,18 +85,18 @@ class DeepHierarchyTest {
     fun `existing depth-3 items continue to function after depth cap removal`(): Unit =
         runBlocking {
             val root = repository.create(WorkItem(title = "Root", depth = 0))
-            assertIs<Result.Success<WorkItem>>(root)
-            val d1 = repository.create(WorkItem(title = "Depth 1", parentId = root.data.id, depth = 1))
-            assertIs<Result.Success<WorkItem>>(d1)
-            val d2 = repository.create(WorkItem(title = "Depth 2", parentId = d1.data.id, depth = 2))
-            assertIs<Result.Success<WorkItem>>(d2)
-            val d3 = repository.create(WorkItem(title = "Depth 3", parentId = d2.data.id, depth = 3))
-            assertIs<Result.Success<WorkItem>>(d3)
+            assertNotNull(root)
+            val d1 = repository.create(WorkItem(title = "Depth 1", parentId = root.id, depth = 1))
+            assertNotNull(d1)
+            val d2 = repository.create(WorkItem(title = "Depth 2", parentId = d1.id, depth = 2))
+            assertNotNull(d2)
+            val d3 = repository.create(WorkItem(title = "Depth 3", parentId = d2.id, depth = 3))
+            assertNotNull(d3)
 
-            val fetched = repository.getById(d3.data.id)
-            assertIs<Result.Success<WorkItem>>(fetched)
-            assertEquals(3, fetched.data.depth, "Expected depth-3 item to be retrievable")
-            assertEquals("Depth 3", fetched.data.title)
+            val fetched = repository.getById(d3.id)
+            assertNotNull(fetched)
+            assertEquals(3, fetched.depth, "Expected depth-3 item to be retrievable")
+            assertEquals("Depth 3", fetched.title)
         }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -112,9 +111,9 @@ class DeepHierarchyTest {
     fun `findDescendants returns full subtree in a single recursive query`(): Unit =
         runBlocking {
             val root = repository.create(WorkItem(title = "Root", depth = 0))
-            assertIs<Result.Success<WorkItem>>(root)
+            assertNotNull(root)
 
-            var parentId = root.data.id
+            var parentId = root.id
             val expectedDescendantIds = mutableSetOf<UUID>()
 
             for (level in 1..5) {
@@ -122,16 +121,16 @@ class DeepHierarchyTest {
                     repository.create(
                         WorkItem(title = "Level $level", parentId = parentId, depth = level)
                     )
-                assertIs<Result.Success<WorkItem>>(item)
-                expectedDescendantIds.add(item.data.id)
-                parentId = item.data.id
+                assertNotNull(item)
+                expectedDescendantIds.add(item.id)
+                parentId = item.id
             }
 
             // findDescendants should return all 5 descendants in a single recursive CTE.
-            val result = repository.findDescendants(root.data.id)
-            assertIs<Result.Success<List<WorkItem>>>(result)
+            val result = repository.findDescendants(root.id)
+            assertNotNull(result)
 
-            val foundIds = result.data.map { it.id }.toSet()
+            val foundIds = result.map { it.id }.toSet()
             assertEquals(
                 expectedDescendantIds,
                 foundIds,
@@ -143,11 +142,11 @@ class DeepHierarchyTest {
     fun `findDescendants returns empty list for a leaf item with no children`(): Unit =
         runBlocking {
             val leaf = repository.create(WorkItem(title = "Leaf item", depth = 0))
-            assertIs<Result.Success<WorkItem>>(leaf)
+            assertNotNull(leaf)
 
-            val result = repository.findDescendants(leaf.data.id)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertTrue(result.data.isEmpty(), "Leaf item should have no descendants")
+            val result = repository.findDescendants(leaf.id)
+            assertNotNull(result)
+            assertTrue(result.isEmpty(), "Leaf item should have no descendants")
         }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -158,12 +157,12 @@ class DeepHierarchyTest {
     fun `cycle detection trigger rejects parent that would form loop`(): Unit =
         runBlocking {
             val root = repository.create(WorkItem(title = "Root item", depth = 0))
-            assertIs<Result.Success<WorkItem>>(root)
+            assertNotNull(root)
             val child =
                 repository.create(
-                    WorkItem(title = "Child item", parentId = root.data.id, depth = 1)
+                    WorkItem(title = "Child item", parentId = root.id, depth = 1)
                 )
-            assertIs<Result.Success<WorkItem>>(child)
+            assertNotNull(child)
 
             // Attempt to set root.parentId = child (root -> child -> root = cycle).
             // Use raw JDBC to bypass domain validation and trigger the DB trigger directly.
@@ -174,8 +173,8 @@ class DeepHierarchyTest {
                     .prepareStatement(
                         "UPDATE work_items SET parent_id = ? WHERE id = ?"
                     ).use { stmt ->
-                        stmt.setBytes(1, uuidToBytes(child.data.id))
-                        stmt.setBytes(2, uuidToBytes(root.data.id))
+                        stmt.setBytes(1, uuidToBytes(child.id))
+                        stmt.setBytes(2, uuidToBytes(root.id))
                         stmt.executeUpdate()
                     }
             } catch (e: Exception) {
@@ -200,8 +199,8 @@ class DeepHierarchyTest {
                     repository.create(
                         WorkItem(title = "Chain item $i", parentId = parentId, depth = depth)
                     )
-                assertIs<Result.Success<WorkItem>>(item, "Expected chain item $i to be created without cycle error")
-                parentId = item.data.id
+                assertNotNull(item, "Expected chain item $i to be created without cycle error")
+                parentId = item.id
                 depth++
             }
             assertEquals(9, depth - 1, "Expected 10 items at depths 0..9")
@@ -247,7 +246,7 @@ class DeepHierarchyTest {
     fun `UPDATE setting parent_id equal to id is rejected by self-reference trigger`(): Unit =
         runBlocking {
             val item = repository.create(WorkItem(title = "Standalone item", depth = 0))
-            assertIs<Result.Success<WorkItem>>(item)
+            assertNotNull(item)
 
             var triggerFired = false
             var errorMessage = ""
@@ -255,7 +254,7 @@ class DeepHierarchyTest {
                 keepAliveConnection
                     .prepareStatement("UPDATE work_items SET parent_id = ? WHERE id = ?")
                     .use { stmt ->
-                        val bytes = uuidToBytes(item.data.id)
+                        val bytes = uuidToBytes(item.id)
                         stmt.setBytes(1, bytes)
                         stmt.setBytes(2, bytes)
                         stmt.executeUpdate()

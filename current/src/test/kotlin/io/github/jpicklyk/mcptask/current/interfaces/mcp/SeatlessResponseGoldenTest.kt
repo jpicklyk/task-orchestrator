@@ -230,12 +230,12 @@ class SeatlessResponseGoldenTest {
                 .workItemRepository()
                 .create(
                     WorkItem(id = ROOT_ID, title = "A1 T0 golden root", type = "project", depth = 0),
-                ).getOrNull() ?: error("fixture: root item creation failed")
+                ) ?: error("fixture: root item creation failed")
 
             repo
                 .projectConfigRepository()
                 .upsert(ROOT_ID, classpathResourceText(REPO_CONFIG_RESOURCE))
-                .getOrNull() ?: error("fixture: per-root config push failed")
+                ?: error("fixture: per-root config push failed")
 
             repo
                 .workItemRepository()
@@ -249,7 +249,7 @@ class SeatlessResponseGoldenTest {
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ).getOrNull() ?: error("fixture: feature-task item creation failed")
+                ) ?: error("fixture: feature-task item creation failed")
 
             repo
                 .workItemRepository()
@@ -263,7 +263,7 @@ class SeatlessResponseGoldenTest {
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ).getOrNull() ?: error("fixture: bug-fix item creation failed")
+                ) ?: error("fixture: bug-fix item creation failed")
 
             repo
                 .workItemRepository()
@@ -277,7 +277,7 @@ class SeatlessResponseGoldenTest {
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ).getOrNull() ?: error("fixture: schema-free item creation failed")
+                ) ?: error("fixture: schema-free item creation failed")
 
             repo
                 .workItemRepository()
@@ -291,7 +291,7 @@ class SeatlessResponseGoldenTest {
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ).getOrNull() ?: error("fixture: terminal item creation failed")
+                ) ?: error("fixture: terminal item creation failed")
         }
 
         return Fixture(

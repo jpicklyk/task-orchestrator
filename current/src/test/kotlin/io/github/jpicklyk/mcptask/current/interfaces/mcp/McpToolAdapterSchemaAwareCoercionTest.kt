@@ -311,7 +311,12 @@ class McpToolAdapterSchemaAwareCoercionTest {
                 closeInMemoryPair(client, server)
             }
 
-        private val dummyContext by lazy { ToolExecutionContext(repositoryProvider = db.repositoryProvider()) }
+        private val dummyContext by lazy {
+            ToolExecutionContext(
+                repositoryProvider = db.repositoryProvider(),
+                unitOfWork = db.unitOfWork()
+            )
+        }
 
         @Test
         fun `S6 - query_notes search with query false does not surface a validation error`(): Unit =

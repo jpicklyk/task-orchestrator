@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
@@ -9,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
@@ -39,7 +39,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
 
 /**
  * Wraps a real [ResourceLeaseRepository], failing [releaseAllForItem] with
@@ -54,14 +53,14 @@ private class FailOnIdResourceLeaseRepository(
 ) : ResourceLeaseRepository by delegate {
     override suspend fun releaseAllForItem(holderItemId: UUID): LeaseReleaseResult =
         if (holderItemId == failingHolderId) {
-            LeaseReleaseResult.DBError(RuntimeException("Simulated lease release failure for $holderItemId"))
+            throw RuntimeException("Simulated lease release failure for $holderItemId")
         } else {
             delegate.releaseAllForItem(holderItemId)
         }
 
     override suspend fun releaseAllForItems(holderItemIds: Set<UUID>): LeaseReleaseResult =
         if (failingHolderId in holderItemIds) {
-            LeaseReleaseResult.DBError(RuntimeException("Simulated lease release failure for $failingHolderId"))
+            throw RuntimeException("Simulated lease release failure for $failingHolderId")
         } else {
             delegate.releaseAllForItems(holderItemIds)
         }
@@ -81,7 +80,10 @@ private class FailOnIdRepositoryProvider(
  * so a [RepositoryProvider] wrapper — [FailOnIdRepositoryProvider] — can be installed for S8.
  * Mirrors [AdvanceRouteResourceLeaseTest]'s `configureLeaseTestApp`.
  */
-private fun Application.configureDeleteLeaseTestApp(provider: RepositoryProvider) {
+private fun Application.configureDeleteLeaseTestApp(
+    provider: RepositoryProvider,
+    unitOfWork: UnitOfWork
+) {
     install(ContentNegotiation) { json(McpJson) }
     install(SSE)
     val authConfig = makeWriteAuthConfig()
@@ -103,7 +105,9 @@ private fun Application.configureDeleteLeaseTestApp(provider: RepositoryProvider
                     NoOpNoteSchemaService,
                     statusLabelService = NoOpStatusLabelService,
                     perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                    unitOfWork = unitOfWork
                 ).advanceServiceFactory(),
+                unitOfWork,
             )
         }
     }
@@ -136,10 +140,10 @@ class ItemDeleteLeaseReleaseRouteTest {
     @Test
     fun `S6 REST DELETE of a leased leaf returns 204 and closes its lease interval as released`(): Unit =
         testApplication {
-            application { configureWriteTestApp(repositoryProvider) }
+            application { configureWriteTestApp(repositoryProvider, unitOfWork = db.unitOfWork()) }
             val item =
                 runBlocking {
-                    repositoryProvider.workItemRepository().create(WorkItem(title = "Leased Leaf", depth = 0)).getOrNull()!!
+                    repositoryProvider.workItemRepository().create(WorkItem(title = "Leased Leaf", depth = 0))!!
                 }
             val leaseRepo = repositoryProvider.resourceLeaseRepository()
             assertIs<LeaseAcquireResult.Success>(
@@ -153,7 +157,7 @@ class ItemDeleteLeaseReleaseRouteTest {
 
             assertEquals(HttpStatusCode.NoContent, response.status)
             val persisted = runBlocking { repositoryProvider.workItemRepository().getById(item.id) }
-            assertTrue(persisted is Result.Error, "item must be gone")
+            assertNull(persisted, "item must be gone")
 
             val interval = runBlocking { leaseRepo.findRecentIntervals("k-s6", 10) }.single()
             assertEquals("released", interval.releaseReason)
@@ -165,14 +169,19 @@ class ItemDeleteLeaseReleaseRouteTest {
         testApplication {
             val item =
                 runBlocking {
-                    repositoryProvider.workItemRepository().create(WorkItem(title = "Will Survive", depth = 0)).getOrNull()!!
+                    repositoryProvider.workItemRepository().create(WorkItem(title = "Will Survive", depth = 0))!!
                 }
             val leaseRepo = repositoryProvider.resourceLeaseRepository()
             assertIs<LeaseAcquireResult.Success>(
                 runBlocking { leaseRepo.acquireAll(item.id, "agent-a", listOf("k-s8" to 900)) },
             )
             val failing = FailOnIdResourceLeaseRepository(leaseRepo, item.id)
-            application { configureDeleteLeaseTestApp(FailOnIdRepositoryProvider(repositoryProvider, failing)) }
+            application {
+                configureDeleteLeaseTestApp(
+                    FailOnIdRepositoryProvider(repositoryProvider, failing),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val response =
                 client.delete("/api/v1/items/${item.id}") {
@@ -184,7 +193,7 @@ class ItemDeleteLeaseReleaseRouteTest {
             assertEquals("db_error", json["error"]?.jsonPrimitive?.content)
 
             val persisted = runBlocking { repositoryProvider.workItemRepository().getById(item.id) }
-            assertTrue(persisted is Result.Success, "item must survive a release DBError")
+            assertNotNull(persisted, "item must survive a release DBError")
 
             val interval = leaseRepo.findRecentIntervals("k-s8", 10).single()
             assertNull(interval.releasedAt, "the lease must remain open — the release failed before the delete")
@@ -205,17 +214,16 @@ class ItemDeleteLeaseReleaseRouteTest {
     @Test
     fun `B1 REST DELETE of a leased parent without recursive is refused with 409 has_children and touches no lease`(): Unit =
         testApplication {
-            application { configureWriteTestApp(repositoryProvider) }
+            application { configureWriteTestApp(repositoryProvider, unitOfWork = db.unitOfWork()) }
             val parent =
                 runBlocking {
-                    repositoryProvider.workItemRepository().create(WorkItem(title = "Leased Parent", depth = 0)).getOrNull()!!
+                    repositoryProvider.workItemRepository().create(WorkItem(title = "Leased Parent", depth = 0))!!
                 }
             val child =
                 runBlocking {
                     repositoryProvider
                         .workItemRepository()
-                        .create(WorkItem(title = "Child", parentId = parent.id, depth = 1))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "Child", parentId = parent.id, depth = 1))!!
                 }
             val leaseRepo = repositoryProvider.resourceLeaseRepository()
             assertIs<LeaseAcquireResult.Success>(
@@ -241,9 +249,9 @@ class ItemDeleteLeaseReleaseRouteTest {
             )
 
             val persistedParent = runBlocking { repositoryProvider.workItemRepository().getById(parent.id) }
-            assertTrue(persistedParent is Result.Success, "the parent must remain — nothing was deleted")
+            assertNotNull(persistedParent, "the parent must remain — nothing was deleted")
             val persistedChild = runBlocking { repositoryProvider.workItemRepository().getById(child.id) }
-            assertTrue(persistedChild is Result.Success, "the child must remain untouched")
+            assertNotNull(persistedChild, "the child must remain untouched")
 
             val interval = leaseRepo.findRecentIntervals("k-b1-rest", 10).single()
             assertNull(interval.releaseReason, "the has_children refusal must precede any lease release")

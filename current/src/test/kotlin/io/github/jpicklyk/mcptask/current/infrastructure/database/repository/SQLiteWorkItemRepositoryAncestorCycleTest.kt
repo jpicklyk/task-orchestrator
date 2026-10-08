@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.repository
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
@@ -17,7 +16,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -55,8 +54,8 @@ class SQLiteWorkItemRepositoryAncestorCycleTest {
     ): WorkItem {
         val item = WorkItem(title = title, parentId = parentId, depth = depth)
         val result = repository.create(item)
-        assertIs<Result.Success<WorkItem>>(result)
-        return result.data
+        assertNotNull(result)
+        return result
     }
 
     /**
@@ -91,9 +90,9 @@ class SQLiteWorkItemRepositoryAncestorCycleTest {
 
             // findAncestorChains must terminate and not spin forever
             val result = repository.findAncestorChains(setOf(item.id))
-            assertIs<Result.Success<Map<UUID, List<WorkItem>>>>(result)
+            assertNotNull(result)
 
-            val chain = result.data[item.id]
+            val chain = result[item.id]
             assertTrue(chain != null, "Chain entry must exist for the requested item")
             // The cycle detection in findAncestorChains must break the loop.
             // The item itself is NOT an ancestor, so the chain should be empty (or at most
@@ -121,9 +120,9 @@ class SQLiteWorkItemRepositoryAncestorCycleTest {
 
             // Must terminate, not spin forever
             val result = repository.findAncestorChains(setOf(itemA.id))
-            assertIs<Result.Success<Map<UUID, List<WorkItem>>>>(result)
+            assertNotNull(result)
 
-            val chain = result.data[itemA.id]
+            val chain = result[itemA.id]
             assertTrue(chain != null, "Chain entry must exist for the requested item")
             // With cycle detection the chain will be broken after visiting one node
             assertTrue(
@@ -144,9 +143,9 @@ class SQLiteWorkItemRepositoryAncestorCycleTest {
             val child = createItem("Child", parentId = parent.id, depth = 2)
 
             val result = repository.findAncestorChains(setOf(child.id))
-            assertIs<Result.Success<Map<UUID, List<WorkItem>>>>(result)
+            assertNotNull(result)
 
-            val chain = result.data[child.id]
+            val chain = result[child.id]
             assertTrue(chain != null, "Chain entry must exist for the child item")
             assertEquals(2, chain.size, "Child at depth 2 should have 2 ancestors")
             // Chain is root-first: chain[0] = root, chain[1] = parent (direct parent)

@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -49,17 +48,13 @@ class CompleteTreeToolTest {
         every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
         // dbNow() is called for ownership checks; default to JVM time for non-clock-skew tests.
         coEvery { workItemRepo.dbNow() } returns Instant.now()
-        // inTransaction delegates to its block directly — no real DB transaction in unit tests
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
-        }
         // AdvanceService validates dependencies in both directions and inspects children for
         // cascade detection on every transition; default the strict mocks to "no edges / no
         // children" so pre-existing fixtures that never stubbed these calls keep their shape.
         // Specific per-test stubs declared later override these defaults.
         every { depRepo.findByToItemId(any()) } returns emptyList()
         every { depRepo.findByFromItemId(any()) } returns emptyList()
-        coEvery { workItemRepo.countChildrenByRole(any()) } returns Result.Success(emptyMap())
+        coEvery { workItemRepo.countChildrenByRole(any()) } returns emptyMap()
 
         context = ToolExecutionContext(repoProvider)
     }
@@ -129,7 +124,7 @@ class CompleteTreeToolTest {
         runBlocking {
             val rootId = UUID.randomUUID()
 
-            coEvery { workItemRepo.findDescendants(rootId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findDescendants(rootId) } returns emptyList()
 
             // includeRoot=false to test descendants-only path with no items
             val params = buildRootIdParams(rootId, includeRoot = false)
@@ -156,9 +151,9 @@ class CompleteTreeToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, title = "Simple Item", role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -214,9 +209,9 @@ class CompleteTreeToolTest {
             every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
             val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
 
             val params = buildItemIdsParams(listOf(itemId))
@@ -285,17 +280,17 @@ class CompleteTreeToolTest {
             every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
             val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
 
-            coEvery { workItemRepo.getById(idA) } returns Result.Success(itemA)
-            coEvery { workItemRepo.getById(idB) } returns Result.Success(itemB)
-            coEvery { workItemRepo.getById(idC) } returns Result.Success(itemC)
+            coEvery { workItemRepo.getById(idA) } returns itemA
+            coEvery { workItemRepo.getById(idB) } returns itemB
+            coEvery { workItemRepo.getById(idC) } returns itemC
             // Construction-only: AdvanceService re-reads a blocker's role from the repository, so a
             // persisted update must be visible to later getById calls (a real DB does this itself).
             coEvery { workItemRepo.update(any()) } answers {
                 val u = firstArg<WorkItem>()
-                coEvery { workItemRepo.getById(u.id) } returns Result.Success(u)
-                Result.Success(u)
+                coEvery { workItemRepo.getById(u.id) } returns u
+                u
             }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
 
             // A has no incoming deps in target set; B has A as blocker; C has B as blocker
             every { depRepo.findByToItemId(idA) } returns emptyList()
@@ -303,8 +298,8 @@ class CompleteTreeToolTest {
             every { depRepo.findByToItemId(idC) } returns listOf(depBtoC)
 
             // No notes exist for B (gated item)
-            coEvery { noteRepo.findByItemId(idB) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemId(idB, any()) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemId(idB) } returns emptyList()
+            coEvery { noteRepo.findByItemId(idB, any()) } returns emptyList()
 
             val params = buildItemIdsParams(listOf(idA, idB, idC))
             val result = tool.execute(params, gatedContext)
@@ -349,9 +344,9 @@ class CompleteTreeToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, title = "Item to Cancel", role = Role.WORK)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
 
             val params = buildItemIdsParams(listOf(itemId), trigger = "cancel")
@@ -406,7 +401,7 @@ class CompleteTreeToolTest {
             val item = makeItem(id = itemId, title = "Cancelled Item", role = Role.TERMINAL, tags = "feature-task")
             val gatedContext = gatedContextRequiringAcceptanceCriteria()
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             // Deliberately do NOT mock noteRepo.findByItemId — a regression that gate-checks a
             // terminal item would call it and fail this test with an unmocked-call error.
@@ -440,10 +435,10 @@ class CompleteTreeToolTest {
 
             val gatedContext = gatedContextRequiringAcceptanceCriteria()
 
-            coEvery { workItemRepo.getById(idA) } returns Result.Success(itemA)
-            coEvery { workItemRepo.getById(idB) } returns Result.Success(itemB)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(idA) } returns itemA
+            coEvery { workItemRepo.getById(idB) } returns itemB
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
 
             every { depRepo.findByToItemId(idA) } returns emptyList()
             every { depRepo.findByToItemId(idB) } returns listOf(depAtoB)
@@ -480,8 +475,8 @@ class CompleteTreeToolTest {
             val rootItem = makeItem(id = rootId, title = "Done Feature", role = Role.TERMINAL, tags = "feature-task")
             val gatedContext = gatedContextRequiringAcceptanceCriteria()
 
-            coEvery { workItemRepo.findDescendants(rootId) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.getById(rootId) } returns Result.Success(rootItem)
+            coEvery { workItemRepo.findDescendants(rootId) } returns emptyList()
+            coEvery { workItemRepo.getById(rootId) } returns rootItem
 
             val params = buildRootIdParams(rootId) // includeRoot defaults true
             val result = tool.execute(params, gatedContext)
@@ -617,7 +612,7 @@ class CompleteTreeToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, title = "Already Done", role = Role.TERMINAL)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
 
             val params = buildItemIdsParams(listOf(itemId))
@@ -645,7 +640,7 @@ class CompleteTreeToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, title = "Blocked Work Item", role = Role.BLOCKED)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
 
             val params = buildItemIdsParams(listOf(itemId))
@@ -675,10 +670,10 @@ class CompleteTreeToolTest {
             val childId = UUID.randomUUID()
             val child = makeItem(id = childId, title = "Child Item", role = Role.QUEUE, parentId = rootId, depth = 1)
 
-            coEvery { workItemRepo.findDescendants(rootId) } returns Result.Success(listOf(child))
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(child)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.findDescendants(rootId) } returns listOf(child)
+            coEvery { workItemRepo.getById(childId) } returns child
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(childId) } returns emptyList()
 
             val params = buildRootIdParams(rootId, includeRoot = false)
@@ -704,11 +699,11 @@ class CompleteTreeToolTest {
             val root = makeItem(id = rootId, title = "Root Item", role = Role.QUEUE, depth = 0)
             val child = makeItem(id = childId, title = "Child Item", role = Role.QUEUE, parentId = rootId, depth = 1)
 
-            coEvery { workItemRepo.findDescendants(rootId) } returns Result.Success(listOf(child))
-            coEvery { workItemRepo.getById(rootId) } returns Result.Success(root)
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(child)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.findDescendants(rootId) } returns listOf(child)
+            coEvery { workItemRepo.getById(rootId) } returns root
+            coEvery { workItemRepo.getById(childId) } returns child
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(childId) } returns emptyList()
 
             // No includeRoot param => defaults to true
@@ -755,10 +750,10 @@ class CompleteTreeToolTest {
             val childId = UUID.randomUUID()
             val child = makeItem(id = childId, title = "Child Item", role = Role.QUEUE, parentId = rootId, depth = 1)
 
-            coEvery { workItemRepo.findDescendants(rootId) } returns Result.Success(listOf(child))
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(child)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.findDescendants(rootId) } returns listOf(child)
+            coEvery { workItemRepo.getById(childId) } returns child
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(childId) } returns emptyList()
 
             val params = buildRootIdParams(rootId, includeRoot = false)
@@ -786,11 +781,11 @@ class CompleteTreeToolTest {
             val root = makeItem(id = rootId, title = "Feature Root", role = Role.QUEUE, depth = 0)
             val child = makeItem(id = childId, title = "Task Child", role = Role.WORK, parentId = rootId, depth = 1)
 
-            coEvery { workItemRepo.findDescendants(rootId) } returns Result.Success(listOf(child))
-            coEvery { workItemRepo.getById(rootId) } returns Result.Success(root)
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(child)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.findDescendants(rootId) } returns listOf(child)
+            coEvery { workItemRepo.getById(rootId) } returns root
+            coEvery { workItemRepo.getById(childId) } returns child
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(childId) } returns emptyList()
 
             val params = buildRootIdParams(rootId, trigger = "cancel")
@@ -852,14 +847,14 @@ class CompleteTreeToolTest {
             every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
             val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
 
-            coEvery { workItemRepo.findDescendants(rootId) } returns Result.Success(listOf(child))
-            coEvery { workItemRepo.getById(rootId) } returns Result.Success(root)
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(child)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.findDescendants(rootId) } returns listOf(child)
+            coEvery { workItemRepo.getById(rootId) } returns root
+            coEvery { workItemRepo.getById(childId) } returns child
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(childId) } returns emptyList()
-            coEvery { noteRepo.findByItemId(rootId) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemId(rootId, any()) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemId(rootId) } returns emptyList()
+            coEvery { noteRepo.findByItemId(rootId, any()) } returns emptyList()
 
             val params = buildRootIdParams(rootId)
             val result = tool.execute(params, gatedContext)
@@ -933,11 +928,11 @@ class CompleteTreeToolTest {
 
             // Note exists with non-blank body — gate should pass
             val note = Note(itemId = itemId, key = "acceptance-criteria", role = "queue", body = "AC content here.")
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(note))
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(listOf(note))
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns listOf(note)
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns listOf(note)
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
 
             val params = buildItemIdsParams(listOf(itemId))
@@ -993,11 +988,11 @@ class CompleteTreeToolTest {
             val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
 
             // No notes at all — gate would fail for "complete" but should be bypassed by "cancel"
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
 
             val params = buildItemIdsParams(listOf(itemId), trigger = "cancel")
@@ -1050,9 +1045,9 @@ class CompleteTreeToolTest {
             every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
             val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
 
             val params = buildItemIdsParams(listOf(itemId))
@@ -1077,10 +1072,10 @@ class CompleteTreeToolTest {
             val rootId = UUID.randomUUID()
             val root = makeItem(id = rootId, title = "Lone Root", role = Role.QUEUE, depth = 0)
 
-            coEvery { workItemRepo.findDescendants(rootId) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.getById(rootId) } returns Result.Success(root)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.findDescendants(rootId) } returns emptyList()
+            coEvery { workItemRepo.getById(rootId) } returns root
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
 
             val params = buildRootIdParams(rootId)
             val result = tool.execute(params, context)
@@ -1107,9 +1102,9 @@ class CompleteTreeToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, title = "Custom Label Item", role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -1135,9 +1130,9 @@ class CompleteTreeToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, title = "Cancel Precedence Item", role = Role.WORK)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
 
             val params = buildItemIdsParams(listOf(itemId), trigger = "cancel")
@@ -1161,11 +1156,11 @@ class CompleteTreeToolTest {
             val item = makeItem(title = "Prefix Root", role = Role.QUEUE)
             val prefix = item.id.toString().substring(0, 8)
 
-            coEvery { workItemRepo.findByIdPrefix(prefix, any()) } returns Result.Success(listOf(item))
-            coEvery { workItemRepo.findDescendants(item.id) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.getById(item.id) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.findByIdPrefix(prefix, any()) } returns listOf(item)
+            coEvery { workItemRepo.findDescendants(item.id) } returns emptyList()
+            coEvery { workItemRepo.getById(item.id) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(item.id) } returns emptyList()
 
             val params =
@@ -1182,7 +1177,7 @@ class CompleteTreeToolTest {
     @Test
     fun `rootId with unresolvable prefix throws validation error`(): Unit =
         runBlocking {
-            coEvery { workItemRepo.findByIdPrefix("dead0000", any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByIdPrefix("dead0000", any()) } returns emptyList()
 
             val params =
                 buildJsonObject {
@@ -1202,10 +1197,10 @@ class CompleteTreeToolTest {
             val item = makeItem(title = "Prefix Item", role = Role.QUEUE)
             val prefix = item.id.toString().substring(0, 8)
 
-            coEvery { workItemRepo.findByIdPrefix(prefix, any()) } returns Result.Success(listOf(item))
-            coEvery { workItemRepo.getById(item.id) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.findByIdPrefix(prefix, any()) } returns listOf(item)
+            coEvery { workItemRepo.getById(item.id) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(item.id) } returns emptyList()
 
             val params =
@@ -1225,7 +1220,7 @@ class CompleteTreeToolTest {
     @Test
     fun `itemIds with unresolvable prefix throws validation error`(): Unit =
         runBlocking {
-            coEvery { workItemRepo.findByIdPrefix("dead0000", any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByIdPrefix("dead0000", any()) } returns emptyList()
 
             val params =
                 buildJsonObject {
@@ -1315,11 +1310,11 @@ class CompleteTreeToolTest {
                 val gatedContext = contextWithNoteSchema(makeSchemaServiceWithWorkPhaseNote())
 
                 // No notes filled — normally gate would block "complete" trigger
-                coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-                coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
-                coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
-                coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-                coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+                coEvery { workItemRepo.getById(itemId) } returns item
+                coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
+                coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
+                coEvery { workItemRepo.update(any()) } answers { firstArg() }
+                coEvery { roleTransitionRepo.create(any()) } returns mockk()
                 every { depRepo.findByToItemId(itemId) } returns emptyList()
 
                 val params =
@@ -1353,9 +1348,9 @@ class CompleteTreeToolTest {
                 val gatedContext = contextWithNoteSchema(makeSchemaServiceWithWorkPhaseNote())
 
                 // No notes filled — gate should block
-                coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-                coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
-                coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+                coEvery { workItemRepo.getById(itemId) } returns item
+                coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
+                coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
                 every { depRepo.findByToItemId(itemId) } returns emptyList()
 
                 val params =
@@ -1390,9 +1385,9 @@ class CompleteTreeToolTest {
                 val gatedContext = contextWithNoteSchema(makeSchemaServiceWithWorkPhaseNote())
 
                 // No notes filled
-                coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-                coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
-                coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+                coEvery { workItemRepo.getById(itemId) } returns item
+                coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
+                coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
                 every { depRepo.findByToItemId(itemId) } returns emptyList()
 
                 // Both terminalRole=cancelled AND trigger=complete: trigger wins
@@ -1430,9 +1425,9 @@ class CompleteTreeToolTest {
                 val gatedContext = contextWithNoteSchema(makeSchemaServiceWithWorkPhaseNote())
 
                 // No notes filled — gate should block when trigger=complete is used
-                coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-                coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
-                coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+                coEvery { workItemRepo.getById(itemId) } returns item
+                coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
+                coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
                 every { depRepo.findByToItemId(itemId) } returns emptyList()
 
                 // Pass only terminalRole=cancelled (no explicit trigger)
@@ -1486,9 +1481,9 @@ class CompleteTreeToolTest {
             every { leaseRepoProvider.resourceLeaseRepository() } returns leaseRepo
             val leaseContext = ToolExecutionContext(leaseRepoProvider)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
 
             val params = buildItemIdsParams(listOf(itemId))
@@ -1516,9 +1511,9 @@ class CompleteTreeToolTest {
             every { leaseRepoProvider.resourceLeaseRepository() } returns leaseRepo
             val leaseContext = ToolExecutionContext(leaseRepoProvider)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
 
             val params = buildItemIdsParams(listOf(itemId))

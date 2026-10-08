@@ -26,7 +26,7 @@ class GetBlockedItemsToolTest {
     @BeforeEach
     fun setUp() {
         val repositoryProvider = db.repositoryProvider()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         tool = GetBlockedItemsTool()
         manageTool = ManageItemsTool()
         depTool = ManageDependenciesTool()
@@ -115,8 +115,8 @@ class GetBlockedItemsToolTest {
                 summary = summary
             )
         val result = context.workItemRepository().create(item)
-        assertTrue(result is io.github.jpicklyk.mcptask.current.domain.repository.Result.Success)
-        return (result as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data.id
+        assertNotNull(result)
+        return result.id
     }
 
     /**

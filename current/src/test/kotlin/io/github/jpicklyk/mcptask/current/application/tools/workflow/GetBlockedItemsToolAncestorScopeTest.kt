@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
@@ -29,7 +28,7 @@ class GetBlockedItemsToolAncestorScopeTest {
     @BeforeEach
     fun setUp() {
         val repositoryProvider = db.repositoryProvider()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         tool = GetBlockedItemsTool()
     }
 
@@ -42,7 +41,7 @@ class GetBlockedItemsToolAncestorScopeTest {
         depth: Int = if (parentId != null) 1 else 0
     ): WorkItem {
         val item = WorkItem(parentId = parentId, title = title, role = role, depth = depth)
-        return (context.workItemRepository().create(item) as Result.Success).data
+        return (context.workItemRepository().create(item)!!)
     }
 
     /** Directly creates an explicitly BLOCKED item (bypassing the normal block/hold trigger). */
@@ -59,7 +58,7 @@ class GetBlockedItemsToolAncestorScopeTest {
                 parentId = parentId,
                 depth = depth
             )
-        return (context.workItemRepository().create(item) as Result.Success).data
+        return (context.workItemRepository().create(item)!!)
     }
 
     private fun extractBlockedItems(result: JsonElement): JsonArray {

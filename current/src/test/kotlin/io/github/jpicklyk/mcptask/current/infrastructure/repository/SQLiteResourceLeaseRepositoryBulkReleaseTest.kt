@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.repository
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.VarCharColumnType
@@ -33,7 +33,7 @@ class SQLiteResourceLeaseRepositoryBulkReleaseTest {
 
     private suspend fun holders(n: Int): List<UUID> =
         (0 until n).map {
-            ((repositoryProvider.workItemRepository().create(WorkItem(title = "h$it", depth = 0))) as Result.Success).data.id
+            ((repositoryProvider.workItemRepository().create(WorkItem(title = "h$it", depth = 0)))!!).id
         }
 
     private fun openIntervals(holder: UUID): Int =
@@ -85,7 +85,7 @@ class SQLiteResourceLeaseRepositoryBulkReleaseTest {
         block: suspend () -> T,
     ): T {
         var out: T? = null
-        repositoryProvider.workItemRepository().inTransaction {
+        sqliteDb.unitOfWork().inUnit {
             val conn = TransactionManager.current().connection.connection as Connection
             val sqlite = conn.unwrap(SQLiteConnection::class.java)
             sqlite.setLimit(SQLiteLimits.SQLITE_LIMIT_VARIABLE_NUMBER, limit)

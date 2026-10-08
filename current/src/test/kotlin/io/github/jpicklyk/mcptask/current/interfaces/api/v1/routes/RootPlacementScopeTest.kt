@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -29,7 +28,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -128,7 +127,7 @@ class RootPlacementScopeTest {
     fun `S1 unscoped POST items creates root with depth 0 and self rootId`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig()) }
+            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -140,9 +139,9 @@ class RootPlacementScopeTest {
             assertEquals(HttpStatusCode.Created, response.status, "Unscoped root create must succeed: ${response.bodyAsText()}")
             val id = parseId(response.bodyAsText())
             val persisted = runBlocking { repo.workItemRepository().getById(id) }
-            assertIs<Result.Success<WorkItem>>(persisted)
-            assertEquals(0, persisted.data.depth, "A parentless create must be depth 0")
-            assertEquals(id, persisted.data.rootId, "A root's rootId must be its own id")
+            assertNotNull(persisted)
+            assertEquals(0, persisted.depth, "A parentless create must be depth 0")
+            assertEquals(id, persisted.rootId, "A root's rootId must be its own id")
         }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -155,10 +154,16 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val root =
                 runBlocking {
-                    val r0 = repo.workItemRepository().create(WorkItem(title = "S2 Root", depth = 0)).getOrNull()!!
-                    repo.workItemRepository().update(r0.copy(rootId = r0.id)).getOrNull()!!
+                    val r0 = repo.workItemRepository().create(WorkItem(title = "S2 Root", depth = 0))!!
+                    repo.workItemRepository().update(r0.copy(rootId = r0.id))!!
                 }
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))) }
+            application {
+                configureWriteTestApp(
+                    repo,
+                    authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id)),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val response =
                 client.post("/api/v1/items") {
@@ -170,7 +175,7 @@ class RootPlacementScopeTest {
             assertEquals(HttpStatusCode.Created, response.status, "In-scope parented create must succeed: ${response.bodyAsText()}")
             val id = parseId(response.bodyAsText())
             val persisted = runBlocking { repo.workItemRepository().getById(id) }
-            assertEquals(root.id, (persisted as Result.Success).data.parentId)
+            assertEquals(root.id, persisted!!.parentId)
         }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -183,7 +188,7 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val tagToken = "integration-write-token-s3"
             val principal = writeScopedPrincipal("test-write-s3", rootIds = null, tagsInclude = setOf("alpha"))
-            application { configureWriteTestApp(repo, authConfig = authConfigWith(tagToken, principal)) }
+            application { configureWriteTestApp(repo, authConfig = authConfigWith(tagToken, principal), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -199,9 +204,9 @@ class RootPlacementScopeTest {
             )
             val id = parseId(response.bodyAsText())
             val persisted = runBlocking { repo.workItemRepository().getById(id) }
-            assertIs<Result.Success<WorkItem>>(persisted)
-            assertEquals(0, persisted.data.depth)
-            assertTrue(persisted.data.tagList().contains("alpha"), "Created root must carry the alpha tag: ${persisted.data.tags}")
+            assertNotNull(persisted)
+            assertEquals(0, persisted.depth)
+            assertTrue(persisted.tagList().contains("alpha"), "Created root must carry the alpha tag: ${persisted.tags}")
         }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -215,14 +220,19 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val x =
                 runBlocking {
-                    val p0 = repo.workItemRepository().create(WorkItem(title = "S4 Out-of-scope P", depth = 0)).getOrNull()!!
-                    val p = repo.workItemRepository().update(p0.copy(rootId = p0.id)).getOrNull()!!
+                    val p0 = repo.workItemRepository().create(WorkItem(title = "S4 Out-of-scope P", depth = 0))!!
+                    val p = repo.workItemRepository().update(p0.copy(rootId = p0.id))!!
                     repo
                         .workItemRepository()
-                        .create(WorkItem(title = "S4 X", parentId = p.id, depth = 1, rootId = p.id))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "S4 X", parentId = p.id, depth = 1, rootId = p.id))!!
                 }
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(x.id))) }
+            application {
+                configureWriteTestApp(
+                    repo,
+                    authConfig = makeWriteAuthConfig(scopeRootIds = setOf(x.id)),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""
             val response =
@@ -239,10 +249,10 @@ class RootPlacementScopeTest {
                 "Move-to-root must succeed when the item's own id is in rootIds: ${response.bodyAsText()}",
             )
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
-            assertIs<Result.Success<WorkItem>>(persisted)
-            assertEquals(null, persisted.data.parentId)
-            assertEquals(0, persisted.data.depth)
-            assertEquals(x.id, persisted.data.rootId)
+            assertNotNull(persisted)
+            assertEquals(null, persisted.parentId)
+            assertEquals(0, persisted.depth)
+            assertEquals(x.id, persisted.rootId)
 
             val getResponse =
                 client.get("/api/v1/items/${x.id}") {
@@ -261,16 +271,15 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val x =
                 runBlocking {
-                    val p0 = repo.workItemRepository().create(WorkItem(title = "S5 P", depth = 0, tags = "alpha")).getOrNull()!!
-                    val p = repo.workItemRepository().update(p0.copy(rootId = p0.id)).getOrNull()!!
+                    val p0 = repo.workItemRepository().create(WorkItem(title = "S5 P", depth = 0, tags = "alpha"))!!
+                    val p = repo.workItemRepository().update(p0.copy(rootId = p0.id))!!
                     repo
                         .workItemRepository()
-                        .create(WorkItem(title = "S5 X", parentId = p.id, depth = 1, rootId = p.id, tags = "alpha"))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "S5 X", parentId = p.id, depth = 1, rootId = p.id, tags = "alpha"))!!
                 }
             val tagToken = "integration-write-token-s5"
             val principal = writeScopedPrincipal("test-write-s5", rootIds = null, tagsInclude = setOf("alpha"))
-            application { configureWriteTestApp(repo, authConfig = authConfigWith(tagToken, principal)) }
+            application { configureWriteTestApp(repo, authConfig = authConfigWith(tagToken, principal), unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""
             val response =
@@ -287,10 +296,10 @@ class RootPlacementScopeTest {
                 "Move-to-root must succeed for an allowed-tag item: ${response.bodyAsText()}",
             )
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
-            assertIs<Result.Success<WorkItem>>(persisted)
-            assertEquals(null, persisted.data.parentId)
-            assertEquals(0, persisted.data.depth)
-            assertEquals(x.id, persisted.data.rootId)
+            assertNotNull(persisted)
+            assertEquals(null, persisted.parentId)
+            assertEquals(0, persisted.depth)
+            assertEquals(x.id, persisted.rootId)
         }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -303,10 +312,16 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val root =
                 runBlocking {
-                    val r0 = repo.workItemRepository().create(WorkItem(title = "S6 Root Anchor", depth = 0)).getOrNull()!!
-                    repo.workItemRepository().update(r0.copy(rootId = r0.id)).getOrNull()!!
+                    val r0 = repo.workItemRepository().create(WorkItem(title = "S6 Root Anchor", depth = 0))!!
+                    repo.workItemRepository().update(r0.copy(rootId = r0.id))!!
                 }
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))) }
+            application {
+                configureWriteTestApp(
+                    repo,
+                    authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id)),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val response =
                 client.post("/api/v1/items") {
@@ -323,7 +338,7 @@ class RootPlacementScopeTest {
             assertTrue(response.bodyAsText().contains("scope_forbidden"), "Should report scope_forbidden: ${response.bodyAsText()}")
 
             val all = runBlocking { repo.workItemRepository().findByFilters() }
-            val matching = (all as Result.Success).data.items.filter { it.title == "S6 Should Not Exist" }
+            val matching = all.items.filter { it.title == "S6 Should Not Exist" }
             assertTrue(matching.isEmpty(), "Rejected root create must not persist anything")
         }
 
@@ -337,10 +352,16 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val root =
                 runBlocking {
-                    val r0 = repo.workItemRepository().create(WorkItem(title = "S7 Root Anchor", depth = 0)).getOrNull()!!
-                    repo.workItemRepository().update(r0.copy(rootId = r0.id)).getOrNull()!!
+                    val r0 = repo.workItemRepository().create(WorkItem(title = "S7 Root Anchor", depth = 0))!!
+                    repo.workItemRepository().update(r0.copy(rootId = r0.id))!!
                 }
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))) }
+            application {
+                configureWriteTestApp(
+                    repo,
+                    authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id)),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val response =
                 client.post("/api/v1/items") {
@@ -357,7 +378,7 @@ class RootPlacementScopeTest {
             assertTrue(response.bodyAsText().contains("scope_forbidden"), "Should report scope_forbidden: ${response.bodyAsText()}")
 
             val all = runBlocking { repo.workItemRepository().findByFilters() }
-            val matching = (all as Result.Success).data.items.filter { it.title == "S7 Should Not Exist" }
+            val matching = all.items.filter { it.title == "S7 Should Not Exist" }
             assertTrue(matching.isEmpty(), "Rejected root create must not persist anything")
         }
 
@@ -373,12 +394,12 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val root =
                 runBlocking {
-                    val r0 = repo.workItemRepository().create(WorkItem(title = "S8 Root Anchor", depth = 0)).getOrNull()!!
-                    repo.workItemRepository().update(r0.copy(rootId = r0.id)).getOrNull()!!
+                    val r0 = repo.workItemRepository().create(WorkItem(title = "S8 Root Anchor", depth = 0))!!
+                    repo.workItemRepository().update(r0.copy(rootId = r0.id))!!
                 }
             val token = "integration-write-token-s8"
             val principal = writeScopedPrincipal("test-write-s8", rootIds = setOf(root.id), tagsInclude = setOf("alpha"))
-            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
+            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -395,7 +416,7 @@ class RootPlacementScopeTest {
             assertTrue(response.bodyAsText().contains("scope_forbidden"), "Should report scope_forbidden: ${response.bodyAsText()}")
 
             val all = runBlocking { repo.workItemRepository().findByFilters() }
-            val matching = (all as Result.Success).data.items.filter { it.title == "S8 Should Not Exist" }
+            val matching = all.items.filter { it.title == "S8 Should Not Exist" }
             assertTrue(matching.isEmpty(), "Rejected root create must not persist anything")
         }
 
@@ -410,7 +431,7 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val token = "integration-write-token-s9a"
             val principal = writeScopedPrincipal("test-write-s9a", rootIds = null, tagsInclude = setOf("alpha"))
-            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
+            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -428,7 +449,7 @@ class RootPlacementScopeTest {
 
             val all = runBlocking { repo.workItemRepository().findByFilters() }
             assertTrue(
-                (all as Result.Success).data.items.none { it.title == "S9a Should Not Exist" },
+                all.items.none { it.title == "S9a Should Not Exist" },
                 "Rejected root create must not persist anything",
             )
         }
@@ -439,7 +460,7 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val token = "integration-write-token-s9b"
             val principal = writeScopedPrincipal("test-write-s9b", rootIds = null, tagsInclude = setOf("alpha"))
-            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
+            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -457,7 +478,7 @@ class RootPlacementScopeTest {
 
             val all = runBlocking { repo.workItemRepository().findByFilters() }
             assertTrue(
-                (all as Result.Success).data.items.none { it.title == "S9b Should Not Exist" },
+                all.items.none { it.title == "S9b Should Not Exist" },
                 "Rejected root create must not persist anything",
             )
         }
@@ -473,21 +494,25 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val (root, x, d) =
                 runBlocking {
-                    val r0 = repo.workItemRepository().create(WorkItem(title = "S10 Root", depth = 0)).getOrNull()!!
-                    val r = repo.workItemRepository().update(r0.copy(rootId = r0.id)).getOrNull()!!
+                    val r0 = repo.workItemRepository().create(WorkItem(title = "S10 Root", depth = 0))!!
+                    val r = repo.workItemRepository().update(r0.copy(rootId = r0.id))!!
                     val xItem =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "S10 X", parentId = r.id, depth = 1, rootId = r.id))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "S10 X", parentId = r.id, depth = 1, rootId = r.id))!!
                     val dItem =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "S10 D", parentId = xItem.id, depth = 2, rootId = r.id))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "S10 D", parentId = xItem.id, depth = 2, rootId = r.id))!!
                     Triple(r, xItem, dItem)
                 }
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))) }
+            application {
+                configureWriteTestApp(
+                    repo,
+                    authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id)),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""
             val response =
@@ -506,21 +531,21 @@ class RootPlacementScopeTest {
             assertTrue(response.bodyAsText().contains("scope_forbidden"), "Should report scope_forbidden: ${response.bodyAsText()}")
 
             val persistedX = runBlocking { repo.workItemRepository().getById(x.id) }
-            assertIs<Result.Success<WorkItem>>(persistedX)
-            assertEquals(root.id, persistedX.data.parentId, "X's parentId must be unchanged")
-            assertEquals(1, persistedX.data.depth, "X's depth must be unchanged")
-            assertEquals(root.id, persistedX.data.rootId, "X's rootId must be unchanged")
-            assertEquals("S10 X", persistedX.data.title, "X's title must be unchanged (rejected patch touches nothing)")
+            assertNotNull(persistedX)
+            assertEquals(root.id, persistedX.parentId, "X's parentId must be unchanged")
+            assertEquals(1, persistedX.depth, "X's depth must be unchanged")
+            assertEquals(root.id, persistedX.rootId, "X's rootId must be unchanged")
+            assertEquals("S10 X", persistedX.title, "X's title must be unchanged (rejected patch touches nothing)")
             assertEquals(
                 x.modifiedAt.toEpochMilli(),
-                persistedX.data.modifiedAt.toEpochMilli(),
+                persistedX.modifiedAt.toEpochMilli(),
                 "A rejected PATCH must not touch modifiedAt"
             )
 
             val persistedD = runBlocking { repo.workItemRepository().getById(d.id) }
-            assertIs<Result.Success<WorkItem>>(persistedD)
-            assertEquals(2, persistedD.data.depth, "Descendant depth must not cascade when the reparent is rejected")
-            assertEquals(root.id, persistedD.data.rootId, "Descendant rootId must not cascade when the reparent is rejected")
+            assertNotNull(persistedD)
+            assertEquals(2, persistedD.depth, "Descendant depth must not cascade when the reparent is rejected")
+            assertEquals(root.id, persistedD.rootId, "Descendant rootId must not cascade when the reparent is rejected")
         }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -533,7 +558,7 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val token = "integration-write-token-p1a"
             val principal = writeScopedPrincipal("test-write-p1a", rootIds = null, tagsInclude = setOf("alpha"))
-            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
+            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -556,7 +581,7 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val token = "integration-write-token-p1b"
             val principal = writeScopedPrincipal("test-write-p1b", rootIds = null, tagsInclude = setOf("alpha"))
-            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
+            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -585,7 +610,7 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val token = "integration-write-token-p2"
             val principal = writeScopedPrincipal("test-write-p2", rootIds = null, tagsInclude = setOf("ALPHA"))
-            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
+            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -612,7 +637,7 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val token = "integration-write-token-p3"
             val principal = writeScopedPrincipal("test-write-p3", rootIds = null, tagsInclude = setOf("alpha"))
-            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
+            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -638,7 +663,7 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val token = "integration-write-token-p4"
             val principal = writeScopedPrincipal("test-write-p4", rootIds = null, tagsInclude = setOf("alpha"))
-            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal)) }
+            application { configureWriteTestApp(repo, authConfig = authConfigWith(token, principal), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items") {
@@ -665,10 +690,16 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val root =
                 runBlocking {
-                    val r0 = repo.workItemRepository().create(WorkItem(title = "P5a Root Anchor", depth = 0)).getOrNull()!!
-                    repo.workItemRepository().update(r0.copy(rootId = r0.id)).getOrNull()!!
+                    val r0 = repo.workItemRepository().create(WorkItem(title = "P5a Root Anchor", depth = 0))!!
+                    repo.workItemRepository().update(r0.copy(rootId = r0.id))!!
                 }
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))) }
+            application {
+                configureWriteTestApp(
+                    repo,
+                    authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id)),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val idempotencyKey = UUID.randomUUID().toString()
             val makeRequest: suspend () -> HttpResponse = {
@@ -692,7 +723,7 @@ class RootPlacementScopeTest {
 
             val all = runBlocking { repo.workItemRepository().findByFilters() }
             assertTrue(
-                (all as Result.Success).data.items.none { it.title == "P5a Should Not Exist" },
+                all.items.none { it.title == "P5a Should Not Exist" },
                 "Neither the original nor the replayed request may have persisted anything",
             )
         }
@@ -703,16 +734,21 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val (root, x) =
                 runBlocking {
-                    val r0 = repo.workItemRepository().create(WorkItem(title = "P5b Root", depth = 0)).getOrNull()!!
-                    val r = repo.workItemRepository().update(r0.copy(rootId = r0.id)).getOrNull()!!
+                    val r0 = repo.workItemRepository().create(WorkItem(title = "P5b Root", depth = 0))!!
+                    val r = repo.workItemRepository().update(r0.copy(rootId = r0.id))!!
                     val xItem =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "P5b X", parentId = r.id, depth = 1, rootId = r.id))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "P5b X", parentId = r.id, depth = 1, rootId = r.id))!!
                     Pair(r, xItem)
                 }
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))) }
+            application {
+                configureWriteTestApp(
+                    repo,
+                    authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id)),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val idempotencyKey = UUID.randomUUID().toString()
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""
@@ -739,7 +775,7 @@ class RootPlacementScopeTest {
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
             assertEquals(
                 root.id,
-                (persisted as Result.Success).data.parentId,
+                persisted!!.parentId,
                 "X must never have been moved across both replayed attempts",
             )
         }
@@ -755,10 +791,16 @@ class RootPlacementScopeTest {
             val repo = db.repositoryProvider()
             val x =
                 runBlocking {
-                    val x0 = repo.workItemRepository().create(WorkItem(title = "P6 Root", depth = 0)).getOrNull()!!
-                    repo.workItemRepository().update(x0.copy(rootId = x0.id)).getOrNull()!!
+                    val x0 = repo.workItemRepository().create(WorkItem(title = "P6 Root", depth = 0))!!
+                    repo.workItemRepository().update(x0.copy(rootId = x0.id))!!
                 }
-            application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(x.id))) }
+            application {
+                configureWriteTestApp(
+                    repo,
+                    authConfig = makeWriteAuthConfig(scopeRootIds = setOf(x.id)),
+                    unitOfWork = db.unitOfWork()
+                )
+            }
 
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""
             val response =
@@ -775,10 +817,10 @@ class RootPlacementScopeTest {
                 "A no-op move-to-root for an already-root, in-scope item must succeed: ${response.bodyAsText()}",
             )
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
-            assertIs<Result.Success<WorkItem>>(persisted)
-            assertEquals(null, persisted.data.parentId)
-            assertEquals(0, persisted.data.depth)
-            assertEquals(x.id, persisted.data.rootId)
-            assertEquals("P6 Updated", persisted.data.title)
+            assertNotNull(persisted)
+            assertEquals(null, persisted.parentId)
+            assertEquals(0, persisted.depth)
+            assertEquals(x.id, persisted.rootId)
+            assertEquals("P6 Updated", persisted.title)
         }
 }

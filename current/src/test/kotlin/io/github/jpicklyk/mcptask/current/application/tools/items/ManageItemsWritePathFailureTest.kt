@@ -3,12 +3,12 @@ package io.github.jpicklyk.mcptask.current.application.tools.items
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ChildPlacement
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.CountingUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.sqlite.assertNoOutsideUnitWrites
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -68,7 +69,7 @@ class ManageItemsWritePathFailureTest {
     @BeforeEach
     fun setUp() {
         repositoryProvider = db.repositoryProvider()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
     }
 
     // ──────────────────────────────────────────────
@@ -82,27 +83,21 @@ class ManageItemsWritePathFailureTest {
     ) : WorkItemRepository by delegate {
         private var hasFired = false
 
-        override suspend fun inTransaction(block: suspend () -> Unit) {
-            delegate.inTransaction {
-                if (!hasFired) {
-                    hasFired = true
-                    mutate(delegate)
-                }
-                block()
+        /** Fires [mutate] once, from the [CountingUnitOfWork] hook at the first top-level unit's open. */
+        suspend fun fireOnce() {
+            if (!hasFired) {
+                hasFired = true
+                mutate(delegate)
             }
         }
 
-        override suspend fun resolveChildPlacement(parentId: UUID): Result<ChildPlacement> =
-            when (val parent = getById(parentId)) {
-                is Result.Success ->
-                    Result.Success(
-                        ChildPlacement(
-                            parentId = parent.data.id,
-                            depth = parent.data.depth + 1,
-                            rootId = parent.data.rootId ?: parent.data.id
-                        )
-                    )
-                is Result.Error -> Result.Error(parent.error)
+        override suspend fun resolveChildPlacement(parentId: UUID): ChildPlacement? =
+            getById(parentId)?.let { parent ->
+                ChildPlacement(
+                    parentId = parent.id,
+                    depth = parent.depth + 1,
+                    rootId = parent.rootId ?: parent.id
+                )
             }
     }
 
@@ -111,9 +106,9 @@ class ManageItemsWritePathFailureTest {
         private val delegate: WorkItemRepository,
         private val failFor: UUID
     ) : WorkItemRepository by delegate {
-        override suspend fun update(item: WorkItem): Result<WorkItem> =
+        override suspend fun update(item: WorkItem): WorkItem? =
             if (item.id == failFor) {
-                Result.Error(RepositoryError.ConflictError("simulated descendant cascade failure for $failFor"))
+                throw IllegalStateException("simulated descendant cascade failure for $failFor")
             } else {
                 delegate.update(item)
             }
@@ -130,16 +125,19 @@ class ManageItemsWritePathFailureTest {
     // Fixture helpers
     // ──────────────────────────────────────────────
 
-    private suspend fun create(item: WorkItem): WorkItem = (repositoryProvider.workItemRepository().create(item) as Result.Success).data
+    private suspend fun create(item: WorkItem): WorkItem = (repositoryProvider.workItemRepository().create(item)!!)
 
     private suspend fun stampSelfRoot(item: WorkItem): WorkItem =
-        (repositoryProvider.workItemRepository().update(item.copy(rootId = item.id)) as Result.Success).data
+        (repositoryProvider.workItemRepository().update(item.copy(rootId = item.id))!!)
 
     private fun mutateOnFirstTxn(mutate: suspend (WorkItemRepository) -> Unit) =
         MutateOnFirstTransactionRepository(repositoryProvider.workItemRepository(), mutate)
 
     private fun contextWith(workItemRepo: WorkItemRepository) =
-        ToolExecutionContext(WorkItemRepoOverrideProvider(repositoryProvider, workItemRepo))
+        ToolExecutionContext(
+            WorkItemRepoOverrideProvider(repositoryProvider, workItemRepo),
+            unitOfWork = CountingUnitOfWork(db.unitOfWork()) { (workItemRepo as? MutateOnFirstTransactionRepository)?.fireOnce() }
+        )
 
     private fun params(vararg pairs: Pair<String, kotlinx.serialization.json.JsonElement>) = JsonObject(mapOf(*pairs))
 
@@ -175,7 +173,7 @@ class ManageItemsWritePathFailureTest {
             val x = stampSelfRoot(create(WorkItem(title = "X S9", depth = 0)))
             val wrapped = mutateOnFirstTxn { d -> d.delete(p.id) }
 
-            val result = tool.execute(updateParentParams(x.id, p.id), contextWith(wrapped)) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(updateParentParams(x.id, p.id), contextWith(wrapped)) } as JsonObject
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val data = result["data"] as JsonObject
@@ -185,7 +183,7 @@ class ManageItemsWritePathFailureTest {
             assertEquals(x.id.toString(), failure["id"]!!.jsonPrimitive.content, "actual: $failure")
             assertTrue(failure["error"]!!.jsonPrimitive.content.contains("not found"), "actual: $failure")
 
-            val persisted = (repositoryProvider.workItemRepository().getById(x.id) as Result.Success).data
+            val persisted = (repositoryProvider.workItemRepository().getById(x.id)!!)
             assertEquals(null, persisted.parentId, "X must be left unchanged")
             assertEquals(0, persisted.depth, "X must be left unchanged")
             assertEquals(x.id, persisted.rootId, "X must be left unchanged")
@@ -204,7 +202,7 @@ class ManageItemsWritePathFailureTest {
             val q = stampSelfRoot(create(WorkItem(title = "Q S11", depth = 0)))
             val wrapped = UpdateFailsForIdRepository(repositoryProvider.workItemRepository(), failFor = d.id)
 
-            val result = tool.execute(updateParentParams(x.id, q.id), contextWith(wrapped)) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(updateParentParams(x.id, q.id), contextWith(wrapped)) } as JsonObject
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val data = result["data"] as JsonObject
@@ -213,10 +211,10 @@ class ManageItemsWritePathFailureTest {
             val failure = data["failures"]!!.jsonArray[0] as JsonObject
             assertEquals(x.id.toString(), failure["id"]!!.jsonPrimitive.content, "actual: $failure")
 
-            val persistedX = (repositoryProvider.workItemRepository().getById(x.id) as Result.Success).data
+            val persistedX = (repositoryProvider.workItemRepository().getById(x.id)!!)
             assertEquals(r.id, persistedX.parentId, "X must be left unchanged")
             assertEquals(r.id, persistedX.rootId, "X must be left unchanged")
-            val persistedD = (repositoryProvider.workItemRepository().getById(d.id) as Result.Success).data
+            val persistedD = (repositoryProvider.workItemRepository().getById(d.id)!!)
             assertEquals(2, persistedD.depth, "D must be left unchanged")
             assertEquals(r.id, persistedD.rootId, "D must be left unchanged")
         }
@@ -251,7 +249,7 @@ class ManageItemsWritePathFailureTest {
                         )
                 )
 
-            val result = tool.execute(createParams, context) as JsonObject
+            val result = db.assertNoOutsideUnitWrites { tool.execute(createParams, context) } as JsonObject
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val data = result["data"] as JsonObject
@@ -265,8 +263,8 @@ class ManageItemsWritePathFailureTest {
             )
 
             val all = repositoryProvider.workItemRepository().findByFilters()
-            assertTrue(all is Result.Success)
-            val titles = (all as Result.Success).data.items.map { it.title }
+            assertNotNull(all)
+            val titles = all.items.map { it.title }
             assertTrue(titles.contains("Valid S13"), "actual: $titles")
             assertTrue(!titles.contains("Bad priority S13"), "actual: $titles")
             assertTrue(!titles.contains("Bad complexity S13"), "actual: $titles")

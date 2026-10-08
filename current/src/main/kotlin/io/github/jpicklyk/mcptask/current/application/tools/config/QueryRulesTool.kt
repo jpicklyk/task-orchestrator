@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.service.RuleListResult
 import io.github.jpicklyk.mcptask.current.application.service.RuleService
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
@@ -249,10 +248,8 @@ key, never the body. Takes only `rootId` -- `key`/`itemId`/`noteKey` are rejecte
         context: ToolExecutionContext
     ): JsonElement {
         val item: WorkItem =
-            when (val itemResult = context.workItemRepository().getById(itemId)) {
-                is Result.Success -> itemResult.data
-                is Result.Error -> return errorResponse("WorkItem not found: $itemId", ErrorCodes.RESOURCE_NOT_FOUND)
-            }
+            context.workItemRepository().getById(itemId)
+                ?: return errorResponse("WorkItem not found: $itemId", ErrorCodes.RESOURCE_NOT_FOUND)
         val rootId =
             item.rootId ?: return errorResponse(
                 "Item $itemId has no rootId; cannot resolve a rule root",

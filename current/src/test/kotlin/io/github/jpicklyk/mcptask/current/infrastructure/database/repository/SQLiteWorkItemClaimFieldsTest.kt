@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.repository
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -10,7 +9,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
@@ -48,8 +46,8 @@ class SQLiteWorkItemClaimFieldsTest {
             repository.create(item)
 
             val result = repository.getById(item.id)
-            assertIs<Result.Success<WorkItem>>(result)
-            val retrieved = result.data
+            assertNotNull(result)
+            val retrieved = result
             assertNull(retrieved.claimedBy)
             assertNull(retrieved.claimedAt)
             assertNull(retrieved.claimExpiresAt)
@@ -72,8 +70,8 @@ class SQLiteWorkItemClaimFieldsTest {
             repository.create(item)
 
             val result = repository.getById(item.id)
-            assertIs<Result.Success<WorkItem>>(result)
-            val retrieved = result.data
+            assertNotNull(result)
+            val retrieved = result
             assertEquals("agent-abc-123", retrieved.claimedBy)
             // Timestamps must round-trip with exact epoch-millisecond precision (not just non-null).
             // The !! operator will throw NullPointerException if the field is null, surfacing
@@ -99,11 +97,11 @@ class SQLiteWorkItemClaimFieldsTest {
                     originalClaimedAt = now,
                 )
             val updateResult = repository.update(claimed)
-            assertIs<Result.Success<WorkItem>>(updateResult)
+            assertNotNull(updateResult)
 
             val result = repository.getById(item.id)
-            assertIs<Result.Success<WorkItem>>(result)
-            val retrieved = result.data
+            assertNotNull(result)
+            val retrieved = result
             assertEquals("agent-xyz", retrieved.claimedBy)
             assertNotNull(retrieved.claimedAt)
             assertNotNull(retrieved.claimExpiresAt)
@@ -133,11 +131,11 @@ class SQLiteWorkItemClaimFieldsTest {
                     originalClaimedAt = null,
                 )
             val updateResult = repository.update(released)
-            assertIs<Result.Success<WorkItem>>(updateResult)
+            assertNotNull(updateResult)
 
             val result = repository.getById(item.id)
-            assertIs<Result.Success<WorkItem>>(result)
-            val retrieved = result.data
+            assertNotNull(result)
+            val retrieved = result
             assertNull(retrieved.claimedBy)
             assertNull(retrieved.claimedAt)
             assertNull(retrieved.claimExpiresAt)
@@ -167,11 +165,11 @@ class SQLiteWorkItemClaimFieldsTest {
                     originalClaimedAt = firstClaimTime, // preserved
                 )
             val updateResult = repository.update(reClaimed)
-            assertIs<Result.Success<WorkItem>>(updateResult)
+            assertNotNull(updateResult)
 
             val result = repository.getById(item.id)
-            assertIs<Result.Success<WorkItem>>(result)
-            val retrieved = result.data
+            assertNotNull(result)
+            val retrieved = result
             assertEquals("agent-reclaim", retrieved.claimedBy)
             assertEquals(refreshTime.toEpochMilli(), retrieved.claimedAt!!.toEpochMilli())
             // originalClaimedAt preserved from first claim
@@ -202,11 +200,11 @@ class SQLiteWorkItemClaimFieldsTest {
                     originalClaimedAt = newClaimTime, // reset for new agent
                 )
             val updateResult = repository.update(takenOver)
-            assertIs<Result.Success<WorkItem>>(updateResult)
+            assertNotNull(updateResult)
 
             val result = repository.getById(item.id)
-            assertIs<Result.Success<WorkItem>>(result)
-            val retrieved = result.data
+            assertNotNull(result)
+            val retrieved = result
             assertEquals("agent-second", retrieved.claimedBy)
             assertEquals(newClaimTime.toEpochMilli(), retrieved.originalClaimedAt!!.toEpochMilli())
         }

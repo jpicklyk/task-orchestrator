@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
@@ -10,8 +11,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -61,16 +60,16 @@ private class DeleteRouteFailOnIdWorkItemRepository(
     private val delegate: WorkItemRepository,
     private val failingId: UUID,
 ) : WorkItemRepository by delegate {
-    override suspend fun delete(id: UUID): Result<Boolean> =
+    override suspend fun delete(id: UUID): Boolean =
         if (id == failingId) {
-            Result.Error(RepositoryError.DatabaseError("Simulated delete failure for $id"))
+            throw IllegalStateException("Simulated delete failure for $id")
         } else {
             delegate.delete(id)
         }
 
-    override suspend fun deleteAll(ids: Set<UUID>): Result<Int> =
+    override suspend fun deleteAll(ids: Set<UUID>): Int =
         if (failingId in ids) {
-            Result.Error(RepositoryError.DatabaseError("Simulated bulk delete failure for $failingId"))
+            throw IllegalStateException("Simulated bulk delete failure for $failingId")
         } else {
             delegate.deleteAll(ids)
         }
@@ -91,7 +90,10 @@ private class DeleteRouteFailOnIdRepositoryProvider(
  * Mirrors [ItemDeleteLeaseReleaseRouteTest]'s `configureDeleteLeaseTestApp`, renamed for the same
  * same-package top-level collision reason as the classes above.
  */
-private fun Application.configureDeleteRouteFailTestApp(provider: RepositoryProvider) {
+private fun Application.configureDeleteRouteFailTestApp(
+    provider: RepositoryProvider,
+    unitOfWork: UnitOfWork
+) {
     install(ContentNegotiation) { json(McpJson) }
     install(SSE)
     val authConfig = makeWriteAuthConfig()
@@ -113,7 +115,9 @@ private fun Application.configureDeleteRouteFailTestApp(provider: RepositoryProv
                     NoOpNoteSchemaService,
                     statusLabelService = NoOpStatusLabelService,
                     perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                    unitOfWork = unitOfWork
                 ).advanceServiceFactory(),
+                unitOfWork,
             )
         }
     }
@@ -145,8 +149,8 @@ class ItemDeleteRecursiveSqliteRouteTest {
     private val repositoryProvider get() = db.repositoryProvider()
 
     private suspend fun createRoot(title: String): WorkItem {
-        val created = repositoryProvider.workItemRepository().create(WorkItem(title = title, depth = 0)).getOrNull()!!
-        return repositoryProvider.workItemRepository().update(created.copy(rootId = created.id)).getOrNull()!!
+        val created = repositoryProvider.workItemRepository().create(WorkItem(title = title, depth = 0))!!
+        return repositoryProvider.workItemRepository().update(created.copy(rootId = created.id))!!
     }
 
     private suspend fun createChild(
@@ -163,9 +167,9 @@ class ItemDeleteRecursiveSqliteRouteTest {
                     rootId = parent.rootId ?: parent.id,
                     depth = depth,
                 ),
-            ).getOrNull()!!
+            )!!
 
-    private suspend fun exists(id: UUID): Boolean = repositoryProvider.workItemRepository().getById(id) is Result.Success
+    private suspend fun exists(id: UUID): Boolean = repositoryProvider.workItemRepository().getById(id) != null
 
     // -----------------------------------------------------------------------
     // S1 -- happy: DELETE a parent with no query param -> 409 has_children, nothing deleted
@@ -174,7 +178,7 @@ class ItemDeleteRecursiveSqliteRouteTest {
     @Test
     fun `S1 DELETE parent with no recursive param returns 409 has_children and deletes nothing`(): Unit =
         testApplication {
-            application { configureWriteTestApp(repositoryProvider) }
+            application { configureWriteTestApp(repositoryProvider, unitOfWork = db.unitOfWork()) }
             val (p, c, g) =
                 runBlocking {
                     val p = createRoot("P")
@@ -220,7 +224,7 @@ class ItemDeleteRecursiveSqliteRouteTest {
     @Test
     fun `S2 DELETE recursive=true deletes the whole subtree, its notes and dependency edges, leaves outside items`(): Unit =
         testApplication {
-            application { configureWriteTestApp(repositoryProvider) }
+            application { configureWriteTestApp(repositoryProvider, unitOfWork = db.unitOfWork()) }
             lateinit var p: WorkItem
             lateinit var c: WorkItem
             lateinit var g: WorkItem
@@ -256,8 +260,7 @@ class ItemDeleteRecursiveSqliteRouteTest {
                 assertTrue(exists(x.id), "X (outside the subtree) must persist")
 
                 val note = repositoryProvider.noteRepository().findByItemIdAndKey(g.id, "spec")
-                assertIs<Result.Success<*>>(note)
-                assertNull((note as Result.Success<*>).data, "G note must be gone")
+                assertNull(note, "G note must be gone")
 
                 val xDeps = repositoryProvider.dependencyRepository().findByItemId(x.id)
                 assertTrue(xDeps.none { it.fromItemId == c.id }, "the C->X dependency edge must be gone")
@@ -271,7 +274,7 @@ class ItemDeleteRecursiveSqliteRouteTest {
     @Test
     fun `S3 DELETE a leaf with no recursive param returns 204 and removes the row`(): Unit =
         testApplication {
-            application { configureWriteTestApp(repositoryProvider) }
+            application { configureWriteTestApp(repositoryProvider, unitOfWork = db.unitOfWork()) }
             val leaf = runBlocking { createRoot("Leaf") }
 
             val response =
@@ -290,7 +293,7 @@ class ItemDeleteRecursiveSqliteRouteTest {
     @Test
     fun `S6 DELETE parent with explicit recursive=false returns 409 and deletes nothing`(): Unit =
         testApplication {
-            application { configureWriteTestApp(repositoryProvider) }
+            application { configureWriteTestApp(repositoryProvider, unitOfWork = db.unitOfWork()) }
             val (p, c) =
                 runBlocking {
                     val p = createRoot("P")
@@ -317,7 +320,7 @@ class ItemDeleteRecursiveSqliteRouteTest {
     @Test
     fun `S7 unrecognized recursive value returns 400 validation_error and the leaf persists`(): Unit =
         testApplication {
-            application { configureWriteTestApp(repositoryProvider) }
+            application { configureWriteTestApp(repositoryProvider, unitOfWork = db.unitOfWork()) }
             val leaf = runBlocking { createRoot("Leaf") }
 
             for (raw in listOf("1", "yes", "")) {
@@ -343,7 +346,7 @@ class ItemDeleteRecursiveSqliteRouteTest {
     @Test
     fun `S8 DELETE recursive=true with a mismatched If-Match returns 412 and the subtree persists`(): Unit =
         testApplication {
-            application { configureWriteTestApp(repositoryProvider) }
+            application { configureWriteTestApp(repositoryProvider, unitOfWork = db.unitOfWork()) }
             val (p, c, g) =
                 runBlocking {
                     val p = createRoot("P")
@@ -373,7 +376,7 @@ class ItemDeleteRecursiveSqliteRouteTest {
     @Test
     fun `S9 DELETE recursive=true on an unknown UUID returns 404`(): Unit =
         testApplication {
-            application { configureWriteTestApp(repositoryProvider) }
+            application { configureWriteTestApp(repositoryProvider, unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.delete("/api/v1/items/${UUID.randomUUID()}?recursive=true") {
@@ -390,7 +393,7 @@ class ItemDeleteRecursiveSqliteRouteTest {
     @Test
     fun `S12 DELETE a leaf with recursive=true returns 200 deleted=1 descendantsDeleted=0`(): Unit =
         testApplication {
-            application { configureWriteTestApp(repositoryProvider) }
+            application { configureWriteTestApp(repositoryProvider, unitOfWork = db.unitOfWork()) }
             val leaf = runBlocking { createRoot("Leaf") }
 
             val response =
@@ -412,7 +415,7 @@ class ItemDeleteRecursiveSqliteRouteTest {
     @Test
     fun `S13 recursive=TRUE and recursive=True both succeed with 200`(): Unit =
         testApplication {
-            application { configureWriteTestApp(repositoryProvider) }
+            application { configureWriteTestApp(repositoryProvider, unitOfWork = db.unitOfWork()) }
             val leafUpper = runBlocking { createRoot("Leaf TRUE") }
             val leafMixed = runBlocking { createRoot("Leaf True") }
 
@@ -436,7 +439,7 @@ class ItemDeleteRecursiveSqliteRouteTest {
     @Test
     fun `S14 DELETE C recursive=true deletes 2 and leaves P persisting with 0 children`(): Unit =
         testApplication {
-            application { configureWriteTestApp(repositoryProvider) }
+            application { configureWriteTestApp(repositoryProvider, unitOfWork = db.unitOfWork()) }
             val (p, c, g) =
                 runBlocking {
                     val p = createRoot("P")
@@ -477,7 +480,7 @@ class ItemDeleteRecursiveSqliteRouteTest {
     @Test
     fun `S15 has_children childCount counts direct children only`(): Unit =
         testApplication {
-            application { configureWriteTestApp(repositoryProvider) }
+            application { configureWriteTestApp(repositoryProvider, unitOfWork = db.unitOfWork()) }
             val p =
                 runBlocking {
                     val p = createRoot("P")
@@ -513,7 +516,7 @@ class ItemDeleteRecursiveSqliteRouteTest {
     @Test
     fun `S18 DELETE recursive=true releases and closes a descendant active lease`(): Unit =
         testApplication {
-            application { configureWriteTestApp(repositoryProvider) }
+            application { configureWriteTestApp(repositoryProvider, unitOfWork = db.unitOfWork()) }
             val (p, c, g) =
                 runBlocking {
                     val p = createRoot("P")
@@ -558,7 +561,10 @@ class ItemDeleteRecursiveSqliteRouteTest {
             )
             val failingWorkItemRepo = DeleteRouteFailOnIdWorkItemRepository(repositoryProvider.workItemRepository(), leaf.id)
             application {
-                configureDeleteRouteFailTestApp(DeleteRouteFailOnIdRepositoryProvider(repositoryProvider, failingWorkItemRepo))
+                configureDeleteRouteFailTestApp(
+                    DeleteRouteFailOnIdRepositoryProvider(repositoryProvider, failingWorkItemRepo),
+                    unitOfWork = db.unitOfWork()
+                )
             }
 
             val response =
@@ -589,7 +595,7 @@ class ItemDeleteRecursiveSqliteRouteTest {
     @Test
     fun `probe percent-encoded recursive value percent-74-r-u-e decodes to true`(): Unit =
         testApplication {
-            application { configureWriteTestApp(repositoryProvider) }
+            application { configureWriteTestApp(repositoryProvider, unitOfWork = db.unitOfWork()) }
             val leaf = runBlocking { createRoot("Leaf") }
 
             val response =
@@ -604,7 +610,7 @@ class ItemDeleteRecursiveSqliteRouteTest {
     @Test
     fun `probe repeated recursive query param does not 500`(): Unit =
         testApplication {
-            application { configureWriteTestApp(repositoryProvider) }
+            application { configureWriteTestApp(repositoryProvider, unitOfWork = db.unitOfWork()) }
             val leaf = runBlocking { createRoot("Leaf") }
 
             val response =
@@ -622,7 +628,7 @@ class ItemDeleteRecursiveSqliteRouteTest {
     @Test
     fun `probe a 4-level chain deletes all 5 items`(): Unit =
         testApplication {
-            application { configureWriteTestApp(repositoryProvider) }
+            application { configureWriteTestApp(repositoryProvider, unitOfWork = db.unitOfWork()) }
             val p0 =
                 runBlocking {
                     val n0 = createRoot("N0")
@@ -647,7 +653,7 @@ class ItemDeleteRecursiveSqliteRouteTest {
     @Test
     fun `probe repeating the same DELETE returns 404 the second time`(): Unit =
         testApplication {
-            application { configureWriteTestApp(repositoryProvider) }
+            application { configureWriteTestApp(repositoryProvider, unitOfWork = db.unitOfWork()) }
             val leaf = runBlocking { createRoot("Leaf") }
 
             val first =

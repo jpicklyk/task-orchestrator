@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushS
 import io.github.jpicklyk.mcptask.current.domain.model.IndependenceMode
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
@@ -181,8 +180,7 @@ class IndependenceConfigParseTest {
         runBlocking {
             composition.toolContext.repositoryProvider
                 .workItemRepository()
-                .create(WorkItem(title = title, type = "project", depth = 0))
-                .getOrNull()!!
+                .create(WorkItem(title = title, type = "project", depth = 0))!!
                 .id
         }
 
@@ -195,7 +193,7 @@ class IndependenceConfigParseTest {
             composition.toolContext.repositoryProvider
                 .projectConfigRepository()
                 .upsert(rootId, yaml)
-                .getOrNull() ?: error("fixture: per-root push failed for $rootId")
+                ?: error("fixture: per-root push failed for $rootId")
         }
     }
 
@@ -271,8 +269,8 @@ class IndependenceConfigParseTest {
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository
             every { repositoryProvider.projectConfigRepository() } returns projectConfigRepository
-            val service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser)
-            val rootId = (workItemRepository.create(WorkItem(title = "Root", type = "project")) as Result.Success).data.id
+            val service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser, sqliteDb.unitOfWork())
+            val rootId = workItemRepository.create(WorkItem(title = "Root", type = "project")).id
 
             val yaml = "independence:\n  mode: reject\nwork_item_schemas:\n  default:\n    notes: []\n"
             val result = service.push(rootId, yaml)
@@ -294,8 +292,8 @@ class IndependenceConfigParseTest {
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository
             every { repositoryProvider.projectConfigRepository() } returns projectConfigRepository
-            val service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser)
-            val rootId = (workItemRepository.create(WorkItem(title = "Root", type = "project")) as Result.Success).data.id
+            val service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser, sqliteDb.unitOfWork())
+            val rootId = workItemRepository.create(WorkItem(title = "Root", type = "project")).id
 
             val yaml = "independence:\n  mode: warn\n  colour: red\nwork_item_schemas:\n  default:\n    notes: []\n"
             val result = service.push(rootId, yaml)

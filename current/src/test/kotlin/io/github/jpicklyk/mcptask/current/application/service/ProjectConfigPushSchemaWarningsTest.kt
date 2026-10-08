@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
@@ -50,9 +49,9 @@ class ProjectConfigPushSchemaWarningsTest {
             every { repositoryProvider.workItemRepository() } returns workItemRepository
             every { repositoryProvider.projectConfigRepository() } returns projectConfigRepository
 
-            service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser)
+            service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser, db.unitOfWork())
 
-            rootId = (workItemRepository.create(WorkItem(title = "Root", type = "project")) as Result.Success).data.id
+            rootId = workItemRepository.create(WorkItem(title = "Root", type = "project")).id
         }
 
     // ──────────────────────────────────────────────
@@ -99,7 +98,7 @@ class ProjectConfigPushSchemaWarningsTest {
             assertTrue(result is ProjectConfigPushResult.Success, "a soft schema warning must never reject the push")
             assertTrue((result as ProjectConfigPushResult.Success).schemaWarnings.isNotEmpty())
 
-            val stored = (projectConfigRepository.get(rootId) as Result.Success).data
+            val stored = projectConfigRepository.get(rootId)
             assertEquals(yaml, stored?.configYaml, "the document must be stored verbatim despite the soft warning")
         }
 

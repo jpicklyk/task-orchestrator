@@ -72,7 +72,7 @@ class ProofEvidenceRestTest {
         actorId: String = "agent-evidence"
     ): Pair<WorkItem, Note> =
         runBlocking {
-            val item = repo.workItemRepository().create(WorkItem(title = "Evidence Item", depth = 0)).getOrNull()!!
+            val item = repo.workItemRepository().create(WorkItem(title = "Evidence Item", depth = 0))!!
             val actor = ActorClaim(id = actorId, kind = ActorKind.ORCHESTRATOR)
             val verification =
                 VerificationResult(status = status, verifier = "jwks", proofSha256 = proofSha256, proofClaims = claims)
@@ -88,7 +88,7 @@ class ProofEvidenceRestTest {
                             actorClaim = actor,
                             verification = verification
                         )
-                    ).getOrNull()!!
+                    )!!
             Pair(item, note)
         }
 
@@ -138,7 +138,7 @@ class ProofEvidenceRestTest {
             val sha = "beefdead".repeat(8)
             val claims = ProofClaims(iss = "https://test-issuer.example", sub = "agent-evidence-t", kid = "kid-s5b", alg = "RS256")
             val item =
-                runBlocking { repo.workItemRepository().create(WorkItem(title = "Evidence transition item", depth = 0)).getOrNull()!! }
+                runBlocking { repo.workItemRepository().create(WorkItem(title = "Evidence transition item", depth = 0))!! }
             runBlocking {
                 repo.roleTransitionRepository().create(
                     RoleTransition(
@@ -213,7 +213,7 @@ class ProofEvidenceRestTest {
         testApplication {
             val repo = db.repositoryProvider()
             val sha = "cafebabe".repeat(8)
-            val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "S7 item", depth = 0)).getOrNull()!! }
+            val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "S7 item", depth = 0))!! }
             runBlocking {
                 repo.roleTransitionRepository().create(
                     RoleTransition(
@@ -362,7 +362,7 @@ class ProofEvidenceRestTest {
         testApplication {
             val repo = db.repositoryProvider()
             val database = db.database
-            val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Raw SQL row", depth = 0)).getOrNull()!! }
+            val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Raw SQL row", depth = 0))!! }
             runBlocking {
                 repo.roleTransitionRepository().create(
                     RoleTransition(

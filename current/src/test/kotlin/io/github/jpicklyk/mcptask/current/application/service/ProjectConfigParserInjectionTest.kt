@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParse
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
@@ -67,7 +66,7 @@ class ProjectConfigParserInjectionTest {
             every { provider.projectConfigRepository() } returns projectConfigRepository
             repositoryProvider = provider
 
-            val root = (workItemRepository.create(WorkItem(title = "PCPS Root", type = "project")) as Result.Success).data
+            val root = workItemRepository.create(WorkItem(title = "PCPS Root", type = "project"))
             rootId = root.id
         }
 
@@ -88,7 +87,11 @@ class ProjectConfigParserInjectionTest {
     fun `S10 - a Failed outcome maps to ParseError carrying the same detail`(): Unit =
         runBlocking {
             val service =
-                ProjectConfigPushService(repositoryProvider, FakeConfigDocumentParser(ConfigDocumentParser.Outcome.Failed("boom")))
+                ProjectConfigPushService(
+                    repositoryProvider,
+                    FakeConfigDocumentParser(ConfigDocumentParser.Outcome.Failed("boom")),
+                    db.unitOfWork()
+                )
 
             val result = service.push(rootId, "irrelevant: yaml")
 
@@ -101,7 +104,7 @@ class ProjectConfigParserInjectionTest {
         runBlocking {
             val doc = ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap(), warnings = listOf("w1"))
             val outcome = ConfigDocumentParser.Outcome.Parsed(doc, rawRoot = mapOf("x" to 1))
-            val service = ProjectConfigPushService(repositoryProvider, FakeConfigDocumentParser(outcome))
+            val service = ProjectConfigPushService(repositoryProvider, FakeConfigDocumentParser(outcome), db.unitOfWork())
 
             val result = service.push(rootId, "irrelevant: yaml")
 
@@ -118,7 +121,7 @@ class ProjectConfigParserInjectionTest {
     fun `S11 - ManageProjectConfigTool push surfaces the injected parser's Failed detail in the error response`(): Unit =
         runBlocking {
             val tool = ManageProjectConfigTool(FakeConfigDocumentParser(ConfigDocumentParser.Outcome.Failed("boom")))
-            val context = ToolExecutionContext(repositoryProvider)
+            val context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
 
             val params =
                 JsonObject(

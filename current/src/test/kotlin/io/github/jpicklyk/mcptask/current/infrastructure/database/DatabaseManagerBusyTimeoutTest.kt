@@ -27,7 +27,7 @@ class DatabaseManagerBusyTimeoutTest {
     private val managers = mutableListOf<DatabaseManager>()
 
     private fun buildManager(dir: File): DatabaseManager {
-        val manager = DatabaseManager()
+        val manager = DatabaseManager(outsideUnitPolicy = OutsideUnitPolicy.IMPLICIT)
         val url = "jdbc:sqlite:${File(dir, "busy_${System.nanoTime()}.db").absolutePath.replace('\\', '/')}"
         val initialized = manager.initialize(url)
         assertTrue(initialized, "DatabaseManager should initialize successfully against a file-backed database")
@@ -85,7 +85,7 @@ class DatabaseManagerBusyTimeoutTest {
     fun `initialize returns true for a valid file-backed SQLite path`(
         @TempDir dir: File,
     ) {
-        val manager = DatabaseManager()
+        val manager = DatabaseManager(outsideUnitPolicy = OutsideUnitPolicy.IMPLICIT)
         val result = manager.initialize("jdbc:sqlite:${File(dir, "init.db").absolutePath.replace('\\', '/')}")
         managers += manager
         assertEquals(true, result)
@@ -93,7 +93,7 @@ class DatabaseManagerBusyTimeoutTest {
 
     @Test
     fun `initialize returns false for an in-memory SQLite URL (S8)`() {
-        val manager = DatabaseManager()
+        val manager = DatabaseManager(outsideUnitPolicy = OutsideUnitPolicy.IMPLICIT)
         val result = manager.initialize("jdbc:sqlite:file:test_init_${System.nanoTime()}?mode=memory&cache=shared")
         managers += manager
         assertFalse(result, "P5a refuses mode=memory databases: the two-pool design needs a shared file")

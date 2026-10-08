@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.MAX_PAGE
@@ -71,9 +70,9 @@ class PaginationBoundsTest {
         override suspend fun findSince(
             since: Instant,
             limit: Int,
-        ): Result<List<RoleTransition>> {
+        ): List<RoleTransition> {
             capturedLimit = limit
-            return Result.Success(emptyList())
+            return emptyList()
         }
     }
 
@@ -127,7 +126,7 @@ class PaginationBoundsTest {
             val items =
                 runBlocking {
                     (0 until 5).map { idx ->
-                        val item = repo.workItemRepository().create(WorkItem(title = "S2 item $idx", depth = 0)).getOrNull()!!
+                        val item = repo.workItemRepository().create(WorkItem(title = "S2 item $idx", depth = 0))!!
                         repo.roleTransitionRepository().create(
                             RoleTransition(
                                 itemId = item.id,
@@ -393,8 +392,8 @@ class PaginationBoundsTest {
             val repo = db.repositoryProvider()
             val (itemA, itemB) =
                 runBlocking {
-                    val a = repo.workItemRepository().create(WorkItem(title = "TransAlphaS16", tags = "alpha", depth = 0)).getOrNull()!!
-                    val b = repo.workItemRepository().create(WorkItem(title = "TransBetaS16", tags = "beta", depth = 0)).getOrNull()!!
+                    val a = repo.workItemRepository().create(WorkItem(title = "TransAlphaS16", tags = "alpha", depth = 0))!!
+                    val b = repo.workItemRepository().create(WorkItem(title = "TransBetaS16", tags = "beta", depth = 0))!!
                     repo.roleTransitionRepository().create(
                         RoleTransition(itemId = a.id, fromRole = "queue", toRole = "work", trigger = "start"),
                     )
@@ -454,7 +453,7 @@ class PaginationBoundsTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "S17c tree root", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "S17c tree root", depth = 0))!!
                 }
             application { configureTestApp { itemRoutes(repo) } }
             val response =
@@ -471,7 +470,7 @@ class PaginationBoundsTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "S17d children root", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "S17d children root", depth = 0))!!
                 }
             application { configureTestApp { itemRoutes(repo) } }
             val response =
@@ -488,7 +487,7 @@ class PaginationBoundsTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "S17e transitions item", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "S17e transitions item", depth = 0))!!
                 }
             application { configureTestApp { transitionRoutes(repo) } }
             val response =

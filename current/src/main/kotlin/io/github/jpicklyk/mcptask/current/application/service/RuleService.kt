@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocument
 import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import java.time.Instant
 import java.util.UUID
@@ -39,28 +39,19 @@ class RuleService(
         rootId: UUID,
         key: String,
     ): RuleGetResult {
+        // Only a genuine not-found (null) is a 404; a store fault is a db_error (500).
         val item =
-            when (val itemResult = workItemRepository.getById(rootId)) {
-                is Result.Success -> itemResult.data
-                // Only a genuine not-found is a 404; any other repository failure is a db_error (500).
-                is Result.Error ->
-                    return if (itemResult.error is io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError.NotFound) {
-                        RuleGetResult.RootNotFound(rootId)
-                    } else {
-                        RuleGetResult.RepositoryError(itemResult.error.message)
-                    }
-            }
+            legacyRead({ return RuleGetResult.RepositoryError(it) }) { workItemRepository.getById(rootId) }
+                ?: return RuleGetResult.RootNotFound(rootId)
         if (item.depth != 0) {
             return RuleGetResult.NotDepthZero(rootId, item.depth)
         }
 
         val slug = RULE_SLUG_PREFIX + key
-        return when (val result = planDocumentRepository.get(rootId, slug)) {
-            is Result.Success -> {
-                val document = result.data ?: return RuleGetResult.RuleNotFound(rootId, key)
-                RuleGetResult.Success(document)
-            }
-            is Result.Error -> RuleGetResult.RepositoryError(result.error.message)
+        return run {
+            val result = legacyRead({ return@run RuleGetResult.RepositoryError(it) }) { planDocumentRepository.get(rootId, slug) }
+            val document = result ?: return RuleGetResult.RuleNotFound(rootId, key)
+            RuleGetResult.Success(document)
         }
     }
 
@@ -72,34 +63,26 @@ class RuleService(
      * it). Sorted by key ascending. See [RuleListResult] for the possible outcomes.
      */
     suspend fun list(rootId: UUID): RuleListResult {
+        // Only a genuine not-found (null) is a 404; a store fault is a db_error (500).
         val item =
-            when (val itemResult = workItemRepository.getById(rootId)) {
-                is Result.Success -> itemResult.data
-                // Only a genuine not-found is a 404; any other repository failure is a db_error (500).
-                is Result.Error ->
-                    return if (itemResult.error is io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError.NotFound) {
-                        RuleListResult.RootNotFound(rootId)
-                    } else {
-                        RuleListResult.RepositoryError(itemResult.error.message)
-                    }
-            }
+            legacyRead({ return RuleListResult.RepositoryError(it) }) { workItemRepository.getById(rootId) }
+                ?: return RuleListResult.RootNotFound(rootId)
         if (item.depth != 0) {
             return RuleListResult.NotDepthZero(rootId, item.depth)
         }
 
-        return when (val result = planDocumentRepository.list(rootId, status = null)) {
-            is Result.Success -> {
-                val rules =
-                    result.data
-                        .filter { it.slug.startsWith(RULE_SLUG_PREFIX) }
-                        .mapNotNull { summary ->
-                            val key = summary.slug.removePrefix(RULE_SLUG_PREFIX)
-                            if (!KEY_PATTERN.matches(key)) return@mapNotNull null
-                            RuleSummary(key, summary.contentHash, summary.modifiedAt)
-                        }.sortedBy { it.key }
-                RuleListResult.Success(rules)
-            }
-            is Result.Error -> RuleListResult.RepositoryError(result.error.message)
+        return run {
+            val result =
+                legacyRead({ return@run RuleListResult.RepositoryError(it) }) { planDocumentRepository.list(rootId, status = null) }
+            val rules =
+                result
+                    .filter { it.slug.startsWith(RULE_SLUG_PREFIX) }
+                    .mapNotNull { summary ->
+                        val key = summary.slug.removePrefix(RULE_SLUG_PREFIX)
+                        if (!KEY_PATTERN.matches(key)) return@mapNotNull null
+                        RuleSummary(key, summary.contentHash, summary.modifiedAt)
+                    }.sortedBy { it.key }
+            RuleListResult.Success(rules)
         }
     }
 

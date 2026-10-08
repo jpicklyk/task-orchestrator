@@ -4,8 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
@@ -170,7 +168,7 @@ private class FailableProjectConfigRepository(
 
     override suspend fun getFingerprint(rootItemId: UUID) =
         if (failFingerprint) {
-            Result.Error(RepositoryError.DatabaseError("x"))
+            throw IllegalStateException("x")
         } else {
             delegate.getFingerprint(rootItemId)
         }

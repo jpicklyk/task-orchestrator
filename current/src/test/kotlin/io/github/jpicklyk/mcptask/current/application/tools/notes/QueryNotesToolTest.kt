@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.tools.notes
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
@@ -24,7 +23,7 @@ class QueryNotesToolTest {
     @BeforeEach
     fun setUp() {
         val repositoryProvider = db.repositoryProvider()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         tool = QueryNotesTool()
         manageTool = ManageNotesTool()
     }
@@ -48,7 +47,7 @@ class QueryNotesToolTest {
     private suspend fun createTestItem(title: String = "Test Item"): String {
         val item = WorkItem(title = title)
         val result = context.workItemRepository().create(item)
-        return ((result as Result.Success).data.id).toString()
+        return (result.id).toString()
     }
 
     /**

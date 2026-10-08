@@ -1,9 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.ChildPlacement
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.BeforeEach
@@ -11,8 +8,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
-import kotlin.test.assertTrue
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 
 /**
  * Independent test authorship for item `3da296d8` (needs-test-author), covering
@@ -24,13 +21,13 @@ import kotlin.test.assertTrue
  *   the parent read AS PERSISTED at assert time (`WorkItem.kt` rootId KDoc; `ItemHierarchyValidator`
  *   KDoc; diagnosis "Invariant").
  * - O3: a missing parent resolves to `Result.Error(RepositoryError.NotFound)`, per the diagnosis's
- *   "Chosen (e)" default-body description: "missing -> Result.Error(RepositoryError.NotFound(parentId, ...))".
+ *   "Chosen (e)" default-body description: "missing -> null".
  *
  * SIGNATURE (verbatim, supplied inline — NEW, no `src/main` lookup):
  * `data class ChildPlacement(val parentId: UUID, val depth: Int, val rootId: UUID)`;
- * `suspend fun resolveChildPlacement(parentId: UUID): Result<ChildPlacement>` (default body:
+ * `suspend fun resolveChildPlacement(parentId: UUID): ChildPlacement` (default body:
  * `getById(parentId)`, then `depth = p.depth + 1`, `rootId = p.rootId ?: p.id`; missing parent ->
- * `Result.Error(RepositoryError.NotFound(...))`).
+ * `null`).
  *
  * These two scenarios test the method's own formula directly against a real SQLite-backed repository
  * (`DefaultRepositoryProvider`, the same harness convention as `ManageItemsToolTest` /
@@ -62,8 +59,8 @@ class WorkItemRepositoryChildPlacementTest {
 
     private suspend fun create(item: WorkItem): WorkItem {
         val result = repo().create(item)
-        assertTrue(result is Result.Success, "fixture creation failed: $result")
-        return (result as Result.Success).data
+        assertNotNull(result, "fixture creation failed: $result")
+        return result
     }
 
     // ──────────────────────────────────────────────
@@ -74,7 +71,7 @@ class WorkItemRepositoryChildPlacementTest {
     fun `S1 resolveChildPlacement derives depth and rootId from a parent that already has a stamped rootId`() =
         runBlocking {
             val root = create(WorkItem(title = "Root S1", depth = 0))
-            val rootWithSelfId = (repo().update(root.copy(rootId = root.id)) as Result.Success).data
+            val rootWithSelfId = (repo().update(root.copy(rootId = root.id))!!)
             val parent =
                 create(
                     WorkItem(
@@ -87,10 +84,10 @@ class WorkItemRepositoryChildPlacementTest {
 
             val placement = repo().resolveChildPlacement(parent.id)
 
-            assertIs<Result.Success<ChildPlacement>>(placement)
-            assertEquals(parent.id, placement.data.parentId)
-            assertEquals(2, placement.data.depth, "O1: depth must be parent.depth (1) + 1")
-            assertEquals(rootWithSelfId.id, placement.data.rootId, "O1: rootId must be the parent's own stamped rootId")
+            assertNotNull(placement)
+            assertEquals(parent.id, placement.parentId)
+            assertEquals(2, placement.depth, "O1: depth must be parent.depth (1) + 1")
+            assertEquals(rootWithSelfId.id, placement.rootId, "O1: rootId must be the parent's own stamped rootId")
         }
 
     @Test
@@ -103,10 +100,10 @@ class WorkItemRepositoryChildPlacementTest {
 
             val placement = repo().resolveChildPlacement(legacyRoot.id)
 
-            assertIs<Result.Success<ChildPlacement>>(placement)
-            assertEquals(legacyRoot.id, placement.data.parentId)
-            assertEquals(1, placement.data.depth, "O1: depth must be parent.depth (0) + 1")
-            assertEquals(legacyRoot.id, placement.data.rootId, "O1: rootId falls back to the parent's own id")
+            assertNotNull(placement)
+            assertEquals(legacyRoot.id, placement.parentId)
+            assertEquals(1, placement.depth, "O1: depth must be parent.depth (0) + 1")
+            assertEquals(legacyRoot.id, placement.rootId, "O1: rootId falls back to the parent's own id")
         }
 
     // ──────────────────────────────────────────────
@@ -120,9 +117,8 @@ class WorkItemRepositoryChildPlacementTest {
 
             val placement = repo().resolveChildPlacement(unknownId)
 
-            assertIs<Result.Error>(placement)
-            assertIs<RepositoryError.NotFound>(placement.error)
-            assertEquals(unknownId, (placement.error as RepositoryError.NotFound).id)
+            // P5b: a missing parent is now null (was Result.Error(NotFound(id))); null carries no id.
+            assertNull(placement)
         }
 
     // ──────────────────────────────────────────────
@@ -133,15 +129,15 @@ class WorkItemRepositoryChildPlacementTest {
     fun `probe replay — calling resolveChildPlacement twice for an unchanged parent returns the same placement both times`() =
         runBlocking {
             val root = create(WorkItem(title = "Replay Root", depth = 0))
-            val rootWithSelfId = (repo().update(root.copy(rootId = root.id)) as Result.Success).data
+            val rootWithSelfId = (repo().update(root.copy(rootId = root.id))!!)
             val parent = create(WorkItem(title = "Replay Parent", parentId = rootWithSelfId.id, depth = 1, rootId = rootWithSelfId.id))
 
             val first = repo().resolveChildPlacement(parent.id)
             val second = repo().resolveChildPlacement(parent.id)
 
-            assertIs<Result.Success<ChildPlacement>>(first)
-            assertIs<Result.Success<ChildPlacement>>(second)
-            assertEquals(first.data, second.data, "an unchanged parent must yield an identical placement on replay")
+            assertNotNull(first)
+            assertNotNull(second)
+            assertEquals(first, second, "an unchanged parent must yield an identical placement on replay")
         }
 
     // Probe catalog, recorded per skill §6 (every probe attempted, including N/A ones):

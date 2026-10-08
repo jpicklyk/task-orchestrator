@@ -11,11 +11,11 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService
+import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -57,12 +57,9 @@ class AdvanceServiceFactoryTest {
         noteRepo = mockk()
 
         coEvery { workItemRepo.dbNow() } returns Instant.now()
-        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
-            firstArg<suspend () -> Unit>().invoke()
-        }
-        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
-        coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.update(any()) } answers { firstArg() }
+        coEvery { roleTransitionRepo.create(any()) } returns mockk()
+        coEvery { noteRepo.findByItemId(any()) } returns emptyList()
         every { depRepo.findByToItemId(any()) } returns emptyList()
         every { depRepo.findByFromItemId(any()) } returns emptyList()
     }
@@ -112,6 +109,7 @@ class AdvanceServiceFactoryTest {
                     resourceLeaseRepository = null,
                     configResolver = resolver,
                     resourceLeasesEnforced = { false },
+                    unitOfWork = unscopedUnitOfWork(),
                 )
 
             val prItem = makeItem(role = Role.QUEUE, rootId = prRoot)
@@ -159,6 +157,7 @@ class AdvanceServiceFactoryTest {
                         calls++
                         false
                     },
+                    unitOfWork = unscopedUnitOfWork(),
                 )
             val item = makeItem(role = Role.QUEUE, rootId = null)
 

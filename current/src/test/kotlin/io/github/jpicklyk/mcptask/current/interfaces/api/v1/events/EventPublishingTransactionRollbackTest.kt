@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -52,12 +53,12 @@ class EventPublishingTransactionRollbackTest {
             // Created OUTSIDE any transaction opened by this test, so it already published
             // synchronously (its own internal suspendTransaction commits before the decorator
             // publishes). We only assert on events published AFTER this baseline.
-            val item = provider.workItemRepository().create(WorkItem(title = "S4 Item", depth = 0)).getOrNull()!!
+            val item = provider.workItemRepository().create(WorkItem(title = "S4 Item", depth = 0))!!
             val baselineCount = bus.ringBufferSnapshot().size
 
             var caught: Throwable? = null
             try {
-                provider.workItemRepository().inTransaction {
+                db.unitOfWork().inUnit {
                     provider.workItemRepository().update(item.copy(title = "S4 Item Renamed"))
                     throw IllegalStateException("boom")
                 }
@@ -84,13 +85,13 @@ class EventPublishingTransactionRollbackTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
-            val itemA = provider.workItemRepository().create(WorkItem(title = "S5 A", depth = 0)).getOrNull()!!
-            val itemB = provider.workItemRepository().create(WorkItem(title = "S5 B", depth = 0)).getOrNull()!!
+            val itemA = provider.workItemRepository().create(WorkItem(title = "S5 A", depth = 0))!!
+            val itemB = provider.workItemRepository().create(WorkItem(title = "S5 B", depth = 0))!!
             val baselineCount = bus.ringBufferSnapshot().size
 
             var caught: Throwable? = null
             try {
-                provider.workItemRepository().inTransaction {
+                db.unitOfWork().inUnit {
                     provider.workItemRepository().delete(itemA.id)
                     provider.workItemRepository().delete(itemB.id)
                     throw IllegalStateException("boom")
@@ -120,7 +121,7 @@ class EventPublishingTransactionRollbackTest {
             val provider = EventPublishingRepositoryProvider(delegate, bus)
             val baselineCount = bus.ringBufferSnapshot().size
 
-            val item = provider.workItemRepository().create(WorkItem(title = "S8 Item", depth = 0)).getOrNull()!!
+            val item = provider.workItemRepository().create(WorkItem(title = "S8 Item", depth = 0))!!
             provider.noteRepository().upsert(Note(itemId = item.id, key = "s8-note", role = "queue", body = "hello"))
 
             val events = bus.ringBufferSnapshot().drop(baselineCount)
@@ -142,12 +143,12 @@ class EventPublishingTransactionRollbackTest {
             val provider = EventPublishingRepositoryProvider(delegate, bus)
             assertEquals(0, bus.subscriberCount(), "precondition: no subscriber connected")
 
-            val item = provider.workItemRepository().create(WorkItem(title = "S9 Item", depth = 0)).getOrNull()!!
+            val item = provider.workItemRepository().create(WorkItem(title = "S9 Item", depth = 0))!!
             val baselineCount = bus.ringBufferSnapshot().size
 
             var caught: Throwable? = null
             try {
-                provider.workItemRepository().inTransaction {
+                db.unitOfWork().inUnit {
                     provider.workItemRepository().update(item.copy(title = "S9 Item Renamed"))
                     throw IllegalStateException("boom")
                 }

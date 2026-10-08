@@ -6,8 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelSer
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
@@ -42,7 +40,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 /**
@@ -83,9 +81,9 @@ import kotlin.test.assertNull
  *
  * SIGNATURES (all pre-existing; none new): `itemWriteRoutes` takes the [RepositoryProvider]
  * INTERFACE (not a concrete provider type), so no new test seam is required.
- * `WorkItemRepository.findAncestorChains(Set<UUID>): Result<Map<UUID, List<WorkItem>>>`,
- * `getById(UUID): Result<WorkItem>`, `findDescendants(UUID): Result<List<WorkItem>>`,
- * `update(WorkItem): Result<WorkItem>`.
+ * `WorkItemRepository.findAncestorChains(Set<UUID>): Map<UUID, List<WorkItem>>`,
+ * `getById(UUID): WorkItem`, `findDescendants(UUID): List<WorkItem>`,
+ * `update(WorkItem): WorkItem`.
  *
  * SEAM (test-only, named in `test-plan`): a private `WorkItemRepository by delegate` wrapper
  * injected through a private `RepositoryProvider by delegate` provider — the pattern already
@@ -125,27 +123,26 @@ class PatchReparentCycleGuardTest {
      */
     private class ScriptedWorkItemRepository(
         private val delegate: WorkItemRepository,
-        private val onGetById: ((UUID) -> Result<WorkItem>?)? = null,
-        private val onFindAncestorChains: ((Set<UUID>) -> Result<Map<UUID, List<WorkItem>>>?)? = null,
-        private val onFindDescendants: ((UUID) -> Result<List<WorkItem>>?)? = null,
-        private val onUpdate: ((WorkItem) -> Result<WorkItem>)? = null,
+        private val onGetById: ((UUID) -> WorkItem?)? = null,
+        private val onFindAncestorChains: ((Set<UUID>) -> Map<UUID, List<WorkItem>>?)? = null,
+        private val onFindDescendants: ((UUID) -> List<WorkItem>?)? = null,
+        private val onUpdate: ((WorkItem) -> WorkItem)? = null,
     ) : WorkItemRepository by delegate {
         var updateCallCount: Int = 0
             private set
         var findAncestorChainsCallCount: Int = 0
             private set
 
-        override suspend fun getById(id: UUID): Result<WorkItem> = onGetById?.invoke(id) ?: delegate.getById(id)
+        override suspend fun getById(id: UUID): WorkItem? = onGetById?.invoke(id) ?: delegate.getById(id)
 
-        override suspend fun findAncestorChains(itemIds: Set<UUID>): Result<Map<UUID, List<WorkItem>>> {
+        override suspend fun findAncestorChains(itemIds: Set<UUID>): Map<UUID, List<WorkItem>> {
             findAncestorChainsCallCount++
             return onFindAncestorChains?.invoke(itemIds) ?: delegate.findAncestorChains(itemIds)
         }
 
-        override suspend fun findDescendants(id: UUID): Result<List<WorkItem>> =
-            onFindDescendants?.invoke(id) ?: delegate.findDescendants(id)
+        override suspend fun findDescendants(id: UUID): List<WorkItem> = onFindDescendants?.invoke(id) ?: delegate.findDescendants(id)
 
-        override suspend fun update(item: WorkItem): Result<WorkItem> {
+        override suspend fun update(item: WorkItem): WorkItem? {
             updateCallCount++
             return onUpdate?.invoke(item) ?: delegate.update(item)
         }
@@ -193,7 +190,9 @@ class PatchReparentCycleGuardTest {
                         NoOpNoteSchemaService,
                         statusLabelService = NoOpStatusLabelService,
                         perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()),
+                        unitOfWork = db.unitOfWork()
                     ).advanceServiceFactory(),
+                    db.unitOfWork(),
                 )
             }
         }
@@ -206,8 +205,8 @@ class PatchReparentCycleGuardTest {
         repo: DefaultRepositoryProvider,
         title: String,
     ): WorkItem {
-        val created = repo.workItemRepository().create(WorkItem(title = title, depth = 0)).getOrNull()!!
-        return repo.workItemRepository().update(created.copy(rootId = created.id)).getOrNull()!!
+        val created = repo.workItemRepository().create(WorkItem(title = title, depth = 0))!!
+        return repo.workItemRepository().update(created.copy(rootId = created.id))!!
     }
 
     /**
@@ -224,8 +223,7 @@ class PatchReparentCycleGuardTest {
         val depth = depthOverride ?: (parent.depth + 1)
         return repo
             .workItemRepository()
-            .create(WorkItem(parentId = parent.id, rootId = rootId, depth = depth, title = title))
-            .getOrNull()!!
+            .create(WorkItem(parentId = parent.id, rootId = rootId, depth = depth, title = title))!!
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -255,10 +253,10 @@ class PatchReparentCycleGuardTest {
 
             assertEquals(HttpStatusCode.OK, response.status, "A legitimate reparent must succeed: ${response.bodyAsText()}")
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
-            assertIs<Result.Success<WorkItem>>(persisted)
-            assertEquals(p.id, persisted.data.parentId, "X must be re-parented to P")
-            assertEquals(2, persisted.data.depth, "X's depth must be recomputed from P.depth + 1")
-            assertEquals(root.id, persisted.data.rootId, "rootId must remain R (P is under the same root)")
+            assertNotNull(persisted)
+            assertEquals(p.id, persisted.parentId, "X must be re-parented to P")
+            assertEquals(2, persisted.depth, "X's depth must be recomputed from P.depth + 1")
+            assertEquals(root.id, persisted.rootId, "rootId must remain R (P is under the same root)")
         }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -291,7 +289,7 @@ class PatchReparentCycleGuardTest {
             )
             assertEquals(0, scripted.updateCallCount, "A rejected self-parent must never reach update()")
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
-            assertNull((persisted as Result.Success).data.parentId, "X must remain a root")
+            assertNull(persisted!!.parentId, "X must remain a root")
         }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -319,7 +317,7 @@ class PatchReparentCycleGuardTest {
                 ScriptedWorkItemRepository(
                     repo.workItemRepository(),
                     onFindDescendants = {
-                        Result.Error(RepositoryError.DatabaseError("must not be reached - guard should reject before any cascade"))
+                        throw IllegalStateException("must not be reached - guard should reject before any cascade")
                     },
                 )
             application { configureReparentTestApp(WorkItemRepoOverrideProvider(repo, scripted)) }
@@ -346,9 +344,9 @@ class PatchReparentCycleGuardTest {
             )
             assertEquals(0, scripted.updateCallCount, "A rejected cyclic reparent must never reach update()")
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
-            assertIs<Result.Success<WorkItem>>(persisted)
-            assertNull(persisted.data.parentId, "X's parentId must be unchanged")
-            assertEquals(0, persisted.data.depth, "X's depth must be unchanged")
+            assertNotNull(persisted)
+            assertNull(persisted.parentId, "X's parentId must be unchanged")
+            assertEquals(0, persisted.depth, "X's depth must be unchanged")
         }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -372,7 +370,7 @@ class PatchReparentCycleGuardTest {
                 ScriptedWorkItemRepository(
                     repo.workItemRepository(),
                     onFindDescendants = {
-                        Result.Error(RepositoryError.DatabaseError("must not be reached - guard should reject before any cascade"))
+                        throw IllegalStateException("must not be reached - guard should reject before any cascade")
                     },
                 )
             application { configureReparentTestApp(WorkItemRepoOverrideProvider(repo, scripted)) }
@@ -421,13 +419,13 @@ class PatchReparentCycleGuardTest {
                 ScriptedWorkItemRepository(
                     repo.workItemRepository(),
                     onGetById = { id ->
-                        if (id == b.id) Result.Error(RepositoryError.DatabaseError("ancestor lookup failed")) else null
+                        if (id == b.id) throw IllegalStateException("ancestor lookup failed") else null
                     },
                     onFindAncestorChains = { ids ->
-                        if (d.id in ids) Result.Error(RepositoryError.DatabaseError("ancestor chain lookup failed")) else null
+                        if (d.id in ids) throw IllegalStateException("ancestor chain lookup failed") else null
                     },
                     onFindDescendants = {
-                        Result.Error(RepositoryError.DatabaseError("must not be reached - guard should fail closed before any cascade"))
+                        throw IllegalStateException("must not be reached - guard should fail closed before any cascade")
                     },
                 )
             application { configureReparentTestApp(WorkItemRepoOverrideProvider(repo, scripted)) }
@@ -450,9 +448,9 @@ class PatchReparentCycleGuardTest {
             assertEquals(0, scripted.updateCallCount, "A failed-closed lookup error must never reach update()")
 
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
-            assertIs<Result.Success<WorkItem>>(persisted)
-            assertNull(persisted.data.parentId, "X must be unchanged in the DB after the 500")
-            assertEquals(0, persisted.data.depth)
+            assertNotNull(persisted)
+            assertNull(persisted.parentId, "X must be unchanged in the DB after the 500")
+            assertEquals(0, persisted.depth)
         }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -474,9 +472,9 @@ class PatchReparentCycleGuardTest {
             val scripted =
                 ScriptedWorkItemRepository(
                     repo.workItemRepository(),
-                    onGetById = { id -> if (id == b.id) Result.Error(RepositoryError.DatabaseError("ancestor lookup failed")) else null },
+                    onGetById = { id -> if (id == b.id) throw IllegalStateException("ancestor lookup failed") else null },
                     onFindAncestorChains = { ids ->
-                        if (d.id in ids) Result.Error(RepositoryError.DatabaseError("ancestor chain lookup failed")) else null
+                        if (d.id in ids) throw IllegalStateException("ancestor chain lookup failed") else null
                     },
                 )
             application { configureReparentTestApp(WorkItemRepoOverrideProvider(repo, scripted)) }
@@ -496,7 +494,7 @@ class PatchReparentCycleGuardTest {
             )
             assertEquals(1, scripted.updateCallCount)
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
-            assertEquals("Retitled S6", (persisted as Result.Success).data.title)
+            assertEquals("Retitled S6", persisted!!.title)
         }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -528,7 +526,7 @@ class PatchReparentCycleGuardTest {
             val scripted =
                 ScriptedWorkItemRepository(
                     repo.workItemRepository(),
-                    onFindAncestorChains = { Result.Error(RepositoryError.DatabaseError("must not be reached")) },
+                    onFindAncestorChains = { throw IllegalStateException("must not be reached") },
                 )
             application { configureReparentTestApp(WorkItemRepoOverrideProvider(repo, scripted)) }
 
@@ -546,10 +544,10 @@ class PatchReparentCycleGuardTest {
                 "parentId:null must move to root regardless of armed lookup stubs: ${response.bodyAsText()}"
             )
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
-            assertIs<Result.Success<WorkItem>>(persisted)
-            assertNull(persisted.data.parentId)
-            assertEquals(0, persisted.data.depth)
-            assertEquals(x.id, persisted.data.rootId, "Item must become its own root")
+            assertNotNull(persisted)
+            assertNull(persisted.parentId)
+            assertEquals(0, persisted.depth)
+            assertEquals(x.id, persisted.rootId, "Item must become its own root")
         }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -568,11 +566,9 @@ class PatchReparentCycleGuardTest {
                 ScriptedWorkItemRepository(
                     repo.workItemRepository(),
                     onFindAncestorChains = {
-                        Result.Error(
-                            RepositoryError.DatabaseError("must not be reached - not_found must short-circuit first")
-                        )
+                        throw IllegalStateException("must not be reached - not_found must short-circuit first")
                     },
-                    onFindDescendants = { Result.Error(RepositoryError.DatabaseError("must not be reached")) },
+                    onFindDescendants = { throw IllegalStateException("must not be reached") },
                 )
             application { configureReparentTestApp(WorkItemRepoOverrideProvider(repo, scripted)) }
 
@@ -611,11 +607,11 @@ class PatchReparentCycleGuardTest {
             val scripted =
                 ScriptedWorkItemRepository(
                     repo.workItemRepository(),
-                    onGetById = { id -> if (id == b.id) Result.Error(RepositoryError.DatabaseError("ancestor lookup failed")) else null },
+                    onGetById = { id -> if (id == b.id) throw IllegalStateException("ancestor lookup failed") else null },
                     onFindAncestorChains = { ids ->
-                        if (d.id in ids) Result.Error(RepositoryError.DatabaseError("ancestor chain lookup failed")) else null
+                        if (d.id in ids) throw IllegalStateException("ancestor chain lookup failed") else null
                     },
-                    onFindDescendants = { Result.Error(RepositoryError.DatabaseError("must not be reached")) },
+                    onFindDescendants = { throw IllegalStateException("must not be reached") },
                 )
             val cache = IdempotencyCache()
             application { configureReparentTestApp(WorkItemRepoOverrideProvider(repo, scripted), idempotencyCache = cache) }
@@ -664,7 +660,7 @@ class PatchReparentCycleGuardTest {
             val scripted =
                 ScriptedWorkItemRepository(
                     repo.workItemRepository(),
-                    onFindDescendants = { Result.Error(RepositoryError.DatabaseError("must not be reached")) },
+                    onFindDescendants = { throw IllegalStateException("must not be reached") },
                 )
             application { configureReparentTestApp(WorkItemRepoOverrideProvider(repo, scripted)) }
 
@@ -709,7 +705,7 @@ class PatchReparentCycleGuardTest {
             val scripted =
                 ScriptedWorkItemRepository(
                     repo.workItemRepository(),
-                    onFindDescendants = { Result.Error(RepositoryError.DatabaseError("must not be reached")) },
+                    onFindDescendants = { throw IllegalStateException("must not be reached") },
                 )
             application { configureReparentTestApp(WorkItemRepoOverrideProvider(repo, scripted)) }
 

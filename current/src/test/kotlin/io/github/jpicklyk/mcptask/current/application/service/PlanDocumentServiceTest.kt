@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLitePlanDocumentRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
@@ -16,6 +15,7 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -42,9 +42,9 @@ class PlanDocumentServiceTest {
             every { repositoryProvider.workItemRepository() } returns workItemRepository
             every { repositoryProvider.planDocumentRepository() } returns planDocumentRepository
 
-            service = PlanDocumentService(repositoryProvider)
+            service = PlanDocumentService(repositoryProvider, db.unitOfWork())
 
-            rootId = (workItemRepository.create(WorkItem(title = "Root", type = "project")) as Result.Success).data.id
+            rootId = workItemRepository.create(WorkItem(title = "Root", type = "project")).id
         }
 
     @Test
@@ -64,7 +64,7 @@ class PlanDocumentServiceTest {
             assertIs<PlanDocumentStashResult.NotFound>(result)
 
             val fetched = planDocumentRepository.get(unknownRoot, "plan-a")
-            assertEquals(null, (fetched as Result.Success).data)
+            assertEquals(null, fetched)
         }
 
     @Test
@@ -72,15 +72,15 @@ class PlanDocumentServiceTest {
         runBlocking {
             val child =
                 (
-                    workItemRepository.create(WorkItem(title = "Child", parentId = rootId, depth = 1)) as Result.Success
-                ).data
+                    workItemRepository.create(WorkItem(title = "Child", parentId = rootId, depth = 1))!!
+                )
 
             val result = service.stash(child.id, "plan-a", "content")
             assertIs<PlanDocumentStashResult.NotDepthZero>(result)
             assertEquals(1, result.depth)
 
             val fetched = planDocumentRepository.get(child.id, "plan-a")
-            assertEquals(null, (fetched as Result.Success).data)
+            assertEquals(null, fetched)
         }
 
     @Test
@@ -92,7 +92,7 @@ class PlanDocumentServiceTest {
             assertEquals(PlanDocumentService.MAX_BODY_BYTES, result.maxBytes)
 
             val fetched = planDocumentRepository.get(rootId, "plan-a")
-            assertEquals(null, (fetched as Result.Success).data)
+            assertEquals(null, fetched)
         }
 
     @Test
@@ -111,7 +111,7 @@ class PlanDocumentServiceTest {
             assertIs<PlanDocumentStashResult.Success>(result)
             assertEquals("v2", result.document.body)
 
-            val summaries = (planDocumentRepository.list(rootId) as Result.Success).data
+            val summaries = planDocumentRepository.list(rootId)
             assertEquals(1, summaries.size)
         }
 
@@ -119,14 +119,14 @@ class PlanDocumentServiceTest {
     fun `stashing against an ADOPTED slug is rejected with AdoptedConflict`() =
         runBlocking {
             service.stash(rootId, "plan-a", "v1")
-            val adopter = (workItemRepository.create(WorkItem(title = "Adopter")) as Result.Success).data
+            val adopter = workItemRepository.create(WorkItem(title = "Adopter"))
             planDocumentRepository.markAdopted(rootId, "plan-a", adopter.id)
 
             val result = service.stash(rootId, "plan-a", "v2")
             assertIs<PlanDocumentStashResult.AdoptedConflict>(result)
             assertEquals(adopter.id, result.existing.adoptedByItemId)
 
-            val fetched = (planDocumentRepository.get(rootId, "plan-a") as Result.Success).data
+            val fetched = planDocumentRepository.get(rootId, "plan-a")
             assertEquals("v1", fetched?.body, "Rejected stash must not overwrite the adopted row")
         }
 
@@ -135,8 +135,8 @@ class PlanDocumentServiceTest {
         runBlocking {
             service.stash(rootId, "plan-a", "# Plan A\n")
             val result = service.get(rootId, "plan-a")
-            assertIs<Result.Success<*>>(result)
-            assertEquals("# Plan A\n", (result as Result.Success).data?.body)
+            assertNotNull(result)
+            assertEquals("# Plan A\n", result?.body)
         }
 
     @Test
@@ -146,8 +146,8 @@ class PlanDocumentServiceTest {
             service.stash(rootId, "plan-b", "b")
 
             val result = service.list(rootId)
-            assertIs<Result.Success<*>>(result)
-            val slugs = (result as Result.Success).data.map { it.slug }
+            assertNotNull(result)
+            val slugs = result.map { it.slug }
             assertEquals(listOf("plan-a", "plan-b"), slugs)
         }
 

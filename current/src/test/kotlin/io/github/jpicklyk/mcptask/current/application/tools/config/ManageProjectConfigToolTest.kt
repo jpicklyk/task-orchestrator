@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
@@ -69,10 +68,10 @@ class ManageProjectConfigToolTest {
             every { repositoryProvider.workItemRepository() } returns workItemRepository
             every { repositoryProvider.projectConfigRepository() } returns projectConfigRepository
 
-            context = ToolExecutionContext(repositoryProvider)
+            context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
 
             val root =
-                (workItemRepository.create(WorkItem(title = "Project Root", type = "project")) as Result.Success).data
+                workItemRepository.create(WorkItem(title = "Project Root", type = "project"))
             rootId = root.id
         }
 
@@ -184,13 +183,13 @@ class ManageProjectConfigToolTest {
     @Test
     fun `push to non-depth-0 item returns error`() {
         runBlocking {
-            val parent = (workItemRepository.create(WorkItem(title = "Parent")) as Result.Success).data
+            val parent = workItemRepository.create(WorkItem(title = "Parent"))
             val child =
                 (
                     workItemRepository.create(
                         WorkItem(title = "Child", parentId = parent.id, depth = 1)
-                    ) as Result.Success
-                ).data
+                    )!!
+                )
 
             val result = push(child.id.toString(), validYaml)
 
@@ -203,7 +202,7 @@ class ManageProjectConfigToolTest {
     @Test
     fun `push to non-project-typed root succeeds with a warning field`() {
         runBlocking {
-            val untyped = (workItemRepository.create(WorkItem(title = "Untyped Root")) as Result.Success).data
+            val untyped = workItemRepository.create(WorkItem(title = "Untyped Root"))
 
             val result = push(untyped.id.toString(), validYaml)
 
@@ -521,7 +520,8 @@ class ManageProjectConfigToolTest {
                         every { it.workItemRepository() } returns workItemRepository
                         every { it.projectConfigRepository() } returns projectConfigRepository
                     },
-                    perRootConfigService = perRootConfigService
+                    perRootConfigService = perRootConfigService,
+                    unitOfWork = db.unitOfWork()
                 )
 
             val childItem =

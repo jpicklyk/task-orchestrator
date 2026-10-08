@@ -2,9 +2,12 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushResult
 import io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushService
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.legacyWrite
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
@@ -87,11 +90,12 @@ private const val NON_MATCHING_FINGERPRINT_SENTINEL = "<malformed-if-match>"
  */
 fun Route.projectConfigRoutes(
     repositoryProvider: RepositoryProvider,
+    unitOfWork: UnitOfWork,
     configDocumentParser: ConfigDocumentParser = YamlConfigDocumentParser,
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
     val projectConfigRepo = repositoryProvider.projectConfigRepository()
-    val service = ProjectConfigPushService(repositoryProvider, configDocumentParser)
+    val service = ProjectConfigPushService(repositoryProvider, configDocumentParser, unitOfWork)
 
     route("/roots/{rootId}/config") {
         // ─── GET /roots/{rootId}/config ──────────────────────────────────────
@@ -104,46 +108,47 @@ fun Route.projectConfigRoutes(
                     return@get
                 }
 
-                when (val result = projectConfigRepo.get(rootId)) {
-                    is Result.Success -> {
-                        val config =
-                            result.data ?: run {
-                                call.respond(
-                                    HttpStatusCode.NotFound,
-                                    ErrorDto("not_found", "No project config found for root $rootId"),
-                                )
-                                return@get
+                run {
+                    val result =
+                        legacyRead({
+                            return@run run {
+                                projectConfigLogger.warn("GET /roots/{}/config DB error: {}", rootId, it)
+                                call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to read project config"))
                             }
-
-                        val etag = configEtag(config.fingerprint)
-                        val ifNoneMatch = call.request.headers[HttpHeaders.IfNoneMatch]?.trim()
-                        if (ifNoneMatch != null && ifNoneMatch == etag) {
-                            call.response.header(HttpHeaders.ETag, etag)
-                            call.respond(HttpStatusCode.NotModified)
+                        }) { projectConfigRepo.get(rootId) }
+                    val config =
+                        result ?: run {
+                            call.respond(
+                                HttpStatusCode.NotFound,
+                                ErrorDto("not_found", "No project config found for root $rootId"),
+                            )
                             return@get
                         }
 
-                        val relation =
-                            call.request.queryParameters["fingerprint"]?.let { queriedFingerprint ->
-                                service.classifyRelation(rootId, queriedFingerprint)
-                            }
-
+                    val etag = configEtag(config.fingerprint)
+                    val ifNoneMatch = call.request.headers[HttpHeaders.IfNoneMatch]?.trim()
+                    if (ifNoneMatch != null && ifNoneMatch == etag) {
                         call.response.header(HttpHeaders.ETag, etag)
-                        call.respond(
-                            HttpStatusCode.OK,
-                            ProjectConfigResponseDto(
-                                rootId = config.rootItemId.toString(),
-                                fingerprint = config.fingerprint,
-                                updatedAt = config.updatedAt.toString(),
-                                configYaml = config.configYaml,
-                                relation = relation,
-                            ),
-                        )
+                        call.respond(HttpStatusCode.NotModified)
+                        return@get
                     }
-                    is Result.Error -> {
-                        projectConfigLogger.warn("GET /roots/{}/config DB error: {}", rootId, result.error.message)
-                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to read project config"))
-                    }
+
+                    val relation =
+                        call.request.queryParameters["fingerprint"]?.let { queriedFingerprint ->
+                            service.classifyRelation(rootId, queriedFingerprint)
+                        }
+
+                    call.response.header(HttpHeaders.ETag, etag)
+                    call.respond(
+                        HttpStatusCode.OK,
+                        ProjectConfigResponseDto(
+                            rootId = config.rootItemId.toString(),
+                            fingerprint = config.fingerprint,
+                            updatedAt = config.updatedAt.toString(),
+                            configYaml = config.configYaml,
+                            relation = relation,
+                        ),
+                    )
                 }
             }
         }
@@ -176,7 +181,7 @@ fun Route.projectConfigRoutes(
                 // rootId guard -> THEN this precondition, atomic with the fast-forward guard and
                 // the write itself -- no separate pre-read here, so a fingerprint-read failure can
                 // no longer silently skip If-Match (previously fail-open: a getFingerprint
-                // Result.Error mapped to null and the check was skipped; now a repository error
+                // failure mapped to null and the check was skipped; now a repository error
                 // surfaces as ProjectConfigPushResult.RepositoryError -> 500 db_error, fail-closed).
                 val ifMatch = call.request.headers[HttpHeaders.IfMatch]?.trim()
                 val expectedFingerprint =
@@ -275,21 +280,22 @@ fun Route.projectConfigRoutes(
                     return@delete
                 }
 
-                when (val result = projectConfigRepo.delete(rootId)) {
-                    is Result.Success -> {
-                        if (!result.data) {
-                            call.respond(
-                                HttpStatusCode.NotFound,
-                                ErrorDto("not_found", "No project config found for root $rootId"),
-                            )
-                            return@delete
-                        }
-                        call.respond(HttpStatusCode.NoContent)
+                run {
+                    val result =
+                        unitOfWork.legacyWrite("ProjectConfigRoutes.delete", {
+                            return@run run {
+                                projectConfigLogger.warn("DELETE /roots/{}/config DB error: {}", rootId, it)
+                                call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to delete project config"))
+                            }
+                        }) { projectConfigRepo.delete(rootId) }
+                    if (!result) {
+                        call.respond(
+                            HttpStatusCode.NotFound,
+                            ErrorDto("not_found", "No project config found for root $rootId"),
+                        )
+                        return@delete
                     }
-                    is Result.Error -> {
-                        projectConfigLogger.warn("DELETE /roots/{}/config DB error: {}", rootId, result.error.message)
-                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to delete project config"))
-                    }
+                    call.respond(HttpStatusCode.NoContent)
                 }
             }
         }
@@ -303,7 +309,7 @@ private suspend fun ApplicationCall.parseRootId(): UUID? {
             respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing rootId"))
             return null
         }
-    return runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+    return runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
         respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
         null
     }

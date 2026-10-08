@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database
 
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.upgrade.UpgradeHarness
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
 import kotlinx.coroutines.runBlocking
@@ -16,7 +15,7 @@ import java.sql.Connection
 import java.sql.DriverManager
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -205,9 +204,9 @@ class V9RootIdMigrationTest {
             val rootResult = repository.getById(root)
             val childResult = repository.getById(child)
 
-            assertIs<Result.Success<*>>(rootResult)
-            assertIs<Result.Success<*>>(childResult)
-            assertEquals(root, (rootResult as Result.Success).data.rootId)
-            assertEquals(root, (childResult as Result.Success).data.rootId)
+            assertNotNull(rootResult)
+            assertNotNull(childResult)
+            assertEquals(root, rootResult.rootId)
+            assertEquals(root, childResult.rootId)
         }
 }

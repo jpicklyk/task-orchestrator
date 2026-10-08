@@ -12,9 +12,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -78,9 +76,9 @@ class AdvanceItemToolApplyFailureLeaseTest {
         private val delegate: RoleTransitionRepository,
         private val failFor: UUID
     ) : RoleTransitionRepository by delegate {
-        override suspend fun create(transition: RoleTransition): Result<RoleTransition> =
+        override suspend fun create(transition: RoleTransition): RoleTransition =
             if (transition.itemId == failFor) {
-                Result.Error(RepositoryError.DatabaseError("simulated apply failure for $failFor"))
+                throw IllegalStateException("simulated apply failure for $failFor")
             } else {
                 delegate.create(transition)
             }
@@ -201,12 +199,12 @@ class AdvanceItemToolApplyFailureLeaseTest {
                 (
                     repositoryProvider.workItemRepository().create(
                         WorkItem(title = "Traited S2", role = Role.QUEUE, depth = 0, properties = """{"traits":["needs-staging-db"]}""")
-                    ) as Result.Success
-                ).data
+                    )!!
+                )
             val failingRoleTx = FailingRoleTransitionRepository(repositoryProvider.roleTransitionRepository(), failFor = item.id)
             val leaseFake = SimpleLeaseFakeRepository()
             val provider = LeaseOverrideProvider(RoleTransitionOverrideProvider(repositoryProvider, failingRoleTx), leaseFake)
-            val context = ToolExecutionContext(provider, TraitSchemaService())
+            val context = ToolExecutionContext(provider, TraitSchemaService(), unitOfWork = db.unitOfWork())
 
             val result = AdvanceItemTool().execute(startParams(item.id), context) as JsonObject
             val data = result["data"]!!.jsonObject
@@ -220,7 +218,7 @@ class AdvanceItemToolApplyFailureLeaseTest {
             assertEquals(0, summary["succeeded"]!!.jsonPrimitive.int, "actual: $summary")
             assertEquals(1, summary["failed"]!!.jsonPrimitive.int, "actual: $summary")
 
-            val persisted = (repositoryProvider.workItemRepository().getById(item.id) as Result.Success).data
+            val persisted = (repositoryProvider.workItemRepository().getById(item.id)!!)
             assertEquals(Role.QUEUE, persisted.role, "the failed apply must not leave the item in WORK")
             assertTrue(leaseFake.findActiveForItem(item.id).isEmpty(), "the same-call fresh lease must be released on apply failure")
         }
@@ -238,12 +236,12 @@ class AdvanceItemToolApplyFailureLeaseTest {
                             depth = 0,
                             properties = """{"traits":["needs-staging-db"]}"""
                         )
-                    ) as Result.Success
-                ).data
+                    )!!
+                )
             val failingRoleTx = FailingRoleTransitionRepository(repositoryProvider.roleTransitionRepository(), failFor = item.id)
             val leaseFake = SimpleLeaseFakeRepository()
             val provider = LeaseOverrideProvider(RoleTransitionOverrideProvider(repositoryProvider, failingRoleTx), leaseFake)
-            val context = ToolExecutionContext(provider, TraitSchemaService())
+            val context = ToolExecutionContext(provider, TraitSchemaService(), unitOfWork = db.unitOfWork())
 
             val result = AdvanceItemTool().execute(startParams(item.id, item.id), context) as JsonObject
             val results = result["data"]!!.jsonObject["results"]!!.jsonArray
@@ -268,19 +266,19 @@ class AdvanceItemToolApplyFailureLeaseTest {
                 (
                     repositoryProvider.workItemRepository().create(
                         WorkItem(title = "P S3", role = Role.QUEUE, depth = 0, properties = """{"traits":["needs-staging-db"]}""")
-                    ) as Result.Success
-                ).data
-            val pStamped = (repositoryProvider.workItemRepository().update(p.copy(rootId = p.id)) as Result.Success).data
+                    )!!
+                )
+            val pStamped = (repositoryProvider.workItemRepository().update(p.copy(rootId = p.id))!!)
             val c =
                 (
                     repositoryProvider.workItemRepository().create(
                         WorkItem(title = "C S3", role = Role.QUEUE, parentId = pStamped.id, depth = 1, rootId = pStamped.id)
-                    ) as Result.Success
-                ).data
+                    )!!
+                )
             val failingRoleTx = FailingRoleTransitionRepository(repositoryProvider.roleTransitionRepository(), failFor = pStamped.id)
             val leaseFake = SimpleLeaseFakeRepository()
             val provider = LeaseOverrideProvider(RoleTransitionOverrideProvider(repositoryProvider, failingRoleTx), leaseFake)
-            val context = ToolExecutionContext(provider, TraitSchemaService())
+            val context = ToolExecutionContext(provider, TraitSchemaService(), unitOfWork = db.unitOfWork())
 
             val result = AdvanceItemTool().execute(startParams(c.id), context) as JsonObject
             val data = result["data"]!!.jsonObject
@@ -300,7 +298,7 @@ class AdvanceItemToolApplyFailureLeaseTest {
                 "an apply-failure cascade event (not a gate failure) must omit gateBlocked entirely: $cascade"
             )
 
-            val persistedP = (repositoryProvider.workItemRepository().getById(pStamped.id) as Result.Success).data
+            val persistedP = (repositoryProvider.workItemRepository().getById(pStamped.id)!!)
             assertEquals(Role.QUEUE, persistedP.role, "the failed parent cascade must not leave P in WORK")
             assertTrue(
                 leaseFake.findActiveForItem(pStamped.id).isEmpty(),

@@ -5,8 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -28,7 +26,7 @@ class ManageItemsToolTest {
     @BeforeEach
     fun setUp() {
         repositoryProvider = db.repositoryProvider()
-        context = ToolExecutionContext(repositoryProvider)
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         tool = ManageItemsTool()
     }
 
@@ -2584,8 +2582,8 @@ class ManageItemsToolTest {
             suspend fun rootIdOf(itemId: String): UUID? {
                 val repo = repositoryProvider.workItemRepository()
                 val result = repo.getById(UUID.fromString(itemId))
-                assertIs<Result.Success<WorkItem>>(result)
-                return result.data.rootId
+                assertNotNull(result)
+                return result.rootId
             }
 
             val rootId = createItem("Root")
@@ -2624,8 +2622,8 @@ class ManageItemsToolTest {
             suspend fun rootIdOf(itemId: String): UUID? {
                 val repo = repositoryProvider.workItemRepository()
                 val result = repo.getById(UUID.fromString(itemId))
-                assertIs<Result.Success<WorkItem>>(result)
-                return result.data.rootId
+                assertNotNull(result)
+                return result.rootId
             }
 
             // Root A -> B -> C, plus an independent Root D.
@@ -2684,8 +2682,8 @@ class ManageItemsToolTest {
             suspend fun rootIdOf(itemId: String): UUID? {
                 val repo = repositoryProvider.workItemRepository()
                 val result = repo.getById(UUID.fromString(itemId))
-                assertIs<Result.Success<WorkItem>>(result)
-                return result.data.rootId
+                assertNotNull(result)
+                return result.rootId
             }
 
             val rootAId = createItem("Root A")

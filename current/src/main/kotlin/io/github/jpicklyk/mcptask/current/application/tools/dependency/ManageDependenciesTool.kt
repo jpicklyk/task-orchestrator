@@ -1,7 +1,10 @@
 package io.github.jpicklyk.mcptask.current.application.tools.dependency
 
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
@@ -438,7 +441,12 @@ with `deleteAll=true` for every dependency on that item.
         val repo = context.dependencyRepository()
 
         return try {
-            val created = repo.createBatch(dependencies)
+            // ONE write unit for the whole batch: the cross-edge cycle/duplicate checks need it (F7).
+            val created =
+                when (val unit = context.unitOfWork.write("ManageDependenciesTool.create") { Outcome.Ok(repo.createBatch(dependencies)) }) {
+                    is Outcome.Ok -> unit.value
+                    is Outcome.Err -> return errorResponse(LegacyFaults.message(unit.error), ErrorCodes.INTERNAL_ERROR)
+                }
             val data =
                 buildJsonObject {
                     put(
@@ -466,6 +474,7 @@ with `deleteAll=true` for every dependency on that item.
                 buildValidationFailureResponse(listOf(DependencyFailure(0, e.message ?: "Dependency creation failed")))
             )
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             errorResponse(e.message ?: "Unexpected error creating dependencies", ErrorCodes.INTERNAL_ERROR)
         }
     }
@@ -640,7 +649,11 @@ with `deleteAll=true` for every dependency on that item.
             when {
                 // Delete by dependency ID
                 id != null -> {
-                    val deleted = repo.delete(id)
+                    val deleted =
+                        when (val unit = context.unitOfWork.write("ManageDependenciesTool.delete") { Outcome.Ok(repo.delete(id)) }) {
+                            is Outcome.Ok -> unit.value
+                            is Outcome.Err -> return errorResponse(LegacyFaults.message(unit.error), ErrorCodes.INTERNAL_ERROR)
+                        }
                     val data =
                         buildJsonObject {
                             put("id", JsonPrimitive(id.toString()))
@@ -661,7 +674,16 @@ with `deleteAll=true` for every dependency on that item.
                                 "deleteAll requires 'fromItemId' or 'toItemId'",
                                 ErrorCodes.VALIDATION_ERROR
                             )
-                    val count = repo.deleteByItemId(itemId)
+                    val count =
+                        when (
+                            val unit =
+                                context.unitOfWork.write(
+                                    "ManageDependenciesTool.deleteByItemId"
+                                ) { Outcome.Ok(repo.deleteByItemId(itemId)) }
+                        ) {
+                            is Outcome.Ok -> unit.value
+                            is Outcome.Err -> return errorResponse(LegacyFaults.message(unit.error), ErrorCodes.INTERNAL_ERROR)
+                        }
                     val data =
                         buildJsonObject {
                             put("itemId", JsonPrimitive(itemId.toString()))
@@ -679,17 +701,27 @@ with `deleteAll=true` for every dependency on that item.
                             ErrorCodes.VALIDATION_ERROR
                         )
                     }
-                    val deps =
-                        repo.findByFromItemId(fromItemId).filter { dep ->
-                            dep.toItemId == toItemId &&
-                                (typeFilter == null || dep.type == DependencyType.fromString(typeFilter))
+                    // The lookup and every delete share ONE write unit.
+                    val unit =
+                        context.unitOfWork.write("ManageDependenciesTool.deleteRelationship") {
+                            val deps =
+                                repo.findByFromItemId(fromItemId).filter { dep ->
+                                    dep.toItemId == toItemId &&
+                                        (typeFilter == null || dep.type == DependencyType.fromString(typeFilter))
+                                }
+                            var deleted = 0
+                            for (dep in deps) {
+                                if (repo.delete(dep.id)) {
+                                    deleted++
+                                }
+                            }
+                            Outcome.Ok(deleted)
                         }
-                    var deletedCount = 0
-                    for (dep in deps) {
-                        if (repo.delete(dep.id)) {
-                            deletedCount++
+                    val deletedCount =
+                        when (unit) {
+                            is Outcome.Ok -> unit.value
+                            is Outcome.Err -> return errorResponse(LegacyFaults.message(unit.error), ErrorCodes.INTERNAL_ERROR)
                         }
-                    }
                     val data =
                         buildJsonObject {
                             put("fromItemId", JsonPrimitive(fromItemId.toString()))
@@ -706,6 +738,7 @@ with `deleteAll=true` for every dependency on that item.
                     )
             }
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             errorResponse(e.message ?: "Unexpected error deleting dependencies", ErrorCodes.INTERNAL_ERROR)
         }
     }

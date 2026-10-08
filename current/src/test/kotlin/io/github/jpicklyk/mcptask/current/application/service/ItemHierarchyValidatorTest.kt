@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -11,7 +10,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -46,22 +46,22 @@ class ItemHierarchyValidatorTest {
     private fun create(item: WorkItem): WorkItem =
         runBlocking {
             val result = repo.create(item)
-            assertIs<Result.Success<WorkItem>>(result, "Expected item '${item.title}' to be created")
-            result.data
+            assertNotNull(result, "Expected item '${item.title}' to be created")
+            result
         }
 
     private fun depthOf(id: UUID): Int =
         runBlocking {
             val result = repo.getById(id)
-            assertIs<Result.Success<WorkItem>>(result)
-            result.data.depth
+            assertNotNull(result)
+            result.depth
         }
 
     private fun rootIdOf(id: UUID): UUID? =
         runBlocking {
             val result = repo.getById(id)
-            assertIs<Result.Success<WorkItem>>(result)
-            result.data.rootId
+            assertNotNull(result)
+            result.rootId
         }
 
     @Test
@@ -74,7 +74,7 @@ class ItemHierarchyValidatorTest {
             // changed (e.g. moved between two same-depth subtrees) — rootId must still restamp.
             val result = validator.recomputeDescendantDepths(root.id, 0, root.id, repo)
 
-            assertIs<Result.Success<Unit>>(result)
+            assertNull(result)
             assertEquals(1, depthOf(child.id), "Child depth must be untouched when delta is 0")
             assertEquals(root.id, rootIdOf(child.id), "Child rootId must be stamped even when delta is 0")
         }
@@ -91,7 +91,7 @@ class ItemHierarchyValidatorTest {
             // descendants only (child, grandchild) — the root's own depth write is the caller's job.
             val result = validator.recomputeDescendantDepths(root.id, 1, root.id, repo)
 
-            assertIs<Result.Success<Unit>>(result)
+            assertNull(result)
             assertEquals(2, depthOf(child.id), "Child should shift from depth 1 to 2")
             assertEquals(3, depthOf(grandchild.id), "Grandchild should shift from depth 2 to 3")
             assertEquals(root.id, rootIdOf(child.id))
@@ -113,7 +113,7 @@ class ItemHierarchyValidatorTest {
             // B moved from depth 1 to depth 0 (became root): delta = -1, B becomes its own root.
             val result = validator.recomputeDescendantDepths(b.id, -1, b.id, repo)
 
-            assertIs<Result.Success<Unit>>(result)
+            assertNull(result)
             assertEquals(1, depthOf(c.id), "C should shift from depth 2 to 1")
             assertEquals(2, depthOf(d.id), "D should shift from depth 3 to 2")
             assertEquals(b.id, rootIdOf(c.id), "C's root should now be B (B became its own root)")
@@ -132,7 +132,7 @@ class ItemHierarchyValidatorTest {
 
             val result = validator.recomputeDescendantDepths(b.id, 0, rootB.id, repo)
 
-            assertIs<Result.Success<Unit>>(result)
+            assertNull(result)
             assertEquals(2, depthOf(c.id), "C's depth is unaffected by a same-depth root swap")
             assertEquals(rootB.id, rootIdOf(c.id), "C's rootId must flip to rootB even though depth didn't change")
         }
@@ -144,7 +144,7 @@ class ItemHierarchyValidatorTest {
 
             val result = validator.recomputeDescendantDepths(leaf.id, 2, leaf.id, repo)
 
-            assertIs<Result.Success<Unit>>(result)
+            assertNull(result)
         }
 
     @Test
@@ -155,8 +155,8 @@ class ItemHierarchyValidatorTest {
 
             validator.recomputeDescendantDepths(root.id, 1, root.id, repo)
 
-            val updated = (repo.getById(child.id) as Result.Success<WorkItem>).data
-            assertEquals(2, updated.depth)
-            assertTrue(!updated.modifiedAt.isBefore(child.modifiedAt), "modifiedAt must not regress")
+            val updated = repo.getById(child.id)
+            assertEquals(2, updated!!.depth)
+            assertTrue(!updated!!.modifiedAt.isBefore(child.modifiedAt), "modifiedAt must not regress")
         }
 }

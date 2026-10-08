@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
@@ -112,7 +111,7 @@ class TagScopeSseEventsTest {
         ): WorkItem {
             val item = WorkItem(id = UUID.randomUUID(), parentId = null, title = "tag-scope-fixture", depth = 0, tags = tags)
             val result = provider.workItemRepository().create(item)
-            check(result is Result.Success) { "fixture item create failed: $result" }
+            check(result != null) { "fixture item create failed: $result" }
             return item
         }
 
@@ -369,7 +368,7 @@ class TagScopeSseEventsTest {
                         delay(SETTLE_DELAY_MS)
                         val retagged = itemB.copy(tags = "alpha,beta")
                         val updateResult = provider.workItemRepository().update(retagged)
-                        check(updateResult is Result.Success) { "fixture retag failed: $updateResult" }
+                        check(updateResult != null) { "fixture retag failed: $updateResult" }
                         bus.publish(bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = itemB.id, modifiedAt = Instant.now()), emptySet())
                     }
                     sseClient.sse(
@@ -403,7 +402,7 @@ class TagScopeSseEventsTest {
                         delay(SETTLE_DELAY_MS)
                         val retagged = itemA.copy(tags = "beta")
                         val updateResult = provider.workItemRepository().update(retagged)
-                        check(updateResult is Result.Success) { "fixture retag failed: $updateResult" }
+                        check(updateResult != null) { "fixture retag failed: $updateResult" }
                         bus.publish(bus.buildEvent(ApiEventType.NOTE_UPSERTED, itemId = itemA.id, modifiedAt = Instant.now()), emptySet())
                     }
                     sseClient.sse(
@@ -674,7 +673,7 @@ class TagScopeSseEventsTest {
                     launch {
                         delay(SETTLE_DELAY_MS)
                         val deleteResult = provider.workItemRepository().delete(itemA.id)
-                        check(deleteResult is Result.Success) { "fixture delete failed: $deleteResult" }
+                        check(deleteResult != null) { "fixture delete failed: $deleteResult" }
                         bus.publish(bus.buildEvent(ApiEventType.ITEM_DELETED, itemId = itemA.id, modifiedAt = Instant.now()), emptySet())
                     }
                     sseClient.sse(

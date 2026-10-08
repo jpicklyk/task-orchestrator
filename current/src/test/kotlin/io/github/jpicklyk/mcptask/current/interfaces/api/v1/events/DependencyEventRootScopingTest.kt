@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
+import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -91,17 +92,15 @@ class DependencyEventRootScopingTest {
         provider: EventPublishingRepositoryProvider,
         label: String,
     ): Triple<WorkItem, WorkItem, WorkItem> {
-        val root = provider.workItemRepository().create(WorkItem(title = "$label root", depth = 0)).getOrNull()!!
+        val root = provider.workItemRepository().create(WorkItem(title = "$label root", depth = 0))!!
         val itemA =
             provider
                 .workItemRepository()
-                .create(WorkItem(title = "$label A", parentId = root.id, depth = 1))
-                .getOrNull()!!
+                .create(WorkItem(title = "$label A", parentId = root.id, depth = 1))!!
         val itemB =
             provider
                 .workItemRepository()
-                .create(WorkItem(title = "$label B", parentId = root.id, depth = 1))
-                .getOrNull()!!
+                .create(WorkItem(title = "$label B", parentId = root.id, depth = 1))!!
         return Triple(root, itemA, itemB)
     }
 
@@ -182,7 +181,7 @@ class DependencyEventRootScopingTest {
 
             val (_, itemA, itemB) = createRootAndChildren(provider, "S3")
             val unrelatedRoot =
-                provider.workItemRepository().create(WorkItem(title = "S3 unrelated root", depth = 0)).getOrNull()!!
+                provider.workItemRepository().create(WorkItem(title = "S3 unrelated root", depth = 0))!!
 
             val flowS = bus.subscribe("s3-sub-unrelated", setOf(unrelatedRoot.id), lastEventId = null)
             val received = async { withTimeoutOrNull(1.seconds) { flowS.take(1).toList() } }
@@ -218,7 +217,7 @@ class DependencyEventRootScopingTest {
             val depId = UUID.randomUUID()
             var caught: Throwable? = null
             try {
-                provider.workItemRepository().inTransaction {
+                db.unitOfWork().inUnit {
                     provider.dependencyRepository().create(
                         Dependency(id = depId, fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS),
                     )
@@ -252,7 +251,7 @@ class DependencyEventRootScopingTest {
             val (_, itemA, itemB) = createRootAndChildren(provider, "S5")
             val baselineCount = bus.ringBufferSnapshot().size
 
-            provider.workItemRepository().inTransaction {
+            db.unitOfWork().inUnit {
                 provider.dependencyRepository().create(
                     Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS),
                 )
@@ -393,25 +392,22 @@ class DependencyEventRootScopingTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
-            val root = provider.workItemRepository().create(WorkItem(title = "ProbeE root", depth = 0)).getOrNull()!!
+            val root = provider.workItemRepository().create(WorkItem(title = "ProbeE root", depth = 0))!!
             val itemA =
                 provider
                     .workItemRepository()
-                    .create(WorkItem(title = "ProbeE A", parentId = root.id, depth = 1))
-                    .getOrNull()!!
+                    .create(WorkItem(title = "ProbeE A", parentId = root.id, depth = 1))!!
             val itemB =
                 provider
                     .workItemRepository()
-                    .create(WorkItem(title = "ProbeE B", parentId = root.id, depth = 1))
-                    .getOrNull()!!
+                    .create(WorkItem(title = "ProbeE B", parentId = root.id, depth = 1))!!
             val itemC =
                 provider
                     .workItemRepository()
-                    .create(WorkItem(title = "ProbeE C", parentId = root.id, depth = 1))
-                    .getOrNull()!!
+                    .create(WorkItem(title = "ProbeE C", parentId = root.id, depth = 1))!!
             val baselineCount = bus.ringBufferSnapshot().size
 
-            provider.workItemRepository().inTransaction {
+            db.unitOfWork().inUnit {
                 provider.dependencyRepository().create(
                     Dependency(fromItemId = itemA.id, toItemId = itemB.id, type = DependencyType.BLOCKS),
                 )

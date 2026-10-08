@@ -1,8 +1,10 @@
 package io.github.jpicklyk.mcptask.current.application.tools.notes
 
 import io.github.jpicklyk.mcptask.current.application.service.search.FtsQuerySanitizer
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.*
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchResult
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
@@ -318,18 +320,14 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
         val id = requireUUID(params, "noteId")
         val noteRepo = context.noteRepository()
 
-        return when (val result = noteRepo.getById(id)) {
-            is Result.Success -> {
-                successResponse(result.data.toJson())
-            }
-            is Result.Error -> {
-                errorResponse(
+        val note =
+            legacyRead({ return errorResponse("Failed to get note: $it", ErrorCodes.DATABASE_ERROR) }) { noteRepo.getById(id) }
+                ?: return errorResponse(
                     "Note not found: $id",
                     ErrorCodes.RESOURCE_NOT_FOUND,
-                    details = result.error.message
+                    details = "Note not found with id: $id"
                 )
-            }
-        }
+        return successResponse(note.toJson())
     }
 
     // ──────────────────────────────────────────────
@@ -351,29 +349,30 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                 ?.toSet()
         val noteRepo = context.noteRepository()
 
-        return when (val result = noteRepo.findByItemId(itemId, role)) {
-            is Result.Success -> {
-                val notes =
-                    if (keyFilter != null) {
-                        result.data.filter { it.key in keyFilter }
-                    } else {
-                        result.data
+        return run {
+            val result =
+                legacyRead({
+                    return@run run {
+                        errorResponse(
+                            "Failed to list notes for item: $itemId",
+                            ErrorCodes.DATABASE_ERROR,
+                            details = it
+                        )
                     }
-                val data =
-                    buildJsonObject {
-                        // itemId echo omitted per note — the caller supplied it for this list.
-                        put("notes", JsonArray(notes.map { it.toJson(includeBody = includeBody, includeItemId = false) }))
-                        put("total", JsonPrimitive(notes.size))
-                    }
-                successResponse(data)
-            }
-            is Result.Error -> {
-                errorResponse(
-                    "Failed to list notes for item: $itemId",
-                    ErrorCodes.DATABASE_ERROR,
-                    details = result.error.message
-                )
-            }
+                }) { noteRepo.findByItemId(itemId, role) }
+            val notes =
+                if (keyFilter != null) {
+                    result.filter { it.key in keyFilter }
+                } else {
+                    result
+                }
+            val data =
+                buildJsonObject {
+                    // itemId echo omitted per note — the caller supplied it for this list.
+                    put("notes", JsonArray(notes.map { it.toJson(includeBody = includeBody, includeItemId = false) }))
+                    put("total", JsonPrimitive(notes.size))
+                }
+            successResponse(data)
         }
     }
 
@@ -413,7 +412,7 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
 
                 val ancestorId: UUID? =
                     if (ancestorIdStr != null) {
-                        runCatching { UUID.fromString(ancestorIdStr) }.getOrElse {
+                        runCatchingNonCancellation { UUID.fromString(ancestorIdStr) }.getOrElse {
                             return errorResponse(
                                 "Invalid scope.ancestorId UUID: $ancestorIdStr",
                                 ErrorCodes.VALIDATION_ERROR,
@@ -424,7 +423,7 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                     }
                 val scopeItemId: UUID? =
                     if (itemIdStr != null) {
-                        runCatching { UUID.fromString(itemIdStr) }.getOrElse {
+                        runCatchingNonCancellation { UUID.fromString(itemIdStr) }.getOrElse {
                             return errorResponse(
                                 "Invalid scope.itemId UUID: $itemIdStr",
                                 ErrorCodes.VALIDATION_ERROR,
@@ -481,6 +480,7 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                     offset = offset,
                 )
             } catch (e: Exception) {
+                e.rethrowIfCancellation()
                 return errorResponse(
                     "FTS5 note search failed: ${e.message}",
                     ErrorCodes.INTERNAL_ERROR
