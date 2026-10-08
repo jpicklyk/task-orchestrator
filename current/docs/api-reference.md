@@ -2658,7 +2658,11 @@ is never reported as `RESOURCE_NOT_FOUND` (not-found means only that the row doe
 that already reports storage failures keeps its own message prefix. On a read the prefix is followed
 by the innermost SQL error text (for example `Failed to read project config: <sql text>`). On a write
 it is followed by the catalog message for the fault class: `Database error: <sql text>`,
-`Duplicate record: <sql text>` or `Referenced record not found: <sql text>`. Any other storage fault
+`Duplicate record: <sql text>` or `Referenced record not found: <sql text>`; under contention that
+outlasts the unit's retry deadline, `Database is busy: <sql text>`,
+`No database connection became available in time: <sql text>` or
+`Writer lock not available within <deadline>`; and, for a write misrouted to the read-only reader
+connection, `A write was routed to the read-only reader: <sql text>`. Any other storage fault
 is returned as `DATABASE_ERROR` with the message `Database error in '<tool>': <sql text>`.
 
 ### ErrorKind Values

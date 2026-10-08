@@ -642,10 +642,9 @@ class SQLiteWorkItemRepositoryClaimTest {
      *    state where ownership comparisons silently match an empty string.
      *
      * The repository attempts the claim under the parameterized SQL (no SQL exception), but
-     * the read-back through `toWorkItem()` triggers the validate() check and surfaces the
-     * blank-claimedBy violation as `ClaimResult.DBError` (the catch-all in `claim()` wraps
-     * unexpected exceptions, including ValidationException, into the structured DBError variant
-     * introduced by H1).
+     * the read-back through `toWorkItem()` triggers the validate() check, and the store throws the
+     * blank-claimedBy violation as a [ValidationException] (P5b: stores throw; before P5b the catch-all
+     * in `claim()` wrapped it as the H1 `ClaimResult.DBError` variant, now removed).
      */
     @Test
     fun `agentId with only whitespace is rejected by validate invariants`(): Unit =
@@ -989,19 +988,19 @@ class SQLiteWorkItemRepositoryClaimTest {
         }
 
     // -----------------------------------------------------------------------
-    // H1: DBError — unexpected database exception surfaces as DBError, not NotFound
+    // H1: an unexpected database exception surfaces as a thrown fault, not NotFound
     // -----------------------------------------------------------------------
 
     /**
-     * H1-D1: claim() with an uninitialized database returns ClaimResult.DBError with the
-     * itemId preserved and the cause attached — NOT ClaimResult.NotFound.
+     * H1-D1: claim() with an uninitialized database throws the IllegalStateException carrying the
+     * uninitialized-database message, NOT a ClaimResult.NotFound.
      *
-     * Constructs a DatabaseManager without calling initialize(), so getDatabase() throws
-     * IllegalStateException, simulating a severed database connection.
-     * The repository's catch block must classify this as DBError and attach the cause.
+     * Constructs a DatabaseManager without calling initialize(), so writer() throws
+     * IllegalStateException, simulating a severed database connection. P5b: stores throw, so the
+     * fault propagates to the caller instead of being classified as the removed DBError variant.
      */
     @Test
-    fun `claim on uninitialized database returns DBError with itemId and cause preserved`(): Unit =
+    fun `claim on uninitialized database throws the uninitialized-database fault`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
 
@@ -1019,13 +1018,13 @@ class SQLiteWorkItemRepositoryClaimTest {
         }
 
     /**
-     * H1-D2: release() with an uninitialized database returns ReleaseResult.DBError with the
-     * itemId preserved and the cause attached — NOT ReleaseResult.NotFound.
+     * H1-D2: release() with an uninitialized database throws the IllegalStateException carrying
+     * the uninitialized-database message, NOT a ReleaseResult.NotFound.
      *
      * Same strategy as H1-D1 but for the release path.
      */
     @Test
-    fun `release on uninitialized database returns DBError with itemId and cause preserved`(): Unit =
+    fun `release on uninitialized database throws the uninitialized-database fault`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
 
