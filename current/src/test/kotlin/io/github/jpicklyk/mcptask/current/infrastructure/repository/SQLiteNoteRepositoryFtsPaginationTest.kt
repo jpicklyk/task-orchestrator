@@ -29,8 +29,8 @@ import kotlin.test.assertTrue
  * declaration) into a local `itemId -> noteId` map, which is how the tie-break-by-noteId
  * assertion below is verified without ever reading `src/main`.
  *
- * Runs on a migrated SQLite database (SqliteTestDatabase) — see [SQLiteWorkItemRepositoryFtsPaginationTest]'s class doc
- * for why a SQLite-backed harness would have made this suite vacuously green.
+ * Runs on a migrated SQLite database (SqliteTestDatabase) so the note FTS5 index returns real hits - see
+ * [SQLiteWorkItemRepositoryFtsPaginationTest]'s class doc.
  */
 class SQLiteNoteRepositoryFtsPaginationTest {
     @RegisterExtension
