@@ -18,7 +18,14 @@ class TransactionOpenerTest {
             Regex(
                 """(?<![A-Za-z0-9_])(?:(?<![A-Za-z0-9_.])|(?<=jdbc\.transactions\.))(suspendTransaction|transaction|inTopLevelTransaction|inTopLevelSuspendTransaction|newSuspendedTransaction)\s*\("""
             )
+
+        /** Review follow-up gaps: manager-level opener and the experimental suspend openers (also valid as members). */
+        val EXTRA_OPENER =
+            Regex(
+                """(?<![A-Za-z0-9_])transactionManager\s*\.\s*newTransaction\s*\(|(?<![A-Za-z0-9_])(suspendTransactionAsync|withSuspendTransaction)\s*\("""
+            )
         val IMPORT = Regex("""^\s*import\s+[\w.]*jdbc\.transactions\.(transaction|suspendTransaction)\s*$""")
+        val EXPERIMENTAL_IMPORT = Regex("""^\s*import\s+[\w.]*jdbc\.transactions\.experimental""")
         val ALLOWED = setOf("infrastructure/database/UnitRunner.kt", "infrastructure/repository/TransactionHelper.kt")
 
         fun violations(text: String): List<String> =
@@ -29,7 +36,9 @@ class TransactionOpenerTest {
                 .filter { (_, line) ->
                     GuardSupport.stripStrings(line).let { code ->
                         OPENER.containsMatchIn(code) ||
-                            IMPORT.containsMatchIn(code)
+                            EXTRA_OPENER.containsMatchIn(code) ||
+                            IMPORT.containsMatchIn(code) ||
+                            EXPERIMENTAL_IMPORT.containsMatchIn(code)
                     }
                 }.map { (i, line) -> "L${i + 1}: ${line.trim()}" }
                 .toList()
@@ -79,6 +88,26 @@ class TransactionOpenerTest {
         assertEquals(1, found.size)
         assertTrue(found.single().startsWith("L4:"), "line number must be reported: $found")
         assertEquals(0, violations("val s = \"org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction(db)\"").size)
+    }
+
+    @Test
+    fun `the detector flags transactionManager newTransaction suspend async and withSuspendTransaction and experimental imports`() {
+        assertEquals(1, violations("val tx = db.transactionManager.newTransaction()").size)
+        assertEquals(1, violations("    transactionManager.newTransaction(isolation)").size)
+        assertEquals(1, violations("val d = suspendTransactionAsync(db = writer()) { 1 }").size)
+        assertEquals(1, violations("return withSuspendTransaction(db) { }").size)
+        assertEquals(1, violations("tx.withSuspendTransaction(db) { }").size)
+        assertEquals(1, violations("import org.jetbrains.exposed.v1.jdbc.transactions.experimental.newSuspendedTransaction").size)
+        assertEquals(1, violations("import org.jetbrains.exposed.v1.jdbc.transactions.experimental.withSuspendTransaction").size)
+        assertEquals(1, violations("import org.jetbrains.exposed.v1.jdbc.transactions.experimental.*").size)
+    }
+
+    @Test
+    fun `the new detector forms stay clean for comments strings and unrelated names`() {
+        assertEquals(0, violations("// transactionManager.newTransaction()").size)
+        assertEquals(0, violations("val s = \"withSuspendTransaction(db)\"").size)
+        assertEquals(0, violations("val withSuspendTransactionCount = 1").size)
+        assertEquals(0, violations("val m = transactionManager.currentTransaction").size)
     }
 
     @Test
