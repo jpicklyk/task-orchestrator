@@ -395,7 +395,7 @@ List endpoints return a `PageDto<T>`:
   "pageSize": 50,
   "totalItems": 42,   // may be null when count is expensive
   "hasMore": true,
-  "skipped": 1         // omitted when 0/null — see below
+  "skipped": null      // always omitted — see below
 }
 ```
 
@@ -403,7 +403,7 @@ Query parameters: `?page=<int>` (default 1, must be an integer in `1..100000`) a
 
 `totalItems` may be `null` for endpoints where computing an exact count is expensive; use `hasMore` for continuation.
 
-`skipped` counts rows in this page's underlying query window that were dropped because they failed domain validation (e.g. a corrupt/legacy row) — the row is excluded from `items` but still counted in `totalItems`. The field is omitted entirely when nothing was skipped. Invariant: `items.size == min(pageSize, totalItems - offset) - skipped` (clamped to the actual window), so truncation is always derivable from `totalItems`/`pageSize`/`page` without a separate `truncated` field. Currently populated on `GET /items` and `GET /items/roots`; other list endpoints report `skipped: null`.
+`skipped` is retained for wire compatibility and is **always omitted**: a stored row that fails domain validation (e.g. a corrupt/legacy row) is returned like any other (a WARN log identifies it) instead of being dropped. Invariant: `items.size == min(pageSize, totalItems - offset)` (clamped to the actual window), so truncation is always derivable from `totalItems`/`pageSize`/`page` without a separate `truncated` field.
 
 ---
 
@@ -1004,7 +1004,7 @@ Any supplied but unparsable filter value is rejected with `400 validation_error`
 | `orderBy` | string | Sort field: `title`, `priority`, `complexity`, `createdAt`, `modifiedAt` (also accepts legacy `created`/`modified` aliases). Unknown value → `400 bad_request`. |
 | `orderDir` | string | Sort direction: `asc`, `desc` (default: `desc`). Unknown value → `400 bad_request`. |
 
-**Response:** `200 OK` → `PageDto<ItemDto>` (see §7 for `skipped` semantics; populated on the unscoped branch)
+**Response:** `200 OK` → `PageDto<ItemDto>` (see §7: `skipped` is always omitted)
 
 ### GET /items/roots
 
@@ -1015,7 +1015,7 @@ Root-level items (depth=0) accessible to the caller.
 
 **Query parameters:** Standard pagination params (`page`, `pageSize`).
 
-**Response:** `200 OK` → `PageDto<ItemDto>` (see §7 for `skipped` semantics; populated on the unscoped branch)
+**Response:** `200 OK` → `PageDto<ItemDto>` (see §7: `skipped` is always omitted)
 
 ### GET /items/{id}
 
@@ -1577,7 +1577,9 @@ only) cannot. Requires `READ`.
   `acquiredAt <= at < coalesce(releasedAt, expiresAt)`), open or closed. **400 `validation_error`**
   if the value does not parse as an instant. When absent, returns the most recent intervals
   (open or closed), newest-first by `acquiredAt`.
-- `limit` — max rows, default `100`, clamped to `[1, 500]`.
+- `limit` — max rows, default `100`, clamped to `[1, 500]`. Applied in SQL after the newest-first ordering (for both the `at` and the no-`at` views), so a large history is never loaded to be truncated.
+
+A lease is active while its expiry is strictly after "now": an expiry equal to now is expired, so a release at exactly the expiry instant records `expired`. All lease timestamps are canonical UTC text from the server's one bound clock.
 
 **Response `200 OK`:** `ResourceLeaseHistoryResponseDto` → `{ "intervals": [<ResourceLeaseIntervalDto>] }`.
 `acquiredByActorId` / `releasedByActorId` are present per-entry only for callers with `ADMIN`
