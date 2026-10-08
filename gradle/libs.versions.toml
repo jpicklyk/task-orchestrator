@@ -15,6 +15,7 @@ ktor = "3.4.3"
 sqlite = "3.53.4.0"
 exposed = "1.2.0"
 flyway = "11.8.2"
+hikaricp = "7.1.0"
 
 # Logging
 slf4j = "2.0.17"
@@ -82,6 +83,7 @@ exposed-core = { module = "org.jetbrains.exposed:exposed-core", version.ref = "e
 exposed-dao = { module = "org.jetbrains.exposed:exposed-dao", version.ref = "exposed" }
 exposed-jdbc = { module = "org.jetbrains.exposed:exposed-jdbc", version.ref = "exposed" }
 exposed-java-time = { module = "org.jetbrains.exposed:exposed-java-time", version.ref = "exposed" }
+hikaricp = { module = "com.zaxxer:HikariCP", version.ref = "hikaricp" }
 # Flyway
 flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
 

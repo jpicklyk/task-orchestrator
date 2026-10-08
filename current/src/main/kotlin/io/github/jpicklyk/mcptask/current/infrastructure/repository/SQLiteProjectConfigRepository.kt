@@ -17,7 +17,6 @@ import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import org.jetbrains.exposed.v1.jdbc.upsert
 import java.time.Instant
@@ -50,7 +49,7 @@ class SQLiteProjectConfigRepository(
         rootItemId: UUID,
         configYaml: String
     ): Result<ProjectConfig> =
-        databaseManager.suspendedTransaction("Failed to upsert ProjectConfig") {
+        databaseManager.writeResult("ProjectConfigRepository.upsert", "Failed to upsert ProjectConfig") {
             val fingerprint = computeFingerprint(configYaml)
             val now = Instant.now()
 
@@ -109,7 +108,7 @@ class SQLiteProjectConfigRepository(
         repeat(MAX_GUARDED_UPSERT_ATTEMPTS) {
             try {
                 val outcome =
-                    suspendTransaction(db = databaseManager.getDatabase()) {
+                    databaseManager.writeTx("ProjectConfigRepository.upsertGuarded") {
                         attemptGuardedUpsert(rootItemId, configYaml, expectedFingerprint, rejectSuperseded)
                     }
                 if (outcome != null) return Result.Success(outcome)
@@ -228,7 +227,7 @@ class SQLiteProjectConfigRepository(
     }
 
     override suspend fun get(rootItemId: UUID): Result<ProjectConfig?> =
-        databaseManager.suspendedTransaction("Failed to get ProjectConfig") {
+        databaseManager.readResult("Failed to get ProjectConfig") {
             val row =
                 ProjectConfigTable
                     .selectAll()
@@ -238,7 +237,7 @@ class SQLiteProjectConfigRepository(
         }
 
     override suspend fun getFingerprint(rootItemId: UUID): Result<String?> =
-        databaseManager.suspendedTransaction("Failed to get ProjectConfig fingerprint") {
+        databaseManager.readResult("Failed to get ProjectConfig fingerprint") {
             val fingerprint =
                 ProjectConfigTable
                     .select(ProjectConfigTable.fingerprint)
@@ -249,7 +248,7 @@ class SQLiteProjectConfigRepository(
         }
 
     override suspend fun delete(rootItemId: UUID): Result<Boolean> =
-        databaseManager.suspendedTransaction("Failed to delete ProjectConfig") {
+        databaseManager.writeResult("ProjectConfigRepository.delete", "Failed to delete ProjectConfig") {
             val deletedCount = ProjectConfigTable.deleteWhere { ProjectConfigTable.rootItemId eq rootItemId }
             Result.Success(deletedCount > 0)
         }
@@ -260,7 +259,7 @@ class SQLiteProjectConfigRepository(
         rootItemId: UUID,
         fingerprint: String
     ): Result<FingerprintRelation> =
-        databaseManager.suspendedTransaction("Failed to classify ProjectConfig fingerprint") {
+        databaseManager.readResult("Failed to classify ProjectConfig fingerprint") {
             val row =
                 ProjectConfigTable
                     .select(ProjectConfigTable.fingerprint, ProjectConfigTable.fingerprintHistory)

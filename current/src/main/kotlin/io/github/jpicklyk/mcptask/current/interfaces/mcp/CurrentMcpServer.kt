@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
@@ -26,7 +27,6 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.health.ReadinessMarker
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
@@ -122,6 +122,21 @@ class CurrentMcpServer(
     private var mcpSdkServer: Server? = null
 
     /**
+     * Runs the server (see [runServer]) and, for any outcome that never reached serving, closes the
+     * database pools before returning: pooled connections stay open, unlike the old connection-per-transaction
+     * model, and would otherwise outlive a failed or repair-only start.
+     */
+    fun run(): StartupOutcome {
+        var outcome: StartupOutcome? = null
+        try {
+            outcome = runServer()
+            return outcome
+        } finally {
+            if (outcome !is Started) databaseManager.shutdown()
+        }
+    }
+
+    /**
      * Configures and runs the MCP server.
      *
      * Blocks until the server is closed, then returns [Started] — or returns [Failed] immediately
@@ -129,7 +144,7 @@ class CurrentMcpServer(
      * readiness-marker write fails. Callers ([CurrentMain.main]) MUST inspect the result: a [Failed]
      * outcome no longer just logs and returns like a success would — see [StartupOutcome].
      */
-    fun run(): StartupOutcome =
+    private fun runServer(): StartupOutcome =
         runBlocking {
             logger.info("Initializing Current (v3) MCP server...")
 
@@ -679,7 +694,7 @@ internal fun Application.installRestApiRoutes(
                 warnOnClaimedAdvance = appConfig.apiWarnOnClaimedAdvance,
             )
             noteWriteRoutes(effectiveProvider, degradedModePolicy, idempotencyCache)
-            dependencyWriteRoutes(effectiveProvider, degradedModePolicy)
+            dependencyWriteRoutes(effectiveProvider, degradedModePolicy, toolContext.unitOfWork)
             // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete —
             // converges on the same ProjectConfigPushService the manage_project_config MCP tool uses.
             projectConfigRoutes(effectiveProvider)

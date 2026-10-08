@@ -62,9 +62,10 @@ sealed interface ErrorDetail {
         }
     }
 
+    /** [id] is null only when the unit-of-work boundary translates a raw FK violation; services that know the id must set it. */
     data class NotFound(
         val kind: EntityKind,
-        val id: String
+        val id: String?
     ) : ErrorDetail
 
     data class AmbiguousId(
@@ -87,10 +88,11 @@ sealed interface ErrorDetail {
         }
     }
 
+    /** [existingId] is null only for a raw unique-constraint translation at the unit-of-work boundary. */
     data class Duplicate(
         val kind: EntityKind,
         val id: String? = null,
-        val existingId: String
+        val existingId: String?
     ) : ErrorDetail
 
     data class IdempotencyMismatch(

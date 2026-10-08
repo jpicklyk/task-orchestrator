@@ -69,6 +69,7 @@ dependencies {
     implementation(libs.exposed.dao)
     implementation(libs.exposed.jdbc)
     implementation(libs.exposed.java.time)
+    implementation(libs.hikaricp)
 
     // Flyway migration
     implementation(libs.flyway.core)

@@ -43,7 +43,6 @@ class MockRepositoryProvider {
         every { provider.projectConfigRepository() } returns projectConfigRepo
         every { provider.planDocumentRepository() } returns planDocumentRepo
         every { provider.resourceLeaseRepository() } returns resourceLeaseRepo
-        every { provider.database() } returns null
         every { provider.workTreeExecutor() } returns workTreeExecutor
         // Default: workItemRepo.dbNow() returns JVM time (suitable for tests not exercising clock skew)
         coEvery { workItemRepo.dbNow() } returns Instant.now()

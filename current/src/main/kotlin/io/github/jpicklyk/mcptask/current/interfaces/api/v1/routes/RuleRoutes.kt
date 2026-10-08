@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.RuleGetResult
 import io.github.jpicklyk.mcptask.current.application.service.RuleListResult
 import io.github.jpicklyk.mcptask.current.application.service.RuleService
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability

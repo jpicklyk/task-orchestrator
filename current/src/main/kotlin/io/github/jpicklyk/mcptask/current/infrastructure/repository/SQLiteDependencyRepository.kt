@@ -19,8 +19,6 @@ import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
-import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import java.util.UUID
 
 /**
@@ -33,7 +31,7 @@ class SQLiteDependencyRepository(
     private val databaseManager: DatabaseManager
 ) : DependencyRepository {
     override suspend fun create(dependency: Dependency): Dependency =
-        suspendTransaction(db = databaseManager.getDatabase()) {
+        databaseManager.writeTx("DependencyRepository.create") {
             insertDependencyInTransaction(dependency)
         }
 
@@ -70,7 +68,7 @@ class SQLiteDependencyRepository(
     }
 
     override suspend fun findById(id: UUID): Dependency? =
-        suspendTransaction(db = databaseManager.getDatabase()) {
+        databaseManager.readTx {
             DependenciesTable
                 .selectAll()
                 .where { DependenciesTable.id eq id }
@@ -79,7 +77,7 @@ class SQLiteDependencyRepository(
         }
 
     override suspend fun findByItemId(itemId: UUID): List<Dependency> =
-        suspendTransaction(db = databaseManager.getDatabase()) {
+        databaseManager.readTx {
             DependenciesTable
                 .selectAll()
                 .where { (DependenciesTable.fromItemId eq itemId) or (DependenciesTable.toItemId eq itemId) }
@@ -87,7 +85,7 @@ class SQLiteDependencyRepository(
         }
 
     override fun findByFromItemId(fromItemId: UUID): List<Dependency> =
-        transaction(databaseManager.getDatabase()) {
+        databaseManager.readTxBlocking {
             DependenciesTable
                 .selectAll()
                 .where { DependenciesTable.fromItemId eq fromItemId }
@@ -95,7 +93,7 @@ class SQLiteDependencyRepository(
         }
 
     override fun findByToItemId(toItemId: UUID): List<Dependency> =
-        transaction(databaseManager.getDatabase()) {
+        databaseManager.readTxBlocking {
             DependenciesTable
                 .selectAll()
                 .where { DependenciesTable.toItemId eq toItemId }
@@ -103,21 +101,21 @@ class SQLiteDependencyRepository(
         }
 
     override suspend fun delete(id: UUID): Boolean =
-        suspendTransaction(db = databaseManager.getDatabase()) {
+        databaseManager.writeTx("DependencyRepository.delete") {
             DependenciesTable.deleteWhere { DependenciesTable.id eq id } > 0
         }
 
     override suspend fun deleteByItemId(itemId: UUID): Int =
-        suspendTransaction(db = databaseManager.getDatabase()) {
+        databaseManager.writeTx("DependencyRepository.deleteByItemId") {
             DependenciesTable.deleteWhere {
                 (DependenciesTable.fromItemId eq itemId) or (DependenciesTable.toItemId eq itemId)
             }
         }
 
     override suspend fun createBatch(dependencies: List<Dependency>): List<Dependency> =
-        suspendTransaction(db = databaseManager.getDatabase()) {
+        databaseManager.writeTx("DependencyRepository.createBatch") {
             if (dependencies.isEmpty()) {
-                return@suspendTransaction emptyList()
+                return@writeTx emptyList()
             }
 
             // Phase 1: Check for duplicates within the batch itself
@@ -178,7 +176,7 @@ class SQLiteDependencyRepository(
         blockerId: UUID,
         blockedId: UUID
     ): Boolean =
-        suspendTransaction(db = databaseManager.getDatabase()) {
+        databaseManager.readTx {
             checkCyclicDependencyInternal(blockerId, blockedId)
         }
 
@@ -243,7 +241,7 @@ class SQLiteDependencyRepository(
 
     override suspend fun findByItemIds(itemIds: Set<UUID>): Map<UUID, List<Dependency>> {
         if (itemIds.isEmpty()) return emptyMap()
-        return suspendTransaction(db = databaseManager.getDatabase()) {
+        return databaseManager.readTx {
             val deps =
                 DependenciesTable
                     .selectAll()
@@ -295,7 +293,7 @@ class SQLiteDependencyRepository(
         itemId: UUID,
         type: DependencyType?,
     ): List<BacklinkRow> =
-        suspendTransaction(db = databaseManager.getDatabase()) {
+        databaseManager.readTx {
             val uuidType = UUIDColumnType()
 
             // Build the query using Exposed DSL, joining to work_items for fromTitle.

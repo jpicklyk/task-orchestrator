@@ -14,13 +14,13 @@ import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.Depende
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteNoteRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLitePlanDocumentRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.repository.writeTx
 import org.jetbrains.exposed.v1.jdbc.insert
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 
 /**
  * Infrastructure-layer implementation of [WorkTreeExecutor].
  *
- * Uses Exposed table objects directly inside a single [suspendTransaction] so that
+ * Uses Exposed table objects directly inside a single write transaction ([writeTx], joining the caller's unit when one is ambient) so that
  * all inserts (items, dependencies, notes) are committed atomically. Any exception thrown
  * during execution causes a full rollback — no orphaned rows.
  */
@@ -31,7 +31,7 @@ class SQLiteWorkTreeService(
     private val planDocumentRepo: SQLitePlanDocumentRepository
 ) : WorkTreeExecutor {
     override suspend fun execute(input: WorkTreeInput): WorkTreeResult =
-        suspendTransaction(db = databaseManager.getDatabase()) {
+        databaseManager.writeTx("WorkTreeService.execute") {
             val createdItems = mutableListOf<WorkItem>()
             val itemIdToRef = input.refToItem.entries.associate { (ref, item) -> item.id to ref }
 

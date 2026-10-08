@@ -26,7 +26,6 @@ import org.jetbrains.exposed.v1.jdbc.andWhere
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import org.slf4j.LoggerFactory
 import java.time.Instant
@@ -77,7 +76,7 @@ class SQLiteResourceLeaseRepository(
      */
     private suspend fun dbNow(): Instant =
         try {
-            suspendTransaction(db = databaseManager.getDatabase()) {
+            databaseManager.readTx {
                 exec("SELECT CURRENT_TIMESTAMP") { rs ->
                     if (rs.next()) rs.getString(1)?.let { parseDbTimestamp(it) } else null
                 }
@@ -148,7 +147,7 @@ class SQLiteResourceLeaseRepository(
                 // diagnostics when the same requirement set is retried.
                 val sortedRequirements = requirements.sortedBy { it.first }
 
-                suspendTransaction(db = databaseManager.getDatabase()) {
+                databaseManager.writeTx("ResourceLeaseRepository.acquireAllOnce") {
                     val uuidType = UUIDColumnType()
                     val keyType = VarCharColumnType(255)
                     val actorType = VarCharColumnType(500)
@@ -196,7 +195,7 @@ class SQLiteResourceLeaseRepository(
                                 if (!rs.wasNull() && value > 0) retryAfterMs = value
                             }
                         }
-                        return@suspendTransaction LeaseAcquireResult.Contended(contendedKeys, retryAfterMs)
+                        return@writeTx LeaseAcquireResult.Contended(contendedKeys, retryAfterMs)
                     }
 
                     // No contention for any key — upsert every requested key's own row.
@@ -367,7 +366,7 @@ class SQLiteResourceLeaseRepository(
 
     override suspend fun releaseAllForItem(holderItemId: UUID): LeaseReleaseResult =
         try {
-            suspendTransaction(db = databaseManager.getDatabase()) {
+            databaseManager.writeTx("ResourceLeaseRepository.releaseAllForItem") {
                 val uuidType = UUIDColumnType()
                 // Close every OPEN interval this holder has, across all its keys. releasedAt is
                 // stamped DB-side (datetime('now')) — never the JVM clock — via the raw statement below.
@@ -398,7 +397,7 @@ class SQLiteResourceLeaseRepository(
     override suspend fun releaseAllForItems(holderItemIds: Set<UUID>): LeaseReleaseResult {
         if (holderItemIds.isEmpty()) return LeaseReleaseResult.Success(0)
         return try {
-            suspendTransaction(db = databaseManager.getDatabase()) {
+            databaseManager.writeTx("ResourceLeaseRepository.releaseAllForItems") {
                 val uuidType = UUIDColumnType()
                 var total = 0
                 // Chunked so the IN list never exceeds SQLite's bound-variable limit; every chunk
@@ -430,7 +429,7 @@ class SQLiteResourceLeaseRepository(
         actorId: String?
     ): LeaseReleaseResult =
         try {
-            suspendTransaction(db = databaseManager.getDatabase()) {
+            databaseManager.writeTx("ResourceLeaseRepository.forceReleaseByKey") {
                 val keyType = VarCharColumnType(255)
                 val actorType = VarCharColumnType(500)
                 // Close every OPEN interval on this key, regardless of holder. released_by_actor_id
@@ -456,7 +455,7 @@ class SQLiteResourceLeaseRepository(
     override suspend fun findActiveByKeys(keys: List<String>): List<ResourceLease> {
         if (keys.isEmpty()) return emptyList()
         val now = dbNow()
-        return suspendTransaction(db = databaseManager.getDatabase()) {
+        return databaseManager.readTx {
             ResourceLeasesTable
                 .selectAll()
                 .where { (ResourceLeasesTable.resourceKey inList keys) and (ResourceLeasesTable.expiresAt greater now) }
@@ -466,7 +465,7 @@ class SQLiteResourceLeaseRepository(
 
     override suspend fun findActiveForItem(holderItemId: UUID): List<ResourceLease> {
         val now = dbNow()
-        return suspendTransaction(db = databaseManager.getDatabase()) {
+        return databaseManager.readTx {
             ResourceLeasesTable
                 .selectAll()
                 .where { (ResourceLeasesTable.holderItemId eq holderItemId) and (ResourceLeasesTable.expiresAt greater now) }
@@ -476,7 +475,7 @@ class SQLiteResourceLeaseRepository(
 
     override suspend fun findAllActive(): List<ResourceLease> {
         val now = dbNow()
-        return suspendTransaction(db = databaseManager.getDatabase()) {
+        return databaseManager.readTx {
             ResourceLeasesTable
                 .selectAll()
                 .where { ResourceLeasesTable.expiresAt greater now }
@@ -488,7 +487,7 @@ class SQLiteResourceLeaseRepository(
         resourceKey: String?,
         at: Instant
     ): List<ResourceLeaseInterval> =
-        suspendTransaction(db = databaseManager.getDatabase()) {
+        databaseManager.readTx {
             // Held at `at` iff acquiredAt <= at < coalesce(releasedAt, expiresAt) — expressed as an
             // OR over the open/closed shapes since Exposed has no direct coalesce() comparison here.
             val heldAt =
@@ -511,7 +510,7 @@ class SQLiteResourceLeaseRepository(
         resourceKey: String?,
         limit: Int
     ): List<ResourceLeaseInterval> =
-        suspendTransaction(db = databaseManager.getDatabase()) {
+        databaseManager.readTx {
             var query = ResourceLeaseHistoryTable.selectAll()
             if (resourceKey != null) query = query.andWhere { ResourceLeaseHistoryTable.resourceKey eq resourceKey }
             query
