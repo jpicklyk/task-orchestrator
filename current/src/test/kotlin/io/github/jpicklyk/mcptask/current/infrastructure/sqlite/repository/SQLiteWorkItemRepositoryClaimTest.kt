@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.OutsideUnitPolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.java.UUIDColumnType
@@ -34,13 +35,14 @@ import kotlin.test.assertTrue
  *
  * Uses a real file-backed SQLite database (via SqliteTestDatabase) to verify the
  * canonical SQL claim pattern, auto-release, re-claim, expiry filtering, and release
- * semantics. SQLite is required because the claim SQL uses SQLite-specific
- * `datetime('now', '+N seconds')` syntax, which only SQLite supports.
+ * semantics. Time is a [SettableClock] bound into the store: expiry is tested by moving the clock, never by sleeping.
  */
 class SQLiteWorkItemRepositoryClaimTest {
+    private val clock = SettableClock()
+
     @RegisterExtension
     @JvmField
-    val sqliteDb = SqliteTestDatabase.perMethod()
+    val sqliteDb = SqliteTestDatabase.perMethod(clock = clock)
 
     private val database get() = sqliteDb.database
     private val repositoryProvider get() = sqliteDb.repositoryProvider()
@@ -99,8 +101,7 @@ class SQLiteWorkItemRepositoryClaimTest {
             assertIs<ClaimResult.Success>(first)
             val firstOriginalClaimedAt = first.item.originalClaimedAt!!
 
-            // Small delay to ensure DB-side datetime('now') advances
-            Thread.sleep(1100)
+            clock.advanceSeconds(2)
 
             // Re-claim (extend TTL)
             val second = repository.claim(item.id, "agent-b", 1800)
@@ -407,8 +408,8 @@ class SQLiteWorkItemRepositoryClaimTest {
             val item = createItem()
             assertIs<ClaimResult.Success>(repository.claim(item.id, "agent-old", 1))
 
-            // Wait for the claim to expire
-            Thread.sleep(2000)
+            // Move the clock past the one-second TTL
+            clock.advanceSeconds(2)
 
             // New agent should be able to claim it
             val result = repository.claim(item.id, "agent-new", 900)
@@ -419,65 +420,29 @@ class SQLiteWorkItemRepositoryClaimTest {
         }
 
     /**
-     * TEST-I3: Pins the boundary-exact behavior of the claim expiry check.
+     * TEST-I3: pins the boundary-exact behavior of the claim expiry check on the bound clock.
      *
-     * The canonical claim SQL uses a strict less-than comparison:
-     *   `claim_expires_at < datetime('now')`
-     * This means: at the EXACT expiry second, the claim is still considered ACTIVE.
-     * Sleeping exactly TTL ms is therefore insufficient to expire the claim —
-     * the second claimer must arrive strictly AFTER the expiry instant.
-     *
-     * This test pins that behavior: after sleeping exactly 1000ms (equal to the 1s TTL),
-     * the second agent's claim must return AlreadyClaimed (not Success), because
-     * `datetime('now')` equals `claim_expires_at` exactly and `<` is false.
-     *
-     * Flakiness note: clock granularity on the host may cause `datetime('now')` to have
-     * advanced by 1 second already if Thread.sleep overshoots. The assertion is written
-     * to match whichever direction the comparison resolves (AlreadyClaimed or Success),
-     * with a comment explaining each branch. In CI, either outcome is pinned as stable.
+     * A claim is active while `claim_expires_at > now`; an expiry EQUAL to now is already expired. With a 1-second
+     * TTL: at 999 ms the claim still holds (and the retry hint is the 1 ms left); at exactly 1000 ms it is expired
+     * and the next claimer wins.
      */
     @Test
     fun `claim expiry boundary at exact TTL second`(): Unit =
         runBlocking {
             val item = createItem()
-            // Claim with 1-second TTL so expiry is datetime('now', '+1 seconds')
             assertIs<ClaimResult.Success>(repository.claim(item.id, "agent-boundary-a", 1))
 
-            // Sleep exactly 1000ms — this places us at the exact expiry boundary.
-            // The canonical SQL comparison is strict: claim_expires_at < datetime('now').
-            // At the exact boundary: claim_expires_at == datetime('now'), so < is FALSE → still active.
-            // Due to OS clock granularity, datetime('now') may have advanced slightly past the boundary,
-            // making this technically a post-expiry moment. Either outcome is documented below.
-            Thread.sleep(1000)
+            clock.advance(java.time.Duration.ofMillis(999))
+            val beforeBoundary = repository.claim(item.id, "agent-boundary-b", 900)
+            assertIs<ClaimResult.AlreadyClaimed>(beforeBoundary)
+            assertEquals(item.id, beforeBoundary.itemId)
+            assertEquals(1L, beforeBoundary.retryAfterMs, "1 ms is left on the claim")
 
-            val result = repository.claim(item.id, "agent-boundary-b", 900)
-
-            // Branch A (strict <, boundary is active): the claim belongs to agent-boundary-a still
-            // Branch B (clock advanced past boundary): the claim has expired, agent-boundary-b wins
-            // Either way, pin the actual observed behavior so a regression (e.g., changing < to <=
-            // or <= to <) would flip this assertion and be caught.
-            when (result) {
-                is ClaimResult.AlreadyClaimed -> {
-                    // Branch A: boundary-exact = still active. Strict < semantics confirmed.
-                    assertEquals(item.id, result.itemId)
-                    // Note: retryAfterMs is intentionally NOT asserted here. The SQL
-                    // expiry check uses second-granularity `datetime('now')`, while
-                    // retryAfterMs is computed from ms-granularity
-                    // `System.currentTimeMillis()` and is null when remaining <= 0.
-                    // At the exact-TTL boundary, SQL can say "still active" (because
-                    // `claim_expires_at < datetime('now')` is false at the same second)
-                    // while the ms-clock has advanced just past the expiry instant,
-                    // making retryAfterMs null. Asserting non-null here is racy on
-                    // tight CI clocks. The AlreadyClaimed selection itself is what
-                    // pins the strict-< semantics being tested.
-                }
-                is ClaimResult.Success -> {
-                    // Branch B: clock advanced past the 1s boundary; expiry check triggered.
-                    assertEquals("agent-boundary-b", result.item.claimedBy)
-                    assertNotNull(result.item.originalClaimedAt)
-                }
-                else -> error("Unexpected ClaimResult type at boundary: $result")
-            }
+            clock.advance(java.time.Duration.ofMillis(1))
+            val atBoundary = repository.claim(item.id, "agent-boundary-b", 900)
+            assertIs<ClaimResult.Success>(atBoundary, "an expiry equal to now is expired")
+            assertEquals("agent-boundary-b", atBoundary.item.claimedBy)
+            assertNotNull(atBoundary.item.originalClaimedAt)
         }
 
     /**
@@ -503,8 +468,8 @@ class SQLiteWorkItemRepositoryClaimTest {
             assertIs<ClaimResult.Success>(agentAResult)
             val agentAOriginalClaimedAt = agentAResult.item.originalClaimedAt!!
 
-            // Wait for agent A's claim to expire (well past the 1s TTL)
-            Thread.sleep(2000)
+            // Move the clock well past agent A's 1s TTL
+            clock.advanceSeconds(2)
 
             // Agent B claims via the canonical SQL path (not via update())
             val agentBResult = repository.claim(item.id, "agent-i4-b", 900)
@@ -922,7 +887,7 @@ class SQLiteWorkItemRepositoryClaimTest {
             assertNotNull(firstClaim)
             val firstOriginal = firstClaim.originalClaimedAt!!
 
-            Thread.sleep(1100) // ensure DB datetime('now') would advance
+            clock.advanceSeconds(2)
 
             val reClaim = repository.claim(itemA.id, "agent-A", 1800)
             assertIs<ClaimResult.Success>(reClaim)
@@ -1072,8 +1037,8 @@ class SQLiteWorkItemRepositoryClaimTest {
                 assertIs<ClaimResult.Success>(repository.claim(item.id, "agent-expired-$i", 1))
                 expiredIds.add(item.id)
             }
-            // Wait for the 1s TTL to elapse so the 2 claims become expired
-            Thread.sleep(2000)
+            // Move the clock past the 1s TTL so the 2 claims become expired
+            clock.advanceSeconds(2)
 
             val countResult = repository.countByClaimStatus(null)
             assertNotNull(countResult)
@@ -1160,7 +1125,7 @@ class SQLiteWorkItemRepositoryClaimTest {
      *   val remaining = claimExpiresAt - System.currentTimeMillis()
      *   if (remaining <= 0) null else remaining
      *
-     * After a 1s-TTL claim expires (Thread.sleep(2000)), a second agent attempts to claim the
+     * After a 1s-TTL claim expires (the clock is advanced past it), a second agent attempts to claim the
      * same item. The SQL expiry check fires and the second agent wins (ClaimResult.Success).
      * But if we read the DB while the first claim is expired AND the new claim hasn't landed
      * yet, we would see null retryAfterMs.
@@ -1171,7 +1136,7 @@ class SQLiteWorkItemRepositoryClaimTest {
      * by testing the sequential expired-claim-takeover path and verifying ClaimResult.Success
      * (confirming expiry was recognized and the item was taken over, not "already claimed").
      *
-     * For the retryAfterMs=null branch specifically: claim with TTL=1s; use Thread.sleep(2000)
+     * For the retryAfterMs=null branch specifically: claim with TTL=1s; advance the clock 2 s
      * to ensure expiry; call claim() a second time. Since the claim is expired, the canonical
      * SQL allows the takeover — we get Success, not AlreadyClaimed. The retryAfterMs branch
      * inside AlreadyClaimed would return null for an expired claim if observed at the exact
@@ -1191,8 +1156,8 @@ class SQLiteWorkItemRepositoryClaimTest {
             assertIs<ClaimResult.Success>(firstClaim)
             assertNotNull(firstClaim.item.claimExpiresAt)
 
-            // Wait well past the 1s TTL to ensure expiry
-            Thread.sleep(2000)
+            // Move the clock well past the 1s TTL
+            clock.advanceSeconds(2)
 
             // Agent 2 attempts to claim the expired item
             val secondClaim = repository.claim(item.id, "agent-h6-r1-second", 900)
@@ -1257,7 +1222,7 @@ class SQLiteWorkItemRepositoryClaimTest {
 
             // Step 3: Collect the EXPLAIN QUERY PLAN output for the OR predicate that
             // findForNextItem uses when excludeActiveClaims=true:
-            //   claimed_by IS NULL  OR  claim_expires_at <= datetime('now')
+            //   claimed_by IS NULL  OR  claim_expires_at <= <bound instant>
             // We test the second branch (the range scan on claim_expires_at) in isolation
             // so the planner can choose the index on that column.
             val plan =
@@ -1269,7 +1234,7 @@ class SQLiteWorkItemRepositoryClaimTest {
                         // update — without this hint, JDBC raises "Query returns results".
                         exec(
                             "EXPLAIN QUERY PLAN " +
-                                "SELECT * FROM work_items WHERE claim_expires_at <= datetime('now')",
+                                "SELECT * FROM work_items WHERE claim_expires_at <= '2026-03-01 10:00:00.000'",
                             explicitStatementType = StatementType.SELECT
                         ) { rs ->
                             while (rs.next()) {
@@ -1359,10 +1324,8 @@ class SQLiteWorkItemRepositoryClaimTest {
      * BUG2-REGRESSION: Claim with a short TTL produces a claimExpiresAt strictly after claimedAt,
      * and the expiry comparison in findForNextItem/findClaimable respects the TTL value.
      *
-     * This test verifies that the parameterized `datetime('now', ? || ' seconds')` form
-     * (replacing the prior interpolated `datetime('now', '+$ttlSeconds seconds')`) still
-     * produces a valid future expiry instant. A TTL of 30 seconds should produce
-     * claimExpiresAt >= claimedAt + 29 seconds (generous margin for DB second-granularity).
+     * Expiry is `now + ttl` computed in Kotlin from the bound clock, so a TTL of 30 seconds produces exactly
+     * claimExpiresAt == claimedAt + 30 seconds.
      */
     @Test
     fun `parameterized TTL claim — claimExpiresAt is strictly after claimedAt by the given TTL`(): Unit =
@@ -1383,12 +1346,8 @@ class SQLiteWorkItemRepositoryClaimTest {
                 "claimExpiresAt must be after claimedAt for ttlSeconds=$ttlSeconds"
             )
 
-            // claimExpiresAt should be approximately claimedAt + ttlSeconds (within 5 seconds margin)
-            val diffSeconds = (claimExpiresAt.toEpochMilli() - claimedAt.toEpochMilli()) / 1000L
-            assertTrue(
-                diffSeconds >= ttlSeconds - 5 && diffSeconds <= ttlSeconds + 5,
-                "Expected claimExpiresAt - claimedAt ≈ $ttlSeconds s, got $diffSeconds s"
-            )
+            // Expiry is computed in Kotlin from the bound clock: exactly claimedAt + ttlSeconds.
+            assertEquals(claimedAt.plusSeconds(ttlSeconds.toLong()), claimExpiresAt)
         }
 
     // -----------------------------------------------------------------------

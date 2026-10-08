@@ -3,23 +3,22 @@ package io.github.jpicklyk.mcptask.current.application.tools.items
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
-import java.time.Instant
 import java.util.UUID
 import kotlin.test.*
 
 /**
  * Tests for [QueryItemsTool] claim-status filter and tiered claim disclosure.
  *
- * Uses a real SQLite database for SQL condition testing. Claim fields are populated
- * via direct WorkItem.create() to bypass the claim SQL (which uses HEX() and
- * datetime('now')). The filter logic under test (buildFilteredQuery)
- * uses Exposed DSL which is dialect-agnostic.
+ * Uses a real SQLite database over a [SettableClock] for SQL condition testing. Claims are placed through the claim
+ * store at chosen clock instants (an expired claim is one placed in the past), so the status filters are exercised
+ * against exactly the state the claim SQL writes.
  *
  * Tiered disclosure contract under test:
  * - `claimedBy` MUST NEVER appear in `query_items` search results (even for claimed items)
@@ -27,8 +26,10 @@ import kotlin.test.*
  * - `claimSummary` counts appear in overview results (no identity)
  */
 class QueryItemsToolClaimStatusTest {
+    private val clock = SettableClock()
+
     @RegisterExtension
-    val db = SqliteTestDatabase.perMethod()
+    val db = SqliteTestDatabase.perMethod(clock = clock)
 
     private lateinit var context: ToolExecutionContext
     private lateinit var tool: QueryItemsTool
@@ -39,7 +40,7 @@ class QueryItemsToolClaimStatusTest {
     fun setUp() {
         val repositoryProvider = db.repositoryProvider()
         workItemRepo = repositoryProvider.workItemRepository() as SQLiteWorkItemRepository
-        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
+        context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork(), clock = clock)
         tool = QueryItemsTool()
         manageTool = ManageItemsTool()
     }
@@ -72,45 +73,23 @@ class QueryItemsToolClaimStatusTest {
         return UUID.fromString(idStr)
     }
 
-    /**
-     * Set an item as actively claimed (non-expired) by directly updating via repository.
-     * Bypasses the claim SQL; the filter logic under test does not depend on it.
-     */
+    /** Claims [itemId] for [agentId] through the claim store at the current clock instant (active for 15 minutes). */
     private suspend fun setActiveClaim(
         itemId: UUID,
         agentId: String
     ) {
-        val item = workItemRepo.getById(itemId)
-        val now = Instant.now()
-        workItemRepo.update(
-            item!!.copy(
-                claimedBy = agentId,
-                claimedAt = now,
-                claimExpiresAt = now.plusSeconds(900),
-                originalClaimedAt = now,
-                version = item!!.version
-            )
-        )
+        workItemRepo.claim(itemId, agentId, ttlSeconds = 900)
     }
 
-    /**
-     * Set an item with an expired claim (TTL already elapsed).
-     */
+    /** Places a claim an hour ago with a one-minute TTL, then restores the clock: the claim is expired now. */
     private suspend fun setExpiredClaim(
         itemId: UUID,
         agentId: String
     ) {
-        val item = workItemRepo.getById(itemId)
-        val past = Instant.now().minusSeconds(3600) // 1 hour ago
-        workItemRepo.update(
-            item!!.copy(
-                claimedBy = agentId,
-                claimedAt = past.minusSeconds(900),
-                claimExpiresAt = past, // expired
-                originalClaimedAt = past.minusSeconds(900),
-                version = item!!.version
-            )
-        )
+        val present = clock.now()
+        clock.set(present.minusSeconds(3600))
+        workItemRepo.claim(itemId, agentId, ttlSeconds = 60)
+        clock.set(present)
     }
 
     // ──────────────────────────────────────────────

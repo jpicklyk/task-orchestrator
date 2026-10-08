@@ -22,7 +22,7 @@ sealed class LeaseAcquireResult {
     /**
      * At least one requested key is actively held by a different item. [contendedKeys] lists ALL
      * such keys (not just the first). [retryAfterMs] is the soonest time (in milliseconds, computed
-     * against the DB clock) until any of the contended leases expires — a hint for backoff, not a
+     * against the bound unit instant, at least 1) until any of the contended leases expires — a hint for backoff, not a
      * guarantee the key will be free at that instant.
      */
     data class Contended(
@@ -53,7 +53,7 @@ sealed class LeaseReleaseResult {
  *
  * ## "Active" is a lazy, read-time notion
  *
- * There is no background expiry sweep. A lease row with `expires_at <= dbNow()` is treated as
+ * There is no background expiry sweep. A lease row with `expires_at <= now` (the bound unit instant) is treated as
  * ABSENT by every read path here (`findActive*`) and as FREE (stealable) by [acquireAll]'s
  * per-key holder-count check. Expired rows are simply overwritten in place on the next acquire for
  * that key (or left as harmless stale rows until then) — callers never observe an expired lease
@@ -142,10 +142,12 @@ interface LeaseStore {
      * i.e. `acquiredAt <= at < coalesce(releasedAt, expiresAt)` — optionally restricted to
      * [resourceKey]. Ordered newest-first by [ResourceLeaseInterval.acquiredAt]. Answers "who held
      * resource R at time T" for post-incident diagnosis; see the `resource_lease_history` table.
+     * [limit] caps the rows in SQL (after the newest-first ordering), not in the caller.
      */
     suspend fun findHoldersAt(
         resourceKey: String?,
-        at: Instant
+        at: Instant,
+        limit: Int = Int.MAX_VALUE
     ): List<ResourceLeaseInterval>
 
     /**

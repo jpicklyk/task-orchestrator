@@ -98,14 +98,16 @@ class FlywayOnlyMigrationTest {
 
         assertTrue(manager(url).updateSchema(), "an exact V17 shape must be baselined, not refused")
 
-        // The baseline at 17, then the later migrations run on top of it (V19; V18 is reserved).
         val rows = historyRows(url)
-        assertEquals(2, rows.size, "the baseline row plus the V19 migration expected, got $rows")
-        assertEquals("BASELINE", rows.first().second)
-        assertEquals("17", rows.first().first)
-        assertTrue(rows.first().third)
-        assertEquals("19", rows.last().first)
-        assertTrue(rows.last().third)
+        // Baselined at 17, then the pending V18 (data-only timestamp normalization) and V19 (idempotency records) are applied on top.
+        assertEquals(
+            listOf("17" to "BASELINE", "18" to "SQL", "19" to "SQL"),
+            rows.map {
+                it.first to it.second
+            },
+            "history must be baseline@17 then V18 then V19, got $rows"
+        )
+        assertTrue(rows.all { it.third })
         assertEquals(before, query(url, "SELECT title FROM work_items ORDER BY title") { it.getString(1) })
         assertEquals(1, scalarInt(url, "SELECT count(*) FROM notes"))
     }

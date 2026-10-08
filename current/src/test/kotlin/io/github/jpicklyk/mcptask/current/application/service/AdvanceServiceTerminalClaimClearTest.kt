@@ -60,6 +60,9 @@ class AdvanceServiceTerminalClaimClearTest {
     /** Every [WorkItem] passed to `workItemRepo.update(...)` during a test, in call order. */
     private val updatedItems = mutableListOf<WorkItem>()
 
+    /** Every id passed to `workItemRepo.clear(...)`: update() no longer writes the claim columns, so the claim release is explicit. */
+    private val clearedIds = mutableListOf<UUID>()
+
     @BeforeEach
     fun setUp() {
         workItemRepo = mockk()
@@ -67,12 +70,16 @@ class AdvanceServiceTerminalClaimClearTest {
         roleTransitionRepo = mockk()
         noteRepo = mockk()
         updatedItems.clear()
+        clearedIds.clear()
 
-        coEvery { workItemRepo.dbNow() } returns Instant.now()
         coEvery { workItemRepo.update(any()) } answers {
             val item = firstArg<WorkItem>()
             updatedItems.add(item)
             item
+        }
+        coEvery { workItemRepo.clear(any()) } answers {
+            clearedIds.add(firstArg())
+            true
         }
         coEvery { roleTransitionRepo.create(any()) } returns mockk()
         coEvery { noteRepo.findByItemId(any()) } returns emptyList()
@@ -154,6 +161,7 @@ class AdvanceServiceTerminalClaimClearTest {
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.TERMINAL, success.result.newRole)
             assertAllClaimFieldsNull(success.result.appliedItem)
+            assertEquals(listOf(item.id), clearedIds, "the claim columns are released explicitly, in the same unit as the update")
         }
 
     // ──────────────────────────────────────────────
@@ -310,6 +318,8 @@ class AdvanceServiceTerminalClaimClearTest {
             // is the only way to observe it without touching src/main.
             val persistedParent = updatedItems.first { it.id == parentId }
             assertAllClaimFieldsNull(persistedParent)
+            // Entering TERMINAL clears unconditionally (a claim can land after the snapshot), so the unclaimed child is cleared too.
+            assertEquals(listOf(childId, parentId), clearedIds, "every item entering terminal has its claim columns released")
         }
 
     // ──────────────────────────────────────────────

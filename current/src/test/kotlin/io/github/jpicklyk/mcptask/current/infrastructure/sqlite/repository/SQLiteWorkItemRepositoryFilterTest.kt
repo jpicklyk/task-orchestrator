@@ -19,6 +19,7 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SQLiteWorkItemRepositoryFilterTest {
@@ -461,7 +462,7 @@ class SQLiteWorkItemRepositoryFilterTest {
     }
 
     @Test
-    fun `findRootItems reports skipped for a row that fails domain validation`() =
+    fun `findRootItems returns a row that fails domain validation with its diagnostics`() =
         runBlocking {
             val good1 = repository.create(WorkItem(title = "Good root 1", depth = 0))
             repository.create(WorkItem(title = "Good root 2", depth = 0))
@@ -470,18 +471,20 @@ class SQLiteWorkItemRepositoryFilterTest {
 
             val result = repository.findRootItems()
             assertNotNull(result)
-            assertEquals(2, result.items.size)
-            assertEquals(1, result.skipped)
-            assertTrue(result.items.none { it.id == corrupt.id })
+            assertEquals(3, result.items.size)
+            assertEquals(0, result.skipped, "skipped is always 0: the mapper never drops a row")
             assertTrue(result.items.any { it.id == good1.id })
+            val invalid = result.items.single { it.id == corrupt.id }
+            assertTrue(invalid.diagnostics.orEmpty().isNotEmpty(), "the invalid row carries its violations")
+            assertNull(result.items.single { it.id == good1.id }.diagnostics, "a valid row carries none")
 
             val countResult = repository.countRootItems()
             assertNotNull(countResult)
-            assertEquals(3L, countResult, "countRootItems is unaffected by the validation drop")
+            assertEquals(3L, countResult)
         }
 
     @Test
-    fun `findByFilters reports skipped for a row that fails domain validation`() =
+    fun `findByFilters returns a row that fails domain validation with its diagnostics`() =
         runBlocking {
             repository.create(WorkItem(title = "Good item"))
             val corrupt = repository.create(WorkItem(title = "Will be corrupted"))
@@ -489,12 +492,19 @@ class SQLiteWorkItemRepositoryFilterTest {
 
             val result = repository.findByFilters()
             assertNotNull(result)
-            assertEquals(1, result.items.size)
-            assertEquals(1, result.skipped)
+            assertEquals(2, result.items.size)
+            assertEquals(0, result.skipped, "skipped is always 0: the mapper never drops a row")
+            assertTrue(
+                result.items
+                    .single { it.id == corrupt.id }
+                    .diagnostics
+                    .orEmpty()
+                    .isNotEmpty()
+            )
 
             val countResult = repository.countByFilters()
             assertNotNull(countResult)
-            assertEquals(2, countResult, "countByFilters is the raw SQL count, unaffected by the validation drop")
+            assertEquals(2, countResult)
         }
 
     // =====================================================================

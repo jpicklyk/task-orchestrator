@@ -541,6 +541,7 @@ class RoleTransitionHandlerTest {
         fun `apply QUEUE to WORK updates item role and creates audit transition`() =
             runBlocking {
                 val item = testItem(role = Role.QUEUE)
+                coEvery { workItemRepo.clear(any()) } returns true
                 coEvery { workItemRepo.update(any()) } answers { firstArg() }
                 coEvery { roleTransitionRepo.create(any()) } answers { firstArg() }
 
@@ -575,6 +576,7 @@ class RoleTransitionHandlerTest {
         fun `apply to BLOCKED saves previousRole on item`() =
             runBlocking {
                 val item = testItem(role = Role.WORK)
+                coEvery { workItemRepo.clear(any()) } returns true
                 coEvery { workItemRepo.update(any()) } answers { firstArg() }
                 coEvery { roleTransitionRepo.create(any()) } answers { firstArg() }
 
@@ -600,6 +602,7 @@ class RoleTransitionHandlerTest {
         fun `apply resume from BLOCKED clears previousRole`() =
             runBlocking {
                 val item = testItem(role = Role.BLOCKED, previousRole = Role.WORK)
+                coEvery { workItemRepo.clear(any()) } returns true
                 coEvery { workItemRepo.update(any()) } answers { firstArg() }
                 coEvery { roleTransitionRepo.create(any()) } answers { firstArg() }
 
@@ -626,6 +629,7 @@ class RoleTransitionHandlerTest {
         fun `apply cancel sets statusLabel to cancelled`() =
             runBlocking {
                 val item = testItem(role = Role.WORK)
+                coEvery { workItemRepo.clear(any()) } returns true
                 coEvery { workItemRepo.update(any()) } answers { firstArg() }
                 coEvery { roleTransitionRepo.create(any()) } answers { firstArg() }
 
@@ -651,6 +655,7 @@ class RoleTransitionHandlerTest {
         fun `workItemRepo update failure returns error result`() =
             runBlocking {
                 val item = testItem(role = Role.QUEUE)
+                coEvery { workItemRepo.clear(any()) } returns true
                 coEvery { workItemRepo.update(any()) } throws IllegalStateException("Connection lost")
 
                 val result =
@@ -680,6 +685,7 @@ class RoleTransitionHandlerTest {
                 val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
 
                 val transitionSlot = slot<RoleTransition>()
+                coEvery { workItemRepo.clear(any()) } returns true
                 coEvery { workItemRepo.update(any()) } answers { firstArg() }
                 coEvery { roleTransitionRepo.create(capture(transitionSlot)) } answers { firstArg() }
 
@@ -713,6 +719,7 @@ class RoleTransitionHandlerTest {
                 val item = testItem(role = Role.QUEUE)
 
                 val transitionSlot = slot<RoleTransition>()
+                coEvery { workItemRepo.clear(any()) } returns true
                 coEvery { workItemRepo.update(any()) } answers { firstArg() }
                 coEvery { roleTransitionRepo.create(capture(transitionSlot)) } answers { firstArg() }
 
@@ -759,6 +766,7 @@ class RoleTransitionHandlerTest {
                 // the resulting item's statusLabel should reflect the custom label.
                 // This test confirms we don't depend on the literal string "cancelled".
                 val item = testItem(role = Role.WORK)
+                coEvery { workItemRepo.clear(any()) } returns true
                 coEvery { workItemRepo.update(any()) } answers { firstArg() }
                 coEvery { roleTransitionRepo.create(any()) } answers { firstArg() }
 
@@ -789,6 +797,7 @@ class RoleTransitionHandlerTest {
                 // to match "cancelled". This validates the fix uses trigger, not label.
                 val item = testItem(role = Role.WORK)
                 val transitionSlot = slot<RoleTransition>()
+                coEvery { workItemRepo.clear(any()) } returns true
                 coEvery { workItemRepo.update(any()) } answers { firstArg() }
                 coEvery { roleTransitionRepo.create(capture(transitionSlot)) } answers { firstArg() }
 
@@ -819,6 +828,7 @@ class RoleTransitionHandlerTest {
                 // Happy path: both writes execute, audit row exists.
                 val item = testItem(role = Role.QUEUE)
                 val transitionSlot = slot<RoleTransition>()
+                coEvery { workItemRepo.clear(any()) } returns true
                 coEvery { workItemRepo.update(any()) } answers { firstArg() }
                 coEvery { roleTransitionRepo.create(capture(transitionSlot)) } answers { firstArg() }
 
@@ -848,6 +858,7 @@ class RoleTransitionHandlerTest {
                 // report failure. In the pre-fix code, the item was already updated but the
                 // audit row was missing. With the atomic fix, both are inside one transaction.
                 val item = testItem(role = Role.QUEUE)
+                coEvery { workItemRepo.clear(any()) } returns true
                 coEvery { workItemRepo.update(any()) } answers { firstArg() }
                 coEvery { roleTransitionRepo.create(any()) } throws IllegalStateException("DB write failed")
 
@@ -880,6 +891,7 @@ class RoleTransitionHandlerTest {
                 // When roleChangedAt is explicitly provided, the resulting item must reflect it.
                 val item = testItem(role = Role.QUEUE)
                 val fixedTimestamp = Instant.parse("2025-01-15T12:00:00Z")
+                coEvery { workItemRepo.clear(any()) } returns true
                 coEvery { workItemRepo.update(any()) } answers { firstArg() }
                 coEvery { roleTransitionRepo.create(any()) } answers { firstArg() }
 
@@ -912,6 +924,7 @@ class RoleTransitionHandlerTest {
                 // Default parameter backward compatibility: calling without roleChangedAt
                 // still sets a non-null timestamp.
                 val item = testItem(role = Role.QUEUE)
+                coEvery { workItemRepo.clear(any()) } returns true
                 coEvery { workItemRepo.update(any()) } answers { firstArg() }
                 coEvery { roleTransitionRepo.create(any()) } answers { firstArg() }
 
@@ -946,8 +959,8 @@ class RoleTransitionHandlerTest {
 
         @BeforeEach
         fun setUp() {
-            // dbNow() is called by userTransition for ownership checks; return JVM time as a sensible default.
-            coEvery { workItemRepo.dbNow() } returns Instant.now()
+            // update() no longer writes the claim columns: a terminal transition of a claimed item releases it via clear().
+            coEvery { workItemRepo.clear(any()) } returns true
         }
 
         @Test
@@ -956,6 +969,7 @@ class RoleTransitionHandlerTest {
                 val item = testItem(role = Role.QUEUE)
                 every { depRepo.findByToItemId(item.id) } returns emptyList()
                 every { depRepo.findByFromItemId(item.id) } returns emptyList()
+                coEvery { workItemRepo.clear(any()) } returns true
                 coEvery { workItemRepo.update(any()) } answers { firstArg() }
                 coEvery { roleTransitionRepo.create(any()) } answers { firstArg() }
 
@@ -984,6 +998,7 @@ class RoleTransitionHandlerTest {
                 val item = testItem(role = Role.WORK)
                 every { depRepo.findByToItemId(item.id) } returns emptyList()
                 every { depRepo.findByFromItemId(item.id) } returns emptyList()
+                coEvery { workItemRepo.clear(any()) } returns true
                 coEvery { workItemRepo.update(any()) } answers { firstArg() }
                 coEvery { roleTransitionRepo.create(any()) } answers { firstArg() }
 
@@ -1043,6 +1058,7 @@ class RoleTransitionHandlerTest {
             runBlocking {
                 val item = testItem(role = Role.WORK)
                 val transitionSlot = slot<RoleTransition>()
+                coEvery { workItemRepo.clear(any()) } returns true
                 coEvery { workItemRepo.update(any()) } answers { firstArg() }
                 coEvery { roleTransitionRepo.create(capture(transitionSlot)) } answers { firstArg() }
 
@@ -1073,6 +1089,7 @@ class RoleTransitionHandlerTest {
                 // Even if there were blocking dependencies, cascadeTransition bypasses them
                 // (the system is triggering the cascade, not a user agent)
                 val item = testItem(role = Role.WORK)
+                coEvery { workItemRepo.clear(any()) } returns true
                 coEvery { workItemRepo.update(any()) } answers { firstArg() }
                 coEvery { roleTransitionRepo.create(any()) } answers { firstArg() }
                 // depRepo is NOT set up — any call to it would throw an exception

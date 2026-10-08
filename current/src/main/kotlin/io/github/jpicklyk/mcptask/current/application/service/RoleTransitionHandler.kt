@@ -1,9 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.UnitResult
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
@@ -110,7 +112,10 @@ sealed class OwnershipCheckResult {
  * The handler is stateless. Repository dependencies are passed as method parameters
  * so that the handler does not hold references to infrastructure.
  */
-class RoleTransitionHandler {
+class RoleTransitionHandler(
+    /** The time source for ownership checks; the ambient unit instant wins inside a unit. */
+    private val clock: Clock = Clock.SYSTEM
+) {
     companion object {
         /** Triggers accepted from external callers. "cascade" is system-internal. */
         val USER_TRIGGERS = setOf("start", "complete", "block", "hold", "resume", "cancel", "reopen")
@@ -149,18 +154,14 @@ class RoleTransitionHandler {
         verification: VerificationResult?,
         degradedModePolicy: DegradedModePolicy,
         /**
-         * The reference "now" to use for claim-freshness evaluation. Callers should pass the
-         * DB-side current time (via [WorkItemRepository.dbNow]) so ownership decisions are made
-         * against the DB clock rather than the JVM clock. Defaults to [Instant.now] to preserve
-         * backward compatibility where no DB connection is available (e.g., unit tests).
+         * The reference "now" for claim-freshness evaluation: callers pass the bound clock's instant
+         * (`clock.unitNow()`) so every decision in a unit agrees. Defaults to [Instant.now] for callers
+         * with no clock (unit tests).
          */
         now: Instant = Instant.now()
     ): OwnershipCheckResult {
         // Determine whether the item has an active (non-expired) claim.
-        val hasActiveClaim =
-            item.claimedBy != null &&
-                item.claimExpiresAt != null &&
-                item.claimExpiresAt.isAfter(now)
+        val hasActiveClaim = ClaimState.isActive(item, now)
 
         if (!hasActiveClaim) {
             // Item is unclaimed or claim has expired — any caller may proceed.
@@ -254,10 +255,10 @@ class RoleTransitionHandler {
         // Ownership check: enforced at this entry point for all UserTrigger values UNLESS the caller
         // opts out via enforceOwnership=false (REST API path — operators bypass claim ownership).
         // Cascade transitions bypass this check via cascadeTransition().
-        // Fetch DB-side time so the freshness decision matches the DB clock, not the JVM clock.
+        // The bound clock's instant, so the freshness decision agrees with every other decision in the unit.
         if (enforceOwnership) {
-            val dbNowInstant = workItemRepository.dbNow()
-            val ownershipResult = checkOwnershipForTransition(item, actorClaim, verification, degradedModePolicy, dbNowInstant)
+            val nowInstant = clock.unitNow()
+            val ownershipResult = checkOwnershipForTransition(item, actorClaim, verification, degradedModePolicy, nowInstant)
             when (ownershipResult) {
                 is OwnershipCheckResult.Allowed -> {} // proceed
                 is OwnershipCheckResult.Rejected ->
@@ -692,10 +693,8 @@ class RoleTransitionHandler {
      * @param summary Optional human-readable summary.
      * @param statusLabel Optional display label (e.g., "cancelled").
      * @param unitOfWork The transaction boundary both writes run in.
-     * @param roleChangedAt Timestamp to record as [WorkItem.roleChangedAt]. Callers should
-     *   pass the DB-side current time (via [WorkItemRepository.dbNow]) to keep this
-     *   timestamp consistent with DB-clock-based range filter queries. Defaults to
-     *   [Instant.now] for backward compatibility with existing unit tests.
+     * @param roleChangedAt Timestamp to record as [WorkItem.roleChangedAt]. Callers pass the bound
+     *   clock's instant. Defaults to [Instant.now] for existing unit tests.
      * @param consumedCredentials Optional audit list of opaque credential/secret labels consumed
      *   by this transition (never raw secret material). Defaults to empty — additive, no behavior
      *   change when omitted. Cascade transitions always pass the default (empty).
@@ -723,6 +722,9 @@ class RoleTransitionHandler {
         // guard). This is the single site every advance_item / complete_tree / REST advance /
         // cascade path funnels through.
         val releasingClaim = (targetRole == Role.TERMINAL || previousRole == Role.TERMINAL) && item.claimedBy != null
+        // Entering TERMINAL clears UNCONDITIONALLY in the unit: claims no longer bump version, so a claim landing
+        // between the snapshot read and the update would otherwise survive on a terminal item.
+        val clearsClaim = targetRole == Role.TERMINAL || releasingClaim
         if (releasingClaim) {
             logger.info(
                 "Releasing claim on transition to terminal state: itemId={}, trigger={}, previousHolder={}",
@@ -783,7 +785,12 @@ class RoleTransitionHandler {
                 val updated =
                     legacyRead({
                         return@writeUnit UnitResult.Rollback(TransitionApplyResult(success = false, error = "Failed to update item: $it"))
-                    }) { workItemRepository.update(updatedItem) }
+                    }) {
+                        workItemRepository.update(updatedItem)?.also {
+                            // update() never writes the claim columns: release the claim explicitly, in this unit.
+                            if (clearsClaim) workItemRepository.clear(item.id)
+                        }
+                    }
                 when (updated) {
                     null ->
                         UnitResult.Rollback(

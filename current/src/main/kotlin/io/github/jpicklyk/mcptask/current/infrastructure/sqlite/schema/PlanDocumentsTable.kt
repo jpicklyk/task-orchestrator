@@ -31,8 +31,8 @@ object PlanDocumentsTable : IdTable<UUID>("plan_documents") {
     /** Raw string value of [io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus] — "pending" or "adopted". */
     val status = text("status")
     val adoptedByItemId = javaUuidSqlite("adopted_by_item_id").nullable()
-    val createdAt = timestampSqlite("created_at")
-    val modifiedAt = timestampSqlite("modified_at")
+    val createdAt = utcTimestamp("created_at")
+    val modifiedAt = utcTimestamp("modified_at")
 
     init {
         foreignKey(rootItemId to WorkItemsTable.id, onDelete = ReferenceOption.CASCADE)

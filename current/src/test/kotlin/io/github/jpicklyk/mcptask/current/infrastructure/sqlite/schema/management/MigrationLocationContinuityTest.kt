@@ -53,9 +53,9 @@ class MigrationLocationContinuityTest {
             ) { Entry(it.getString(1), it.getString(2), it.getInt(3)) }
 
         val expected = snapshot()
-        assertEquals(17, expected.size, "snapshot must list V1..V17")
-        assertEquals(expected, actual.take(17), "history scripts (bare names) and checksums must equal the snapshot captured at 327690d2")
-        assertEquals(listOf("19"), actual.drop(17).map { it.version }, "after V17 only V19 follows (V18 is reserved)")
+        assertEquals(18, expected.size, "snapshot must list V1..V18")
+        assertEquals(expected, actual.take(18), "history scripts (bare names) and checksums must equal the snapshot captured at 327690d2")
+        assertEquals(listOf("19"), actual.drop(18).map { it.version }, "after V18 only V19 follows")
         assertTrue(actual.none { it.script.contains("/") }, "script names must be bare, never sqlite/V1__...")
     }
 
@@ -70,7 +70,7 @@ class MigrationLocationContinuityTest {
     }
 
     @Test
-    fun `migration sources are V1 to V17 and V19 in the single sqlite folder with nothing at the parent level`() {
+    fun `migration sources are exactly V1 to V19 in the single sqlite folder with nothing at the parent level`() {
         val parent = File("src/main/resources/db/migration")
         assertTrue(parent.isDirectory, "run from the current module directory: ${parent.absolutePath}")
         assertEquals(
@@ -88,11 +88,7 @@ class MigrationLocationContinuityTest {
                     ?.toInt()
                     ?: error("unexpected file $it")
             }
-        assertEquals(
-            (1..17).toList() + 19,
-            versions.sorted(),
-            "versions must be V1..V17 then V19 (V18 is reserved) with no other gaps or extras"
-        )
+        assertEquals((1..19).toList(), versions.sorted(), "versions must be contiguous V1..V19 with no gaps or extras")
         assertEquals(
             snapshot()
                 .map {

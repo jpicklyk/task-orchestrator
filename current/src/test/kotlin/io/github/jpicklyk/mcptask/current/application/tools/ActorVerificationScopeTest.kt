@@ -213,7 +213,6 @@ class ActorVerificationScopeTest {
         }
         coEvery { workItemRepo.update(any()) } answers { firstArg() }
         coEvery { roleTransitionRepo.create(any()) } returns mockk()
-        coEvery { workItemRepo.dbNow() } returns Instant.now()
 
         val repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo

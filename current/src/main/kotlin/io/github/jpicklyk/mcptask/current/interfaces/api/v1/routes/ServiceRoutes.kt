@@ -63,7 +63,7 @@ fun Route.serviceRoutes(
         }
         val dbOk =
             try {
-                repositoryProvider.workItemRepository().dbNow() // suspend call — Ktor route handlers are coroutines
+                repositoryProvider.itemStore().ping() // suspend call - Ktor route handlers are coroutines
                 true
             } catch (
                 @Suppress("TooGenericExceptionCaught") e: Exception

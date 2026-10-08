@@ -76,7 +76,6 @@ class GetContextToolResourceLeaseTest {
         noteRepo = mockk()
         roleTransitionRepo = mockk()
         leaseRepo = mockk()
-        coEvery { workItemRepo.dbNow() } returns Instant.now()
     }
 
     private fun extractData(result: JsonElement): JsonObject {

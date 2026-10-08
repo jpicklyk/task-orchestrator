@@ -41,6 +41,8 @@ class AdvanceItemToolTest {
     fun setUp() {
         tool = AdvanceItemTool()
         workItemRepo = mockk()
+        // update() no longer writes the claim columns: a terminal transition of a claimed item releases it via clear().
+        coEvery { workItemRepo.clear(any()) } returns true
         depRepo = mockk()
         roleTransitionRepo = mockk()
 
@@ -56,8 +58,6 @@ class AdvanceItemToolTest {
         // mockk provider must answer it even for items that declare no resources (the resource gate
         // itself short-circuits before touching the repository).
         every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
-        // dbNow() is called for ownership checks; default to JVM time for non-clock-skew tests.
-        coEvery { workItemRepo.dbNow() } returns Instant.now()
 
         context = ToolExecutionContext(repoProvider)
     }

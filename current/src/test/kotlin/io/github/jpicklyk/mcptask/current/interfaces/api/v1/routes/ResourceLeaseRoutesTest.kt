@@ -141,6 +141,7 @@ private class FakeResourceLeaseRepository : LeaseStore {
     override suspend fun findHoldersAt(
         resourceKey: String?,
         at: Instant,
+        limit: Int,
     ): List<ResourceLeaseInterval> =
         intervals
             .filter { iv ->
@@ -148,6 +149,7 @@ private class FakeResourceLeaseRepository : LeaseStore {
                     !at.isBefore(iv.acquiredAt) &&
                     at.isBefore(iv.releasedAt ?: iv.expiresAt)
             }.sortedByDescending { it.acquiredAt }
+            .take(limit)
 
     override suspend fun findRecentIntervals(
         resourceKey: String?,

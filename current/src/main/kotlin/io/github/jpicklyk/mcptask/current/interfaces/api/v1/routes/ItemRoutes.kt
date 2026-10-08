@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
+import io.github.jpicklyk.mcptask.current.domain.model.ClaimStatus
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -113,7 +114,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             val modifiedBefore = (call.instantParamOrRespond("modifiedBefore") ?: return@get).value
             val createdAfter = (call.instantParamOrRespond("createdAfter") ?: return@get).value
             val createdBefore = (call.instantParamOrRespond("createdBefore") ?: return@get).value
-            val claimStatus = (call.claimStatusParamOrRespond("claimStatus") ?: return@get).value
+            val claimStatus = ClaimStatus.fromWire((call.claimStatusParamOrRespond("claimStatus") ?: return@get).value)
             val tags = params["tag"]?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
             val tagAny = params["tagAny"]?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
             val effectiveTags = tagAny ?: tags

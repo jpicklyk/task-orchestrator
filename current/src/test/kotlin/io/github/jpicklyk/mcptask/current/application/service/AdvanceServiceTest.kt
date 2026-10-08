@@ -52,7 +52,7 @@ class AdvanceServiceTest {
         roleTransitionRepo = mockk()
         noteRepo = mockk()
 
-        coEvery { workItemRepo.dbNow() } returns Instant.now()
+        coEvery { workItemRepo.clear(any()) } returns true
         coEvery { workItemRepo.update(any()) } answers { firstArg() }
         coEvery { roleTransitionRepo.create(any()) } returns mockk()
         coEvery { noteRepo.findByItemId(any()) } returns emptyList()

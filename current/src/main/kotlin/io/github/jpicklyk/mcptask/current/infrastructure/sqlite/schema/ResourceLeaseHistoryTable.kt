@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema
 import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.core.dao.id.IdTable
-import org.jetbrains.exposed.v1.javatime.timestamp
 import java.util.UUID
 
 /**
@@ -30,9 +29,9 @@ object ResourceLeaseHistoryTable : IdTable<UUID>("resource_lease_history") {
     val resourceKey = text("resource_key")
     val holderItemId = javaUuidSqlite("holder_item_id")
     val acquiredByActorId = text("acquired_by_actor_id").nullable()
-    val acquiredAt = timestamp("acquired_at")
-    val expiresAt = timestamp("expires_at")
-    val releasedAt = timestamp("released_at").nullable()
+    val acquiredAt = utcTimestampText("acquired_at")
+    val expiresAt = utcTimestampText("expires_at")
+    val releasedAt = utcTimestampText("released_at").nullable()
     val releaseReason = text("release_reason").nullable()
     val releasedByActorId = text("released_by_actor_id").nullable()
 

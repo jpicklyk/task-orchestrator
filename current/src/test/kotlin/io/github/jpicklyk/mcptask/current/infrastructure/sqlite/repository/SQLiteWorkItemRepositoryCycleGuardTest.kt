@@ -286,8 +286,8 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
     fun `findAncestorChainsDetailed on a mutual cycle reports truncated with reason cycle`(): Unit =
         runBlocking {
-            // Both items are created at depth 1 (the retired in-memory original set depth = 1 in its update): a depth-0 row
-            // with a parent would fail domain validation on read and be reported as a missing ancestor.
+            // Both items are created at depth 1, matching the retired in-memory original (which set depth = 1 in
+            // its update); a domain-invalid row would still be returned (with diagnostics), not treated as missing.
             val root = createItem("S6 root")
             val a = createItem("S6 A", parentId = root.id, depth = 1)
             val b = createItem("S6 B", parentId = root.id, depth = 1)
@@ -309,27 +309,47 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
             assertEquals(chain.ancestors.map { it.id }, legacy[a.id]?.map { it.id })
         }
 
-    // ── S7: missing / domain-invalid ancestor ───────────────────────────────
+    // -- S6b: ancestor row absent from the table --
 
     @Test
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
-    fun `findAncestorChainsDetailed on a domain-invalid ancestor reports truncated with reason missing-ancestor`(): Unit =
+    fun `findAncestorChainsDetailed reports truncated with reason missing-ancestor when a parent row is absent`(): Unit =
+        runBlocking {
+            val root = createItem("S6b root")
+            val child = createItem("S6b child", parentId = root.id, depth = 1)
+
+            // Point the child at a parent that does not exist (a fresh JDBC connection has foreign_keys off).
+            P7Raw.exec(sqliteDb.jdbcUrl, "UPDATE work_items SET parent_id = ? WHERE id = ?", UUID.randomUUID(), child.id)
+
+            val chain = assertNotNull(repository.findAncestorChainsDetailed(setOf(child.id))[child.id])
+            assertTrue(chain.truncated, "a walk that hits an absent parent must report truncated=true")
+            assertEquals(AncestorChain.REASON_MISSING_ANCESTOR, chain.truncationReason)
+            assertTrue(chain.ancestors.isEmpty())
+        }
+
+    // ── S7: domain-invalid ancestor ─────────────────────────────────────────
+
+    @Test
+    @Timeout(value = 10, unit = TimeUnit.SECONDS)
+    fun `findAncestorChainsDetailed returns a domain-invalid ancestor with its diagnostics and does not truncate`(): Unit =
         runBlocking {
             val root = createItem("S7 root")
             val p = createItem("S7 P", parentId = root.id, depth = 1)
             val c = createItem("S7 C", parentId = p.id, depth = 2)
 
-            // Corrupt P's row in place so it fails WorkItem.validate() on read - the row mapper
-            // must drop it, making it indistinguishable from a genuinely absent ancestor.
+            // Corrupt P's row in place so it fails WorkItem.validate() on read. The row mapper is total: the
+            // row is returned (with its violations in diagnostics), not dropped as if it were absent.
             corruptTitleBlank(p.id)
 
             val detailed = repository.findAncestorChainsDetailed(setOf(c.id))
             assertNotNull(detailed)
             val chain = detailed[c.id]
             assertTrue(chain != null, "chain entry must exist for the requested item")
-            assertTrue(chain.truncated, "a missing/invalid ancestor must report truncated=true")
-            assertEquals(AncestorChain.REASON_MISSING_ANCESTOR, chain.truncationReason)
-            assertTrue(chain.ancestors.none { it.id == p.id }, "the domain-invalid ancestor must not appear in the chain")
+            assertFalse(chain.truncated, "an invalid ancestor is still an ancestor: the walk reaches the root")
+            assertNull(chain.truncationReason)
+            assertEquals(listOf(root.id, p.id), chain.ancestors.map { it.id }, "root-first, including the invalid ancestor")
+            val invalid = chain.ancestors.single { it.id == p.id }
+            assertTrue(invalid.diagnostics.orEmpty().any { "Title must not be blank" in it }, "the violation rides on the row")
         }
 
     // ── S8: control - valid 3-level chain reports truncated=false ──────────

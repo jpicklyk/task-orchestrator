@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.items
 import io.github.jpicklyk.mcptask.current.application.port.ItemSortFields
 import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.application.port.SearchScope
+import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView
 import io.github.jpicklyk.mcptask.current.application.service.search.FtsQuerySanitizer
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
@@ -10,6 +11,8 @@ import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.model.ClaimState
+import io.github.jpicklyk.mcptask.current.domain.model.ClaimStatus
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -930,7 +933,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
         val offset = (optionalInt(params, "offset") ?: 0).coerceAtLeast(0)
         val includeAncestors = optionalBoolean(params, "includeAncestors", false)
         // claimStatus filter — validated in validateParams; safe to use directly here
-        val claimStatusFilter = optionalString(params, "claimStatus")
+        val claimStatusFilter = ClaimStatus.fromWire(optionalString(params, "claimStatus"))
 
         // Validate time ranges — reject inverted ranges early
         if (createdAfter != null && createdBefore != null && createdAfter > createdBefore) {
@@ -1087,13 +1090,16 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                 emptyMap()
             }
 
+        // One instant for every isClaimed in this response (read only when a claimStatus filter was applied).
+        val claimCheckAt: Instant? = if (claimStatusFilter != null) context.clock.unitNow() else null
+
         val data =
             buildJsonObject {
                 put(
                     "items",
                     JsonArray(
                         items.map { item ->
-                            buildSearchResultItem(item, claimStatusFilter, includeAncestors, chains)
+                            buildSearchResultItem(item, claimStatusFilter, claimCheckAt, includeAncestors, chains)
                         }
                     )
                 )
@@ -1118,7 +1124,8 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
      */
     private fun buildSearchResultItem(
         item: WorkItem,
-        claimStatusFilter: String?,
+        claimStatusFilter: ClaimStatus?,
+        claimCheckAt: Instant?,
         includeAncestors: Boolean,
         chains: Map<java.util.UUID, List<WorkItem>>
     ): JsonObject {
@@ -1128,10 +1135,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
             // Tiered disclosure: add isClaimed boolean when claimStatus filter was used.
             // NEVER expose claimedBy identity here — that belongs only in get_context(itemId).
             if (claimStatusFilter != null) {
-                val activelyClaimedNow =
-                    item.claimedBy != null &&
-                        item.claimExpiresAt?.isAfter(Instant.now()) == true
-                put("isClaimed", JsonPrimitive(activelyClaimedNow))
+                put("isClaimed", JsonPrimitive(claimCheckAt != null && ClaimState.isActive(item, claimCheckAt)))
             }
             if (includeAncestors) {
                 val ancestors = chains[item.id] ?: emptyList()

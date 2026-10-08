@@ -4,8 +4,11 @@ import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.UtcTimestamp
+import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
+import org.jetbrains.exposed.v1.core.VarCharColumnType
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -18,14 +21,16 @@ import kotlin.test.assertTrue
 
 /**
  * Integration tests for [LeaseStore] (SQLite implementation), using a real SQLite
- * file-backed database (via SqliteTestDatabase) since the acquire path uses SQLite-specific
- * `datetime('now', '+N seconds')` / `ON CONFLICT ... DO UPDATE` / `julianday()` syntax
- * only SQLite supports.
+ * file-backed database (via SqliteTestDatabase) since the acquire path uses the SQLite-specific
+ * `ON CONFLICT ... DO UPDATE` upsert. Time is a [SettableClock] bound into the store, so expiry is tested by moving the
+ * clock rather than sleeping.
  */
 class SQLiteResourceLeaseRepositoryTest {
+    private val clock = SettableClock()
+
     @RegisterExtension
     @JvmField
-    val sqliteDb = SqliteTestDatabase.perMethod()
+    val sqliteDb = SqliteTestDatabase.perMethod(clock = clock)
 
     private val database get() = sqliteDb.database
     private val repositoryProvider get() = sqliteDb.repositoryProvider()
@@ -58,10 +63,15 @@ class SQLiteResourceLeaseRepositoryTest {
             exec(
                 """
                 UPDATE resource_leases
-                   SET expires_at = datetime('now', '-10 seconds')
+                   SET expires_at = ?
                  WHERE resource_key = ? AND holder_item_id = ?
                 """.trimIndent(),
-                args = listOf(keyType to resourceKey, uuidType to holderItemId)
+                args =
+                    listOf(
+                        VarCharColumnType(40) to UtcTimestamp.format(clock.now().minusSeconds(10)),
+                        keyType to resourceKey,
+                        uuidType to holderItemId
+                    )
             )
         }
     }
@@ -111,7 +121,7 @@ class SQLiteResourceLeaseRepositoryTest {
             assertIs<LeaseAcquireResult.Success>(first)
             val firstOriginal = first.leases.single().originalAcquiredAt
 
-            Thread.sleep(1100)
+            clock.advanceSeconds(2)
 
             val second = repository.acquireAll(holder, "agent-a", listOf("staging-db" to 1800))
             assertIs<LeaseAcquireResult.Success>(second)

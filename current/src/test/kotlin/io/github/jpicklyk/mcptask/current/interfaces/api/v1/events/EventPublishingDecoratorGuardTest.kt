@@ -1,8 +1,12 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import com.lemonappdev.konsist.api.Konsist
+import io.github.jpicklyk.mcptask.current.application.port.ClaimStore
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.HierarchyStore
+import io.github.jpicklyk.mcptask.current.application.port.ItemStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -82,7 +86,11 @@ class EventPublishingDecoratorGuardTest {
 
     private val readOnlyAllowListExact =
         setOf(
-            "dbNow",
+            // ping/descendantIds read; clear is the claim-column cleanup that always runs inside a unit whose
+            // item update() already publishes item.updated, so it is deliberately a plain delegation.
+            "ping",
+            "descendantIds",
+            "clear",
             "search",
             "ftsSearch",
             "hasCyclicDependency",
@@ -99,7 +107,9 @@ class EventPublishingDecoratorGuardTest {
     fun `WorkItemRepository method surface is fully classified as EVENTED or read-only allow-listed`() {
         val expectedNames =
             setOf(
-                "dbNow",
+                "ping",
+                "descendantIds",
+                "clear",
                 "getById",
                 "create",
                 "update",
@@ -135,8 +145,17 @@ class EventPublishingDecoratorGuardTest {
                 "resolveChildPlacement",
             )
 
-        val actualNames = declaredInterfaceMethodNames(WorkItemRepository::class.java)
-        assertEquals(expectedNames, actualNames, "WorkItemRepository's declared method-name surface has changed")
+        // WorkItemRepository is the member-less composite of the four narrow ports; its surface is their union.
+        assertEquals(
+            emptySet<String>(),
+            declaredInterfaceMethodNames(WorkItemRepository::class.java),
+            "the composite must declare no members"
+        )
+        val actualNames =
+            listOf(ItemStore::class.java, HierarchyStore::class.java, ClaimStore::class.java, SearchIndex::class.java)
+                .flatMap { declaredInterfaceMethodNames(it) }
+                .toSet()
+        assertEquals(expectedNames, actualNames, "the work-item ports' declared method-name surface has changed")
 
         val evented = overriddenFunctionNames("EventPublishingWorkItemRepository")
         assertTrue(evented.isNotEmpty(), "EventPublishingWorkItemRepository must override at least one method")

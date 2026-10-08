@@ -17,7 +17,6 @@ import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.mockk.*
-import java.time.Instant
 
 /**
  * Creates a fully-mocked RepositoryProvider with individual repository mocks accessible.
@@ -45,8 +44,11 @@ class MockRepositoryProvider {
         every { provider.resourceLeaseRepository() } returns resourceLeaseRepo
         every { provider.workTreeExecutor() } returns workTreeExecutor
         every { provider.idempotencyStore() } returns idempotencyRepo
-        // Default: workItemRepo.dbNow() returns JVM time (suitable for tests not exercising clock skew)
-        coEvery { workItemRepo.dbNow() } returns Instant.now()
+        // The narrow work-item stores are the same mock as the composite (the interface defaults do the same).
+        every { provider.itemStore() } returns workItemRepo
+        every { provider.hierarchyStore() } returns workItemRepo
+        every { provider.claimStore() } returns workItemRepo
+        every { provider.searchIndex() } returns workItemRepo
         // Default: noteRepo returns empty lists for any query
         coEvery { noteRepo.findByItemId(any()) } returns emptyList()
         coEvery { noteRepo.findByItemId(any(), any()) } returns emptyList()

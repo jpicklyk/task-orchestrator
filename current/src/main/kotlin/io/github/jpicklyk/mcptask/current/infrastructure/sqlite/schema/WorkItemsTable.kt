@@ -6,7 +6,6 @@ import org.jetbrains.exposed.v1.core.dao.id.IdTable
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.or
-import org.jetbrains.exposed.v1.javatime.timestamp
 import java.util.UUID
 
 object WorkItemsTable : IdTable<UUID>("work_items") {
@@ -32,14 +31,14 @@ object WorkItemsTable : IdTable<UUID>("work_items") {
     val tags = text("tags").nullable()
     val type = text("type").nullable()
     val properties = text("properties").nullable()
-    val createdAt = timestampSqlite("created_at")
-    val modifiedAt = timestampSqlite("modified_at")
-    val roleChangedAt = timestampSqlite("role_changed_at")
+    val createdAt = utcTimestamp("created_at")
+    val modifiedAt = utcTimestamp("modified_at")
+    val roleChangedAt = utcTimestamp("role_changed_at")
     val version = long("version").default(1)
     val claimedBy = text("claimed_by").nullable()
-    val claimedAt = timestamp("claimed_at").nullable()
-    val claimExpiresAt = timestamp("claim_expires_at").nullable()
-    val originalClaimedAt = timestamp("original_claimed_at").nullable()
+    val claimedAt = utcTimestampText("claimed_at").nullable()
+    val claimExpiresAt = utcTimestampText("claim_expires_at").nullable()
+    val originalClaimedAt = utcTimestampText("original_claimed_at").nullable()
 
     init {
         foreignKey(parentId to WorkItemsTable.id)
