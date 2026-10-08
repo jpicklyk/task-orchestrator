@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import kotlinx.serialization.json.*
 
 /**
@@ -35,7 +36,8 @@ object PropertiesHelper {
                     }
                 else -> emptyList()
             }
-        } catch (_: Exception) {
+        } catch (ignored: Exception) {
+            ignored.rethrowIfCancellation()
             emptyList()
         }
     }
@@ -53,7 +55,8 @@ object PropertiesHelper {
             if (!existingProperties.isNullOrBlank()) {
                 try {
                     Json.parseToJsonElement(existingProperties).jsonObject
-                } catch (_: Exception) {
+                } catch (ignored: Exception) {
+                    ignored.rethrowIfCancellation()
                     JsonObject(emptyMap())
                 }
             } else {

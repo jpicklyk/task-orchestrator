@@ -4,9 +4,10 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentService
 import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentStashResult
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocument
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
@@ -70,7 +71,7 @@ fun Route.planDocumentRoutes(
 
                 val statusFilter =
                     call.request.queryParameters["status"]?.let { raw ->
-                        runCatching { PlanDocumentStatus.fromDbValue(raw) }.getOrElse {
+                        runCatchingNonCancellation { PlanDocumentStatus.fromDbValue(raw) }.getOrElse {
                             call.respond(
                                 HttpStatusCode.BadRequest,
                                 ErrorDto("bad_request", "Invalid status '$raw'; expected pending or adopted"),
@@ -79,32 +80,33 @@ fun Route.planDocumentRoutes(
                         }
                     }
 
-                when (val result = service.list(rootId, statusFilter)) {
-                    is Result.Success -> {
-                        call.respond(
-                            HttpStatusCode.OK,
-                            PlanDocumentListResponseDto(
-                                rootId = rootId.toString(),
-                                plans =
-                                    result.data.map { summary ->
-                                        PlanDocumentSummaryDto(
-                                            id = summary.id.toString(),
-                                            rootId = summary.rootItemId.toString(),
-                                            slug = summary.slug,
-                                            contentHash = summary.contentHash,
-                                            status = summary.status.toDbValue(),
-                                            adoptedByItemId = summary.adoptedByItemId?.toString(),
-                                            createdAt = summary.createdAt.toString(),
-                                            updatedAt = summary.modifiedAt.toString(),
-                                        )
-                                    },
-                            ),
-                        )
-                    }
-                    is Result.Error -> {
-                        planDocumentLogger.warn("GET /roots/{}/plans DB error: {}", rootId, result.error.message)
-                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to list plan documents"))
-                    }
+                run {
+                    val result =
+                        legacyRead({
+                            return@run run {
+                                planDocumentLogger.warn("GET /roots/{}/plans DB error: {}", rootId, it)
+                                call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to list plan documents"))
+                            }
+                        }) { service.list(rootId, statusFilter) }
+                    call.respond(
+                        HttpStatusCode.OK,
+                        PlanDocumentListResponseDto(
+                            rootId = rootId.toString(),
+                            plans =
+                                result.map { summary ->
+                                    PlanDocumentSummaryDto(
+                                        id = summary.id.toString(),
+                                        rootId = summary.rootItemId.toString(),
+                                        slug = summary.slug,
+                                        contentHash = summary.contentHash,
+                                        status = summary.status.toDbValue(),
+                                        adoptedByItemId = summary.adoptedByItemId?.toString(),
+                                        createdAt = summary.createdAt.toString(),
+                                        updatedAt = summary.modifiedAt.toString(),
+                                    )
+                                },
+                        ),
+                    )
                 }
             }
         }
@@ -121,22 +123,23 @@ fun Route.planDocumentRoutes(
                         return@get
                     }
 
-                    when (val result = service.get(rootId, slug)) {
-                        is Result.Success -> {
-                            val document =
-                                result.data ?: run {
-                                    call.respond(
-                                        HttpStatusCode.NotFound,
-                                        ErrorDto("not_found", "No plan document found for root $rootId, slug $slug"),
-                                    )
-                                    return@get
+                    run {
+                        val result =
+                            legacyRead({
+                                return@run run {
+                                    planDocumentLogger.warn("GET /roots/{}/plans/{} DB error: {}", rootId, slug, it)
+                                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to read plan document"))
                                 }
-                            call.respond(HttpStatusCode.OK, document.toResponseDto(includeBody = true))
-                        }
-                        is Result.Error -> {
-                            planDocumentLogger.warn("GET /roots/{}/plans/{} DB error: {}", rootId, slug, result.error.message)
-                            call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to read plan document"))
-                        }
+                            }) { service.get(rootId, slug) }
+                        val document =
+                            result ?: run {
+                                call.respond(
+                                    HttpStatusCode.NotFound,
+                                    ErrorDto("not_found", "No plan document found for root $rootId, slug $slug"),
+                                )
+                                return@get
+                            }
+                        call.respond(HttpStatusCode.OK, document.toResponseDto(includeBody = true))
                     }
                 }
             }
@@ -225,7 +228,7 @@ private suspend fun ApplicationCall.parseRootId(): UUID? {
             respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing rootId"))
             return null
         }
-    return runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+    return runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
         respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
         null
     }

@@ -7,7 +7,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ChildPlacement
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
@@ -46,7 +45,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -96,18 +95,14 @@ class ItemWriteRoutesParentPlacementInTxnTest {
             }
         }
 
-        override suspend fun resolveChildPlacement(parentId: UUID): Result<ChildPlacement> =
-            when (val parent = getById(parentId)) {
-                is Result.Success ->
-                    Result.Success(
-                        ChildPlacement(
-                            parentId = parent.data.id,
-                            depth = parent.data.depth + 1,
-                            rootId =
-                                parent.data.rootId ?: parent.data.id
-                        )
-                    )
-                is Result.Error -> Result.Error(parent.error)
+        override suspend fun resolveChildPlacement(parentId: UUID): ChildPlacement? =
+            getById(parentId)?.let { parent ->
+                ChildPlacement(
+                    parentId = parent.id,
+                    depth = parent.depth + 1,
+                    rootId =
+                        parent.rootId ?: parent.id
+                )
             }
     }
 
@@ -166,24 +161,24 @@ class ItemWriteRoutesParentPlacementInTxnTest {
     private suspend fun stampSelfRoot(
         repo: DefaultRepositoryProvider,
         item: WorkItem
-    ): WorkItem = (repo.workItemRepository().update(item.copy(rootId = item.id)) as Result.Success).data
+    ): WorkItem = (repo.workItemRepository().update(item.copy(rootId = item.id))!!)
 
     /** R (root, self-rooted) -> A (depth1) -> P (depth2); Q is a second, unrelated self-rooted root. */
     private suspend fun threeLevelTreeWithAlternateRoot(repo: DefaultRepositoryProvider): List<WorkItem> {
-        val root = stampSelfRoot(repo, (repo.workItemRepository().create(WorkItem(title = "R", depth = 0)) as Result.Success).data)
+        val root = stampSelfRoot(repo, (repo.workItemRepository().create(WorkItem(title = "R", depth = 0))!!))
         val a =
             (
                 repo.workItemRepository().create(
                     WorkItem(title = "A", parentId = root.id, depth = 1, rootId = root.id)
-                ) as Result.Success
-            ).data
+                )!!
+            )
         val p =
             (
                 repo.workItemRepository().create(
                     WorkItem(title = "P", parentId = a.id, depth = 2, rootId = root.id)
-                ) as Result.Success
-            ).data
-        val q = stampSelfRoot(repo, (repo.workItemRepository().create(WorkItem(title = "Q", depth = 0)) as Result.Success).data)
+                )!!
+            )
+        val q = stampSelfRoot(repo, (repo.workItemRepository().create(WorkItem(title = "Q", depth = 0))!!))
         return listOf(root, a, p, q)
     }
 
@@ -220,9 +215,9 @@ class ItemWriteRoutesParentPlacementInTxnTest {
             // through the UNDERLYING (unwrapped) repository the test app was built with.
             val childId = UUID.fromString(json["id"]!!.jsonPrimitive.content)
             val persisted = runBlocking { repo.workItemRepository().getById(childId) }
-            assertIs<Result.Success<WorkItem>>(persisted)
-            assertEquals(2, persisted.data.depth)
-            assertEquals(q.id, persisted.data.rootId, "O1: must be P's LIVE rootId (Q)")
+            assertNotNull(persisted)
+            assertEquals(2, persisted.depth)
+            assertEquals(q.id, persisted.rootId, "O1: must be P's LIVE rootId (Q)")
         }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -238,7 +233,7 @@ class ItemWriteRoutesParentPlacementInTxnTest {
                 runBlocking {
                     stampSelfRoot(
                         repo,
-                        (repo.workItemRepository().create(WorkItem(title = "X S5", depth = 0)) as Result.Success).data
+                        (repo.workItemRepository().create(WorkItem(title = "X S5", depth = 0))!!)
                     )
                 }
             val wrapped =
@@ -264,9 +259,9 @@ class ItemWriteRoutesParentPlacementInTxnTest {
             // ItemDto does not carry a rootId field (arbitration, 3da296d8) — read the persisted
             // row through the underlying repository instead.
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
-            assertIs<Result.Success<WorkItem>>(persisted)
-            assertEquals(2, persisted.data.depth)
-            assertEquals(q.id, persisted.data.rootId, "O1: X must inherit P's LIVE rootId (Q)")
+            assertNotNull(persisted)
+            assertEquals(2, persisted.depth)
+            assertEquals(q.id, persisted.rootId, "O1: X must inherit P's LIVE rootId (Q)")
         }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -281,7 +276,7 @@ class ItemWriteRoutesParentPlacementInTxnTest {
                 runBlocking {
                     stampSelfRoot(
                         repo,
-                        (repo.workItemRepository().create(WorkItem(title = "R S10", depth = 0)) as Result.Success).data
+                        (repo.workItemRepository().create(WorkItem(title = "R S10", depth = 0))!!)
                     )
                 }
             val p =
@@ -289,8 +284,8 @@ class ItemWriteRoutesParentPlacementInTxnTest {
                     (
                         repo.workItemRepository().create(
                             WorkItem(title = "P S10 (leaf, will be deleted)", parentId = root.id, depth = 1, rootId = root.id)
-                        ) as Result.Success
-                    ).data
+                        )!!
+                    )
                 }
             val wrapped = MutateOnFirstTransactionRepository(repo.workItemRepository()) { d -> d.delete(p.id) }
             application { configureParentPlacementTestApp(WorkItemRepoOverrideProvider(repo, wrapped)) }
@@ -309,8 +304,8 @@ class ItemWriteRoutesParentPlacementInTxnTest {
             assertEquals("not_found", json["error"]?.jsonPrimitive?.content, "actual: $json")
 
             val all = runBlocking { repo.workItemRepository().findByFilters() }
-            assertTrue(all is Result.Success)
-            val orphan = (all as Result.Success).data.items.filter { it.title == "Orphan Child S10" }
+            assertNotNull(all)
+            val orphan = all.items.filter { it.title == "Orphan Child S10" }
             assertTrue(orphan.isEmpty(), "O3: a parent deleted inside the write transaction must leave NO orphan row: $orphan")
         }
 
@@ -326,7 +321,7 @@ class ItemWriteRoutesParentPlacementInTxnTest {
                 runBlocking {
                     stampSelfRoot(
                         repo,
-                        (repo.workItemRepository().create(WorkItem(title = "R Probe", depth = 0)) as Result.Success).data
+                        (repo.workItemRepository().create(WorkItem(title = "R Probe", depth = 0))!!)
                     )
                 }
             val p =
@@ -334,8 +329,8 @@ class ItemWriteRoutesParentPlacementInTxnTest {
                     (
                         repo.workItemRepository().create(
                             WorkItem(title = "P Probe (leaf, will be deleted)", parentId = root.id, depth = 1, rootId = root.id)
-                        ) as Result.Success
-                    ).data
+                        )!!
+                    )
                 }
             val wrapped = MutateOnFirstTransactionRepository(repo.workItemRepository()) { d -> d.delete(p.id) }
             val cache = IdempotencyCache()
@@ -362,8 +357,8 @@ class ItemWriteRoutesParentPlacementInTxnTest {
             assertEquals(firstBody, second.bodyAsText(), "a replay with the same Idempotency-Key must return the cached body verbatim")
 
             val all = runBlocking { repo.workItemRepository().findByFilters() }
-            assertTrue(all is Result.Success)
-            assertTrue((all as Result.Success).data.items.none { it.title == "Orphan Child Probe" })
+            assertNotNull(all)
+            assertTrue(all.items.none { it.title == "Orphan Child Probe" })
         }
 
     // Probe catalog, recorded per skill §6 (every probe attempted, including N/A ones):

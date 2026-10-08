@@ -44,7 +44,7 @@ class SearchRoutesIntegrationTest {
                         .workItemRepository()
                         .create(
                             WorkItem(title = "OAuth authentication flow", depth = 0)
-                        ).getOrNull()!!
+                        )!!
                 }
             application {
                 configureTestApp { searchRoutes(repositoryProvider) }
@@ -72,7 +72,7 @@ class SearchRoutesIntegrationTest {
                             .workItemRepository()
                             .create(
                                 WorkItem(title = "Container item", depth = 0)
-                            ).getOrNull()!!
+                            )!!
                     repositoryProvider.noteRepository().upsert(
                         Note(
                             itemId = i.id,
@@ -139,18 +139,15 @@ class SearchRoutesIntegrationTest {
                 val root1 =
                     repositoryProvider
                         .workItemRepository()
-                        .create(WorkItem(title = "ScopeRoot1 uniqueterm987", depth = 0))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "ScopeRoot1 uniqueterm987", depth = 0))!!
                 val root2 =
                     repositoryProvider
                         .workItemRepository()
-                        .create(WorkItem(title = "ScopeRoot2 uniqueterm987", depth = 0))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "ScopeRoot2 uniqueterm987", depth = 0))!!
                 val root3 =
                     repositoryProvider
                         .workItemRepository()
-                        .create(WorkItem(title = "OutsideRoot uniqueterm987", depth = 0))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "OutsideRoot uniqueterm987", depth = 0))!!
                 Triple(root1, root2, root3)
             }
 
@@ -197,18 +194,15 @@ class SearchRoutesIntegrationTest {
                 val root1 =
                     repositoryProvider
                         .workItemRepository()
-                        .create(WorkItem(title = "NotesScopeRoot1", depth = 0))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "NotesScopeRoot1", depth = 0))!!
                 val root2 =
                     repositoryProvider
                         .workItemRepository()
-                        .create(WorkItem(title = "NotesScopeRoot2", depth = 0))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "NotesScopeRoot2", depth = 0))!!
                 val root3 =
                     repositoryProvider
                         .workItemRepository()
-                        .create(WorkItem(title = "NotesOutsideRoot", depth = 0))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "NotesOutsideRoot", depth = 0))!!
                 repositoryProvider.noteRepository().upsert(
                     Note(itemId = root1.id, key = "k1", role = "queue", body = "uniqueterm654 in scope root1")
                 )
@@ -253,15 +247,13 @@ class SearchRoutesIntegrationTest {
                 runBlocking {
                     repositoryProvider
                         .workItemRepository()
-                        .create(WorkItem(title = "Forbidden root", depth = 0))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "Forbidden root", depth = 0))!!
                 }
             val inScopeRoot =
                 runBlocking {
                     repositoryProvider
                         .workItemRepository()
-                        .create(WorkItem(title = "In scope root", depth = 0))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "In scope root", depth = 0))!!
                 }
             // Token is scoped to inScopeRoot — outsideItem is not in scope
             val authConfig = makeTestAuthConfig(scopeRootIds = setOf(inScopeRoot.id))
@@ -285,8 +277,7 @@ class SearchRoutesIntegrationTest {
                 runBlocking {
                     repositoryProvider
                         .workItemRepository()
-                        .create(WorkItem(title = "In scope search root", depth = 0))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "In scope search root", depth = 0))!!
                 }
             val authConfig = makeTestAuthConfig(scopeRootIds = setOf(inScopeRoot.id))
             application {

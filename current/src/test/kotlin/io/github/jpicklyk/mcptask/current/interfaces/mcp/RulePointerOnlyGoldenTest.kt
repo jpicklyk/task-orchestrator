@@ -118,12 +118,12 @@ class RulePointerOnlyGoldenTest {
             repo
                 .workItemRepository()
                 .create(WorkItem(id = ROOT_ID, title = "A3 S5 golden root", type = "project", depth = 0))
-                .getOrNull() ?: error("fixture: root item creation failed")
+                ?: error("fixture: root item creation failed")
 
             repo
                 .projectConfigRepository()
                 .upsert(ROOT_ID, classpathResourceText(REPO_CONFIG_RESOURCE))
-                .getOrNull() ?: error("fixture: per-root config push failed")
+                ?: error("fixture: per-root config push failed")
 
             repo
                 .workItemRepository()
@@ -137,7 +137,7 @@ class RulePointerOnlyGoldenTest {
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ).getOrNull() ?: error("fixture: feature-task item creation failed")
+                ) ?: error("fixture: feature-task item creation failed")
 
             repo
                 .workItemRepository()
@@ -151,7 +151,7 @@ class RulePointerOnlyGoldenTest {
                         rootId = ROOT_ID,
                         depth = 1,
                     ),
-                ).getOrNull() ?: error("fixture: bug-fix item creation failed")
+                ) ?: error("fixture: bug-fix item creation failed")
         }
 
         // This item's addition: stash the two rule/ documents these skill pointers name, via the

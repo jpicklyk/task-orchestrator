@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -65,7 +64,7 @@ class AdvanceRouteClaimClearTest {
                                 claimExpiresAt = now.plusSeconds(900),
                                 originalClaimedAt = now,
                             ),
-                        ).getOrNull()!!
+                        )!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -83,11 +82,11 @@ class AdvanceRouteClaimClearTest {
             assertFalse(body.contains("agent-A"), "response must not leak the claim holder id: $body")
 
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
-            val data = (persisted as Result.Success).data
-            assertEquals(Role.TERMINAL, data.role, "item must have reached TERMINAL")
-            assertNull(data.claimedBy, "claimedBy must be cleared on the persisted row")
-            assertNull(data.claimedAt, "claimedAt must be cleared on the persisted row")
-            assertNull(data.claimExpiresAt, "claimExpiresAt must be cleared on the persisted row")
-            assertNull(data.originalClaimedAt, "originalClaimedAt must be cleared on the persisted row")
+            val data = persisted
+            assertEquals(Role.TERMINAL, data!!.role, "item must have reached TERMINAL")
+            assertNull(data!!.claimedBy, "claimedBy must be cleared on the persisted row")
+            assertNull(data!!.claimedAt, "claimedAt must be cleared on the persisted row")
+            assertNull(data!!.claimExpiresAt, "claimExpiresAt must be cleared on the persisted row")
+            assertNull(data!!.originalClaimedAt, "originalClaimedAt must be cleared on the persisted row")
         }
 }

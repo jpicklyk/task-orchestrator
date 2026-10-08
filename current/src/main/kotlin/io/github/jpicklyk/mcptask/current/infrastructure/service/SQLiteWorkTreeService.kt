@@ -8,7 +8,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentAdoptOutcome
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.DependenciesTable
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteNoteRepository
@@ -43,10 +42,7 @@ class SQLiteWorkTreeService(
 
             // 1. Insert WorkItems that are in input.items (children in attach mode; all in create mode)
             for (item in input.items) {
-                val insertResult = workItemRepo.insertRow(item)
-                if (insertResult is Result.Error) {
-                    throw IllegalStateException("Failed to insert WorkItem '${item.id}': ${insertResult.error.message}")
-                }
+                workItemRepo.insertRow(item)
                 createdItems.add(item)
                 val ref = itemIdToRef[item.id]
                 if (ref != null) refToId[ref] = item.id
@@ -87,10 +83,7 @@ class SQLiteWorkTreeService(
             // 3. Upsert notes via shared helper (no inner transaction)
             val createdNotes = mutableListOf<Note>()
             for (note in input.notes) {
-                when (val upsertResult = noteRepo.upsertRow(note)) {
-                    is Result.Success -> createdNotes.add(upsertResult.data)
-                    is Result.Error -> throw IllegalStateException("Failed to upsert Note '${note.id}': ${upsertResult.error.message}")
-                }
+                createdNotes.add(noteRepo.upsertRow(note))
             }
 
             // 4. Mark the source plan document adopted, LAST, in the SAME transaction as the

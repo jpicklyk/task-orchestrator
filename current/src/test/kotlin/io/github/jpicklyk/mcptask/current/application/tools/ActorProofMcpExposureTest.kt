@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -71,7 +70,7 @@ class ActorProofMcpExposureTest {
     private suspend fun createTestItem(title: String = "Test Item"): String {
         val item = WorkItem(title = title)
         val result = context.workItemRepository().create(item)
-        return ((result as Result.Success).data.id).toString()
+        return (result.id).toString()
     }
 
     private fun actorJson(
@@ -471,8 +470,8 @@ class ActorProofMcpExposureTest {
             assertFalse(upsertResult.toString().contains(secret), "MCP echo must remain SECRET-free")
 
             val persisted = context.noteRepository().findByItemIdAndKey(UUID.fromString(itemId), "persisted-proof")
-            assertTrue(persisted is Result.Success, "expected the note to be found; got $persisted")
-            val note = persisted.data
+            assertNotNull(persisted, "expected the note to be found; got $persisted")
+            val note = persisted
             assertNotNull(note, "note should be persisted")
             assertNull(note.actorClaim?.proof, "raw proof must be scrubbed to null on write per item 983615e7 D5")
         }

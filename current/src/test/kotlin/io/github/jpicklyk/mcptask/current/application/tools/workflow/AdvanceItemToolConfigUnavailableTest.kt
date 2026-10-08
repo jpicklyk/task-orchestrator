@@ -7,8 +7,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
@@ -114,15 +112,15 @@ class AdvanceItemToolConfigUnavailableTest {
             rootItemId = root.id
 
             val upsertResult = wrapperRepo.upsert(rootItemId, rootConfigYaml)
-            assertEquals(true, upsertResult is Result.Success, "setup precondition: config push must succeed, got $upsertResult")
+            assertEquals(true, upsertResult != null, "setup precondition: config push must succeed, got $upsertResult")
 
             tool = AdvanceItemTool()
             workItemRepo = mockk()
             depRepo = mockk()
             noteRepo = mockk()
             roleTransitionRepo = mockk()
-            coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemId(any(), any()) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemId(any()) } returns emptyList()
+            coEvery { noteRepo.findByItemId(any(), any()) } returns emptyList()
 
             repoProvider = mockk()
             every { repoProvider.workItemRepository() } returns workItemRepo
@@ -168,8 +166,8 @@ class AdvanceItemToolConfigUnavailableTest {
     private fun extractSummary(result: kotlinx.serialization.json.JsonElement): JsonObject = extractData(result)["summary"]!!.jsonObject
 
     private fun stubHealthyTransition(itemId: UUID) {
-        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        coEvery { workItemRepo.update(any()) } answers { firstArg() }
+        coEvery { roleTransitionRepo.create(any()) } returns mockk()
         every { depRepo.findByToItemId(itemId) } returns emptyList()
         every { depRepo.findByFromItemId(itemId) } returns emptyList()
     }
@@ -186,7 +184,7 @@ class AdvanceItemToolConfigUnavailableTest {
 
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, type = "T", role = Role.QUEUE, rootId = bareRoot.id)
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             stubHealthyTransition(itemId)
 
             val result = tool.execute(buildParams(transitionObj(itemId, "start")), context)
@@ -204,7 +202,7 @@ class AdvanceItemToolConfigUnavailableTest {
 
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, type = "T", role = Role.QUEUE, rootId = rootItemId)
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -233,7 +231,7 @@ class AdvanceItemToolConfigUnavailableTest {
 
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, type = "T", role = Role.QUEUE, rootId = rootItemId)
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -259,7 +257,7 @@ class AdvanceItemToolConfigUnavailableTest {
                             description: "Q2"
                     """.trimIndent()
                 )
-            assertEquals(true, pushResult is Result.Success, "setup precondition: second config push must succeed")
+            assertEquals(true, pushResult != null, "setup precondition: second config push must succeed")
 
             val afterRecovery = tool.execute(buildParams(transitionObj(itemId, "start")), context)
             val missingAfterRecovery = extractResults(afterRecovery)[0].jsonObject["missingNotes"]!!.jsonArray
@@ -282,7 +280,7 @@ class AdvanceItemToolConfigUnavailableTest {
 
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, type = "T", role = Role.QUEUE, rootId = rootItemId)
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -303,7 +301,7 @@ class AdvanceItemToolConfigUnavailableTest {
 
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, type = "T", role = Role.QUEUE, rootId = rootItemId)
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -323,10 +321,10 @@ class AdvanceItemToolConfigUnavailableTest {
 
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, type = "T", role = Role.WORK, rootId = rootItemId)
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             val filledWorkNote = Note(itemId = itemId, key = "some-work-note", role = "work", body = "filled")
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(filledWorkNote))
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(listOf(filledWorkNote))
+            coEvery { noteRepo.findByItemId(itemId) } returns listOf(filledWorkNote)
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns listOf(filledWorkNote)
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -346,10 +344,10 @@ class AdvanceItemToolConfigUnavailableTest {
 
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, type = "T", role = Role.QUEUE, rootId = rootItemId)
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             val filledQueueNote = Note(itemId = itemId, key = "q1", role = "queue", body = "filled")
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(filledQueueNote))
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(listOf(filledQueueNote))
+            coEvery { noteRepo.findByItemId(itemId) } returns listOf(filledQueueNote)
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns listOf(filledQueueNote)
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -381,10 +379,10 @@ class AdvanceItemToolConfigUnavailableTest {
             val itemA = makeItem(id = idA, type = "T", role = Role.QUEUE, rootId = healthyRoot.id)
             val itemB = makeItem(id = idB, type = "T", role = Role.QUEUE, rootId = rootItemId)
 
-            coEvery { workItemRepo.getById(idA) } returns Result.Success(itemA)
-            coEvery { workItemRepo.getById(idB) } returns Result.Success(itemB)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(idA) } returns itemA
+            coEvery { workItemRepo.getById(idB) } returns itemB
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
 
@@ -421,13 +419,13 @@ class AdvanceItemToolConfigUnavailableTest {
             val childItem =
                 WorkItem(id = childId, title = "C", role = Role.WORK, parentId = parentId, rootId = null, depth = 1)
 
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(childId) } returns childItem
+            coEvery { workItemRepo.getById(parentId) } returns parentItem
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
-            coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns mapOf(Role.TERMINAL to 1)
 
             val result = tool.execute(buildParams(transitionObj(childId, "complete")), context)
             val r = extractResults(result)[0].jsonObject
@@ -452,11 +450,11 @@ class AdvanceItemToolConfigUnavailableTest {
         runBlocking {
             assertNotNull(perRootConfigService.layer(rootItemId), "sanity: warm read before delete")
             val deleteResult = wrapperRepo.delete(rootItemId)
-            assertEquals(true, deleteResult is Result.Success, "setup precondition: delete must succeed, got $deleteResult")
+            assertEquals(true, deleteResult != null, "setup precondition: delete must succeed, got $deleteResult")
 
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, type = "T", role = Role.QUEUE, rootId = rootItemId)
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             stubHealthyTransition(itemId)
 
             val result = tool.execute(buildParams(transitionObj(itemId, "start")), context)
@@ -478,7 +476,7 @@ class AdvanceItemToolConfigUnavailableTest {
 
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, type = "T", role = Role.QUEUE, rootId = null)
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             stubHealthyTransition(itemId)
 
             val result = tool.execute(buildParams(transitionObj(itemId, "start")), context)
@@ -498,13 +496,13 @@ class AdvanceItemToolConfigUnavailableTest {
             val malformedResult = wrapperRepo.upsert(rootItemId, "work_item_schemas: [\ninvalid yaml: :\n  - broken")
             assertEquals(
                 true,
-                malformedResult is Result.Success,
+                malformedResult != null,
                 "setup precondition: storing malformed YAML must still succeed (the row itself is valid)"
             )
 
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, type = "T", role = Role.QUEUE, rootId = rootItemId)
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             stubHealthyTransition(itemId)
 
             val result = tool.execute(buildParams(transitionObj(itemId, "start")), context)
@@ -520,7 +518,7 @@ class AdvanceItemToolConfigUnavailableTest {
 
 /**
  * Wraps a real [ProjectConfigRepository] (a [SQLiteProjectConfigRepository] in every test above)
- * and lets tests force [get]/[getFingerprint] to return `Result.Error(RepositoryError.DatabaseError("x"))`
+ * and lets tests force [get]/[getFingerprint] to return `throw IllegalStateException("x")`
  * on demand. This is the test-plan harness's "test ProjectConfigRepository wrapping
  * SQLiteProjectConfigRepository; its reads can switch to Result.Error" fixture — no such fixture
  * exists anywhere under src/test (confirmed gap in the dispatch's declarations), so it is authored
@@ -548,11 +546,11 @@ private class FailableProjectConfigRepository(
 
     override suspend fun getFingerprint(rootItemId: UUID) =
         if (failFingerprint && shouldFail(rootItemId)) {
-            Result.Error(RepositoryError.DatabaseError("x"))
+            throw IllegalStateException("x")
         } else {
             delegate.getFingerprint(rootItemId)
         }
 
     override suspend fun get(rootItemId: UUID) =
-        if (failGet && shouldFail(rootItemId)) Result.Error(RepositoryError.DatabaseError("x")) else delegate.get(rootItemId)
+        if (failGet && shouldFail(rootItemId)) throw IllegalStateException("x") else delegate.get(rootItemId)
 }

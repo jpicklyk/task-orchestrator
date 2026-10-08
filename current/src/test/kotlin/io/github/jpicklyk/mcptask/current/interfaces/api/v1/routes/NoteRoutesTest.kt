@@ -39,7 +39,7 @@ class NoteRoutesTest {
         actorClaim: ActorClaim? = null,
     ): Pair<WorkItem, Note> =
         runBlocking {
-            val item = repo.workItemRepository().create(WorkItem(title = "Noted Item", depth = 0)).getOrNull()!!
+            val item = repo.workItemRepository().create(WorkItem(title = "Noted Item", depth = 0))!!
             val note =
                 repo
                     .noteRepository()
@@ -58,7 +58,7 @@ class NoteRoutesTest {
                                     )
                                 },
                         )
-                    ).getOrNull()!!
+                    )!!
             Pair(item, note)
         }
 
@@ -87,7 +87,7 @@ class NoteRoutesTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Empty notes item", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Empty notes item", depth = 0))!!
                 }
             application {
                 configureTestApp { noteRoutes(repo) }
@@ -107,7 +107,7 @@ class NoteRoutesTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    val i = repo.workItemRepository().create(WorkItem(title = "Multi-role", depth = 0)).getOrNull()!!
+                    val i = repo.workItemRepository().create(WorkItem(title = "Multi-role", depth = 0))!!
                     repo.noteRepository().upsert(Note(itemId = i.id, key = "q-note", role = "queue", body = "Queue note"))
                     repo.noteRepository().upsert(Note(itemId = i.id, key = "w-note", role = "work", body = "Work note"))
                     i
@@ -131,7 +131,7 @@ class NoteRoutesTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    val i = repo.workItemRepository().create(WorkItem(title = "Multi-key", depth = 0)).getOrNull()!!
+                    val i = repo.workItemRepository().create(WorkItem(title = "Multi-key", depth = 0))!!
                     repo.noteRepository().upsert(Note(itemId = i.id, key = "spec", role = "queue", body = "Spec content"))
                     repo.noteRepository().upsert(Note(itemId = i.id, key = "impl", role = "work", body = "Impl content"))
                     i
@@ -174,7 +174,7 @@ class NoteRoutesTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "No notes item", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "No notes item", depth = 0))!!
                 }
             application {
                 configureTestApp { noteRoutes(repo) }
@@ -239,7 +239,7 @@ class NoteRoutesTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Out of scope", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Out of scope", depth = 0))!!
                 }
             val authConfig = makeTestAuthConfig(scopeRootIds = setOf(UUID.randomUUID()))
             application {
@@ -258,7 +258,7 @@ class NoteRoutesTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Auth required", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Auth required", depth = 0))!!
                 }
             application {
                 configureTestApp { noteRoutes(repo) }

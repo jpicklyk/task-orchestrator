@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.database.repository
 
 import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
@@ -14,7 +13,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -48,16 +47,14 @@ class SQLiteProjectConfigRepositoryTest {
     fun `get returns null when no config row exists`() =
         runBlocking {
             val result = projectConfigRepository.get(rootItemId)
-            assertIs<Result.Success<*>>(result)
-            assertNull((result as Result.Success).data)
+            assertNull(result)
         }
 
     @Test
     fun `getFingerprint returns null when no config row exists`() =
         runBlocking {
             val result = projectConfigRepository.getFingerprint(rootItemId)
-            assertIs<Result.Success<*>>(result)
-            assertNull((result as Result.Success).data)
+            assertNull(result)
         }
 
     // --- upsert: fresh insert ---
@@ -67,24 +64,24 @@ class SQLiteProjectConfigRepositoryTest {
         runBlocking {
             val yaml = "work_item_schemas:\n  default: {}\n"
             val result = projectConfigRepository.upsert(rootItemId, yaml)
-            assertIs<Result.Success<*>>(result)
-            val stored = (result as Result.Success).data
+            assertNotNull(result)
+            val stored = result
             assertEquals(rootItemId, stored.rootItemId)
             assertEquals(yaml, stored.configYaml)
             assertTrue(stored.fingerprint.isNotBlank())
 
             val fetched = projectConfigRepository.get(rootItemId)
-            assertIs<Result.Success<*>>(fetched)
-            assertEquals(stored.configYaml, (fetched as Result.Success).data?.configYaml)
-            assertEquals(stored.fingerprint, fetched.data?.fingerprint)
+            assertNotNull(fetched)
+            assertEquals(stored.configYaml, fetched?.configYaml)
+            assertEquals(stored.fingerprint, fetched?.fingerprint)
         }
 
     @Test
     fun `fingerprint is stable for identical content and changes when content changes`() =
         runBlocking {
             val yamlA = "work_item_schemas:\n  default: {}\n"
-            val firstUpsert = (projectConfigRepository.upsert(rootItemId, yamlA) as Result.Success).data
-            val secondUpsertSameContent = (projectConfigRepository.upsert(rootItemId, yamlA) as Result.Success).data
+            val firstUpsert = projectConfigRepository.upsert(rootItemId, yamlA)
+            val secondUpsertSameContent = projectConfigRepository.upsert(rootItemId, yamlA)
             assertEquals(
                 firstUpsert.fingerprint,
                 secondUpsertSameContent.fingerprint,
@@ -92,7 +89,7 @@ class SQLiteProjectConfigRepositoryTest {
             )
 
             val yamlB = "work_item_schemas:\n  default: {}\n  other: {}\n"
-            val thirdUpsertDifferentContent = (projectConfigRepository.upsert(rootItemId, yamlB) as Result.Success).data
+            val thirdUpsertDifferentContent = projectConfigRepository.upsert(rootItemId, yamlB)
             assertTrue(
                 thirdUpsertDifferentContent.fingerprint != firstUpsert.fingerprint,
                 "Fingerprint must change when content changes"
@@ -106,9 +103,9 @@ class SQLiteProjectConfigRepositoryTest {
         runBlocking {
             projectConfigRepository.upsert(rootItemId, "work_item_schemas:\n  default: {}\n")
             val second = projectConfigRepository.upsert(rootItemId, "work_item_schemas:\n  other: {}\n")
-            assertIs<Result.Success<*>>(second)
+            assertNotNull(second)
 
-            val fetched = (projectConfigRepository.get(rootItemId) as Result.Success).data
+            val fetched = projectConfigRepository.get(rootItemId)
             assertEquals("work_item_schemas:\n  other: {}\n", fetched?.configYaml)
         }
 
@@ -120,19 +117,19 @@ class SQLiteProjectConfigRepositoryTest {
             projectConfigRepository.upsert(rootItemId, "work_item_schemas:\n  default: {}\n")
 
             val deleteResult = projectConfigRepository.delete(rootItemId)
-            assertIs<Result.Success<*>>(deleteResult)
-            assertTrue((deleteResult as Result.Success).data)
+            assertNotNull(deleteResult)
+            assertTrue(deleteResult)
 
             val fetched = projectConfigRepository.get(rootItemId)
-            assertNull((fetched as Result.Success).data)
+            assertNull(fetched)
         }
 
     @Test
     fun `delete returns false when no config row exists`() =
         runBlocking {
             val deleteResult = projectConfigRepository.delete(rootItemId)
-            assertIs<Result.Success<*>>(deleteResult)
-            assertTrue(!(deleteResult as Result.Success).data)
+            assertNotNull(deleteResult)
+            assertTrue(!deleteResult)
         }
 
     // --- FK cascade: deleting the root work item removes its config row ---
@@ -145,8 +142,7 @@ class SQLiteProjectConfigRepositoryTest {
             workItemRepository.delete(rootItemId)
 
             val fetched = projectConfigRepository.get(rootItemId)
-            assertIs<Result.Success<*>>(fetched)
-            assertNull((fetched as Result.Success).data, "Expected CASCADE delete to remove the project_config row")
+            assertNull(fetched, "Expected CASCADE delete to remove the project_config row")
         }
 
     // --- computeFingerprint ---
@@ -158,7 +154,7 @@ class SQLiteProjectConfigRepositoryTest {
             val computed = projectConfigRepository.computeFingerprint(yaml)
             assertEquals(computed, projectConfigRepository.computeFingerprint(yaml))
 
-            val stored = (projectConfigRepository.upsert(rootItemId, yaml) as Result.Success).data
+            val stored = projectConfigRepository.upsert(rootItemId, yaml)
             assertEquals(computed, stored.fingerprint)
         }
 
@@ -182,11 +178,11 @@ class SQLiteProjectConfigRepositoryTest {
             // replaced by C); newest-first means B (the most recent outgoing) precedes A.
             assertEquals(
                 FingerprintRelation.SUPERSEDED,
-                (projectConfigRepository.classifyFingerprint(rootItemId, fingerprintB) as Result.Success).data
+                projectConfigRepository.classifyFingerprint(rootItemId, fingerprintB)
             )
             assertEquals(
                 FingerprintRelation.SUPERSEDED,
-                (projectConfigRepository.classifyFingerprint(rootItemId, fingerprintA) as Result.Success).data
+                projectConfigRepository.classifyFingerprint(rootItemId, fingerprintA)
             )
         }
 
@@ -212,7 +208,7 @@ class SQLiteProjectConfigRepositoryTest {
             val result = projectConfigRepository.classifyFingerprint(rootItemId, fingerprintV1)
             assertEquals(
                 FingerprintRelation.SUPERSEDED,
-                (result as Result.Success).data,
+                result,
                 "v1 should still be in history — redundant re-pushes must not consume prune budget"
             )
         }
@@ -233,19 +229,19 @@ class SQLiteProjectConfigRepositoryTest {
 
             assertEquals(
                 FingerprintRelation.UNKNOWN,
-                (projectConfigRepository.classifyFingerprint(rootItemId, fingerprints[0]) as Result.Success).data,
+                projectConfigRepository.classifyFingerprint(rootItemId, fingerprints[0]),
                 "v1's fingerprint should have been pruned from history (the 21st-oldest entry)"
             )
             // The most recent 20 outgoing fingerprints (v2..v21, indices 1..20) must remain — check
             // the retained boundary (v2, index 1) and the most-recently-superseded (v21, index 20).
             assertEquals(
                 FingerprintRelation.SUPERSEDED,
-                (projectConfigRepository.classifyFingerprint(rootItemId, fingerprints[1]) as Result.Success).data,
+                projectConfigRepository.classifyFingerprint(rootItemId, fingerprints[1]),
                 "v2's fingerprint should still be in history (the oldest retained entry)"
             )
             assertEquals(
                 FingerprintRelation.SUPERSEDED,
-                (projectConfigRepository.classifyFingerprint(rootItemId, fingerprints[20]) as Result.Success).data,
+                projectConfigRepository.classifyFingerprint(rootItemId, fingerprints[20]),
                 "v21's fingerprint (the most recently superseded) should still be in history"
             )
         }
@@ -256,17 +252,17 @@ class SQLiteProjectConfigRepositoryTest {
     fun `classifyFingerprint returns CURRENT for the stored current fingerprint`() =
         runBlocking {
             val yaml = "work_item_schemas:\n  default: {}\n"
-            val stored = (projectConfigRepository.upsert(rootItemId, yaml) as Result.Success).data
+            val stored = projectConfigRepository.upsert(rootItemId, yaml)
 
             val result = projectConfigRepository.classifyFingerprint(rootItemId, stored.fingerprint)
-            assertEquals(FingerprintRelation.CURRENT, (result as Result.Success).data)
+            assertEquals(FingerprintRelation.CURRENT, result)
         }
 
     @Test
     fun `classifyFingerprint returns UNKNOWN for a fingerprint with no stored row at all`() =
         runBlocking {
             val result = projectConfigRepository.classifyFingerprint(rootItemId, "0".repeat(64))
-            assertEquals(FingerprintRelation.UNKNOWN, (result as Result.Success).data)
+            assertEquals(FingerprintRelation.UNKNOWN, result)
         }
 
     @Test
@@ -278,7 +274,7 @@ class SQLiteProjectConfigRepositoryTest {
             projectConfigRepository.upsert(rootItemId, "work_item_schemas:\n  default: {}\n")
 
             val result = projectConfigRepository.classifyFingerprint(rootItemId, "1".repeat(64))
-            assertEquals(FingerprintRelation.UNKNOWN, (result as Result.Success).data)
+            assertEquals(FingerprintRelation.UNKNOWN, result)
         }
 
     @Test
@@ -290,6 +286,6 @@ class SQLiteProjectConfigRepositoryTest {
             projectConfigRepository.upsert(rootItemId, yamlB)
 
             val result = projectConfigRepository.classifyFingerprint(rootItemId, "2".repeat(64))
-            assertEquals(FingerprintRelation.UNKNOWN, (result as Result.Success).data)
+            assertEquals(FingerprintRelation.UNKNOWN, result)
         }
 }

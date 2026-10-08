@@ -11,7 +11,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
@@ -2442,7 +2441,7 @@ class QueryItemsToolTest {
                     rootId = null
                 )
             val created = context.workItemRepository().create(legacyItem)
-            assertTrue(created is Result.Success)
+            assertNotNull(created)
 
             val perRoot = mockk<PerRootConfigService>()
             val schemaContext =

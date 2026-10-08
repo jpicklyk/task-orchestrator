@@ -7,8 +7,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -83,11 +81,11 @@ class ItemPlacementParityTest {
         private val failGetByIdFor: Set<UUID> = emptySet(),
         private var onFirstTransaction: (suspend () -> Unit)? = null
     ) : WorkItemRepository by delegate {
-        override suspend fun getById(id: UUID): Result<WorkItem> =
-            if (id in failGetByIdFor) Result.Error(RepositoryError.DatabaseError("getById boom")) else delegate.getById(id)
+        override suspend fun getById(id: UUID): WorkItem? =
+            if (id in failGetByIdFor) throw IllegalStateException("getById boom") else delegate.getById(id)
 
-        override suspend fun findAncestorChains(itemIds: Set<UUID>): Result<Map<UUID, List<WorkItem>>> =
-            if (failChains) Result.Error(RepositoryError.DatabaseError("chains boom")) else delegate.findAncestorChains(itemIds)
+        override suspend fun findAncestorChains(itemIds: Set<UUID>): Map<UUID, List<WorkItem>> =
+            if (failChains) throw IllegalStateException("chains boom") else delegate.findAncestorChains(itemIds)
 
         /** Runs [onFirstTransaction] once, from the [CountingUnitOfWork] hook at the first top-level unit's open. */
         suspend fun fireOnce() {
@@ -155,9 +153,9 @@ class ItemPlacementParityTest {
                             rootId = parent?.rootId ?: parent?.id,
                             depth = (parent?.depth ?: -1) + 1
                         )
-                    ) as Result.Success
-                ).data
-            return if (parent == null) (repo.update(created.copy(rootId = created.id)) as Result.Success).data else created
+                    )!!
+                )
+            return if (parent == null) repo.update(created.copy(rootId = created.id))!! else created
         }
         val r = mk("R", null)
         val a = mk("A", r)
@@ -180,7 +178,7 @@ class ItemPlacementParityTest {
         // Items deleted by a scenario (the parent-deleted-in-transaction case) are simply absent.
         return all.entries
             .mapNotNull { (name, id) ->
-                (repo.getById(id) as? Result.Success)?.data?.let { item ->
+                repo.getById(id)?.let { item ->
                     name to Triple(item.depth, item.parentId?.let { byId[it] }, item.rootId?.let { byId[it] })
                 }
             }.toMap()
@@ -294,7 +292,7 @@ class ItemPlacementParityTest {
         itemId: UUID,
         bodyJson: String
     ): Pair<HttpStatusCode, String> {
-        val existing = (repo.getById(itemId) as Result.Success).data
+        val existing = repo.getById(itemId)!!
         var out: Pair<HttpStatusCode, String>? = null
         testApplication {
             application { configureApp(OverrideProvider(provider, repo)) }

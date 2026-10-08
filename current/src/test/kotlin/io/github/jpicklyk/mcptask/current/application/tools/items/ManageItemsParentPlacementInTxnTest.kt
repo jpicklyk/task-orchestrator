@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.tools.items
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ChildPlacement
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -112,18 +111,14 @@ class ManageItemsParentPlacementInTxnTest {
             }
         }
 
-        override suspend fun resolveChildPlacement(parentId: UUID): Result<ChildPlacement> =
-            when (val parent = getById(parentId)) {
-                is Result.Success ->
-                    Result.Success(
-                        ChildPlacement(
-                            parentId = parent.data.id,
-                            depth = parent.data.depth + 1,
-                            rootId =
-                                parent.data.rootId ?: parent.data.id
-                        )
-                    )
-                is Result.Error -> Result.Error(parent.error)
+        override suspend fun resolveChildPlacement(parentId: UUID): ChildPlacement? =
+            getById(parentId)?.let { parent ->
+                ChildPlacement(
+                    parentId = parent.id,
+                    depth = parent.depth + 1,
+                    rootId =
+                        parent.rootId ?: parent.id
+                )
             }
     }
 
@@ -146,17 +141,17 @@ class ManageItemsParentPlacementInTxnTest {
         var updateOrdinal: Int? = null
             private set
 
-        override suspend fun resolveChildPlacement(parentId: UUID): Result<ChildPlacement> {
+        override suspend fun resolveChildPlacement(parentId: UUID): ChildPlacement? {
             resolveChildPlacementOrdinal = instanceCounter()
             return delegate.resolveChildPlacement(parentId)
         }
 
-        override suspend fun create(item: WorkItem): Result<WorkItem> {
+        override suspend fun create(item: WorkItem): WorkItem {
             createOrdinal = instanceCounter()
             return delegate.create(item)
         }
 
-        override suspend fun update(item: WorkItem): Result<WorkItem> {
+        override suspend fun update(item: WorkItem): WorkItem? {
             updateOrdinal = instanceCounter()
             return delegate.update(item)
         }
@@ -174,10 +169,10 @@ class ManageItemsParentPlacementInTxnTest {
     // Fixture helpers
     // ──────────────────────────────────────────────
 
-    private suspend fun create(item: WorkItem): WorkItem = (repositoryProvider.workItemRepository().create(item) as Result.Success).data
+    private suspend fun create(item: WorkItem): WorkItem = (repositoryProvider.workItemRepository().create(item)!!)
 
     private suspend fun stampSelfRoot(item: WorkItem): WorkItem =
-        (repositoryProvider.workItemRepository().update(item.copy(rootId = item.id)) as Result.Success).data
+        (repositoryProvider.workItemRepository().update(item.copy(rootId = item.id))!!)
 
     /** R (root, self-rooted) -> A (depth1) -> P (depth2); Q is a second, unrelated self-rooted root. */
     private data class Tree(
@@ -276,7 +271,7 @@ class ManageItemsParentPlacementInTxnTest {
             // the manage_items create response item does not carry a rootId field (arbitration,
             // 3da296d8), so rootId is read back through the UNDERLYING (unwrapped) repository.
             val childId = UUID.fromString(child["id"]!!.jsonPrimitive.content)
-            val persisted = (repositoryProvider.workItemRepository().getById(childId) as Result.Success).data
+            val persisted = (repositoryProvider.workItemRepository().getById(childId)!!)
             assertEquals(
                 tree.q.id,
                 persisted.rootId,
@@ -309,7 +304,7 @@ class ManageItemsParentPlacementInTxnTest {
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             assertEquals(1, (result["data"] as JsonObject)["updated"]!!.jsonPrimitive.int)
 
-            val persisted = (repositoryProvider.workItemRepository().getById(x.id) as Result.Success).data
+            val persisted = (repositoryProvider.workItemRepository().getById(x.id)!!)
             assertEquals(2, persisted.depth, "O1: X must land at P's LIVE depth (1) + 1")
             assertEquals(tree.q.id, persisted.rootId, "O1: X must inherit P's LIVE rootId (Q)")
         }
@@ -344,8 +339,8 @@ class ManageItemsParentPlacementInTxnTest {
             assertTrue(failure["error"]!!.jsonPrimitive.content.contains("not found"), "actual: $failure")
 
             val all = repositoryProvider.workItemRepository().findByFilters()
-            assertTrue(all is Result.Success)
-            val orphan = (all as Result.Success).data.items.filter { it.title == "Orphan Child S9" }
+            assertNotNull(all)
+            val orphan = all.items.filter { it.title == "Orphan Child S9" }
             assertTrue(orphan.isEmpty(), "O3: a parent deleted inside the write transaction must leave NO orphan row: $orphan")
         }
 
@@ -418,7 +413,7 @@ class ManageItemsParentPlacementInTxnTest {
             // rootId is not carried on the response item (arbitration, 3da296d8) — read the
             // persisted row through the underlying repository instead.
             val itemId = UUID.fromString(item["id"]!!.jsonPrimitive.content)
-            val persisted = (repositoryProvider.workItemRepository().getById(itemId) as Result.Success).data
+            val persisted = (repositoryProvider.workItemRepository().getById(itemId)!!)
             assertEquals(itemId, persisted.rootId)
             assertEquals(null, spy.resolveChildPlacementOrdinal, "a parentless create must never resolve a child placement")
         }
@@ -441,7 +436,7 @@ class ManageItemsParentPlacementInTxnTest {
             // rootId is not carried on the response item (arbitration, 3da296d8) — read the
             // persisted row through the underlying repository instead.
             val childId = UUID.fromString(child["id"]!!.jsonPrimitive.content)
-            val persisted = (repositoryProvider.workItemRepository().getById(childId) as Result.Success).data
+            val persisted = (repositoryProvider.workItemRepository().getById(childId)!!)
             assertEquals(legacyParent.id, persisted.rootId, "O1 fallback: rootId ?: id")
         }
 
@@ -458,7 +453,7 @@ class ManageItemsParentPlacementInTxnTest {
             val result = db.assertNoOutsideUnitWrites { tool.execute(updateParentParams(x.id, null), context) } as JsonObject
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
-            val persisted = (repositoryProvider.workItemRepository().getById(x.id) as Result.Success).data
+            val persisted = (repositoryProvider.workItemRepository().getById(x.id)!!)
             assertEquals(null, persisted.parentId)
             assertEquals(0, persisted.depth)
             assertEquals(x.id, persisted.rootId)
@@ -479,8 +474,8 @@ class ManageItemsParentPlacementInTxnTest {
             val result = db.assertNoOutsideUnitWrites { tool.execute(updateParentParams(x.id, rootB.id), context) } as JsonObject
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
-            val persistedX = (repositoryProvider.workItemRepository().getById(x.id) as Result.Success).data
-            val persistedY = (repositoryProvider.workItemRepository().getById(y.id) as Result.Success).data
+            val persistedX = (repositoryProvider.workItemRepository().getById(x.id)!!)
+            val persistedY = (repositoryProvider.workItemRepository().getById(y.id)!!)
             assertEquals(rootB.id, persistedX.rootId, "X must be restamped to RootB")
             assertEquals(rootB.id, persistedY.rootId, "Y (X's descendant) must cascade-restamp to RootB too")
         }
@@ -504,7 +499,7 @@ class ManageItemsParentPlacementInTxnTest {
                 // rootId is not carried on the response item (arbitration, 3da296d8) — read the
                 // persisted row through the underlying repository instead.
                 val childId = UUID.fromString(child["id"]!!.jsonPrimitive.content)
-                val persisted = (repositoryProvider.workItemRepository().getById(childId) as Result.Success).data
+                val persisted = (repositoryProvider.workItemRepository().getById(childId)!!)
                 assertEquals(root.id, persisted.rootId, "actual: $r")
             }
         }
@@ -542,7 +537,7 @@ class ManageItemsParentPlacementInTxnTest {
                 // rootId is not carried on the response item (arbitration, 3da296d8) — read the
                 // persisted row through the underlying repository instead.
                 val childId = UUID.fromString(obj["id"]!!.jsonPrimitive.content)
-                val persisted = (repositoryProvider.workItemRepository().getById(childId) as Result.Success).data
+                val persisted = (repositoryProvider.workItemRepository().getById(childId)!!)
                 assertEquals(root.id, persisted.rootId, "actual: $obj")
             }
         }

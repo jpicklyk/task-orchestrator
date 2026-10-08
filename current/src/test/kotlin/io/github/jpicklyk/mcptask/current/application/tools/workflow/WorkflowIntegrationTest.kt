@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.*
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
@@ -56,7 +55,7 @@ class WorkflowIntegrationTest {
         val depth =
             if (parentId != null) {
                 val parentResult = context.workItemRepository().getById(parentId)
-                (parentResult as Result.Success).data.depth + 1
+                parentResult!!.depth + 1
             } else {
                 0
             }
@@ -74,7 +73,7 @@ class WorkflowIntegrationTest {
                 depth = depth
             )
         val result = context.workItemRepository().create(item)
-        return (result as Result.Success).data
+        return result
     }
 
     private fun createDependency(
@@ -141,7 +140,7 @@ class WorkflowIntegrationTest {
 
     private suspend fun getItem(id: UUID): WorkItem {
         val result = context.workItemRepository().getById(id)
-        return (result as Result.Success).data
+        return result!!
     }
 
     // ──────────────────────────────────────────────

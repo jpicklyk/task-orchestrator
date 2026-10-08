@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationExcept
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.domain.repository.ItemFetchResult
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchResult
 import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
 import io.mockk.coEvery
@@ -170,7 +169,7 @@ class QueryItemsLimitContractTest {
                     type = any(),
                     claimStatus = any(),
                 )
-            } returns Result.Success(ItemFetchResult(items = emptyList(), skipped = 0))
+            } returns ItemFetchResult(items = emptyList(), skipped = 0)
             coEvery {
                 mocks.workItemRepo.countByFilters(
                     parentId = any(),
@@ -188,7 +187,7 @@ class QueryItemsLimitContractTest {
                     type = any(),
                     claimStatus = any(),
                 )
-            } returns Result.Success(0)
+            } returns 0
 
             val tool = QueryItemsTool()
             val result =
@@ -228,7 +227,7 @@ class QueryItemsLimitContractTest {
                     type = any(),
                     claimStatus = any(),
                 )
-            } returns Result.Success(ItemFetchResult(items = emptyList(), skipped = 0))
+            } returns ItemFetchResult(items = emptyList(), skipped = 0)
             coEvery {
                 mocks.workItemRepo.countByFilters(
                     parentId = any(),
@@ -246,7 +245,7 @@ class QueryItemsLimitContractTest {
                     type = any(),
                     claimStatus = any(),
                 )
-            } returns Result.Success(0)
+            } returns 0
 
             val tool = QueryItemsTool()
             val result =
@@ -274,13 +273,13 @@ class QueryItemsLimitContractTest {
             val parent = WorkItem(id = parentId, title = "Parent")
             val children = (1..5).map { i -> WorkItem(parentId = parentId, title = "Child $i", depth = 1) }
 
-            coEvery { mocks.workItemRepo.getById(parentId) } returns Result.Success(parent)
-            coEvery { mocks.workItemRepo.findChildren(parentId) } returns Result.Success(children)
-            coEvery { mocks.workItemRepo.countChildrenByRole(any()) } returns Result.Success(emptyMap())
-            coEvery { mocks.workItemRepo.countInScopeByRole(any()) } returns Result.Success(emptyMap())
+            coEvery { mocks.workItemRepo.getById(parentId) } returns parent
+            coEvery { mocks.workItemRepo.findChildren(parentId) } returns children
+            coEvery { mocks.workItemRepo.countChildrenByRole(any()) } returns emptyMap()
+            coEvery { mocks.workItemRepo.countInScopeByRole(any()) } returns emptyMap()
             coEvery {
                 mocks.workItemRepo.countByClaimStatus(parentId = any(), rootIds = any())
-            } returns Result.Success(ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0))
+            } returns ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0)
 
             val tool = QueryItemsTool()
             val result =
@@ -314,13 +313,13 @@ class QueryItemsLimitContractTest {
             val anchor = WorkItem(id = anchorId, title = "Anchor")
             val children = (1..5).map { i -> WorkItem(parentId = anchorId, title = "Child $i", depth = 1) }
 
-            coEvery { mocks.workItemRepo.getById(anchorId) } returns Result.Success(anchor)
-            coEvery { mocks.workItemRepo.findChildren(anchorId) } returns Result.Success(children)
-            coEvery { mocks.workItemRepo.countChildrenByRole(any()) } returns Result.Success(emptyMap())
-            coEvery { mocks.workItemRepo.countInScopeByRole(any()) } returns Result.Success(emptyMap())
+            coEvery { mocks.workItemRepo.getById(anchorId) } returns anchor
+            coEvery { mocks.workItemRepo.findChildren(anchorId) } returns children
+            coEvery { mocks.workItemRepo.countChildrenByRole(any()) } returns emptyMap()
+            coEvery { mocks.workItemRepo.countInScopeByRole(any()) } returns emptyMap()
             coEvery {
                 mocks.workItemRepo.countByClaimStatus(parentId = any(), rootIds = any())
-            } returns Result.Success(ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0))
+            } returns ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0)
 
             val tool = QueryItemsTool()
             val result =
@@ -354,8 +353,8 @@ class QueryItemsLimitContractTest {
 
             coEvery {
                 mocks.workItemRepo.findRootItems(limit = 50, offset = 0, excludeTerminal = false)
-            } returns Result.Success(ItemFetchResult(items = emptyList(), skipped = 0))
-            coEvery { mocks.workItemRepo.countRootItems(any()) } returns Result.Success(0L)
+            } returns ItemFetchResult(items = emptyList(), skipped = 0)
+            coEvery { mocks.workItemRepo.countRootItems(any()) } returns 0L
 
             val tool = QueryItemsTool()
             val result =

@@ -6,8 +6,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
@@ -106,7 +104,7 @@ class CompleteTreeToolConfigUnavailableTest {
             rootItemId = root.id
 
             val upsertResult = wrapperRepo.upsert(rootItemId, rootConfigYaml)
-            assertEquals(true, upsertResult is Result.Success, "setup precondition: config push must succeed, got $upsertResult")
+            assertEquals(true, upsertResult != null, "setup precondition: config push must succeed, got $upsertResult")
 
             tool = CompleteTreeTool()
             workItemRepo = mockk()
@@ -123,7 +121,7 @@ class CompleteTreeToolConfigUnavailableTest {
             coEvery { workItemRepo.dbNow() } returns Instant.now()
             every { depRepo.findByToItemId(any()) } returns emptyList()
             every { depRepo.findByFromItemId(any()) } returns emptyList()
-            coEvery { workItemRepo.countChildrenByRole(any()) } returns Result.Success(emptyMap())
+            coEvery { workItemRepo.countChildrenByRole(any()) } returns emptyMap()
 
             context = ToolExecutionContext(repoProvider, perRootConfigService = perRootConfigService, unitOfWork = db.unitOfWork())
         }
@@ -161,8 +159,8 @@ class CompleteTreeToolConfigUnavailableTest {
             val item1 = makeItem(id = id1, type = "T", role = Role.WORK, title = "Child 1", rootId = rootItemId)
             val item2 = makeItem(id = id2, type = "T", role = Role.WORK, title = "Child 2", rootId = rootItemId)
 
-            coEvery { workItemRepo.getById(id1) } returns Result.Success(item1)
-            coEvery { workItemRepo.getById(id2) } returns Result.Success(item2)
+            coEvery { workItemRepo.getById(id1) } returns item1
+            coEvery { workItemRepo.getById(id2) } returns item2
 
             val result = tool.execute(buildItemIdsParams(listOf(id1, id2)), context)
             val data = extractData(result)
@@ -196,10 +194,10 @@ class CompleteTreeToolConfigUnavailableTest {
             // continues" concretely rather than merely by construction of a second failing item.
             val healthyItem = makeItem(id = healthyId, type = "T", role = Role.WORK, title = "Healthy", rootId = null)
 
-            coEvery { workItemRepo.getById(failingId) } returns Result.Success(failingItem)
-            coEvery { workItemRepo.getById(healthyId) } returns Result.Success(healthyItem)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(failingId) } returns failingItem
+            coEvery { workItemRepo.getById(healthyId) } returns healthyItem
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
 
             val result = tool.execute(buildItemIdsParams(listOf(healthyId, failingId)), context)
             val results = extractData(result)["results"]!!.jsonArray
@@ -213,7 +211,7 @@ class CompleteTreeToolConfigUnavailableTest {
 
 /**
  * Wraps a real [ProjectConfigRepository] and lets tests force [get]/[getFingerprint] to return
- * `Result.Error(RepositoryError.DatabaseError("x"))` on demand. Own copy for this file — see
+ * `throw IllegalStateException("x")` on demand. Own copy for this file — see
  * [io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemToolConfigUnavailableTest]'s
  * identical class for the full rationale (this item's file-ownership rule forbids extracting a
  * shared harness file for it).
@@ -226,7 +224,7 @@ private class FailableProjectConfigRepository(
     @Volatile var failGet: Boolean = false
 
     override suspend fun getFingerprint(rootItemId: UUID) =
-        if (failFingerprint) Result.Error(RepositoryError.DatabaseError("x")) else delegate.getFingerprint(rootItemId)
+        if (failFingerprint) throw IllegalStateException("x") else delegate.getFingerprint(rootItemId)
 
-    override suspend fun get(rootItemId: UUID) = if (failGet) Result.Error(RepositoryError.DatabaseError("x")) else delegate.get(rootItemId)
+    override suspend fun get(rootItemId: UUID) = if (failGet) throw IllegalStateException("x") else delegate.get(rootItemId)
 }

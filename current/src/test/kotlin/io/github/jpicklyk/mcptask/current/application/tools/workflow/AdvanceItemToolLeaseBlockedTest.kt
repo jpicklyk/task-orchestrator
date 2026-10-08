@@ -13,7 +13,6 @@ import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -87,11 +86,11 @@ class AdvanceItemToolLeaseBlockedTest {
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
         every { repoProvider.resourceLeaseRepository() } returns leaseRepo
 
-        coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
-        coEvery { noteRepo.findByItemId(any(), any()) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemId(any()) } returns emptyList()
+        coEvery { noteRepo.findByItemId(any(), any()) } returns emptyList()
         coEvery { workItemRepo.dbNow() } returns Instant.now()
-        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        coEvery { workItemRepo.update(any()) } answers { firstArg() }
+        coEvery { roleTransitionRepo.create(any()) } returns mockk()
         coEvery { leaseRepo.releaseAllForItem(any()) } returns LeaseReleaseResult.Success(0)
         every { depRepo.findByToItemId(any()) } returns emptyList()
         every { depRepo.findByFromItemId(any()) } returns emptyList()
@@ -127,7 +126,7 @@ class AdvanceItemToolLeaseBlockedTest {
     fun `a lease-blocked start returns a transient resource_unavailable result with keys and backoff`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(tracedItem(itemId))
+            coEvery { workItemRepo.getById(itemId) } returns tracedItem(itemId)
             coEvery { leaseRepo.acquireAll(itemId, any(), any()) } returns
                 LeaseAcquireResult.Contended(listOf(resourceKey), retryAfterMs = 30_000)
 
@@ -154,7 +153,7 @@ class AdvanceItemToolLeaseBlockedTest {
     fun `a lease-blocked response discloses NO holder item id and NO actor id`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(tracedItem(itemId))
+            coEvery { workItemRepo.getById(itemId) } returns tracedItem(itemId)
             // The seeded holder identity is what a leaky implementation would echo back.
             coEvery { leaseRepo.acquireAll(itemId, any(), any()) } returns
                 LeaseAcquireResult.Contended(listOf(resourceKey), retryAfterMs = 30_000)
@@ -198,9 +197,8 @@ class AdvanceItemToolLeaseBlockedTest {
     fun `a DB error from the lease store is reported as transient with the default backoff`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(tracedItem(itemId))
-            coEvery { leaseRepo.acquireAll(itemId, any(), any()) } returns
-                LeaseAcquireResult.DBError(IllegalStateException("write conflict"))
+            coEvery { workItemRepo.getById(itemId) } returns tracedItem(itemId)
+            coEvery { leaseRepo.acquireAll(itemId, any(), any()) } throws IllegalStateException("write conflict")
 
             val result = tool.execute(startParams(itemId), context)
             val transition =
@@ -218,7 +216,7 @@ class AdvanceItemToolLeaseBlockedTest {
     fun `an uncontended start acquires the trait-declared lease and succeeds`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(tracedItem(itemId))
+            coEvery { workItemRepo.getById(itemId) } returns tracedItem(itemId)
             coEvery { leaseRepo.acquireAll(itemId, any(), any()) } returns
                 LeaseAcquireResult.Success(emptyList())
 

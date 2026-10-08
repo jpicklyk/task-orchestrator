@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchHit
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -12,7 +11,7 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -49,8 +48,8 @@ class SQLiteNoteRepositoryFtsPaginationTest {
 
     private suspend fun createItem(title: String): WorkItem {
         val result = itemRepo().create(WorkItem(title = title))
-        assertIs<Result.Success<WorkItem>>(result)
-        return result.data
+        assertNotNull(result)
+        return result
     }
 
     private suspend fun createNote(
@@ -61,8 +60,8 @@ class SQLiteNoteRepositoryFtsPaginationTest {
     ): Note {
         val note = Note(id = id, itemId = itemId, key = key, role = "work", body = body)
         val result = noteRepo().upsert(note)
-        assertIs<Result.Success<Note>>(result)
-        return result.data
+        assertNotNull(result)
+        return result
     }
 
     /** Small, easily-ordered explicit note ids: UUID(0, n) — MSB ties at 0, LSB compares as n. */

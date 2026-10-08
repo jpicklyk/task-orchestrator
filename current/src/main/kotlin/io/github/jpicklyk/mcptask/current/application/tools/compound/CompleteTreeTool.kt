@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceResult
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
+import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
@@ -16,7 +17,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.runBlocking
@@ -832,18 +832,12 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
             }
             val rootId = resolvedRootId
             val descendants =
-                when (val result = context.workItemRepository().findDescendants(rootId)) {
-                    is Result.Success -> result.data
-                    is Result.Error -> emptyList()
-                }
+                (legacyReadOrNull { context.workItemRepository().findDescendants(rootId) } ?: emptyList())
             if (!includeRoot) return Pair(descendants, null)
 
             // Fetch root item separately — it will be processed after all its descendants
             val rootItem =
-                when (val result = context.workItemRepository().getById(rootId)) {
-                    is Result.Success -> result.data
-                    is Result.Error -> null
-                }
+                legacyReadOrNull { context.workItemRepository().getById(rootId) }
             return Pair(descendants, rootItem)
         }
 
@@ -855,10 +849,8 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
             if (idErr != null || resolvedId == null) {
                 throw ToolValidationException("Could not resolve itemId: $idStr")
             }
-            when (val result = context.workItemRepository().getById(resolvedId)) {
-                is Result.Success -> items.add(result.data)
-                is Result.Error -> { /* skip missing items */ }
-            }
+            // Skip missing items; a store fault propagates.
+            context.workItemRepository().getById(resolvedId)?.let { items.add(it) }
         }
         return Pair(items, null)
     }

@@ -7,8 +7,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationExcept
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -68,7 +66,7 @@ class GetContextToolTest {
 
         // Default stub for countByClaimStatus (called in health-check mode, additive field)
         coEvery { workItemRepo.countByClaimStatus(any()) } returns
-            Result.Success(ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0))
+            ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0)
         // dbNow() is called when building claimDetail.isExpired; default to JVM time for non-clock-skew tests.
         coEvery { workItemRepo.dbNow() } returns Instant.now()
     }
@@ -114,8 +112,8 @@ class GetContextToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.WORK, tags = null)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -157,9 +155,9 @@ class GetContextToolTest {
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             // No notes exist → missing required note
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -207,8 +205,8 @@ class GetContextToolTest {
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -254,8 +252,8 @@ class GetContextToolTest {
                     body = "This is the implementation approach."
                 )
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(existingNote))
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns listOf(existingNote)
 
             val result =
                 tool.execute(
@@ -286,9 +284,9 @@ class GetContextToolTest {
             val since = Instant.now().minusSeconds(3600)
             val sinceStr = since.toString()
 
-            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
-            coEvery { roleTransitionRepo.findSince(any(), any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
+            coEvery { roleTransitionRepo.findSince(any(), any()) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -311,9 +309,9 @@ class GetContextToolTest {
     @Test
     fun `health check mode with no params returns mode=health-check`(): Unit =
         runBlocking {
-            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns emptyList()
 
             val result = tool.execute(params(), context)
 
@@ -333,11 +331,8 @@ class GetContextToolTest {
         runBlocking {
             val itemId = UUID.randomUUID()
 
-            coEvery { workItemRepo.getById(itemId) } returns
-                Result.Error(
-                    RepositoryError.NotFound(itemId, "WorkItem not found: $itemId")
-                )
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns null
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -380,8 +375,8 @@ class GetContextToolTest {
                     depth = 1
                 )
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -410,9 +405,9 @@ class GetContextToolTest {
             val workItem = makeItem(title = "Work item", role = Role.WORK)
             val reviewItem = makeItem(title = "Review item", role = Role.REVIEW)
 
-            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(workItem))
-            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(listOf(reviewItem))
-            coEvery { roleTransitionRepo.findSince(any(), any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns listOf(workItem)
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns listOf(reviewItem)
+            coEvery { roleTransitionRepo.findSince(any(), any()) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -438,12 +433,10 @@ class GetContextToolTest {
             val rootItem = makeItem(id = rootId, title = "Root Item", depth = 0)
             val childItem = makeItem(id = childId, title = "Child Item", depth = 1, parentId = rootId)
 
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
-            coEvery { noteRepo.findByItemId(childId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(childId) } returns childItem
+            coEvery { noteRepo.findByItemId(childId) } returns emptyList()
             coEvery { workItemRepo.findAncestorChains(setOf(childId)) } returns
-                Result.Success(
-                    mapOf(childId to listOf(rootItem))
-                )
+                mapOf(childId to listOf(rootItem))
 
             val result =
                 tool.execute(
@@ -470,8 +463,8 @@ class GetContextToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, depth = 0)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -490,12 +483,10 @@ class GetContextToolTest {
             val rootId = UUID.randomUUID()
             val rootItem = makeItem(id = rootId, title = "Root", depth = 0)
 
-            coEvery { workItemRepo.getById(rootId) } returns Result.Success(rootItem)
-            coEvery { noteRepo.findByItemId(rootId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(rootId) } returns rootItem
+            coEvery { noteRepo.findByItemId(rootId) } returns emptyList()
             coEvery { workItemRepo.findAncestorChains(setOf(rootId)) } returns
-                Result.Success(
-                    mapOf(rootId to emptyList())
-                )
+                mapOf(rootId to emptyList())
 
             val result =
                 tool.execute(
@@ -523,18 +514,16 @@ class GetContextToolTest {
             val childItem = makeItem(id = childId, title = "Child Work", role = Role.WORK, depth = 1, parentId = rootId)
             val blockedItem = makeItem(id = blockedId, title = "Blocked Item", role = Role.BLOCKED, depth = 0)
 
-            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(rootItem, childItem))
-            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(listOf(blockedItem))
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns listOf(rootItem, childItem)
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns listOf(blockedItem)
 
             // findAncestorChains is called once with all 3 item IDs
             coEvery { workItemRepo.findAncestorChains(setOf(rootId, childId, blockedId)) } returns
-                Result.Success(
-                    mapOf(
-                        rootId to emptyList(),
-                        childId to listOf(rootItem),
-                        blockedId to emptyList()
-                    )
+                mapOf(
+                    rootId to emptyList(),
+                    childId to listOf(rootItem),
+                    blockedId to emptyList()
                 )
 
             val result =
@@ -575,9 +564,9 @@ class GetContextToolTest {
             val since = Instant.now().minusSeconds(3600)
             val capturedLimit = slot<Int>()
 
-            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
-            coEvery { roleTransitionRepo.findSince(any(), capture(capturedLimit)) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
+            coEvery { roleTransitionRepo.findSince(any(), capture(capturedLimit)) } returns emptyList()
 
             tool.execute(
                 params("since" to JsonPrimitive(since.toString())),
@@ -593,9 +582,9 @@ class GetContextToolTest {
             val since = Instant.now().minusSeconds(3600)
             val capturedLimit = slot<Int>()
 
-            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
-            coEvery { roleTransitionRepo.findSince(any(), capture(capturedLimit)) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
+            coEvery { roleTransitionRepo.findSince(any(), capture(capturedLimit)) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -617,9 +606,9 @@ class GetContextToolTest {
             val since = Instant.now().minusSeconds(3600)
             val capturedLimit = slot<Int>()
 
-            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
-            coEvery { roleTransitionRepo.findSince(any(), capture(capturedLimit)) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
+            coEvery { roleTransitionRepo.findSince(any(), capture(capturedLimit)) } returns emptyList()
 
             tool.execute(
                 params(
@@ -638,9 +627,9 @@ class GetContextToolTest {
             val since = Instant.now().minusSeconds(3600)
             val capturedLimit = slot<Int>()
 
-            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
-            coEvery { roleTransitionRepo.findSince(any(), capture(capturedLimit)) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
+            coEvery { roleTransitionRepo.findSince(any(), capture(capturedLimit)) } returns emptyList()
 
             tool.execute(
                 params(
@@ -662,15 +651,13 @@ class GetContextToolTest {
             val rootItem = makeItem(id = rootId, title = "Root", role = Role.WORK, depth = 0)
             val childItem = makeItem(id = childId, title = "Child Work", role = Role.WORK, depth = 1, parentId = rootId)
 
-            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(rootItem, childItem))
-            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
-            coEvery { roleTransitionRepo.findSince(any(), any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns listOf(rootItem, childItem)
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
+            coEvery { roleTransitionRepo.findSince(any(), any()) } returns emptyList()
             coEvery { workItemRepo.findAncestorChains(setOf(rootId, childId)) } returns
-                Result.Success(
-                    mapOf(
-                        rootId to emptyList(),
-                        childId to listOf(rootItem)
-                    )
+                mapOf(
+                    rootId to emptyList(),
+                    childId to listOf(rootItem)
                 )
 
             val result =
@@ -705,9 +692,9 @@ class GetContextToolTest {
             val reviewItem = makeItem(title = "Review Task", role = Role.REVIEW)
             val blockedItem = makeItem(title = "Blocked Task", role = Role.BLOCKED)
 
-            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(workItem))
-            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(listOf(reviewItem))
-            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(listOf(blockedItem))
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns listOf(workItem)
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns listOf(reviewItem)
+            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns listOf(blockedItem)
 
             val result = tool.execute(params(), context)
 
@@ -761,8 +748,8 @@ class GetContextToolTest {
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -812,8 +799,8 @@ class GetContextToolTest {
                     body = "The feature must do X, Y, and Z."
                 )
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(filledNote))
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns listOf(filledNote)
 
             val result =
                 tool.execute(
@@ -856,8 +843,8 @@ class GetContextToolTest {
             val note1 = Note(itemId = itemId, key = "acceptance-criteria", role = "queue", body = "AC content filled in.")
             val note2 = Note(itemId = itemId, key = "effort-estimate", role = "queue", body = "M - medium effort.")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(note1, note2))
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns listOf(note1, note2)
 
             val result =
                 tool.execute(
@@ -908,8 +895,8 @@ class GetContextToolTest {
             // Queue note is filled, work note is missing
             val queueNote = Note(itemId = itemId, key = "acceptance-criteria", role = "queue", body = "AC is done.")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(queueNote))
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns listOf(queueNote)
 
             val result =
                 tool.execute(
@@ -966,8 +953,8 @@ class GetContextToolTest {
             val queueNote = Note(itemId = itemId, key = "acceptance-criteria", role = "queue", body = "AC done.")
             val workNote = Note(itemId = itemId, key = "implementation-notes", role = "work", body = "Impl done.")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(queueNote, workNote))
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns listOf(queueNote, workNote)
 
             val result =
                 tool.execute(
@@ -994,8 +981,8 @@ class GetContextToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.TERMINAL, tags = null)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -1030,8 +1017,8 @@ class GetContextToolTest {
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -1071,11 +1058,11 @@ class GetContextToolTest {
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
-            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(item))
-            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns listOf(item)
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns emptyList()
             // No notes for the item → it is stalled (batch fetch returns empty map)
-            coEvery { noteRepo.findByItemIds(any()) } returns Result.Success(emptyMap())
+            coEvery { noteRepo.findByItemIds(any()) } returns emptyMap()
 
             val result = tool.execute(params(), schemaContext)
 
@@ -1118,10 +1105,10 @@ class GetContextToolTest {
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
-            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(item))
-            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemIds(any()) } returns Result.Success(emptyMap())
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns listOf(item)
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns emptyList()
+            coEvery { noteRepo.findByItemIds(any()) } returns emptyMap()
 
             val result = tool.execute(params(), schemaContext)
 
@@ -1155,10 +1142,10 @@ class GetContextToolTest {
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
-            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(item))
-            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
-            coEvery { roleTransitionRepo.findSince(any(), any()) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemIds(any()) } returns Result.Success(emptyMap())
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns listOf(item)
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
+            coEvery { roleTransitionRepo.findSince(any(), any()) } returns emptyList()
+            coEvery { noteRepo.findByItemIds(any()) } returns emptyMap()
 
             val result =
                 tool.execute(
@@ -1202,10 +1189,10 @@ class GetContextToolTest {
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
-            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(item))
-            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemIds(any()) } returns Result.Success(emptyMap())
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns listOf(item)
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns emptyList()
+            coEvery { noteRepo.findByItemIds(any()) } returns emptyMap()
 
             val result = tool.execute(params(), schemaContext)
 
@@ -1236,10 +1223,10 @@ class GetContextToolTest {
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
-            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(item))
-            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemIds(any()) } returns Result.Success(emptyMap())
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns listOf(item)
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns emptyList()
+            coEvery { noteRepo.findByItemIds(any()) } returns emptyMap()
 
             val result = tool.execute(params(), schemaContext)
 
@@ -1277,10 +1264,10 @@ class GetContextToolTest {
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
-            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(item))
-            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemIds(any()) } returns Result.Success(emptyMap())
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns listOf(item)
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns emptyList()
+            coEvery { noteRepo.findByItemIds(any()) } returns emptyMap()
 
             val result = tool.execute(params(), schemaContext)
 
@@ -1331,14 +1318,12 @@ class GetContextToolTest {
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
             // Child is active (WORK) and stalled (missing required note)
-            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(childItem))
-            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemIds(any()) } returns Result.Success(emptyMap())
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns listOf(childItem)
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns emptyList()
+            coEvery { noteRepo.findByItemIds(any()) } returns emptyMap()
             coEvery { workItemRepo.findAncestorChains(setOf(childId)) } returns
-                Result.Success(
-                    mapOf(childId to listOf(rootItem))
-                )
+                mapOf(childId to listOf(rootItem))
 
             val result =
                 tool.execute(
@@ -1384,14 +1369,12 @@ class GetContextToolTest {
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
-            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(listOf(childItem))
-            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
-            coEvery { roleTransitionRepo.findSince(any(), any()) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemIds(any()) } returns Result.Success(emptyMap())
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns listOf(childItem)
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
+            coEvery { roleTransitionRepo.findSince(any(), any()) } returns emptyList()
+            coEvery { noteRepo.findByItemIds(any()) } returns emptyMap()
             coEvery { workItemRepo.findAncestorChains(setOf(childId)) } returns
-                Result.Success(
-                    mapOf(childId to listOf(rootItem))
-                )
+                mapOf(childId to listOf(rootItem))
 
             val result =
                 tool.execute(
@@ -1429,8 +1412,8 @@ class GetContextToolTest {
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -1465,8 +1448,8 @@ class GetContextToolTest {
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -1488,8 +1471,8 @@ class GetContextToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.WORK, tags = null)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -1513,8 +1496,8 @@ class GetContextToolTest {
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -1551,8 +1534,8 @@ class GetContextToolTest {
             // Note row exists in the DB but body is blank (whitespace only)
             val blankBodyNote = Note(itemId = itemId, key = "implementation-notes", role = "work", body = "   ")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(blankBodyNote))
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns listOf(blankBodyNote)
 
             val result =
                 tool.execute(
@@ -1600,8 +1583,8 @@ class GetContextToolTest {
                 )
             every { noteSchemaService.getSchemaForType("feature-task") } returns typeSchema
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val result = tool.execute(params("itemId" to JsonPrimitive(itemId.toString())), schemaContext)
             val data = extractData(result)
@@ -1636,8 +1619,8 @@ class GetContextToolTest {
                     NoteSchemaEntry(key = "security-review", role = Role.REVIEW, required = true, description = "Security review")
                 )
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val result = tool.execute(params("itemId" to JsonPrimitive(itemId.toString())), schemaContext)
             val data = extractData(result)
@@ -1672,9 +1655,9 @@ class GetContextToolTest {
                 )
             every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             // No notes exist → first unfilled required note drives skillPointer
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -1715,12 +1698,12 @@ class GetContextToolTest {
                     verification = verification
                 )
 
-            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
-            coEvery { roleTransitionRepo.findSince(any(), any()) } returns Result.Success(listOf(transition))
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
+            coEvery { roleTransitionRepo.findSince(any(), any()) } returns listOf(transition)
             // Titles for transition items are resolved via findByIds.
             coEvery { workItemRepo.findByIds(setOf(itemId)) } returns
-                Result.Success(listOf(makeItem(id = itemId, title = "Started Task", role = Role.WORK)))
+                listOf(makeItem(id = itemId, title = "Started Task", role = Role.WORK))
 
             val result =
                 tool.execute(
@@ -1763,11 +1746,11 @@ class GetContextToolTest {
                     verification = null
                 )
 
-            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
-            coEvery { roleTransitionRepo.findSince(any(), any()) } returns Result.Success(listOf(transition))
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
+            coEvery { roleTransitionRepo.findSince(any(), any()) } returns listOf(transition)
             coEvery { workItemRepo.findByIds(setOf(itemId)) } returns
-                Result.Success(listOf(makeItem(id = itemId, title = "Completed Task", role = Role.TERMINAL)))
+                listOf(makeItem(id = itemId, title = "Completed Task", role = Role.TERMINAL))
 
             val result =
                 tool.execute(
@@ -1794,9 +1777,9 @@ class GetContextToolTest {
     @Test
     fun `mode=health-check explicit returns health-check response`(): Unit =
         runBlocking {
-            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns emptyList()
 
             val result =
                 tool.execute(
@@ -1858,8 +1841,8 @@ class GetContextToolTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.WORK, tags = null)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val result =
                 tool.execute(

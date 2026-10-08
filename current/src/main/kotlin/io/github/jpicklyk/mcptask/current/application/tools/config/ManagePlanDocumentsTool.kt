@@ -2,11 +2,11 @@ package io.github.jpicklyk.mcptask.current.application.tools.config
 
 import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentService
 import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentStashResult
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocument
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentSummary
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.security.PathContainment
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
@@ -265,20 +265,20 @@ optionally filtered to a single `status` (pending or adopted).
         val slug = requireString(params, "slug")
 
         val service = PlanDocumentService(context.repositoryProvider, context.unitOfWork)
-        return when (val result = service.get(rootId!!, slug)) {
-            is Result.Success -> {
-                val document =
-                    result.data ?: return errorResponse(
-                        "No plan document found for root $rootId, slug $slug",
-                        ErrorCodes.RESOURCE_NOT_FOUND
+        return run {
+            val result =
+                legacyRead({
+                    return@run errorResponse(
+                        "Failed to read plan document: $it",
+                        ErrorCodes.DATABASE_ERROR
                     )
-                successResponse(documentToJson(document, includeBody = true))
-            }
-            is Result.Error ->
-                errorResponse(
-                    "Failed to read plan document: ${result.error.message}",
-                    ErrorCodes.DATABASE_ERROR
+                }) { service.get(rootId!!, slug) }
+            val document =
+                result ?: return errorResponse(
+                    "No plan document found for root $rootId, slug $slug",
+                    ErrorCodes.RESOURCE_NOT_FOUND
                 )
+            successResponse(documentToJson(document, includeBody = true))
         }
     }
 
@@ -295,19 +295,20 @@ optionally filtered to a single `status` (pending or adopted).
         val statusFilter = optionalString(params, "status")?.let { PlanDocumentStatus.fromDbValue(it) }
 
         val service = PlanDocumentService(context.repositoryProvider, context.unitOfWork)
-        return when (val result = service.list(rootId!!, statusFilter)) {
-            is Result.Success ->
-                successResponse(
-                    buildJsonObject {
-                        put("rootId", JsonPrimitive(rootId.toString()))
-                        put("plans", JsonArray(result.data.map { summaryToJson(it) }))
-                    }
-                )
-            is Result.Error ->
-                errorResponse(
-                    "Failed to list plan documents: ${result.error.message}",
-                    ErrorCodes.DATABASE_ERROR
-                )
+        return run {
+            val result =
+                legacyRead({
+                    return@run errorResponse(
+                        "Failed to list plan documents: $it",
+                        ErrorCodes.DATABASE_ERROR
+                    )
+                }) { service.list(rootId!!, statusFilter) }
+            successResponse(
+                buildJsonObject {
+                    put("rootId", JsonPrimitive(rootId.toString()))
+                    put("plans", JsonArray(result.map { summaryToJson(it) }))
+                }
+            )
         }
     }
 

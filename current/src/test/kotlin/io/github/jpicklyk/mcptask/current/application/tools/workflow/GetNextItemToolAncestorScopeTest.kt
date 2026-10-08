@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
@@ -63,7 +62,7 @@ class GetNextItemToolAncestorScopeTest {
             } else {
                 WorkItem(parentId = parentId, title = title, role = role, priority = priority, depth = depth)
             }
-        return (context.workItemRepository().create(item) as Result.Success).data
+        return (context.workItemRepository().create(item)!!)
     }
 
     private fun extractRecommendations(result: JsonElement): JsonArray {

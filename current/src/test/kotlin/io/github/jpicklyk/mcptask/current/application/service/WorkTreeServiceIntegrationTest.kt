@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteDependencyRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteNoteRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLitePlanDocumentRepository
@@ -20,6 +19,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -115,12 +116,12 @@ class WorkTreeServiceIntegrationTest {
 
             // Both items must be retrievable from the database
             val fetchedRoot = workItemRepository.getById(rootItem.id)
-            assertTrue(fetchedRoot is Result.Success, "Root item should exist in DB after commit")
-            assertEquals(rootItem.id, (fetchedRoot as Result.Success).data.id)
+            assertNotNull(fetchedRoot, "Root item should exist in DB after commit")
+            assertEquals(rootItem.id, fetchedRoot.id)
 
             val fetchedChild = workItemRepository.getById(childItem.id)
-            assertTrue(fetchedChild is Result.Success, "Child item should exist in DB after commit")
-            assertEquals(childItem.id, (fetchedChild as Result.Success).data.id)
+            assertNotNull(fetchedChild, "Child item should exist in DB after commit")
+            assertEquals(childItem.id, fetchedChild.id)
 
             // Dependency ref mapping is correct
             assertEquals(rootItem.id, result.refToId["root"])
@@ -172,7 +173,7 @@ class WorkTreeServiceIntegrationTest {
         // Root item was rolled back — it must NOT be present in the DB
         val fetchedRoot = runBlocking { workItemRepository.getById(rootItem.id) }
         assertTrue(
-            fetchedRoot is Result.Error,
+            fetchedRoot == null,
             "Root item should NOT be present in DB (transaction was rolled back); got: $fetchedRoot"
         )
     }
@@ -227,9 +228,9 @@ class WorkTreeServiceIntegrationTest {
 
         // Both items must have been rolled back
         val fetchedX = runBlocking { workItemRepository.getById(itemX.id) }
-        assertTrue(fetchedX is Result.Error, "Item X should not be in DB after rollback; got: $fetchedX")
+        assertNull(fetchedX, "Item X should not be in DB after rollback; got: $fetchedX")
         val fetchedY = runBlocking { workItemRepository.getById(itemY.id) }
-        assertTrue(fetchedY is Result.Error, "Item Y should not be in DB after rollback; got: $fetchedY")
+        assertNull(fetchedY, "Item Y should not be in DB after rollback; got: $fetchedY")
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -292,7 +293,7 @@ class WorkTreeServiceIntegrationTest {
 
         // All items must have been rolled back
         val fetchedA = runBlocking { workItemRepository.getById(itemA.id) }
-        assertTrue(fetchedA is Result.Error, "Item A should not be in DB after rollback; got: $fetchedA")
+        assertNull(fetchedA, "Item A should not be in DB after rollback; got: $fetchedA")
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -348,11 +349,11 @@ class WorkTreeServiceIntegrationTest {
 
             // All items must be in the DB
             val fetchedA = workItemRepository.getById(itemA.id)
-            assertTrue(fetchedA is Result.Success, "Item A should be in DB; got: $fetchedA")
+            assertNotNull(fetchedA, "Item A should be in DB; got: $fetchedA")
             val fetchedB = workItemRepository.getById(itemB.id)
-            assertTrue(fetchedB is Result.Success, "Item B should be in DB; got: $fetchedB")
+            assertNotNull(fetchedB, "Item B should be in DB; got: $fetchedB")
             val fetchedC = workItemRepository.getById(itemC.id)
-            assertTrue(fetchedC is Result.Success, "Item C should be in DB; got: $fetchedC")
+            assertNotNull(fetchedC, "Item C should be in DB; got: $fetchedC")
         }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -403,7 +404,7 @@ class WorkTreeServiceIntegrationTest {
             // Neither item should be present — the whole transaction was rolled back
             val fetchedFirst = workItemRepository.getById(sharedId)
             assertTrue(
-                fetchedFirst is Result.Error,
+                fetchedFirst == null,
                 "Item with duplicate UUID should NOT be in DB after rollback; got: $fetchedFirst"
             )
         }
@@ -478,10 +479,10 @@ class WorkTreeServiceIntegrationTest {
 
             // Both items in DB
             val fetchedRoot = workItemRepository.getById(rootItem.id)
-            assertTrue(fetchedRoot is Result.Success, "Root item should exist in DB after commit")
+            assertNotNull(fetchedRoot, "Root item should exist in DB after commit")
 
             val fetchedChild = workItemRepository.getById(childItem.id)
-            assertTrue(fetchedChild is Result.Success, "Child item should exist in DB after commit")
+            assertNotNull(fetchedChild, "Child item should exist in DB after commit")
 
             // Dependency exists in DB (query via repository)
             val rootDeps = dependencyRepository.findByItemId(rootItem.id)
@@ -490,14 +491,14 @@ class WorkTreeServiceIntegrationTest {
 
             // Notes exist in DB with correct content
             val fetchedNote1Result = noteRepository.findByItemIdAndKey(rootItem.id, "requirements")
-            assertTrue(fetchedNote1Result is Result.Success, "Note 1 lookup should succeed")
-            val fetchedNote1 = (fetchedNote1Result as Result.Success).data
+            assertNotNull(fetchedNote1Result, "Note 1 lookup should succeed")
+            val fetchedNote1 = fetchedNote1Result
             assertTrue(fetchedNote1 != null, "Note 1 should exist in DB")
             assertEquals("Root requirements note", fetchedNote1.body)
 
             val fetchedNote2Result = noteRepository.findByItemIdAndKey(childItem.id, "approach")
-            assertTrue(fetchedNote2Result is Result.Success, "Note 2 lookup should succeed")
-            val fetchedNote2 = (fetchedNote2Result as Result.Success).data
+            assertNotNull(fetchedNote2Result, "Note 2 lookup should succeed")
+            val fetchedNote2 = fetchedNote2Result
             assertTrue(fetchedNote2 != null, "Note 2 should exist in DB")
             assertEquals("Child approach note", fetchedNote2.body)
         }
@@ -553,14 +554,14 @@ class WorkTreeServiceIntegrationTest {
         // Root item was rolled back — NOT in DB
         val fetchedRoot = runBlocking { workItemRepository.getById(rootItem.id) }
         assertTrue(
-            fetchedRoot is Result.Error,
+            fetchedRoot == null,
             "Root item should NOT be present in DB (transaction was rolled back); got: $fetchedRoot"
         )
 
         // Note is NOT in DB — rolled back along with everything else
         val fetchedNotes = runBlocking { noteRepository.findByItemId(rootItem.id) }
-        assertTrue(fetchedNotes is Result.Success, "findByItemId should succeed (returns empty list)")
-        val noteList = (fetchedNotes as Result.Success).data
+        assertNotNull(fetchedNotes, "findByItemId should succeed (returns empty list)")
+        val noteList = fetchedNotes
         assertTrue(
             noteList.isEmpty(),
             "Note should NOT exist in DB — transaction was rolled back; found: $noteList"

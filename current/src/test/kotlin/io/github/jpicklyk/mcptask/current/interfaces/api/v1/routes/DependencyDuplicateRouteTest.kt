@@ -40,8 +40,8 @@ class DependencyDuplicateRouteTest {
         titleA: String = "A",
         titleB: String = "B",
     ): Pair<WorkItem, WorkItem> {
-        val a = repo.workItemRepository().create(WorkItem(title = titleA, depth = 0)).getOrNull()!!
-        val b = repo.workItemRepository().create(WorkItem(title = titleB, depth = 0)).getOrNull()!!
+        val a = repo.workItemRepository().create(WorkItem(title = titleA, depth = 0))!!
+        val b = repo.workItemRepository().create(WorkItem(title = titleB, depth = 0))!!
         return Pair(a, b)
     }
 

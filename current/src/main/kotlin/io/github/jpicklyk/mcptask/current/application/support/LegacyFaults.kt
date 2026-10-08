@@ -1,27 +1,69 @@
 package io.github.jpicklyk.mcptask.current.application.support
 
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
+import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.VersionConflictException
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import java.sql.SQLException
 
 /**
- * Site-local legacy mapping of unit-of-work faults onto the 3.x wire shapes, until the error catalog reaches
- * the wire (P16). A fault translated at the unit boundary keeps each site's existing code and message prefix:
+ * Site-local legacy mapping of store faults onto the 3.x wire shapes, until the error catalog reaches
+ * the wire (P16). A fault keeps each site's existing code and message prefix:
  *
- * - MCP: `DATABASE_ERROR` with `"<site prefix>: <message>"` (also for READ faults, never RESOURCE_NOT_FOUND).
- * - REST: `500 db_error` with the route's existing text (also for READ faults; not-found stays for a missing row).
+ * - MCP: `DATABASE_ERROR` with `"<site prefix>: <message>"`, for writes AND reads (F10), never
+ *   RESOURCE_NOT_FOUND.
+ * - REST: `500 db_error` with the route's existing text, for writes AND reads (F4); not-found stays
+ *   for a missing row only.
  * - Only `version_conflict` is distinct: its [message] is the 3.x store text, and REST PATCH maps it to 409.
  *
- * [message] is the translated message: the INNERMOST SQL text for a persistence fault.
+ * A write fault arrives as the [DomainError] the unit boundary translated; a read fault (outside a unit)
+ * arrives as the thrown exception, mapped by [legacyRead]. Either way the message carries the innermost
+ * SQL text.
  */
 object LegacyFaults {
     /** The store-style message of a unit fault (the 3.x version-mismatch text for `version_conflict`). */
     fun message(error: DomainError): String = if (isVersionConflict(error)) VersionConflictException.MESSAGE else error.message
+
+    /** The store-style message of a thrown store fault: the innermost SQL exception text, else the throwable's own. */
+    fun message(fault: Throwable): String {
+        var innermostSql: SQLException? = null
+        var current: Throwable? = fault
+        var depth = 0
+        while (current != null && depth < MAX_CHAIN) {
+            if (current is SQLException) innermostSql = current
+            if (current is VersionConflictException) return VersionConflictException.MESSAGE
+            current = current.cause.takeIf { it !== current }
+            depth++
+        }
+        return innermostSql?.message?.takeIf { it.isNotBlank() }
+            ?: fault.message?.takeIf { it.isNotBlank() }
+            ?: fault.javaClass.simpleName
+    }
+
+    /**
+     * A fault THROWN out of a unit (one the boundary does not translate: a non-SQL exception, or any
+     * exception under a no-transaction unit of work) as a [DomainError]: a [VersionConflictException]
+     * becomes `version_conflict`, anything else `internal` carrying [message].
+     */
+    fun fault(e: Throwable): DomainError {
+        var current: Throwable? = e
+        var depth = 0
+        while (current != null && depth < MAX_CHAIN) {
+            if (current is VersionConflictException) {
+                val id = current.id.toString()
+                return DomainError(
+                    code = ErrorCode.VERSION_CONFLICT,
+                    message = VersionConflictException.MESSAGE,
+                    detail = ErrorDetail.VersionConflict(EntityKind.ITEM, id, current.expected, current.actual),
+                    fixArgs = mapOf("kind" to "item", "id" to id, "actual" to current.actual.toString())
+                )
+            }
+            current = current.cause.takeIf { it !== current }
+            depth++
+        }
+        return DomainError(ErrorCode.INTERNAL, message(e))
+    }
 
     /** True when [error] is an optimistic-locking conflict (REST PATCH maps it to 409 `version_conflict`). */
     fun isVersionConflict(error: DomainError): Boolean = error.code == ErrorCode.VERSION_CONFLICT
@@ -32,45 +74,35 @@ object LegacyFaults {
         error: DomainError
     ): String = "$prefix: ${message(error)}"
 
-    /**
-     * Bridge while the stores still return `Result` (removed when they throw): the [RepositoryError] a site's
-     * existing mapping expects for a fault translated at the unit boundary. `version_conflict` becomes the
-     * 3.x [RepositoryError.ConflictError]; every other fault a [RepositoryError.DatabaseError].
-     */
-    fun toRepositoryError(error: DomainError): RepositoryError =
-        if (isVersionConflict(error)) {
-            RepositoryError.ConflictError(VersionConflictException.MESSAGE)
-        } else {
-            RepositoryError.DatabaseError(error.message)
-        }
-
-    /**
-     * Bridge while the stores still return `Result` (removed when they throw): the [DomainError] a unit block
-     * returns as [Outcome.Err] when a store reported [error]. A unit must never continue to [Outcome.Ok]
-     * after a store failure (the shared connection may already be rolled back).
-     */
-    fun storeFailure(error: RepositoryError): DomainError = DomainError(ErrorCode.INTERNAL, error.message.ifBlank { "Store failure" })
-
-    /** [storeFailure] as an [Outcome.Err]. */
-    fun <T> err(error: RepositoryError): Outcome<T> = Outcome.Err(storeFailure(error))
-
-    /** [storeFailure] of a failed [Result] as an [Outcome.Err]. */
-    fun <T> err(result: Result.Error): Outcome<T> = err(result.error)
+    private const val MAX_CHAIN = 32
 }
 
 /**
- * Bridge while the stores still return `Result` (removed when they throw): runs [block] as ONE write unit
- * labelled [op]. A [Result.Success] commits; a [Result.Error] rolls the unit back (a store failure never
- * continues to a commit) and is returned unchanged; a fault of the unit itself becomes a [Result.Error]
- * mapped by [LegacyFaults.toRepositoryError].
+ * The legacy READ mapper (F4/F10): runs [block], a store read, and hands a thrown store fault to [onFault]
+ * with its legacy message ([LegacyFaults.message]); [onFault] returns the site's existing error response
+ * (typically a non-local `return`). Cancellation is rethrown. A missing row is not a fault: stores return
+ * null for it.
  */
-suspend fun <T> UnitOfWork.writeResult(
-    op: String,
-    block: suspend WriteScope.() -> Result<T>
-): Result<T> =
-    writeUnit<Result<T>>(op, onFault = { Result.Error(LegacyFaults.toRepositoryError(it)) }) {
-        when (val result = block()) {
-            is Result.Success -> UnitResult.Commit(result)
-            is Result.Error -> UnitResult.Rollback(result)
-        }
+inline fun <T> legacyRead(
+    onFault: (message: String) -> Nothing,
+    block: () -> T
+): T =
+    try {
+        block()
+    } catch (e: Exception) {
+        e.rethrowIfCancellation()
+        onFault(LegacyFaults.message(e))
+    }
+
+/**
+ * The legacy DEGRADING read: runs [block] (an optional, best-effort store read, e.g. a page total or an
+ * `include=` decoration) and returns null on a store fault, as the 3.x `Result.Error -> null` sites did.
+ * Cancellation is rethrown.
+ */
+inline fun <T> legacyReadOrNull(block: () -> T): T? =
+    try {
+        block()
+    } catch (e: Exception) {
+        e.rethrowIfCancellation()
+        null
     }

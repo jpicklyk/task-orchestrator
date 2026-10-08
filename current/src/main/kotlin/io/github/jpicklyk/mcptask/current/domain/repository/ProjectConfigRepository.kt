@@ -26,7 +26,7 @@ interface ProjectConfigRepository {
     suspend fun upsert(
         rootItemId: UUID,
         configYaml: String
-    ): Result<ProjectConfig>
+    ): ProjectConfig
 
     /**
      * Inserts or replaces the config row for [rootItemId] with [configYaml], evaluating the
@@ -46,19 +46,19 @@ interface ProjectConfigRepository {
      * 3. Otherwise the row is written (inserted if absent, updated if present) and
      *    [GuardedUpsertOutcome.Applied] is returned.
      *
-     * A transaction that loses a race between its guard read and its write (another writer
-     * committed first) is retried internally, bounded, re-evaluating the guards against the
-     * winner's row; exhausting the retry budget returns [Result.Error].
+     * The guard read and the write run in ONE attempt inside the caller's write unit (IMMEDIATE), so
+     * no other writer can commit in between; a lost compare-and-set is an invariant violation and
+     * throws [IllegalStateException]. A database failure is thrown.
      */
     suspend fun upsertGuarded(
         rootItemId: UUID,
         configYaml: String,
         expectedFingerprint: String? = null,
         rejectSuperseded: Boolean = false
-    ): Result<GuardedUpsertOutcome>
+    ): GuardedUpsertOutcome
 
     /** Returns the full stored config for [rootItemId] (yaml + fingerprint + updatedAt), or null if no row exists. */
-    suspend fun get(rootItemId: UUID): Result<ProjectConfig?>
+    suspend fun get(rootItemId: UUID): ProjectConfig?
 
     /**
      * Returns only the stored fingerprint for [rootItemId], or null if no row exists.
@@ -68,10 +68,10 @@ interface ProjectConfigRepository {
      * decide, on every read, whether a re-parse is needed without paying for the full document
      * when the cached fingerprint still matches.
      */
-    suspend fun getFingerprint(rootItemId: UUID): Result<String?>
+    suspend fun getFingerprint(rootItemId: UUID): String?
 
     /** Deletes the config row for [rootItemId], if any. Returns true if a row was deleted. */
-    suspend fun delete(rootItemId: UUID): Result<Boolean>
+    suspend fun delete(rootItemId: UUID): Boolean
 
     /**
      * Computes the config fingerprint of [configYaml] — the exact algorithm [upsert] uses when
@@ -95,5 +95,5 @@ interface ProjectConfigRepository {
     suspend fun classifyFingerprint(
         rootItemId: UUID,
         fingerprint: String
-    ): Result<FingerprintRelation>
+    ): FingerprintRelation
 }

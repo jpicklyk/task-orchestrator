@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
@@ -34,6 +33,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -67,7 +67,7 @@ private fun createRoot(
     title: String = "Project Root",
 ): WorkItem =
     runBlocking {
-        (repo.workItemRepository().create(WorkItem(title = title, type = "project", depth = 0)) as Result.Success).data
+        (repo.workItemRepository().create(WorkItem(title = title, type = "project", depth = 0))!!)
     }
 
 class PlanDocumentPutRouteTest {
@@ -95,8 +95,8 @@ class PlanDocumentPutRouteTest {
             assertTrue(!body.contains("\"body\""), "PUT response should not echo the body back")
 
             val persisted = runBlocking { repo.planDocumentRepository().get(root.id, "plan-a") }
-            assertTrue(persisted is Result.Success)
-            assertEquals("# Plan A\n", (persisted as Result.Success).data?.body)
+            assertNotNull(persisted)
+            assertEquals("# Plan A\n", persisted?.body)
         }
 
     @Test
@@ -115,7 +115,7 @@ class PlanDocumentPutRouteTest {
 
             assertEquals(HttpStatusCode.Forbidden, response.status)
             val persisted = runBlocking { repo.planDocumentRepository().get(root.id, "plan-a") }
-            assertTrue((persisted as Result.Success).data == null)
+            assertTrue(persisted == null)
         }
 
     @Test
@@ -168,8 +168,8 @@ class PlanDocumentPutRouteTest {
                     (
                         repo.workItemRepository().create(
                             WorkItem(title = "Child", parentId = parent.id, depth = 1),
-                        ) as Result.Success
-                    ).data
+                        )!!
+                    )
                 }
             application { configurePlanDocumentTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -200,7 +200,7 @@ class PlanDocumentPutRouteTest {
 
             assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
             val persisted = runBlocking { repo.planDocumentRepository().get(root.id, "plan-a") }
-            assertTrue((persisted as Result.Success).data == null)
+            assertTrue(persisted == null)
         }
 
     @Test
@@ -224,7 +224,7 @@ class PlanDocumentPutRouteTest {
 
             assertEquals(HttpStatusCode.OK, response.status)
             val persisted = runBlocking { repo.planDocumentRepository().get(root.id, "plan-a") }
-            assertEquals("v2", (persisted as Result.Success).data?.body)
+            assertEquals("v2", persisted?.body)
         }
 
     @Test
@@ -241,7 +241,7 @@ class PlanDocumentPutRouteTest {
             }
             val adopter =
                 runBlocking {
-                    (repo.workItemRepository().create(WorkItem(title = "Adopter")) as Result.Success).data
+                    (repo.workItemRepository().create(WorkItem(title = "Adopter"))!!)
                 }
             runBlocking { repo.planDocumentRepository().markAdopted(root.id, "plan-a", adopter.id) }
 
@@ -257,7 +257,7 @@ class PlanDocumentPutRouteTest {
             assertTrue(body.contains("adopted_conflict"))
 
             val persisted = runBlocking { repo.planDocumentRepository().get(root.id, "plan-a") }
-            assertEquals("v1", (persisted as Result.Success).data?.body, "Rejected push must not overwrite the adopted row")
+            assertEquals("v1", persisted?.body, "Rejected push must not overwrite the adopted row")
         }
 }
 
@@ -373,7 +373,7 @@ class PlanDocumentListRouteTest {
             }
             val adopter =
                 runBlocking {
-                    (repo.workItemRepository().create(WorkItem(title = "Adopter")) as Result.Success).data
+                    (repo.workItemRepository().create(WorkItem(title = "Adopter"))!!)
                 }
             runBlocking { repo.planDocumentRepository().markAdopted(root.id, "plan-a", adopter.id) }
 
@@ -429,8 +429,8 @@ class PlanDocumentConvergenceTest {
                 }
             assertEquals(HttpStatusCode.OK, response.status)
 
-            val docViaTool = (runBlocking { repo.planDocumentRepository().get(rootViaTool.id, "plan-a") } as Result.Success).data
-            val docViaRest = (runBlocking { repo.planDocumentRepository().get(rootViaRest.id, "plan-a") } as Result.Success).data
+            val docViaTool = (runBlocking { repo.planDocumentRepository().get(rootViaTool.id, "plan-a") }!!)
+            val docViaRest = (runBlocking { repo.planDocumentRepository().get(rootViaRest.id, "plan-a") }!!)
             assertEquals(docViaTool?.contentHash, docViaRest?.contentHash, "Content hashes must match for identical bytes")
             assertEquals(docViaTool?.body, docViaRest?.body, "Stored bytes must match")
         }

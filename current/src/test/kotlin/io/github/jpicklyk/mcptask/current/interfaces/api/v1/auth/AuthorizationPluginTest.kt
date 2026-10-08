@@ -3,8 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.ktor.server.application.ApplicationCall
 import io.ktor.util.Attributes
@@ -126,7 +124,7 @@ class AuthorizationPluginTest {
             val repo = mockk<WorkItemRepository>()
             // The item itself is rootId, so the ancestor chain is empty (it's a root).
             coEvery { repo.findAncestorChains(setOf(rootId)) } returns
-                Result.Success(mapOf(rootId to emptyList()))
+                mapOf(rootId to emptyList())
 
             assertTrue(enforceScopeForItem(call, rootId, repo))
         }
@@ -141,7 +139,7 @@ class AuthorizationPluginTest {
             val repo = mockk<WorkItemRepository>()
             // The child's ancestor chain contains the root.
             coEvery { repo.findAncestorChains(setOf(childId)) } returns
-                Result.Success(mapOf(childId to listOf(root)))
+                mapOf(childId to listOf(root))
 
             assertTrue(enforceScopeForItem(call, childId, repo))
         }
@@ -157,7 +155,7 @@ class AuthorizationPluginTest {
             val repo = mockk<WorkItemRepository>()
             // Item belongs to a different root.
             coEvery { repo.findAncestorChains(setOf(itemId)) } returns
-                Result.Success(mapOf(itemId to listOf(other)))
+                mapOf(itemId to listOf(other))
 
             assertFalse(enforceScopeForItem(call, itemId, repo))
         }
@@ -183,7 +181,7 @@ class AuthorizationPluginTest {
             val repo = mockk<WorkItemRepository>()
             // rootIds null -> no ancestor chain lookup needed.
             // Tag check requires getById.
-            coEvery { repo.getById(itemId) } returns Result.Success(item)
+            coEvery { repo.getById(itemId) } returns item
 
             assertTrue(enforceScopeForItem(call, itemId, repo))
         }
@@ -195,7 +193,7 @@ class AuthorizationPluginTest {
             val item = makeWorkItem(id = itemId, tags = "bug,database")
             val call = makeCall(makePrincipal(rootIds = null, tagsInclude = setOf("api", "feature")))
             val repo = mockk<WorkItemRepository>()
-            coEvery { repo.getById(itemId) } returns Result.Success(item)
+            coEvery { repo.getById(itemId) } returns item
 
             assertFalse(enforceScopeForItem(call, itemId, repo))
         }
@@ -207,7 +205,7 @@ class AuthorizationPluginTest {
             val item = makeWorkItem(id = itemId, tags = null)
             val call = makeCall(makePrincipal(rootIds = null, tagsInclude = setOf("feature")))
             val repo = mockk<WorkItemRepository>()
-            coEvery { repo.getById(itemId) } returns Result.Success(item)
+            coEvery { repo.getById(itemId) } returns item
 
             assertFalse(enforceScopeForItem(call, itemId, repo))
         }
@@ -229,8 +227,7 @@ class AuthorizationPluginTest {
             val itemId = UUID.randomUUID()
             val call = makeCall(makePrincipal(rootIds = setOf(rootId)))
             val repo = mockk<WorkItemRepository>()
-            coEvery { repo.findAncestorChains(setOf(itemId)) } returns
-                Result.Error(RepositoryError.DatabaseError("DB error"))
+            coEvery { repo.findAncestorChains(setOf(itemId)) } throws IllegalStateException("DB error")
 
             assertFalse(enforceScopeForItem(call, itemId, repo))
         }

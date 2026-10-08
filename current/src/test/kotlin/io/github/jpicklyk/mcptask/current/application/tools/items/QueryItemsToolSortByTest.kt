@@ -204,7 +204,7 @@ class QueryItemsToolSortByTest {
             val t3 = Instant.parse("2025-12-01T00:00:00Z")
 
             val root =
-                context.workItemRepository().create(WorkItem(title = "Scope Root")).getOrNull()!!
+                context.workItemRepository().create(WorkItem(title = "Scope Root"))!!
             context.workItemRepository().create(
                 WorkItem(
                     title = "A",
@@ -344,8 +344,7 @@ class QueryItemsToolSortByTest {
                 listOf("Tie A", "Tie B", "Tie C").map { title ->
                     context
                         .workItemRepository()
-                        .create(WorkItem(title = title, priority = Priority.MEDIUM))
-                        .getOrNull()!!
+                        .create(WorkItem(title = title, priority = Priority.MEDIUM))!!
                         .id
                 }
             val expectedOrder = ids.sortedBy { it.toString() }

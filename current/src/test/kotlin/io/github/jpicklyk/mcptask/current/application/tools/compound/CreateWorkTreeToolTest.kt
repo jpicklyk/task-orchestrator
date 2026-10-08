@@ -11,8 +11,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ChildPlacement
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.mockk.coEvery
@@ -45,12 +43,8 @@ class CreateWorkTreeToolTest {
         // getById stub the individual test configures — no expectation changes.
         coEvery { workItemRepo.resolveChildPlacement(any()) } coAnswers {
             val parentId = firstArg<UUID>()
-            when (val parent = workItemRepo.getById(parentId)) {
-                is Result.Success ->
-                    Result.Success(
-                        ChildPlacement(parentId, parent.data.depth + 1, parent.data.rootId ?: parent.data.id),
-                    )
-                is Result.Error -> parent
+            workItemRepo.getById(parentId)?.let { parent ->
+                ChildPlacement(parentId, parent.depth + 1, parent.rootId ?: parent.id)
             }
         }
 
@@ -301,7 +295,7 @@ class CreateWorkTreeToolTest {
                     depth = 2,
                     parentId = UUID.randomUUID() // depth=2 means it has a parent
                 )
-            coEvery { workItemRepo.getById(parentItemId) } returns Result.Success(parentItem)
+            coEvery { workItemRepo.getById(parentItemId) } returns parentItem
             coEvery { mockExecutor.execute(any()) } answers {
                 val input = firstArg<WorkTreeInput>()
                 echoResult(input)
@@ -334,7 +328,7 @@ class CreateWorkTreeToolTest {
                     depth = 3,
                     parentId = UUID.randomUUID()
                 )
-            coEvery { workItemRepo.getById(parentItemId) } returns Result.Success(parentItem)
+            coEvery { workItemRepo.getById(parentItemId) } returns parentItem
             coEvery { mockExecutor.execute(any()) } answers {
                 val input = firstArg<WorkTreeInput>()
                 echoResult(input)
@@ -569,10 +563,7 @@ class CreateWorkTreeToolTest {
     fun `nonexistent parentId returns error response`(): Unit =
         runBlocking {
             val missingId = UUID.randomUUID()
-            coEvery { workItemRepo.getById(missingId) } returns
-                Result.Error(
-                    RepositoryError.NotFound(missingId, "WorkItem not found")
-                )
+            coEvery { workItemRepo.getById(missingId) } returns null
 
             val params = buildParams(parentId = missingId.toString())
             val result = tool.execute(params, context)
@@ -597,7 +588,7 @@ class CreateWorkTreeToolTest {
                     title = "Root-level parent",
                     depth = 0
                 )
-            coEvery { workItemRepo.getById(parentItemId) } returns Result.Success(parentItem)
+            coEvery { workItemRepo.getById(parentItemId) } returns parentItem
             coEvery { mockExecutor.execute(any()) } answers {
                 val input = firstArg<WorkTreeInput>()
                 echoResult(input)
@@ -632,7 +623,7 @@ class CreateWorkTreeToolTest {
                     depth = 1,
                     parentId = UUID.randomUUID()
                 )
-            coEvery { workItemRepo.getById(parentItemId) } returns Result.Success(parentItem)
+            coEvery { workItemRepo.getById(parentItemId) } returns parentItem
             coEvery { mockExecutor.execute(any()) } answers {
                 val input = firstArg<WorkTreeInput>()
                 echoResult(input)
@@ -667,7 +658,7 @@ class CreateWorkTreeToolTest {
                     depth = 2,
                     parentId = UUID.randomUUID()
                 )
-            coEvery { workItemRepo.getById(parentItemId) } returns Result.Success(parentItem)
+            coEvery { workItemRepo.getById(parentItemId) } returns parentItem
             coEvery { mockExecutor.execute(any()) } answers {
                 val input = firstArg<WorkTreeInput>()
                 echoResult(input)
@@ -701,10 +692,7 @@ class CreateWorkTreeToolTest {
         runBlocking {
             // Trigger a real error: parentId that does not exist
             val missingId = UUID.randomUUID()
-            coEvery { workItemRepo.getById(missingId) } returns
-                Result.Error(
-                    RepositoryError.NotFound(missingId, "WorkItem not found: $missingId")
-                )
+            coEvery { workItemRepo.getById(missingId) } returns null
 
             val params = buildParams(parentId = missingId.toString())
             val result = tool.execute(params, context)
@@ -2828,7 +2816,7 @@ class CreateWorkTreeToolTest {
                         depth = 2,
                         parentId = UUID.randomUUID()
                     )
-                coEvery { workItemRepo.getById(existingRootId) } returns Result.Success(existingRoot)
+                coEvery { workItemRepo.getById(existingRootId) } returns existingRoot
 
                 var capturedInput: WorkTreeInput? = null
                 coEvery { mockExecutor.execute(any()) } answers {
@@ -2886,8 +2874,7 @@ class CreateWorkTreeToolTest {
         fun `attach mode - missing root id returns RESOURCE_NOT_FOUND error`(): Unit =
             runBlocking {
                 val missingId = UUID.randomUUID()
-                coEvery { workItemRepo.getById(missingId) } returns
-                    Result.Error(RepositoryError.NotFound(missingId, "WorkItem not found"))
+                coEvery { workItemRepo.getById(missingId) } returns null
 
                 val params =
                     buildJsonObject {

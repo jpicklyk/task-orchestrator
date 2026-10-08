@@ -93,8 +93,8 @@ class TagScopeReadRoutesTest {
             val repo = db.repositoryProvider()
             val (itemA, itemB) =
                 runBlocking {
-                    val a = repo.workItemRepository().create(WorkItem(title = "TransAlphaS3", tags = "alpha", depth = 0)).getOrNull()!!
-                    val b = repo.workItemRepository().create(WorkItem(title = "TransBetaS3", tags = "beta", depth = 0)).getOrNull()!!
+                    val a = repo.workItemRepository().create(WorkItem(title = "TransAlphaS3", tags = "alpha", depth = 0))!!
+                    val b = repo.workItemRepository().create(WorkItem(title = "TransBetaS3", tags = "beta", depth = 0))!!
                     repo.roleTransitionRepository().create(
                         RoleTransition(itemId = a.id, fromRole = "queue", toRole = "work", trigger = "start")
                     )
@@ -128,8 +128,8 @@ class TagScopeReadRoutesTest {
             val repo = db.repositoryProvider()
             val (itemA, itemB) =
                 runBlocking {
-                    val a = repo.workItemRepository().create(WorkItem(title = "RegAlphaS6", tags = "alpha", depth = 0)).getOrNull()!!
-                    val b = repo.workItemRepository().create(WorkItem(title = "RegBetaS6", tags = "beta", depth = 0)).getOrNull()!!
+                    val a = repo.workItemRepository().create(WorkItem(title = "RegAlphaS6", tags = "alpha", depth = 0))!!
+                    val b = repo.workItemRepository().create(WorkItem(title = "RegBetaS6", tags = "beta", depth = 0))!!
                     repo.roleTransitionRepository().create(
                         RoleTransition(itemId = a.id, fromRole = "queue", toRole = "work", trigger = "start")
                     )
@@ -214,7 +214,7 @@ class TagScopeReadRoutesTest {
             val repo = db.repositoryProvider()
             val rootR =
                 runBlocking {
-                    val r = repo.workItemRepository().create(WorkItem(title = "RootRS8", depth = 0)).getOrNull()!!
+                    val r = repo.workItemRepository().create(WorkItem(title = "RootRS8", depth = 0))!!
                     // In R, wrong tag -- must be excluded despite being in scope's root.
                     repo.workItemRepository().create(WorkItem(title = "InRWrongTagS8", tags = "beta", parentId = r.id, depth = 1))
                     // In R, right tag -- positive control, must be included.

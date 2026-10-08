@@ -6,8 +6,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteNoteRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
@@ -22,7 +20,6 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -59,10 +56,10 @@ class SQLiteNoteRepositoryTest {
         runBlocking {
             val note = Note(itemId = testItemId, key = "requirements", role = "queue", body = "Must do X")
             val result = noteRepository.upsert(note)
-            assertIs<Result.Success<Note>>(result)
-            assertEquals("requirements", result.data.key)
-            assertEquals("queue", result.data.role)
-            assertEquals("Must do X", result.data.body)
+            assertNotNull(result)
+            assertEquals("requirements", result.key)
+            assertEquals("queue", result.role)
+            assertEquals("Must do X", result.body)
         }
 
     // --- Upsert updates existing note ---
@@ -75,14 +72,14 @@ class SQLiteNoteRepositoryTest {
 
             val note2 = Note(itemId = testItemId, key = "requirements", role = "work", body = "Updated")
             val result = noteRepository.upsert(note2)
-            assertIs<Result.Success<Note>>(result)
-            assertEquals("Updated", result.data.body)
-            assertEquals("work", result.data.role)
+            assertNotNull(result)
+            assertEquals("Updated", result.body)
+            assertEquals("work", result.role)
 
             // Verify only one note exists with this key
             val findResult = noteRepository.findByItemId(testItemId)
-            assertIs<Result.Success<List<Note>>>(findResult)
-            assertEquals(1, findResult.data.size)
+            assertNotNull(findResult)
+            assertEquals(1, findResult.size)
         }
 
     // --- getById ---
@@ -94,17 +91,16 @@ class SQLiteNoteRepositoryTest {
             noteRepository.upsert(note)
 
             val result = noteRepository.getById(note.id)
-            assertIs<Result.Success<Note>>(result)
-            assertEquals(note.id, result.data.id)
-            assertEquals("test-key", result.data.key)
+            assertNotNull(result)
+            assertEquals(note.id, result.id)
+            assertEquals("test-key", result.key)
         }
 
     @Test
     fun `getById returns NotFound for non-existent`() =
         runBlocking {
             val result = noteRepository.getById(UUID.randomUUID())
-            assertIs<Result.Error>(result)
-            assertIs<RepositoryError.NotFound>(result.error)
+            assertNull(result)
         }
 
     // --- delete ---
@@ -116,19 +112,19 @@ class SQLiteNoteRepositoryTest {
             noteRepository.upsert(note)
 
             val deleteResult = noteRepository.delete(note.id)
-            assertIs<Result.Success<Boolean>>(deleteResult)
-            assertTrue(deleteResult.data)
+            assertNotNull(deleteResult)
+            assertTrue(deleteResult)
 
             val getResult = noteRepository.getById(note.id)
-            assertIs<Result.Error>(getResult)
+            assertNull(getResult)
         }
 
     @Test
     fun `delete non-existent note returns false`() =
         runBlocking {
             val result = noteRepository.delete(UUID.randomUUID())
-            assertIs<Result.Success<Boolean>>(result)
-            assertEquals(false, result.data)
+            assertNotNull(result)
+            assertEquals(false, result)
         }
 
     // --- deleteByItemId ---
@@ -141,12 +137,12 @@ class SQLiteNoteRepositoryTest {
             noteRepository.upsert(Note(itemId = testItemId, key = "note-3", role = "review"))
 
             val result = noteRepository.deleteByItemId(testItemId)
-            assertIs<Result.Success<Int>>(result)
-            assertEquals(3, result.data)
+            assertNotNull(result)
+            assertEquals(3, result)
 
             val findResult = noteRepository.findByItemId(testItemId)
-            assertIs<Result.Success<List<Note>>>(findResult)
-            assertTrue(findResult.data.isEmpty())
+            assertNotNull(findResult)
+            assertTrue(findResult.isEmpty())
         }
 
     // --- findByItemId ---
@@ -158,8 +154,8 @@ class SQLiteNoteRepositoryTest {
             noteRepository.upsert(Note(itemId = testItemId, key = "note-b", role = "work", body = "B"))
 
             val result = noteRepository.findByItemId(testItemId)
-            assertIs<Result.Success<List<Note>>>(result)
-            assertEquals(2, result.data.size)
+            assertNotNull(result)
+            assertEquals(2, result.size)
         }
 
     @Test
@@ -170,10 +166,10 @@ class SQLiteNoteRepositoryTest {
             noteRepository.upsert(Note(itemId = testItemId, key = "review-note", role = "review"))
 
             val result = noteRepository.findByItemId(testItemId, role = "work")
-            assertIs<Result.Success<List<Note>>>(result)
-            assertEquals(1, result.data.size)
-            assertEquals("work", result.data[0].role)
-            assertEquals("work-note", result.data[0].key)
+            assertNotNull(result)
+            assertEquals(1, result.size)
+            assertEquals("work", result[0].role)
+            assertEquals("work-note", result[0].key)
         }
 
     @Test
@@ -182,8 +178,8 @@ class SQLiteNoteRepositoryTest {
             noteRepository.upsert(Note(itemId = testItemId, key = "note", role = "queue"))
 
             val result = noteRepository.findByItemId(UUID.randomUUID())
-            assertIs<Result.Success<List<Note>>>(result)
-            assertTrue(result.data.isEmpty())
+            assertNotNull(result)
+            assertTrue(result.isEmpty())
         }
 
     // --- findByItemIdAndKey ---
@@ -194,10 +190,10 @@ class SQLiteNoteRepositoryTest {
             noteRepository.upsert(Note(itemId = testItemId, key = "specific-key", role = "queue", body = "Found me"))
 
             val result = noteRepository.findByItemIdAndKey(testItemId, "specific-key")
-            assertIs<Result.Success<Note?>>(result)
-            assertNotNull(result.data)
-            assertEquals("Found me", result.data.body)
-            assertEquals("specific-key", result.data.key)
+            assertNotNull(result)
+            assertNotNull(result)
+            assertEquals("Found me", result.body)
+            assertEquals("specific-key", result.key)
         }
 
     @Test
@@ -206,8 +202,7 @@ class SQLiteNoteRepositoryTest {
             noteRepository.upsert(Note(itemId = testItemId, key = "existing-key", role = "queue"))
 
             val result = noteRepository.findByItemIdAndKey(testItemId, "non-existent-key")
-            assertIs<Result.Success<Note?>>(result)
-            assertNull(result.data)
+            assertNull(result)
         }
 
     @Test
@@ -216,8 +211,7 @@ class SQLiteNoteRepositoryTest {
             noteRepository.upsert(Note(itemId = testItemId, key = "my-key", role = "queue"))
 
             val result = noteRepository.findByItemIdAndKey(UUID.randomUUID(), "my-key")
-            assertIs<Result.Success<Note?>>(result)
-            assertNull(result.data)
+            assertNull(result)
         }
 
     // --- findByItemIds ---
@@ -236,9 +230,9 @@ class SQLiteNoteRepositoryTest {
             noteRepository.upsert(Note(itemId = item2Id, key = "note-c", role = "queue", body = "C"))
 
             val result = noteRepository.findByItemIds(setOf(testItemId, item2Id))
-            assertIs<Result.Success<Map<UUID, List<Note>>>>(result)
+            assertNotNull(result)
 
-            val grouped = result.data
+            val grouped = result
             assertEquals(2, grouped.size, "Should have entries for both items")
             assertEquals(2, grouped[testItemId]?.size, "First item should have 2 notes")
             assertEquals(1, grouped[item2Id]?.size, "Second item should have 1 note")
@@ -249,8 +243,8 @@ class SQLiteNoteRepositoryTest {
     fun `findByItemIds with empty set returns empty map`() =
         runBlocking {
             val result = noteRepository.findByItemIds(emptySet())
-            assertIs<Result.Success<Map<UUID, List<Note>>>>(result)
-            assertTrue(result.data.isEmpty())
+            assertNotNull(result)
+            assertTrue(result.isEmpty())
         }
 
     @Test
@@ -258,8 +252,8 @@ class SQLiteNoteRepositoryTest {
         runBlocking {
             // testItemId has no notes yet
             val result = noteRepository.findByItemIds(setOf(UUID.randomUUID(), UUID.randomUUID()))
-            assertIs<Result.Success<Map<UUID, List<Note>>>>(result)
-            assertTrue(result.data.isEmpty())
+            assertNotNull(result)
+            assertTrue(result.isEmpty())
         }
 
     // --- M5: ID-preservation and createdAt immutability on upsert ---
@@ -287,9 +281,9 @@ class SQLiteNoteRepositoryTest {
             noteRepository.upsert(note)
 
             val result = noteRepository.findByItemId(testItemId)
-            assertIs<Result.Success<List<Note>>>(result)
-            assertEquals(1, result.data.size)
-            val found = result.data[0]
+            assertNotNull(result)
+            assertEquals(1, result.size)
+            val found = result[0]
             assertNotNull(found.actorClaim)
             assertEquals("agent-1", found.actorClaim.id)
             assertEquals(ActorKind.SUBAGENT, found.actorClaim.kind)
@@ -328,9 +322,9 @@ class SQLiteNoteRepositoryTest {
             noteRepository.upsert(note2)
 
             val result = noteRepository.findByItemIdAndKey(testItemId, "replace-actor-note")
-            assertIs<Result.Success<Note?>>(result)
-            assertNotNull(result.data)
-            val found = result.data
+            assertNotNull(result)
+            assertNotNull(result)
+            val found = result
             assertEquals("second version", found.body)
             assertNotNull(found.actorClaim)
             assertEquals("agent-2", found.actorClaim.id)
@@ -352,10 +346,9 @@ class SQLiteNoteRepositoryTest {
             noteRepository.upsert(note)
 
             val result = noteRepository.findByItemIdAndKey(testItemId, "no-actor-note")
-            assertIs<Result.Success<Note?>>(result)
-            assertNotNull(result.data)
-            assertNull(result.data.actorClaim)
-            assertNull(result.data.verification)
+            assertNotNull(result)
+            assertNull(result.actorClaim)
+            assertNull(result.verification)
         }
 
     @Test
@@ -364,8 +357,8 @@ class SQLiteNoteRepositoryTest {
             // Insert the original note
             val originalNote = Note(itemId = testItemId, key = "immutable-key", role = "queue", body = "Original body")
             val insertResult = noteRepository.upsert(originalNote)
-            assertIs<Result.Success<Note>>(insertResult)
-            val inserted = insertResult.data
+            assertNotNull(insertResult)
+            val inserted = insertResult
 
             val originalId = inserted.id
             val originalCreatedAt = inserted.createdAt
@@ -377,8 +370,8 @@ class SQLiteNoteRepositoryTest {
             // Upsert again with same (itemId, key) but different body
             val updatedNote = Note(itemId = testItemId, key = "immutable-key", role = "work", body = "Updated body")
             val updateResult = noteRepository.upsert(updatedNote)
-            assertIs<Result.Success<Note>>(updateResult)
-            val updated = updateResult.data
+            assertNotNull(updateResult)
+            val updated = updateResult
 
             // ID must be the same as the original (not the new note's UUID)
             assertEquals(originalId, updated.id, "Note id must be preserved on upsert update")
@@ -394,8 +387,8 @@ class SQLiteNoteRepositoryTest {
 
             // Read back from DB to verify createdAt immutability
             val fromDb = noteRepository.getById(originalId)
-            assertIs<Result.Success<Note>>(fromDb)
-            val dbNote = fromDb.data
+            assertNotNull(fromDb)
+            val dbNote = fromDb
             assertEquals(originalId, dbNote.id, "DB note id should match original")
             assertEquals("Updated body", dbNote.body, "DB note body should be updated")
             assertEquals(
@@ -426,7 +419,7 @@ class SQLiteNoteRepositoryTest {
 
             val executor = Executors.newFixedThreadPool(2)
             val startGate = CountDownLatch(1)
-            val results = arrayOfNulls<Result<Note>>(2)
+            val results = arrayOfNulls<Note>(2)
 
             val future1 =
                 executor.submit {
@@ -455,13 +448,13 @@ class SQLiteNoteRepositoryTest {
             executor.shutdown()
 
             // Both threads must have received Success — no write is silently dropped.
-            assertIs<Result.Success<Note>>(results[0], "Thread 1 upsert must return Success")
-            assertIs<Result.Success<Note>>(results[1], "Thread 2 upsert must return Success")
+            assertNotNull(results[0], "Thread 1 upsert must return Success")
+            assertNotNull(results[1], "Thread 2 upsert must return Success")
 
             // Exactly one row must exist for this (itemId, key) pair.
             val findResult = noteRepository.findByItemId(testItemId)
-            assertIs<Result.Success<List<Note>>>(findResult)
-            val notesForKey = findResult.data.filter { it.key == key }
+            assertNotNull(findResult)
+            val notesForKey = findResult.filter { it.key == key }
             assertEquals(1, notesForKey.size, "Exactly one note row must exist after concurrent upserts")
 
             // The persisted body must be one of the two submitted values (not corrupted).

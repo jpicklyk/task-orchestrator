@@ -7,8 +7,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -20,7 +18,8 @@ import org.junit.jupiter.api.Test
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.assertFails
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class NextItemRecommenderTest {
@@ -101,7 +100,7 @@ class NextItemRecommenderTest {
                 limit = 200,
                 requestingAgentId = requestingAgentId,
             )
-        } returns Result.Success(items)
+        } returns items
     }
 
     /** Stub both dep lookups to return empty lists for all items. */
@@ -161,14 +160,14 @@ class NextItemRecommenderTest {
                     limit = 200,
                     requestingAgentId = null,
                 )
-            } returns Result.Success(listOf(item))
+            } returns listOf(item)
             every { dependencyRepo.findByToItemId(item.id) } returns emptyList()
             every { dependencyRepo.findByFromItemId(item.id) } returns emptyList()
 
             val result = recommender.recommend(criteria, limit = 10)
 
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size)
+            assertNotNull(result)
+            assertEquals(1, result.size)
 
             // Verify the repo was called exactly once with the correct args
             coVerify(exactly = 1) {
@@ -202,8 +201,8 @@ class NextItemRecommenderTest {
             stubNoDependencies()
 
             val result = recommender.recommend(criteria, limit = 1)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size)
+            assertNotNull(result)
+            assertEquals(1, result.size)
 
             coVerify(exactly = 1) {
                 workItemRepo.findClaimable(
@@ -256,12 +255,12 @@ class NextItemRecommenderTest {
                     requestingAgentId = null,
                     rootIds = setOf(scopeRoot),
                 )
-            } returns Result.Success(listOf(item))
+            } returns listOf(item)
             stubNoDependencies()
 
             val result = recommender.recommend(criteria, limit = 1)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size)
+            assertNotNull(result)
+            assertEquals(1, result.size)
 
             coVerify(exactly = 1) {
                 workItemRepo.findClaimable(
@@ -295,8 +294,8 @@ class NextItemRecommenderTest {
             stubNoDependencies()
 
             val result = recommender.recommend(criteria, limit = 1)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size)
+            assertNotNull(result)
+            assertEquals(1, result.size)
 
             coVerify(exactly = 1) {
                 workItemRepo.findClaimable(
@@ -335,12 +334,12 @@ class NextItemRecommenderTest {
             every { dependencyRepo.findByToItemId(blocked.id) } returns
                 listOf(blocksDep(fromItemId = blocker.id, toItemId = blocked.id))
             every { dependencyRepo.findByFromItemId(blocked.id) } returns emptyList()
-            coEvery { workItemRepo.getById(blocker.id) } returns Result.Success(blocker)
+            coEvery { workItemRepo.getById(blocker.id) } returns blocker
 
             val result = recommender.recommend(NextItemRecommender.Criteria(), limit = 10)
 
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertTrue(result.data.isEmpty(), "Blocked item should be excluded")
+            assertNotNull(result)
+            assertTrue(result.isEmpty(), "Blocked item should be excluded")
         }
 
     @Test
@@ -354,12 +353,12 @@ class NextItemRecommenderTest {
             // blocked IS_BLOCKED_BY blocker
             every { dependencyRepo.findByFromItemId(blocked.id) } returns
                 listOf(isBlockedByDep(fromItemId = blocked.id, toItemId = blocker.id))
-            coEvery { workItemRepo.getById(blocker.id) } returns Result.Success(blocker)
+            coEvery { workItemRepo.getById(blocker.id) } returns blocker
 
             val result = recommender.recommend(NextItemRecommender.Criteria(), limit = 10)
 
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertTrue(result.data.isEmpty(), "IS_BLOCKED_BY item should be excluded")
+            assertNotNull(result)
+            assertTrue(result.isEmpty(), "IS_BLOCKED_BY item should be excluded")
         }
 
     @Test
@@ -372,12 +371,12 @@ class NextItemRecommenderTest {
             every { dependencyRepo.findByToItemId(item.id) } returns
                 listOf(blocksDep(fromItemId = blocker.id, toItemId = item.id))
             every { dependencyRepo.findByFromItemId(item.id) } returns emptyList()
-            coEvery { workItemRepo.getById(blocker.id) } returns Result.Success(blocker)
+            coEvery { workItemRepo.getById(blocker.id) } returns blocker
 
             val result = recommender.recommend(NextItemRecommender.Criteria(), limit = 10)
 
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size, "Item with satisfied dep should be included")
+            assertNotNull(result)
+            assertEquals(1, result.size, "Item with satisfied dep should be included")
         }
 
     @Test
@@ -393,8 +392,8 @@ class NextItemRecommenderTest {
 
             val result = recommender.recommend(NextItemRecommender.Criteria(), limit = 10)
 
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size, "RELATES_TO dep should not block item")
+            assertNotNull(result)
+            assertEquals(1, result.size, "RELATES_TO dep should not block item")
         }
 
     @Test
@@ -407,12 +406,12 @@ class NextItemRecommenderTest {
             every { dependencyRepo.findByToItemId(item.id) } returns
                 listOf(blocksDep(fromItemId = blocker.id, toItemId = item.id, unblockAt = "work"))
             every { dependencyRepo.findByFromItemId(item.id) } returns emptyList()
-            coEvery { workItemRepo.getById(blocker.id) } returns Result.Success(blocker)
+            coEvery { workItemRepo.getById(blocker.id) } returns blocker
 
             val result = recommender.recommend(NextItemRecommender.Criteria(), limit = 10)
 
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size, "Dep with unblockAt=work satisfied when blocker is WORK")
+            assertNotNull(result)
+            assertEquals(1, result.size, "Dep with unblockAt=work satisfied when blocker is WORK")
         }
 
     @Test
@@ -429,18 +428,17 @@ class NextItemRecommenderTest {
             every { dependencyRepo.findByToItemId(item.id) } returns
                 listOf(blocksDep(fromItemId = missingBlockerId, toItemId = item.id))
             every { dependencyRepo.findByFromItemId(item.id) } returns emptyList()
-            coEvery { workItemRepo.getById(missingBlockerId) } returns
-                Result.Error(RepositoryError.NotFound(missingBlockerId, "WorkItem not found"))
+            coEvery { workItemRepo.getById(missingBlockerId) } returns null
 
             val result = recommender.recommend(NextItemRecommender.Criteria(), limit = 10)
 
-            assertIs<Result.Success<List<WorkItem>>>(result)
+            assertNotNull(result)
             assertEquals(
                 1,
-                result.data.size,
+                result.size,
                 "Item must remain eligible when its blocker cannot be fetched — the dep is skipped conservatively"
             )
-            assertEquals(item.id, result.data[0].id)
+            assertEquals(item.id, result[0].id)
         }
 
     // -----------------------------------------------------------------------
@@ -472,24 +470,24 @@ class NextItemRecommenderTest {
             every { dependencyRepo.findByToItemId(blockedC.id) } returns
                 listOf(blocksDep(fromItemId = blockerX.id, toItemId = blockedC.id))
             every { dependencyRepo.findByFromItemId(blockedC.id) } returns emptyList()
-            coEvery { workItemRepo.getById(blockerX.id) } returns Result.Success(blockerX)
+            coEvery { workItemRepo.getById(blockerX.id) } returns blockerX
 
             every { dependencyRepo.findByToItemId(blockedD.id) } returns
                 listOf(blocksDep(fromItemId = blockerY.id, toItemId = blockedD.id))
             every { dependencyRepo.findByFromItemId(blockedD.id) } returns emptyList()
-            coEvery { workItemRepo.getById(blockerY.id) } returns Result.Success(blockerY)
+            coEvery { workItemRepo.getById(blockerY.id) } returns blockerY
 
             every { dependencyRepo.findByToItemId(blockedE.id) } returns
                 listOf(blocksDep(fromItemId = blockerZ.id, toItemId = blockedE.id))
             every { dependencyRepo.findByFromItemId(blockedE.id) } returns emptyList()
-            coEvery { workItemRepo.getById(blockerZ.id) } returns Result.Success(blockerZ)
+            coEvery { workItemRepo.getById(blockerZ.id) } returns blockerZ
 
             // limit=2 → should return exactly the 2 unblocked items, not the blocked ones
             val result = recommender.recommend(NextItemRecommender.Criteria(), limit = 2)
 
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(2, result.data.size, "Should return exactly 2 items after blocking filter")
-            val ids = result.data.map { it.id }
+            assertNotNull(result)
+            assertEquals(2, result.size, "Should return exactly 2 items after blocking filter")
+            val ids = result.map { it.id }
             assertTrue(ids.contains(unblockedA.id), "unblockedA should be in result")
             assertTrue(ids.contains(unblockedB.id), "unblockedB should be in result")
         }
@@ -503,7 +501,7 @@ class NextItemRecommenderTest {
         runBlocking {
             // Simulates the silent-starvation edge case noted in OVER_FETCH_LIMIT KDoc:
             // every over-fetched candidate fails the dependency-blocking walk. The
-            // recommender must return Result.Success(emptyList()) — not an error, not a
+            // recommender must return emptyList() — not an error, not a
             // crash. Callers may legitimately receive 0 items even when the underlying
             // queue has many candidates, if blocking-filter drop rates are high.
             val blocker = workItem(role = Role.QUEUE, title = "Blocker (not yet at terminal)")
@@ -516,13 +514,13 @@ class NextItemRecommenderTest {
                     listOf(blocksDep(fromItemId = blocker.id, toItemId = item.id))
                 every { dependencyRepo.findByFromItemId(item.id) } returns emptyList()
             }
-            coEvery { workItemRepo.getById(blocker.id) } returns Result.Success(blocker)
+            coEvery { workItemRepo.getById(blocker.id) } returns blocker
 
             val result = recommender.recommend(NextItemRecommender.Criteria(), limit = 5)
 
-            assertIs<Result.Success<List<WorkItem>>>(result)
+            assertNotNull(result)
             assertTrue(
-                result.data.isEmpty(),
+                result.isEmpty(),
                 "All candidates blocked must yield empty Success — not error, not partial"
             )
         }
@@ -538,8 +536,8 @@ class NextItemRecommenderTest {
 
             val result = recommender.recommend(NextItemRecommender.Criteria(), limit = 5)
 
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertTrue(result.data.isEmpty())
+            assertNotNull(result)
+            assertTrue(result.isEmpty())
         }
 
     // -----------------------------------------------------------------------
@@ -549,7 +547,8 @@ class NextItemRecommenderTest {
     @Test
     fun `repository error propagates as Result Error`(): Unit =
         runBlocking {
-            val repoError = RepositoryError.DatabaseError("connection failed")
+            // P5b: stores throw; the store fault propagates out of recommend() unchanged (was Result.Error).
+            val repoError = IllegalStateException("connection failed")
             coEvery {
                 workItemRepo.findClaimable(
                     role = any(),
@@ -566,12 +565,11 @@ class NextItemRecommenderTest {
                     limit = any(),
                     requestingAgentId = any(),
                 )
-            } returns Result.Error(repoError)
+            } throws repoError
 
-            val result = recommender.recommend(NextItemRecommender.Criteria(), limit = 5)
+            val thrown = assertFails { recommender.recommend(NextItemRecommender.Criteria(), limit = 5) }
 
-            assertIs<Result.Error>(result)
-            assertEquals(repoError, result.error)
+            assertEquals(repoError, thrown)
         }
 
     // -----------------------------------------------------------------------
@@ -601,15 +599,15 @@ class NextItemRecommenderTest {
                     limit = 200,
                     requestingAgentId = agentId,
                 )
-            } returns Result.Success(listOf(item))
+            } returns listOf(item)
             every { dependencyRepo.findByToItemId(item.id) } returns emptyList()
             every { dependencyRepo.findByFromItemId(item.id) } returns emptyList()
 
             val criteria = NextItemRecommender.Criteria(requestingAgentId = agentId)
             val result = recommender.recommend(criteria, limit = 1)
 
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size)
+            assertNotNull(result)
+            assertEquals(1, result.size)
 
             // Verify the agent ID was forwarded to the repository
             coVerify(exactly = 1) {
@@ -652,7 +650,7 @@ class NextItemRecommenderTest {
                     limit = 200,
                     requestingAgentId = null,
                 )
-            } returns Result.Success(listOf(item))
+            } returns listOf(item)
             every { dependencyRepo.findByToItemId(item.id) } returns emptyList()
             every { dependencyRepo.findByFromItemId(item.id) } returns emptyList()
 
@@ -660,8 +658,8 @@ class NextItemRecommenderTest {
             val criteria = NextItemRecommender.Criteria()
             val result = recommender.recommend(criteria, limit = 1)
 
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size)
+            assertNotNull(result)
+            assertEquals(1, result.size)
 
             coVerify(exactly = 1) {
                 workItemRepo.findClaimable(

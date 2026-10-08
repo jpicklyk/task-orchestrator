@@ -11,7 +11,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTo
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -30,6 +29,7 @@ import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -73,7 +73,7 @@ class IdempotencyToolsTest {
     private suspend fun createTestItem(title: String = "Test Item"): UUID {
         val item = WorkItem(title = title)
         val result = context.workItemRepository().create(item)
-        return (result as Result.Success).data.id
+        return result.id
     }
 
     // ──────────────────────────────────────────────
@@ -135,8 +135,8 @@ class IdempotencyToolsTest {
 
             // Verify only ONE item exists in the repository (no double creation)
             val allItems = context.workItemRepository().findRootItems()
-            assertTrue(allItems is Result.Success)
-            assertEquals(1, (allItems as Result.Success).data.items.size, "Only one item should have been created")
+            assertNotNull(allItems)
+            assertEquals(1, allItems.items.size, "Only one item should have been created")
         }
 
     @Test
@@ -216,8 +216,8 @@ class IdempotencyToolsTest {
             assertEquals(0, idempotencyCache.size(), "Cache should remain empty when requestId is omitted")
 
             val allItems = context.workItemRepository().findRootItems()
-            assertTrue(allItems is Result.Success)
-            assertEquals(2, (allItems as Result.Success).data.items.size, "Both items should have been created")
+            assertNotNull(allItems)
+            assertEquals(2, allItems.items.size, "Both items should have been created")
         }
 
     @Test
@@ -254,8 +254,8 @@ class IdempotencyToolsTest {
             )
 
             val allItems = context.workItemRepository().findRootItems()
-            assertTrue(allItems is Result.Success)
-            assertEquals(2, (allItems as Result.Success).data.items.size, "Different actors must create separate items")
+            assertNotNull(allItems)
+            assertEquals(2, allItems.items.size, "Different actors must create separate items")
         }
 
     // ──────────────────────────────────────────────
@@ -315,8 +315,8 @@ class IdempotencyToolsTest {
 
             // Verify the note body was set ONCE — second call did not overwrite
             val notes = context.noteRepository().findByItemId(UUID.fromString(itemId))
-            assertTrue(notes is Result.Success)
-            val notesList = (notes as Result.Success).data
+            assertNotNull(notes)
+            val notesList = notes
             assertEquals(1, notesList.size)
             assertEquals("First body", notesList[0].body, "Cached call must not have overwritten the body")
         }
@@ -365,8 +365,8 @@ class IdempotencyToolsTest {
 
             assertEquals(0, idempotencyCache.size())
             val notes = context.noteRepository().findByItemId(UUID.fromString(itemId))
-            assertTrue(notes is Result.Success)
-            assertEquals("v2", (notes as Result.Success).data[0].body, "Without requestId, second call must overwrite")
+            assertNotNull(notes)
+            assertEquals("v2", notes[0].body, "Without requestId, second call must overwrite")
         }
 
     // ──────────────────────────────────────────────
@@ -520,8 +520,8 @@ class IdempotencyToolsTest {
 
             // Verify only one root item was actually created
             val allItems = context.workItemRepository().findRootItems()
-            assertTrue(allItems is Result.Success)
-            assertEquals(1, (allItems as Result.Success).data.items.size, "Cached call must not create a second tree")
+            assertNotNull(allItems)
+            assertEquals(1, allItems.items.size, "Cached call must not create a second tree")
         }
 
     // ──────────────────────────────────────────────
@@ -603,8 +603,8 @@ class IdempotencyToolsTest {
             assertEquals(2, idempotencyCache.size())
 
             val allItems = context.workItemRepository().findRootItems()
-            assertTrue(allItems is Result.Success)
-            assertEquals(2, (allItems as Result.Success).data.items.size, "Both agents' items should exist")
+            assertNotNull(allItems)
+            assertEquals(2, allItems.items.size, "Both agents' items should exist")
         }
 
     @Test
@@ -639,8 +639,8 @@ class IdempotencyToolsTest {
 
             assertEquals(0, idempotencyCache.size(), "Without actor, requestId must not enable caching")
             val items = context.workItemRepository().findRootItems()
-            assertTrue(items is Result.Success)
-            assertEquals(2, (items as Result.Success).data.items.size)
+            assertNotNull(items)
+            assertEquals(2, items.items.size)
         }
 
     // ──────────────────────────────────────────────
@@ -854,10 +854,10 @@ class IdempotencyToolsTest {
 
             // Exactly ONE item should have been created
             val allItems = context.workItemRepository().findRootItems()
-            assertTrue(allItems is Result.Success)
+            assertNotNull(allItems)
             assertEquals(
                 1,
-                (allItems as Result.Success).data.items.size,
+                allItems.items.size,
                 "getOrCompute must ensure exactly one item is created under concurrent load"
             )
             // Cache should have exactly one entry
@@ -910,8 +910,8 @@ class IdempotencyToolsTest {
 
             // Item should be in WORK (transitioned exactly once)
             val item = context.workItemRepository().getById(UUID.fromString(itemId))
-            assertTrue(item is Result.Success)
-            assertEquals("work", (item as Result.Success).data.role.toJsonString())
+            assertNotNull(item)
+            assertEquals("work", item.role.toJsonString())
 
             assertEquals(1, idempotencyCache.size())
         }
@@ -1136,8 +1136,8 @@ class IdempotencyToolsTest {
             assertEquals(first, second, "Same-key retry must return the cached response after getOrCompute migration")
 
             val allItems = context.workItemRepository().findRootItems()
-            assertTrue(allItems is Result.Success)
-            assertEquals(1, (allItems as Result.Success).data.items.size, "Only one tree root must have been created")
+            assertNotNull(allItems)
+            assertEquals(1, allItems.items.size, "Only one tree root must have been created")
         }
 
     /**

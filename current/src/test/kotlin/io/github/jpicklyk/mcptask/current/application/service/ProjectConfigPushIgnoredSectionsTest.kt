@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
@@ -50,7 +49,7 @@ class ProjectConfigPushIgnoredSectionsTest {
 
             service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser, db.unitOfWork())
 
-            rootId = (workItemRepository.create(WorkItem(title = "Root", type = "project")) as Result.Success).data.id
+            rootId = workItemRepository.create(WorkItem(title = "Root", type = "project")).id
         }
 
     @Test

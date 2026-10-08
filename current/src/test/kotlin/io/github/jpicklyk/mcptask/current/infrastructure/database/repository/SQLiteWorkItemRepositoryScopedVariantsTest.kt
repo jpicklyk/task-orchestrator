@@ -2,8 +2,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.database.repository
 
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -15,7 +13,7 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -78,8 +76,8 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
     private fun create(item: WorkItem): WorkItem =
         runBlocking {
             val result = repository.create(item)
-            assertIs<Result.Success<WorkItem>>(result, "Expected item '${item.title}' to be created")
-            result.data
+            assertNotNull(result, "Expected item '${item.title}' to be created")
+            result
         }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -95,11 +93,11 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
             val c2 = create(newItem("child-2", parentId = r2.id, depth = 1, role = Role.WORK))
 
             val result = repository.findByRole(role = Role.WORK, limit = 50)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            val ids = result.data.map { it.id }.toSet()
+            assertNotNull(result)
+            val ids = result.map { it.id }.toSet()
             assertTrue(c1.id in ids)
             assertTrue(c2.id in ids)
-            assertEquals(2, result.data.size)
+            assertEquals(2, result.size)
         }
 
     @Test
@@ -111,11 +109,11 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
             val c2 = create(newItem("child-2", parentId = r2.id, depth = 1, role = Role.WORK))
 
             val result = repository.findByRole(role = Role.WORK, limit = 50, rootIds = setOf(r1.id))
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            val ids = result.data.map { it.id }.toSet()
+            assertNotNull(result)
+            val ids = result.map { it.id }.toSet()
             assertTrue(c1.id in ids, "R1's WORK child must be included")
             assertTrue(c2.id !in ids, "R2's WORK child must be excluded when scoped to R1")
-            assertEquals(1, result.data.size)
+            assertEquals(1, result.size)
         }
 
     @Test
@@ -125,8 +123,8 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
             create(newItem("child-1", parentId = r1.id, depth = 1, role = Role.WORK))
 
             val result = repository.findByRole(role = Role.WORK, limit = 50, rootIds = emptySet())
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertTrue(result.data.isEmpty(), "Empty rootIds must yield no rows")
+            assertNotNull(result)
+            assertTrue(result.isEmpty(), "Empty rootIds must yield no rows")
         }
 
     @Test
@@ -141,10 +139,10 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
             create(newItem("unrelated-child", parentId = unrelatedRoot.id, depth = 1, role = Role.WORK))
 
             val result = repository.findByRole(role = Role.WORK, limit = 50, rootIds = setOf(root.id))
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            val ids = result.data.map { it.id }.toSet()
+            assertNotNull(result)
+            val ids = result.map { it.id }.toSet()
             assertTrue(l3.id in ids, "Depth-3 descendant must be included via deep-tree scoping")
-            assertEquals(1, result.data.size)
+            assertEquals(1, result.size)
         }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -160,8 +158,8 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
             val c2 = create(newItem("child-2", parentId = r2.id, depth = 1, role = Role.QUEUE))
 
             val result = repository.findForNextItem(role = Role.QUEUE, excludeActiveClaims = false, limit = 50)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            val ids = result.data.map { it.id }.toSet()
+            assertNotNull(result)
+            val ids = result.map { it.id }.toSet()
             assertTrue(c1.id in ids)
             assertTrue(c2.id in ids)
         }
@@ -181,13 +179,13 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
                     limit = 50,
                     rootIds = setOf(r1.id),
                 )
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            val ids = result.data.map { it.id }.toSet()
+            assertNotNull(result)
+            val ids = result.map { it.id }.toSet()
             assertTrue(r1.id in ids, "R1 root (also QUEUE role) must be included")
             assertTrue(c1.id in ids)
             assertTrue(r2.id !in ids, "R2's root must be excluded when scoped to R1")
             assertTrue(c2.id !in ids, "R2's child must be excluded when scoped to R1")
-            assertEquals(2, result.data.size, "R1 root + c1 = 2 (both QUEUE role)")
+            assertEquals(2, result.size, "R1 root + c1 = 2 (both QUEUE role)")
         }
 
     @Test
@@ -202,8 +200,8 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
                     limit = 50,
                     rootIds = emptySet(),
                 )
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertTrue(result.data.isEmpty())
+            assertNotNull(result)
+            assertTrue(result.isEmpty())
         }
 
     @Test
@@ -224,10 +222,10 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
                     limit = 50,
                     rootIds = setOf(root.id),
                 )
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            val ids = result.data.map { it.id }.toSet()
+            assertNotNull(result)
+            val ids = result.map { it.id }.toSet()
             assertTrue(l3.id in ids, "Depth-3 descendant must be included via deep-tree scoping")
-            assertEquals(4, result.data.size, "root + 3 levels = 4 items")
+            assertEquals(4, result.size, "root + 3 levels = 4 items")
         }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -243,8 +241,8 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
             val c2 = create(newItem("child-2", parentId = r2.id, depth = 1, role = Role.QUEUE))
 
             val result = repository.findClaimable(role = Role.QUEUE, limit = 50)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            val ids = result.data.map { it.id }.toSet()
+            assertNotNull(result)
+            val ids = result.map { it.id }.toSet()
             assertTrue(c1.id in ids)
             assertTrue(c2.id in ids)
         }
@@ -258,13 +256,13 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
             val c2 = create(newItem("child-2", parentId = r2.id, depth = 1, role = Role.QUEUE))
 
             val result = repository.findClaimable(role = Role.QUEUE, limit = 50, rootIds = setOf(r1.id))
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            val ids = result.data.map { it.id }.toSet()
+            assertNotNull(result)
+            val ids = result.map { it.id }.toSet()
             assertTrue(r1.id in ids, "R1 root (also QUEUE role) must be included")
             assertTrue(c1.id in ids)
             assertTrue(r2.id !in ids, "R2's root must be excluded when scoped to R1")
             assertTrue(c2.id !in ids, "R2's child must be excluded when scoped to R1")
-            assertEquals(2, result.data.size, "R1 root + c1 = 2 (both QUEUE role)")
+            assertEquals(2, result.size, "R1 root + c1 = 2 (both QUEUE role)")
         }
 
     @Test
@@ -273,8 +271,8 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
             create(newItem("root-1", role = Role.QUEUE))
 
             val result = repository.findClaimable(role = Role.QUEUE, limit = 50, rootIds = emptySet())
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertTrue(result.data.isEmpty())
+            assertNotNull(result)
+            assertTrue(result.isEmpty())
         }
 
     @Test
@@ -289,10 +287,10 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
             create(newItem("unrelated-child", parentId = unrelatedRoot.id, depth = 1, role = Role.QUEUE))
 
             val result = repository.findClaimable(role = Role.QUEUE, limit = 50, rootIds = setOf(root.id))
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            val ids = result.data.map { it.id }.toSet()
+            assertNotNull(result)
+            val ids = result.map { it.id }.toSet()
             assertTrue(l3.id in ids, "Depth-3 descendant must be included via deep-tree scoping")
-            assertEquals(4, result.data.size, "root + 3 levels = 4 items")
+            assertEquals(4, result.size, "root + 3 levels = 4 items")
         }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -308,8 +306,8 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
             create(newItem("c2-active", parentId = r2.id, depth = 1, claimed = true))
 
             val result = repository.countByClaimStatus()
-            assertIs<Result.Success<ClaimStatusCounts>>(result)
-            assertEquals(2, result.data.active)
+            assertNotNull(result)
+            assertEquals(2, result.active)
         }
 
     @Test
@@ -324,10 +322,10 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
             create(newItem("c2-active", parentId = r2.id, depth = 1, claimed = true))
 
             val result = repository.countByClaimStatus(rootIds = setOf(r1.id))
-            assertIs<Result.Success<ClaimStatusCounts>>(result)
-            assertEquals(1, result.data.active, "Only R1's active claim should be counted")
-            assertEquals(1, result.data.expired)
-            assertEquals(2, result.data.unclaimed, "R1 root (unclaimed) + c1-unclaimed = 2")
+            assertNotNull(result)
+            assertEquals(1, result.active, "Only R1's active claim should be counted")
+            assertEquals(1, result.expired)
+            assertEquals(2, result.unclaimed, "R1 root (unclaimed) + c1-unclaimed = 2")
         }
 
     @Test
@@ -337,10 +335,10 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
             create(newItem("c1-active", claimed = true))
 
             val result = repository.countByClaimStatus(rootIds = emptySet())
-            assertIs<Result.Success<ClaimStatusCounts>>(result)
-            assertEquals(0, result.data.active)
-            assertEquals(0, result.data.expired)
-            assertEquals(0, result.data.unclaimed)
+            assertNotNull(result)
+            assertEquals(0, result.active)
+            assertEquals(0, result.expired)
+            assertEquals(0, result.unclaimed)
         }
 
     @Test
@@ -355,9 +353,9 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
             create(newItem("unrelated-active", parentId = unrelatedRoot.id, depth = 1, claimed = true))
 
             val result = repository.countByClaimStatus(rootIds = setOf(root.id))
-            assertIs<Result.Success<ClaimStatusCounts>>(result)
-            assertEquals(1, result.data.active, "Only the depth-3 claimed descendant within scope must be counted")
-            assertEquals(3, result.data.unclaimed, "root + level-1 + level-2 = 3 unclaimed")
+            assertNotNull(result)
+            assertEquals(1, result.active, "Only the depth-3 claimed descendant within scope must be counted")
+            assertEquals(3, result.unclaimed, "root + level-1 + level-2 = 3 unclaimed")
         }
 
     @Test
@@ -370,7 +368,7 @@ class SQLiteWorkItemRepositoryScopedVariantsTest {
 
             // Scope to root's subtree AND require direct children of root only.
             val result = repository.countByClaimStatus(parentId = root.id, rootIds = setOf(root.id))
-            assertIs<Result.Success<ClaimStatusCounts>>(result)
-            assertEquals(1, result.data.active, "Only the direct child (not the deeper grandchild) should match parentId AND rootIds")
+            assertNotNull(result)
+            assertEquals(1, result.active, "Only the direct child (not the deeper grandchild) should match parentId AND rootIds")
         }
 }

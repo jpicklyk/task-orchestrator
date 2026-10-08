@@ -10,8 +10,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
@@ -66,13 +64,13 @@ class ConfigUnavailableRoutesTest {
             val sqlite = db.repositoryProvider()
             val (root, item) =
                 runBlocking {
-                    val r = sqlite.workItemRepository().create(WorkItem(title = "Root S10", depth = 0)).getOrNull()!!
+                    val r = sqlite.workItemRepository().create(WorkItem(title = "Root S10", depth = 0))!!
                     val i =
                         sqlite
                             .workItemRepository()
                             .create(
                                 WorkItem(title = "Child S10", role = Role.QUEUE, parentId = r.id, rootId = r.id, depth = 1)
-                            ).getOrNull()!!
+                            )!!
                     r to i
                 }
             val failable = FailableProjectConfigRepository(sqlite.projectConfigRepository())
@@ -91,7 +89,7 @@ class ConfigUnavailableRoutesTest {
             val body = response.bodyAsText()
             assertTrue(body.contains("config_unavailable"), "body: $body")
 
-            val persisted = runBlocking { sqlite.workItemRepository().getById(item.id).getOrNull()!! }
+            val persisted = runBlocking { sqlite.workItemRepository().getById(item.id)!! }
             assertEquals(Role.QUEUE, persisted.role, "role must be unchanged when the advance is rejected for config_unavailable")
             assertEquals(
                 null,
@@ -106,7 +104,7 @@ class ConfigUnavailableRoutesTest {
             val sqlite = db.repositoryProvider()
             val item =
                 runBlocking {
-                    val r = sqlite.workItemRepository().create(WorkItem(title = "Root S11", depth = 0)).getOrNull()!!
+                    val r = sqlite.workItemRepository().create(WorkItem(title = "Root S11", depth = 0))!!
                     // A real row must exist so getFingerprint succeeds with a non-null value first —
                     // resolve() only reaches the .get() read (the one failFingerprint=false/failGet=true
                     // is meant to intercept) once the fingerprint check itself has NOT short-circuited
@@ -116,7 +114,7 @@ class ConfigUnavailableRoutesTest {
                         .workItemRepository()
                         .create(
                             WorkItem(title = "Child S11", role = Role.WORK, parentId = r.id, rootId = r.id, depth = 1)
-                        ).getOrNull()!!
+                        )!!
                 }
             val failable = FailableProjectConfigRepository(sqlite.projectConfigRepository())
             failable.failGet = true
@@ -149,7 +147,7 @@ class ConfigUnavailableRoutesTest {
  * Wraps a real [ProjectConfigRepository] (the [io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository]
  * a [io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider] hands
  * back from `projectConfigRepository()`) and lets tests force [get]/[getFingerprint] to return
- * `Result.Error(RepositoryError.DatabaseError("x"))` on demand — the test-plan harness's "test
+ * `throw IllegalStateException("x")` on demand — the test-plan harness's "test
  * ProjectConfigRepository wrapping SQLiteProjectConfigRepository" fixture, authored here per this
  * file's ownership (no shared harness file; see the sibling copies in the tool-level
  * config-unavailable test files for the identical rationale).
@@ -162,9 +160,9 @@ private class FailableProjectConfigRepository(
     @Volatile var failGet: Boolean = false
 
     override suspend fun getFingerprint(rootItemId: UUID) =
-        if (failFingerprint) Result.Error(RepositoryError.DatabaseError("x")) else delegate.getFingerprint(rootItemId)
+        if (failFingerprint) throw IllegalStateException("x") else delegate.getFingerprint(rootItemId)
 
-    override suspend fun get(rootItemId: UUID) = if (failGet) Result.Error(RepositoryError.DatabaseError("x")) else delegate.get(rootItemId)
+    override suspend fun get(rootItemId: UUID) = if (failGet) throw IllegalStateException("x") else delegate.get(rootItemId)
 }
 
 /** An SQLite-backed provider with only [projectConfigRepository] swapped, mirroring `LeaseOverridingProvider`. */

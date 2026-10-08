@@ -6,12 +6,11 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.UnitElement
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import org.slf4j.LoggerFactory
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -56,7 +55,7 @@ import kotlin.coroutines.coroutineContext
  *    `.taskorchestrator/config.yaml` loader. This is unchanged from before per-root error handling
  *    existed, and is NOT cached as a negative result — a cold or config-less root re-checks on
  *    every call.
- *  - **Read failure.** The repository read itself fails (`Result.Error`, e.g. a transient database
+ *  - **Read failure.** The repository read itself throws (e.g. a transient database
  *    error) — this is NOT the same as absence and must never be treated as "no per-root config".
  *    [resolve] logs a WARN naming the root and the error, and serves the last-known-good (LKG)
  *    cached parse for that root, if one exists, WITHOUT evicting it (an error can never evict —
@@ -164,11 +163,12 @@ class PerRootConfigService(
      * there is no cached parse to serve in that case (see class doc "Failure handling").
      */
     private suspend fun resolve(rootItemId: UUID): ConfigDocument? {
-        val fingerprintResult = repository.getFingerprint(rootItemId)
         val currentFingerprint =
-            when (fingerprintResult) {
-                is Result.Success -> fingerprintResult.data
-                is Result.Error -> return lastKnownGoodOrThrow(rootItemId, fingerprintResult.error)
+            try {
+                repository.getFingerprint(rootItemId)
+            } catch (e: Throwable) {
+                e.rethrowIfCancellation()
+                return lastKnownGoodOrThrow(rootItemId, e)
             }
         if (currentFingerprint == null) {
             // No config row for this root — drop any stale cache entry (e.g. the row was deleted
@@ -181,11 +181,12 @@ class PerRootConfigService(
             if (cached.fingerprint == currentFingerprint) return cached.parsed
         }
 
-        val rowResult = repository.get(rootItemId)
         val stored =
-            when (rowResult) {
-                is Result.Success -> rowResult.data
-                is Result.Error -> return lastKnownGoodOrThrow(rootItemId, rowResult.error)
+            try {
+                repository.get(rootItemId)
+            } catch (e: Throwable) {
+                e.rethrowIfCancellation()
+                return lastKnownGoodOrThrow(rootItemId, e)
             }
         if (stored == null) {
             cache.remove(rootItemId)
@@ -203,7 +204,7 @@ class PerRootConfigService(
     }
 
     /**
-     * Handles a [Result.Error] from either read in [resolve]: logs a WARN naming [rootItemId] and
+     * Handles a fault thrown by either read in [resolve]: logs a WARN naming [rootItemId] and
      * [error], and serves the last-known-good cached parse for that root WITHOUT evicting it — an
      * error must never evict a cache entry, only a confirmed absence or a fresher fingerprint can.
      * Throws [PerRootConfigUnavailableException] when there is no cached entry to serve (a cold
@@ -212,10 +213,10 @@ class PerRootConfigService(
      */
     private suspend fun lastKnownGoodOrThrow(
         rootItemId: UUID,
-        error: RepositoryError
+        error: Throwable
     ): ConfigDocument? {
         val insideUnit = coroutineContext[UnitElement] != null
-        logger.warn("Per-root config read failed for root {}: {}", rootItemId, error)
+        logger.warn("Per-root config read failed for root {}: {}", rootItemId, error.message)
         // Inside a unit the last-known-good fallback is disabled: serving a cached parse would hide a read
         // fault that the unit boundary translates (and retries) instead of masking it.
         if (!insideUnit) cache[rootItemId]?.let { return it.parsed }
@@ -225,7 +226,7 @@ class PerRootConfigService(
             rootItemId,
             "Per-root config for root $rootItemId is temporarily unavailable " +
                 if (insideUnit) "(read failed inside a unit of work)" else "(read failed; no last-known-good config cached)",
-            (error as? RepositoryError.DatabaseError)?.cause
+            error
         )
     }
 

@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -24,8 +23,8 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -69,18 +68,16 @@ class PatchReparentScopeTest {
             val repo = db.repositoryProvider()
             val (root, x, p) =
                 runBlocking {
-                    val r0 = repo.workItemRepository().create(WorkItem(title = "Root R", depth = 0)).getOrNull()!!
-                    val r = repo.workItemRepository().update(r0.copy(rootId = r0.id)).getOrNull()!!
+                    val r0 = repo.workItemRepository().create(WorkItem(title = "Root R", depth = 0))!!
+                    val r = repo.workItemRepository().update(r0.copy(rootId = r0.id))!!
                     val xItem =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "X", parentId = r.id, depth = 1, rootId = r.id))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "X", parentId = r.id, depth = 1, rootId = r.id))!!
                     val pItem =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "P", parentId = r.id, depth = 1, rootId = r.id))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "P", parentId = r.id, depth = 1, rootId = r.id))!!
                     Triple(r, xItem, pItem)
                 }
             val authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))
@@ -98,10 +95,10 @@ class PatchReparentScopeTest {
             assertEquals(HttpStatusCode.OK, response.status, "In-scope reparent must succeed: ${response.bodyAsText()}")
 
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
-            assertIs<Result.Success<WorkItem>>(persisted)
-            assertEquals(p.id, persisted.data.parentId, "X must be re-parented to P")
-            assertEquals(2, persisted.data.depth, "X's depth must be recomputed from P's depth")
-            assertEquals(root.id, persisted.data.rootId, "X's rootId must remain R (P is under the same root)")
+            assertNotNull(persisted)
+            assertEquals(p.id, persisted.parentId, "X must be re-parented to P")
+            assertEquals(2, persisted.depth, "X's depth must be recomputed from P's depth")
+            assertEquals(root.id, persisted.rootId, "X's rootId must remain R (P is under the same root)")
         }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -114,8 +111,8 @@ class PatchReparentScopeTest {
             val repo = db.repositoryProvider()
             val (x, q) =
                 runBlocking {
-                    val xItem = repo.workItemRepository().create(WorkItem(title = "X Unscoped", depth = 0)).getOrNull()!!
-                    val qItem = repo.workItemRepository().create(WorkItem(title = "Q Unscoped", depth = 0)).getOrNull()!!
+                    val xItem = repo.workItemRepository().create(WorkItem(title = "X Unscoped", depth = 0))!!
+                    val qItem = repo.workItemRepository().create(WorkItem(title = "Q Unscoped", depth = 0))!!
                     Pair(xItem, qItem)
                 }
             // makeWriteAuthConfig() with no scopeRootIds -> rootIds = null -> unrestricted.
@@ -136,7 +133,7 @@ class PatchReparentScopeTest {
                 "Unscoped principal must be able to reparent anywhere: ${response.bodyAsText()}"
             )
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
-            assertEquals(q.id, (persisted as Result.Success).data.parentId)
+            assertEquals(q.id, persisted!!.parentId)
         }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -149,8 +146,8 @@ class PatchReparentScopeTest {
             val repo = db.repositoryProvider()
             val x =
                 runBlocking {
-                    val r0 = repo.workItemRepository().create(WorkItem(title = "Root For S3", depth = 0)).getOrNull()!!
-                    repo.workItemRepository().update(r0.copy(rootId = r0.id)).getOrNull()!!
+                    val r0 = repo.workItemRepository().create(WorkItem(title = "Root For S3", depth = 0))!!
+                    repo.workItemRepository().update(r0.copy(rootId = r0.id))!!
                 }
             val authConfig = makeWriteAuthConfig(scopeRootIds = setOf(x.id))
             application { configureWriteTestApp(repo, authConfig = authConfig, unitOfWork = db.unitOfWork()) }
@@ -166,7 +163,7 @@ class PatchReparentScopeTest {
 
             assertEquals(HttpStatusCode.OK, response.status, "Title-only patch under scope must succeed: ${response.bodyAsText()}")
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
-            assertEquals("Title Only Update", (persisted as Result.Success).data.title)
+            assertEquals("Title Only Update", persisted!!.title)
         }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -179,16 +176,15 @@ class PatchReparentScopeTest {
             val repo = db.repositoryProvider()
             val (root, x, q) =
                 runBlocking {
-                    val r0 = repo.workItemRepository().create(WorkItem(title = "Root R S4", depth = 0)).getOrNull()!!
-                    val r = repo.workItemRepository().update(r0.copy(rootId = r0.id)).getOrNull()!!
+                    val r0 = repo.workItemRepository().create(WorkItem(title = "Root R S4", depth = 0))!!
+                    val r = repo.workItemRepository().update(r0.copy(rootId = r0.id))!!
                     val xItem =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "X S4", parentId = r.id, depth = 1, rootId = r.id))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "X S4", parentId = r.id, depth = 1, rootId = r.id))!!
                     // Q is its own, unrelated root — NOT under R.
-                    val q0 = repo.workItemRepository().create(WorkItem(title = "Q S4", depth = 0)).getOrNull()!!
-                    val qItem = repo.workItemRepository().update(q0.copy(rootId = q0.id)).getOrNull()!!
+                    val q0 = repo.workItemRepository().create(WorkItem(title = "Q S4", depth = 0))!!
+                    val qItem = repo.workItemRepository().update(q0.copy(rootId = q0.id))!!
                     Triple(r, xItem, qItem)
                 }
             val authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))
@@ -209,10 +205,10 @@ class PatchReparentScopeTest {
 
             // Hard negative: X's parentId/depth/rootId must be unchanged.
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
-            assertIs<Result.Success<WorkItem>>(persisted)
-            assertEquals(root.id, persisted.data.parentId, "X's parentId must be unchanged after a rejected reparent")
-            assertEquals(1, persisted.data.depth, "X's depth must be unchanged after a rejected reparent")
-            assertEquals(root.id, persisted.data.rootId, "X's rootId must be unchanged after a rejected reparent")
+            assertNotNull(persisted)
+            assertEquals(root.id, persisted.parentId, "X's parentId must be unchanged after a rejected reparent")
+            assertEquals(1, persisted.depth, "X's depth must be unchanged after a rejected reparent")
+            assertEquals(root.id, persisted.rootId, "X's rootId must be unchanged after a rejected reparent")
         }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -228,13 +224,11 @@ class PatchReparentScopeTest {
                     val xItem =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "X S5", depth = 0, tags = "alpha"))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "X S5", depth = 0, tags = "alpha"))!!
                     val qItem =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "Q S5", depth = 0, tags = "beta"))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "Q S5", depth = 0, tags = "beta"))!!
                     Pair(xItem, qItem)
                 }
 
@@ -277,7 +271,7 @@ class PatchReparentScopeTest {
             assertTrue(body.contains("scope_forbidden"), "Should report scope_forbidden: $body")
 
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
-            assertEquals(null, (persisted as Result.Success).data.parentId, "X's parentId must be unchanged (still root)")
+            assertEquals(null, persisted!!.parentId, "X's parentId must be unchanged (still root)")
         }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -288,7 +282,7 @@ class PatchReparentScopeTest {
     fun `S6 reparent to a nonexistent new parent returns 400 not_found before any scope check`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            val x = runBlocking { repo.workItemRepository().create(WorkItem(title = "X S6", depth = 0)).getOrNull()!! }
+            val x = runBlocking { repo.workItemRepository().create(WorkItem(title = "X S6", depth = 0))!! }
             application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(), unitOfWork = db.unitOfWork()) }
 
             val missingParentId = UUID.randomUUID()
@@ -317,13 +311,12 @@ class PatchReparentScopeTest {
             val repo = db.repositoryProvider()
             val (root, x) =
                 runBlocking {
-                    val r0 = repo.workItemRepository().create(WorkItem(title = "Root S7", depth = 0)).getOrNull()!!
-                    val r = repo.workItemRepository().update(r0.copy(rootId = r0.id)).getOrNull()!!
+                    val r0 = repo.workItemRepository().create(WorkItem(title = "Root S7", depth = 0))!!
+                    val r = repo.workItemRepository().update(r0.copy(rootId = r0.id))!!
                     val xItem =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "X S7", parentId = r.id, depth = 1, rootId = r.id))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "X S7", parentId = r.id, depth = 1, rootId = r.id))!!
                     Pair(r, xItem)
                 }
             val authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))
@@ -350,10 +343,10 @@ class PatchReparentScopeTest {
             )
             assertTrue(response.bodyAsText().contains("scope_forbidden"), "Should report scope_forbidden: ${response.bodyAsText()}")
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
-            assertIs<Result.Success<WorkItem>>(persisted)
-            assertEquals(root.id, persisted.data.parentId, "X's parentId must be unchanged after a rejected move-to-root")
-            assertEquals(1, persisted.data.depth, "X's depth must be unchanged after a rejected move-to-root")
-            assertEquals(root.id, persisted.data.rootId, "X's rootId must be unchanged after a rejected move-to-root")
+            assertNotNull(persisted)
+            assertEquals(root.id, persisted.parentId, "X's parentId must be unchanged after a rejected move-to-root")
+            assertEquals(1, persisted.depth, "X's depth must be unchanged after a rejected move-to-root")
+            assertEquals(root.id, persisted.rootId, "X's rootId must be unchanged after a rejected move-to-root")
         }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -364,7 +357,7 @@ class PatchReparentScopeTest {
     fun `S8a reparent to itself is rejected with a 4xx client error`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            val x = runBlocking { repo.workItemRepository().create(WorkItem(title = "X S8a", depth = 0)).getOrNull()!! }
+            val x = runBlocking { repo.workItemRepository().create(WorkItem(title = "X S8a", depth = 0))!! }
             application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(), unitOfWork = db.unitOfWork()) }
 
             val etag = "\"v1-${x.modifiedAt.toEpochMilli()}\""
@@ -382,7 +375,7 @@ class PatchReparentScopeTest {
                 "Self-parenting must be rejected as a client error (4xx), got ${response.status}: ${response.bodyAsText()}",
             )
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
-            assertEquals(null, (persisted as Result.Success).data.parentId, "X must not become its own parent")
+            assertEquals(null, persisted!!.parentId, "X must not become its own parent")
         }
 
     @Test
@@ -391,12 +384,11 @@ class PatchReparentScopeTest {
             val repo = db.repositoryProvider()
             val (x, child) =
                 runBlocking {
-                    val xItem = repo.workItemRepository().create(WorkItem(title = "X S8b", depth = 0)).getOrNull()!!
+                    val xItem = repo.workItemRepository().create(WorkItem(title = "X S8b", depth = 0))!!
                     val c =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "Child of X S8b", parentId = xItem.id, depth = 1))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "Child of X S8b", parentId = xItem.id, depth = 1))!!
                     Pair(xItem, c)
                 }
             application { configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(), unitOfWork = db.unitOfWork()) }
@@ -420,7 +412,7 @@ class PatchReparentScopeTest {
                 "Descendant-as-parent must be rejected as a client error (4xx), got ${response.status}: ${response.bodyAsText()}",
             )
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
-            assertEquals(null, (persisted as Result.Success).data.parentId, "X must not become a descendant of its own child")
+            assertEquals(null, persisted!!.parentId, "X must not become a descendant of its own child")
         }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -433,20 +425,18 @@ class PatchReparentScopeTest {
             val repo = db.repositoryProvider()
             val (root, x, descendant, q) =
                 runBlocking {
-                    val r0 = repo.workItemRepository().create(WorkItem(title = "Root S9", depth = 0)).getOrNull()!!
-                    val r = repo.workItemRepository().update(r0.copy(rootId = r0.id)).getOrNull()!!
+                    val r0 = repo.workItemRepository().create(WorkItem(title = "Root S9", depth = 0))!!
+                    val r = repo.workItemRepository().update(r0.copy(rootId = r0.id))!!
                     val xItem =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "X S9", parentId = r.id, depth = 1, rootId = r.id))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "X S9", parentId = r.id, depth = 1, rootId = r.id))!!
                     val d =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "Descendant of X S9", parentId = xItem.id, depth = 2, rootId = r.id))
-                            .getOrNull()!!
-                    val q0 = repo.workItemRepository().create(WorkItem(title = "Q S9", depth = 0)).getOrNull()!!
-                    val qItem = repo.workItemRepository().update(q0.copy(rootId = q0.id)).getOrNull()!!
+                            .create(WorkItem(title = "Descendant of X S9", parentId = xItem.id, depth = 2, rootId = r.id))!!
+                    val q0 = repo.workItemRepository().create(WorkItem(title = "Q S9", depth = 0))!!
+                    val qItem = repo.workItemRepository().update(q0.copy(rootId = q0.id))!!
                     listOf(r, xItem, d, qItem)
                 }
             val authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))
@@ -464,17 +454,17 @@ class PatchReparentScopeTest {
             assertEquals(HttpStatusCode.Forbidden, response.status, "Out-of-scope reparent must be rejected: ${response.bodyAsText()}")
 
             val persistedX = runBlocking { repo.workItemRepository().getById(x.id) }
-            assertIs<Result.Success<WorkItem>>(persistedX)
+            assertNotNull(persistedX)
             assertEquals(
                 x.modifiedAt.toEpochMilli(),
-                persistedX.data.modifiedAt.toEpochMilli(),
+                persistedX.modifiedAt.toEpochMilli(),
                 "A 403-rejected PATCH must not touch X's modifiedAt"
             )
 
             val persistedDescendant = runBlocking { repo.workItemRepository().getById(descendant.id) }
-            assertIs<Result.Success<WorkItem>>(persistedDescendant)
-            assertEquals(2, persistedDescendant.data.depth, "Descendant depth must not cascade when the reparent is rejected")
-            assertEquals(root.id, persistedDescendant.data.rootId, "Descendant rootId must not cascade when the reparent is rejected")
+            assertNotNull(persistedDescendant)
+            assertEquals(2, persistedDescendant.depth, "Descendant depth must not cascade when the reparent is rejected")
+            assertEquals(root.id, persistedDescendant.rootId, "Descendant rootId must not cascade when the reparent is rejected")
         }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -487,15 +477,14 @@ class PatchReparentScopeTest {
             val repo = db.repositoryProvider()
             val (root, x, q) =
                 runBlocking {
-                    val r0 = repo.workItemRepository().create(WorkItem(title = "Root S10", depth = 0)).getOrNull()!!
-                    val r = repo.workItemRepository().update(r0.copy(rootId = r0.id)).getOrNull()!!
+                    val r0 = repo.workItemRepository().create(WorkItem(title = "Root S10", depth = 0))!!
+                    val r = repo.workItemRepository().update(r0.copy(rootId = r0.id))!!
                     val xItem =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "X S10", parentId = r.id, depth = 1, rootId = r.id))
-                            .getOrNull()!!
-                    val q0 = repo.workItemRepository().create(WorkItem(title = "Q S10", depth = 0)).getOrNull()!!
-                    val qItem = repo.workItemRepository().update(q0.copy(rootId = q0.id)).getOrNull()!!
+                            .create(WorkItem(title = "X S10", parentId = r.id, depth = 1, rootId = r.id))!!
+                    val q0 = repo.workItemRepository().create(WorkItem(title = "Q S10", depth = 0))!!
+                    val qItem = repo.workItemRepository().update(q0.copy(rootId = q0.id))!!
                     Triple(r, xItem, qItem)
                 }
             val authConfig = makeWriteAuthConfig(scopeRootIds = setOf(root.id))
@@ -530,7 +519,7 @@ class PatchReparentScopeTest {
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
             assertEquals(
                 root.id,
-                (persisted as Result.Success).data.parentId,
+                persisted!!.parentId,
                 "X must never have been reparented across both replayed attempts"
             )
         }

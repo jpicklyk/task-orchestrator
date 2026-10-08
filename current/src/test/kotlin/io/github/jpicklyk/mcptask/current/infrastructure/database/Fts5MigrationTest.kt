@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.database
 
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.upgrade.UpgradeHarness
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -15,7 +14,7 @@ import java.sql.Connection
 import java.sql.DriverManager
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -197,8 +196,8 @@ class Fts5MigrationTest {
     ): WorkItem {
         val item = WorkItem(title = title, parentId = parentId, depth = depth)
         val result = workItemRepository.create(item)
-        assertIs<Result.Success<WorkItem>>(result)
-        return result.data
+        assertNotNull(result)
+        return result
     }
 
     private suspend fun createNote(
@@ -208,8 +207,8 @@ class Fts5MigrationTest {
     ): Note {
         val note = Note(itemId = itemId, key = key, role = "work", body = body)
         val result = noteRepository.upsert(note)
-        assertIs<Result.Success<Note>>(result)
-        return result.data
+        assertNotNull(result)
+        return result
     }
 
     private fun countRows(tableName: String): Int {

@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -71,8 +70,8 @@ class ClaimItemToolBatchCompositionTest {
         role: Role = Role.QUEUE
     ): WorkItem {
         val result = repository.create(WorkItem(title = title, role = role))
-        assertIs<Result.Success<WorkItem>>(result)
-        return result.data
+        assertNotNull(result)
+        return result
     }
 
     /**
@@ -145,13 +144,13 @@ class ClaimItemToolBatchCompositionTest {
 
             // --- End-state: ITEM_C is unclaimed, ITEM_MIXED is claimed by agent-alpha ---
             val itemCAfter = repository.getById(itemC.id)
-            assertIs<Result.Success<WorkItem>>(itemCAfter)
-            assertNull(itemCAfter.data.claimedBy, "ITEM_C must be unclaimed after the batch")
+            assertNotNull(itemCAfter)
+            assertNull(itemCAfter.claimedBy, "ITEM_C must be unclaimed after the batch")
 
             val itemMixedAfter = repository.getById(itemMixed.id)
-            assertIs<Result.Success<WorkItem>>(itemMixedAfter)
-            assertEquals(agentAlpha, itemMixedAfter.data.claimedBy)
-            assertNotNull(itemMixedAfter.data.claimExpiresAt)
+            assertNotNull(itemMixedAfter)
+            assertEquals(agentAlpha, itemMixedAfter.claimedBy)
+            assertNotNull(itemMixedAfter.claimExpiresAt)
         }
 
     /**
@@ -246,15 +245,15 @@ class ClaimItemToolBatchCompositionTest {
 
             // --- End-state: ITEM_C held by agent-alpha, ITEM_A still by agent-other, ITEM_B unclaimed ---
             val itemCAfter = repository.getById(itemC.id)
-            assertIs<Result.Success<WorkItem>>(itemCAfter)
-            assertEquals(agentAlpha, itemCAfter.data.claimedBy, "ITEM_C must be claimed by agent-alpha")
+            assertNotNull(itemCAfter)
+            assertEquals(agentAlpha, itemCAfter.claimedBy, "ITEM_C must be claimed by agent-alpha")
 
             val itemAAfter = repository.getById(itemA.id)
-            assertIs<Result.Success<WorkItem>>(itemAAfter)
-            assertEquals(agentOther, itemAAfter.data.claimedBy, "ITEM_A must remain claimed by agent-other")
+            assertNotNull(itemAAfter)
+            assertEquals(agentOther, itemAAfter.claimedBy, "ITEM_A must remain claimed by agent-other")
 
             val itemBAfter = repository.getById(itemB.id)
-            assertIs<Result.Success<WorkItem>>(itemBAfter)
-            assertNull(itemBAfter.data.claimedBy, "ITEM_B must be unclaimed (auto-released by Step 2)")
+            assertNotNull(itemBAfter)
+            assertNull(itemBAfter.claimedBy, "ITEM_B must be unclaimed (auto-released by Step 2)")
         }
 }

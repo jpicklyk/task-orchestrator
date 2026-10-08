@@ -34,7 +34,7 @@ class DependencyRoutesTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Isolated", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Isolated", depth = 0))!!
                 }
             application {
                 configureTestApp { dependencyRoutes(repo) }
@@ -56,8 +56,8 @@ class DependencyRoutesTest {
             val repo = db.repositoryProvider()
             val (blocker, blocked) =
                 runBlocking {
-                    val a = repo.workItemRepository().create(WorkItem(title = "Blocker", depth = 0)).getOrNull()!!
-                    val b = repo.workItemRepository().create(WorkItem(title = "Blocked", depth = 0)).getOrNull()!!
+                    val a = repo.workItemRepository().create(WorkItem(title = "Blocker", depth = 0))!!
+                    val b = repo.workItemRepository().create(WorkItem(title = "Blocked", depth = 0))!!
                     repo.dependencyRepository().create(
                         Dependency(fromItemId = a.id, toItemId = b.id, type = DependencyType.BLOCKS)
                     )
@@ -81,8 +81,8 @@ class DependencyRoutesTest {
             val repo = db.repositoryProvider()
             val (blocker, blocked) =
                 runBlocking {
-                    val a = repo.workItemRepository().create(WorkItem(title = "Blocker", depth = 0)).getOrNull()!!
-                    val b = repo.workItemRepository().create(WorkItem(title = "Blocked", depth = 0)).getOrNull()!!
+                    val a = repo.workItemRepository().create(WorkItem(title = "Blocker", depth = 0))!!
+                    val b = repo.workItemRepository().create(WorkItem(title = "Blocked", depth = 0))!!
                     repo.dependencyRepository().create(
                         Dependency(fromItemId = a.id, toItemId = b.id, type = DependencyType.BLOCKS)
                     )
@@ -106,8 +106,8 @@ class DependencyRoutesTest {
             val repo = db.repositoryProvider()
             val (a, b) =
                 runBlocking {
-                    val x = repo.workItemRepository().create(WorkItem(title = "Item A", depth = 0)).getOrNull()!!
-                    val y = repo.workItemRepository().create(WorkItem(title = "Item B", depth = 0)).getOrNull()!!
+                    val x = repo.workItemRepository().create(WorkItem(title = "Item A", depth = 0))!!
+                    val y = repo.workItemRepository().create(WorkItem(title = "Item B", depth = 0))!!
                     repo.dependencyRepository().create(
                         Dependency(fromItemId = x.id, toItemId = y.id, type = DependencyType.RELATES_TO)
                     )
@@ -131,8 +131,8 @@ class DependencyRoutesTest {
             val repo = db.repositoryProvider()
             val (referencing, target) =
                 runBlocking {
-                    val t = repo.workItemRepository().create(WorkItem(title = "Target", depth = 0)).getOrNull()!!
-                    val r = repo.workItemRepository().create(WorkItem(title = "Referencing", depth = 0)).getOrNull()!!
+                    val t = repo.workItemRepository().create(WorkItem(title = "Target", depth = 0))!!
+                    val r = repo.workItemRepository().create(WorkItem(title = "Referencing", depth = 0))!!
                     repo.dependencyRepository().create(
                         Dependency(fromItemId = r.id, toItemId = t.id, type = DependencyType.BLOCKS)
                     )
@@ -171,7 +171,7 @@ class DependencyRoutesTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Out of scope dep", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Out of scope dep", depth = 0))!!
                 }
             val authConfig = makeTestAuthConfig(scopeRootIds = setOf(UUID.randomUUID()))
             application {

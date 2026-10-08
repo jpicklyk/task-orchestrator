@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.security
 
 import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.ProjectConfigTable
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
@@ -23,6 +22,7 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -119,17 +119,17 @@ class ConfigFingerprintTest {
             val lfVariant = "a: 1\nb: 2\n"
 
             val upserted = projectConfigRepository.upsert(rootItemId, crlfBomBody)
-            assertIs<Result.Success<*>>(upserted)
+            assertNotNull(upserted)
 
             val stored = projectConfigRepository.get(rootItemId)
-            assertIs<Result.Success<*>>(stored)
-            val config = (stored as Result.Success).data
+            assertNotNull(stored)
+            val config = stored
             assertEquals(crlfBomBody, config?.configYaml, "stored body must be byte-for-byte unchanged")
 
             val lfFingerprint = projectConfigRepository.computeFingerprint(lfVariant)
             val relation = projectConfigRepository.classifyFingerprint(rootItemId, lfFingerprint)
-            assertIs<Result.Success<*>>(relation)
-            assertEquals(FingerprintRelation.CURRENT, (relation as Result.Success).data)
+            assertNotNull(relation)
+            assertEquals(FingerprintRelation.CURRENT, relation)
         }
 
     @Test
@@ -148,7 +148,7 @@ class ConfigFingerprintTest {
             // by a pre-change server -- the config body itself stays exactly what a pre-change
             // server would have stored (raw CRLF bytes, never normalized).
             val seeded = projectConfigRepository.upsert(rootItemId, crlfBody)
-            assertIs<Result.Success<*>>(seeded)
+            assertNotNull(seeded)
             suspendTransaction(db = database) {
                 ProjectConfigTable.update({ ProjectConfigTable.rootItemId eq rootItemId }) {
                     it[ProjectConfigTable.fingerprint] = rawFingerprint
@@ -161,23 +161,23 @@ class ConfigFingerprintTest {
             // rollout semantics (one unknown relation + re-push per affected root).
             val rePush =
                 projectConfigRepository.upsertGuarded(rootItemId, crlfBody, expectedFingerprint = null, rejectSuperseded = true)
-            assertIs<Result.Success<*>>(rePush)
+            assertNotNull(rePush)
             val applied =
                 assertIs<io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome.Applied>(
-                    (rePush as Result.Success).data
+                    rePush
                 )
             assertEquals(normalizedFingerprint, applied.config.fingerprint, "fingerprint must become the normalized value")
 
             val afterRePush = projectConfigRepository.get(rootItemId)
-            assertIs<Result.Success<*>>(afterRePush)
-            val storedFingerprintHistory = (afterRePush as Result.Success).data
+            assertNotNull(afterRePush)
+            val storedFingerprintHistory = afterRePush
             assertEquals(crlfBody, storedFingerprintHistory?.configYaml, "stored body must remain byte-for-byte unchanged")
 
             val relationAfterRePush = projectConfigRepository.classifyFingerprint(rootItemId, rawFingerprint)
-            assertIs<Result.Success<*>>(relationAfterRePush)
+            assertNotNull(relationAfterRePush)
             assertEquals(
                 FingerprintRelation.SUPERSEDED,
-                (relationAfterRePush as Result.Success).data,
+                relationAfterRePush,
                 "the pre-change raw fingerprint must now be in history"
             )
 
@@ -191,8 +191,8 @@ class ConfigFingerprintTest {
                     expectedFingerprint = rawFingerprint,
                     rejectSuperseded = false
                 )
-            assertIs<Result.Success<*>>(staleIfMatch)
-            val outcome = (staleIfMatch as Result.Success).data
+            assertNotNull(staleIfMatch)
+            val outcome = staleIfMatch
             assertIs<io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome.PreconditionFailed>(outcome)
         }
 }

@@ -80,7 +80,7 @@ class ChildrenTagScopePaginationTest {
             val repo = db.repositoryProvider()
             val parent =
                 runBlocking {
-                    val p = repo.workItemRepository().create(WorkItem(title = "S11 Parent", tags = "alpha", depth = 0)).getOrNull()!!
+                    val p = repo.workItemRepository().create(WorkItem(title = "S11 Parent", tags = "alpha", depth = 0))!!
                     repo.workItemRepository().create(WorkItem(title = "S11 Alpha1", tags = "alpha", parentId = p.id, depth = 1))
                     repo.workItemRepository().create(WorkItem(title = "S11 Alpha2", tags = "alpha", parentId = p.id, depth = 1))
                     repo.workItemRepository().create(WorkItem(title = "S11 Alpha3", tags = "alpha", parentId = p.id, depth = 1))
@@ -126,7 +126,7 @@ class ChildrenTagScopePaginationTest {
             val repo = db.repositoryProvider()
             val parent =
                 runBlocking {
-                    val p = repo.workItemRepository().create(WorkItem(title = "S12 Parent", tags = "alpha", depth = 0)).getOrNull()!!
+                    val p = repo.workItemRepository().create(WorkItem(title = "S12 Parent", tags = "alpha", depth = 0))!!
                     repo.workItemRepository().create(WorkItem(title = "S12 Alpha1", tags = "alpha", parentId = p.id, depth = 1))
                     repo.workItemRepository().create(WorkItem(title = "S12 Alpha2", tags = "alpha", parentId = p.id, depth = 1))
                     repo.workItemRepository().create(WorkItem(title = "S12 Alpha3", tags = "alpha", parentId = p.id, depth = 1))
@@ -158,7 +158,7 @@ class ChildrenTagScopePaginationTest {
             val repo = db.repositoryProvider()
             val parent =
                 runBlocking {
-                    val p = repo.workItemRepository().create(WorkItem(title = "S13 Parent", tags = "alpha", depth = 0)).getOrNull()!!
+                    val p = repo.workItemRepository().create(WorkItem(title = "S13 Parent", tags = "alpha", depth = 0))!!
                     repo.workItemRepository().create(WorkItem(title = "S13 Beta1", tags = "beta", parentId = p.id, depth = 1))
                     repo.workItemRepository().create(WorkItem(title = "S13 Beta2", tags = "beta", parentId = p.id, depth = 1))
                     p
@@ -192,7 +192,7 @@ class ChildrenTagScopePaginationTest {
             val repo = db.repositoryProvider()
             val parent =
                 runBlocking {
-                    val p = repo.workItemRepository().create(WorkItem(title = "S14 Parent", tags = "alpha", depth = 0)).getOrNull()!!
+                    val p = repo.workItemRepository().create(WorkItem(title = "S14 Parent", tags = "alpha", depth = 0))!!
                     repo.workItemRepository().create(WorkItem(title = "S14 Alpha1", tags = "alpha", parentId = p.id, depth = 1))
                     repo.workItemRepository().create(WorkItem(title = "S14 Alpha2", tags = "alpha", parentId = p.id, depth = 1))
                     repo.workItemRepository().create(WorkItem(title = "S14 Alpha3", tags = "alpha", parentId = p.id, depth = 1))
@@ -248,7 +248,7 @@ class ChildrenTagScopePaginationTest {
             val repo = db.repositoryProvider()
             val parent =
                 runBlocking {
-                    val p = repo.workItemRepository().create(WorkItem(title = "S15 Parent", tags = "alpha", depth = 0)).getOrNull()!!
+                    val p = repo.workItemRepository().create(WorkItem(title = "S15 Parent", tags = "alpha", depth = 0))!!
                     repo.workItemRepository().create(WorkItem(title = "S15 Alpha1", tags = "alpha", parentId = p.id, depth = 1))
                     repo.workItemRepository().create(WorkItem(title = "S15 Alpha2", tags = "alpha", parentId = p.id, depth = 1))
                     repo.workItemRepository().create(WorkItem(title = "S15 Alpha3", tags = "alpha", parentId = p.id, depth = 1))
@@ -284,8 +284,8 @@ class ChildrenTagScopePaginationTest {
             val repo = db.repositoryProvider()
             val parent =
                 runBlocking {
-                    val p0 = repo.workItemRepository().create(WorkItem(title = "S16 Parent", tags = "alpha", depth = 0)).getOrNull()!!
-                    val p = repo.workItemRepository().update(p0.copy(rootId = p0.id)).getOrNull()!!
+                    val p0 = repo.workItemRepository().create(WorkItem(title = "S16 Parent", tags = "alpha", depth = 0))!!
+                    val p = repo.workItemRepository().update(p0.copy(rootId = p0.id))!!
                     repo.workItemRepository().create(
                         WorkItem(title = "S16 Alpha1", tags = "alpha", parentId = p.id, depth = 1, rootId = p.id),
                     )
@@ -329,7 +329,7 @@ class ChildrenTagScopePaginationTest {
             val repo = db.repositoryProvider()
             val parent =
                 runBlocking {
-                    val p = repo.workItemRepository().create(WorkItem(title = "P7 Parent", tags = "alpha", depth = 0)).getOrNull()!!
+                    val p = repo.workItemRepository().create(WorkItem(title = "P7 Parent", tags = "alpha", depth = 0))!!
                     repo.workItemRepository().create(WorkItem(title = "P7 Alpha1", tags = "alpha", parentId = p.id, depth = 1))
                     repo.workItemRepository().create(WorkItem(title = "P7 Alpha2", tags = "alpha", parentId = p.id, depth = 1))
                     repo.workItemRepository().create(WorkItem(title = "P7 Alpha3", tags = "alpha", parentId = p.id, depth = 1))

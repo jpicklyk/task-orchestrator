@@ -15,9 +15,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
@@ -69,9 +67,9 @@ class AdvanceResultCascadeErrorDtoTest {
         leaseRepo = mockk()
 
         coEvery { workItemRepo.dbNow() } returns Instant.now()
-        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
-        coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.update(any()) } answers { firstArg() }
+        coEvery { roleTransitionRepo.create(any()) } returns mockk()
+        coEvery { noteRepo.findByItemId(any()) } returns emptyList()
         every { depRepo.findByToItemId(any()) } returns emptyList()
         every { depRepo.findByFromItemId(any()) } returns emptyList()
     }
@@ -129,11 +127,10 @@ class AdvanceResultCascadeErrorDtoTest {
             val parent = makeItem(id = parentId, role = Role.QUEUE, title = "Parent")
             val child = makeItem(title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(parentId) } returns parent
             coEvery { leaseRepo.acquireAll(parentId, any(), any()) } returns
                 LeaseAcquireResult.Success(listOf(lease(parentId, "staging-db")))
-            coEvery { workItemRepo.update(match { it.id == parentId }) } returns
-                Result.Error(RepositoryError.ConflictError("boom"))
+            coEvery { workItemRepo.update(match { it.id == parentId }) } throws IllegalStateException("boom")
             coEvery { leaseRepo.releaseAllForItem(parentId) } returns LeaseReleaseResult.Success(1)
 
             val outcome =
@@ -164,11 +161,11 @@ class AdvanceResultCascadeErrorDtoTest {
             val parent = makeItem(id = parentId, role = Role.QUEUE, title = "Parent")
             val child = makeItem(title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(parentId) } returns parent
             coEvery { leaseRepo.acquireAll(parentId, any(), any()) } returns
                 LeaseAcquireResult.Success(listOf(lease(parentId, "staging-db")))
             // Parent apply succeeds this time: the cascade is applied, not failed.
-            coEvery { workItemRepo.update(match { it.id == parentId }) } answers { Result.Success(firstArg()) }
+            coEvery { workItemRepo.update(match { it.id == parentId }) } answers { firstArg() }
 
             val outcome =
                 serviceWith(mapOf(parentId to listOf(exclusive("staging-db")))).advance(
@@ -198,9 +195,9 @@ class AdvanceResultCascadeErrorDtoTest {
             val parentId = UUID.randomUUID()
             val parent = makeItem(id = parentId, role = Role.BLOCKED, title = "Parent")
             val child = makeItem(role = Role.WORK, title = "Child", parentId = parentId)
-            coEvery { workItemRepo.getById(child.id) } returns Result.Success(child)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
-            coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
+            coEvery { workItemRepo.getById(child.id) } returns child
+            coEvery { workItemRepo.getById(parentId) } returns parent
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns mapOf(Role.TERMINAL to 1)
             coEvery { leaseRepo.releaseAllForItem(any()) } returns LeaseReleaseResult.Success(0)
 
             val outcome =
@@ -226,10 +223,10 @@ class AdvanceResultCascadeErrorDtoTest {
             val parent = makeItem(id = parentId, role = Role.WORK, title = "Parent")
             val child = makeItem(role = Role.WORK, title = "Child", parentId = parentId)
             val blocker = makeItem(id = blockerId, role = Role.QUEUE, title = "Blocker")
-            coEvery { workItemRepo.getById(child.id) } returns Result.Success(child)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
-            coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blocker)
-            coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
+            coEvery { workItemRepo.getById(child.id) } returns child
+            coEvery { workItemRepo.getById(parentId) } returns parent
+            coEvery { workItemRepo.getById(blockerId) } returns blocker
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns mapOf(Role.TERMINAL to 1)
             coEvery { leaseRepo.releaseAllForItem(any()) } returns LeaseReleaseResult.Success(0)
             every { depRepo.findByToItemId(parentId) } returns
                 listOf(Dependency(fromItemId = blockerId, toItemId = parentId, type = DependencyType.BLOCKS))
@@ -258,9 +255,9 @@ class AdvanceResultCascadeErrorDtoTest {
             val parentId = UUID.randomUUID()
             val parent = makeItem(id = parentId, role = Role.WORK, title = "Parent")
             val child = makeItem(role = Role.WORK, title = "Child", parentId = parentId)
-            coEvery { workItemRepo.getById(child.id) } returns Result.Success(child)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
-            coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
+            coEvery { workItemRepo.getById(child.id) } returns child
+            coEvery { workItemRepo.getById(parentId) } returns parent
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns mapOf(Role.TERMINAL to 1)
             coEvery { leaseRepo.releaseAllForItem(any()) } returns LeaseReleaseResult.Success(0)
 
             val outcome =

@@ -9,8 +9,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
 import io.mockk.coEvery
@@ -175,7 +173,7 @@ class ClaimItemToolFailurePathTest {
     @Test
     fun `S8 selector unresolvable parentId prefix returns error without ever calling recommend`(): Unit =
         runBlocking {
-            coEvery { workItemRepo.findByIdPrefix("abcd1234", any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByIdPrefix("abcd1234", any()) } returns emptyList()
             val recommender = mockk<NextItemRecommender>()
 
             val selectorFields = buildJsonObject { put("parentId", "abcd1234") }
@@ -203,8 +201,7 @@ class ClaimItemToolFailurePathTest {
     fun `S9 selector recommend database error surfaces as db_error before any claim attempt`(): Unit =
         runBlocking {
             val recommender = mockk<NextItemRecommender>()
-            coEvery { recommender.recommend(any(), any()) } returns
-                Result.Error(RepositoryError.DatabaseError("simulated recommend failure"))
+            coEvery { recommender.recommend(any(), any()) } throws IllegalStateException("simulated recommend failure")
 
             val result =
                 tool.execute(
@@ -234,9 +231,8 @@ class ClaimItemToolFailurePathTest {
     fun `S10 selector explainEmpty database error surfaces as db_error, never queue_empty or none_eligible`(): Unit =
         runBlocking {
             val recommender = mockk<NextItemRecommender>()
-            coEvery { recommender.recommend(any(), any()) } returns Result.Success(emptyList())
-            coEvery { recommender.explainEmpty(any()) } returns
-                Result.Error(RepositoryError.DatabaseError("simulated explainEmpty failure"))
+            coEvery { recommender.recommend(any(), any()) } returns emptyList()
+            coEvery { recommender.explainEmpty(any()) } throws IllegalStateException("simulated explainEmpty failure")
 
             val result =
                 tool.execute(
@@ -270,7 +266,7 @@ class ClaimItemToolFailurePathTest {
         runBlocking {
             val matchedItem = WorkItem(id = itemId1, title = "Matched Item", role = Role.QUEUE)
             val recommender = mockk<NextItemRecommender>()
-            coEvery { recommender.recommend(any(), any()) } returns Result.Success(listOf(matchedItem))
+            coEvery { recommender.recommend(any(), any()) } returns listOf(matchedItem)
             coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.NotFound(itemId1)
 
             val result =
@@ -292,7 +288,7 @@ class ClaimItemToolFailurePathTest {
         runBlocking {
             val matchedItem = WorkItem(id = itemId1, title = "Matched Item", role = Role.QUEUE)
             val recommender = mockk<NextItemRecommender>()
-            coEvery { recommender.recommend(any(), any()) } returns Result.Success(listOf(matchedItem))
+            coEvery { recommender.recommend(any(), any()) } returns listOf(matchedItem)
             coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.TerminalItem(itemId1)
 
             val result =
@@ -314,9 +310,9 @@ class ClaimItemToolFailurePathTest {
         runBlocking {
             val matchedItem = WorkItem(id = itemId1, title = "Matched Item", role = Role.QUEUE)
             val recommender = mockk<NextItemRecommender>()
-            coEvery { recommender.recommend(any(), any()) } returns Result.Success(listOf(matchedItem))
+            coEvery { recommender.recommend(any(), any()) } returns listOf(matchedItem)
             val cause = SQLException("toctou db failure — must not leak into the response")
-            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.DBError(itemId1, cause)
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } throws cause
 
             val result =
                 tool.execute(
@@ -348,16 +344,21 @@ class ClaimItemToolFailurePathTest {
     @Test
     fun `S12 ID-mode claimRef is echoed as the last key for every claim failure outcome`(): Unit =
         runBlocking {
-            val outcomes: List<Pair<ClaimResult, String>> =
+            // null = the store THROWS (P5b: the DBError variant is gone; a thrown store fault maps to db_error).
+            val outcomes: List<Pair<ClaimResult?, String>> =
                 listOf(
                     ClaimResult.NotFound(itemId1) to "not_found",
                     ClaimResult.TerminalItem(itemId1) to "terminal_item",
                     ClaimResult.AlreadyClaimed(itemId1, retryAfterMs = 5000L) to "already_claimed",
-                    ClaimResult.DBError(itemId1, SQLException("boom")) to "db_error"
+                    null to "db_error"
                 )
 
             outcomes.forEach { (claimResult, expectedOutcome) ->
-                coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns claimResult
+                if (claimResult == null) {
+                    coEvery { workItemRepo.claim(itemId1, agentId, 900) } throws SQLException("boom")
+                } else {
+                    coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns claimResult
+                }
 
                 val result =
                     tool.execute(
@@ -388,9 +389,9 @@ class ClaimItemToolFailurePathTest {
     fun `S13 none_eligible reports exclusion counts, the fixed retry-after and claimRef`(): Unit =
         runBlocking {
             val recommender = mockk<NextItemRecommender>()
-            coEvery { recommender.recommend(any(), any()) } returns Result.Success(emptyList())
+            coEvery { recommender.recommend(any(), any()) } returns emptyList()
             coEvery { recommender.explainEmpty(any()) } returns
-                Result.Success(NextItemRecommender.ExclusionCounts(claimed = 2, ancestorClaimed = 1, dependencyBlocked = 3))
+                NextItemRecommender.ExclusionCounts(claimed = 2, ancestorClaimed = 1, dependencyBlocked = 3)
 
             val result =
                 tool.execute(
@@ -497,8 +498,7 @@ class ClaimItemToolFailurePathTest {
             coEvery { workItemRepo.release(idA, agentId) } returns
                 ReleaseResult.Success(WorkItem(id = idA, title = "Released A"))
             coEvery { workItemRepo.release(idB, agentId) } returns ReleaseResult.NotClaimedByYou(idB)
-            coEvery { workItemRepo.release(idC, agentId) } returns
-                ReleaseResult.DBError(idC, SQLException("release c failure"))
+            coEvery { workItemRepo.release(idC, agentId) } throws SQLException("release c failure")
 
             val result =
                 tool.execute(
@@ -551,7 +551,7 @@ class ClaimItemToolFailurePathTest {
         runBlocking {
             val matchedItem = WorkItem(id = itemId1, title = "Matched Item", role = Role.QUEUE)
             val recommender = mockk<NextItemRecommender>()
-            coEvery { recommender.recommend(any(), any()) } returns Result.Success(listOf(matchedItem))
+            coEvery { recommender.recommend(any(), any()) } returns listOf(matchedItem)
             coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(freshClaimedItem())
 
             val result =
@@ -574,7 +574,7 @@ class ClaimItemToolFailurePathTest {
         runBlocking {
             val matchedItem = WorkItem(id = itemId1, title = "Matched Item", role = Role.QUEUE)
             val recommender = mockk<NextItemRecommender>()
-            coEvery { recommender.recommend(any(), any()) } returns Result.Success(listOf(matchedItem))
+            coEvery { recommender.recommend(any(), any()) } returns listOf(matchedItem)
             coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(freshClaimedItem())
 
             val result =
@@ -618,7 +618,7 @@ class ClaimItemToolFailurePathTest {
         runBlocking {
             val matchedItem = WorkItem(id = itemId1, title = "Matched Item", role = Role.QUEUE)
             val recommender = mockk<NextItemRecommender>()
-            coEvery { recommender.recommend(any(), any()) } returns Result.Success(listOf(matchedItem))
+            coEvery { recommender.recommend(any(), any()) } returns listOf(matchedItem)
             coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns
                 ClaimResult.AlreadyClaimed(itemId1, retryAfterMs = 12000L)
 

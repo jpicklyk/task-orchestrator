@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import org.slf4j.LoggerFactory
 import java.util.UUID
@@ -116,12 +116,9 @@ class CascadeDetector {
         schemaResolver: (suspend (WorkItem) -> WorkItemSchema?)? = null
     ): List<CascadeEvent> {
         // Get role counts for all children of the parent
-        val countsResult = workItemRepository.countChildrenByRole(parentId)
+        val countsResult = legacyReadOrNull { workItemRepository.countChildrenByRole(parentId) } ?: return emptyList()
         val roleCounts =
-            when (countsResult) {
-                is Result.Success -> countsResult.data
-                is Result.Error -> return emptyList()
-            }
+            countsResult
 
         // If there are no children at all, no cascade
         if (roleCounts.isEmpty()) return emptyList()
@@ -131,12 +128,9 @@ class CascadeDetector {
         if (!allTerminal) return emptyList()
 
         // All children are terminal -- create cascade event for the parent
-        val parentResult = workItemRepository.getById(parentId)
+        val parentResult = legacyReadOrNull { workItemRepository.getById(parentId) }
         val parent =
-            when (parentResult) {
-                is Result.Success -> parentResult.data
-                is Result.Error -> return emptyList()
-            }
+            parentResult ?: return emptyList()
 
         // If parent is already terminal, no cascade needed
         if (parent.role == Role.TERMINAL) return emptyList()
@@ -195,12 +189,9 @@ class CascadeDetector {
         val parentId = item.parentId ?: return emptyList()
 
         // Fetch parent
-        val parentResult = workItemRepository.getById(parentId)
+        val parentResult = legacyReadOrNull { workItemRepository.getById(parentId) }
         val parent =
-            when (parentResult) {
-                is Result.Success -> parentResult.data
-                is Result.Error -> return emptyList()
-            }
+            parentResult ?: return emptyList()
 
         // Parent must be in QUEUE to cascade
         if (parent.role != Role.QUEUE) return emptyList()
@@ -243,10 +234,7 @@ class CascadeDetector {
         val parentId = item.parentId ?: return emptyList()
 
         val parent =
-            when (val result = workItemRepository.getById(parentId)) {
-                is Result.Success -> result.data
-                is Result.Error -> return emptyList()
-            }
+            legacyReadOrNull { workItemRepository.getById(parentId) } ?: return emptyList()
 
         // Only cascade if parent is TERMINAL
         if (parent.role != Role.TERMINAL) return emptyList()
@@ -317,12 +305,9 @@ class CascadeDetector {
         for (targetId in targetIds) {
             if (isFullyUnblocked(targetId, dependencyRepository, workItemRepository)) {
                 // Fetch the target item to get its title
-                val targetResult = workItemRepository.getById(targetId)
+                val targetResult = legacyReadOrNull { workItemRepository.getById(targetId) }
                 val targetItem =
-                    when (targetResult) {
-                        is Result.Success -> targetResult.data
-                        is Result.Error -> continue
-                    }
+                    targetResult ?: continue
                 unblockedItems.add(UnblockedItem(itemId = targetItem.id, title = targetItem.title))
             }
         }
@@ -348,12 +333,9 @@ class CascadeDetector {
             val threshold = dep.effectiveUnblockRole() ?: continue
             val thresholdRole = Role.fromString(threshold) ?: continue
 
-            val blockerResult = workItemRepository.getById(dep.fromItemId)
+            val blockerResult = legacyReadOrNull { workItemRepository.getById(dep.fromItemId) }
             val blockerItem =
-                when (blockerResult) {
-                    is Result.Success -> blockerResult.data
-                    is Result.Error -> return false
-                }
+                blockerResult ?: return false
 
             if (!Role.isAtOrBeyond(blockerItem.role, thresholdRole)) {
                 return false
@@ -368,12 +350,9 @@ class CascadeDetector {
             val threshold = dep.effectiveUnblockRole() ?: continue
             val thresholdRole = Role.fromString(threshold) ?: continue
 
-            val blockerResult = workItemRepository.getById(dep.toItemId)
+            val blockerResult = legacyReadOrNull { workItemRepository.getById(dep.toItemId) }
             val blockerItem =
-                when (blockerResult) {
-                    is Result.Success -> blockerResult.data
-                    is Result.Error -> return false
-                }
+                blockerResult ?: return false
 
             if (!Role.isAtOrBeyond(blockerItem.role, thresholdRole)) {
                 return false

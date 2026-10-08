@@ -10,12 +10,12 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
 import io.github.jpicklyk.mcptask.current.application.service.buildSchemaResponseFields
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.domain.repository.ChildPlacement
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.runBlocking
@@ -707,22 +707,21 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
             // Resolve the existing item via id (supports hex prefix like parentId)
             val (resolvedRootId, rootIdError) = resolveIdString(rootIdStr!!, context)
             if (rootIdError != null) return null to rootIdError
-            return when (val fetchResult = context.workItemRepository().getById(resolvedRootId!!)) {
-                is Result.Success ->
-                    RootResolution(
-                        rootItem = fetchResult.data,
-                        isAttachMode = true,
-                        isExistingRoot = true,
-                        rootIdStr = rootIdStr,
-                        parentId = parentId
-                    ) to null
-                is Result.Error ->
-                    null to
-                        errorResponse(
-                            "Root item '$rootIdStr' not found: ${fetchResult.error.message}",
-                            ErrorCodes.RESOURCE_NOT_FOUND
-                        )
-            }
+            val fetched =
+                legacyRead({ return null to errorResponse("Failed to read root item '$rootIdStr': $it", ErrorCodes.DATABASE_ERROR) }) {
+                    context.workItemRepository().getById(resolvedRootId!!)
+                } ?: return null to
+                    errorResponse(
+                        "Root item '$rootIdStr' not found: WorkItem not found with id: $resolvedRootId",
+                        ErrorCodes.RESOURCE_NOT_FOUND
+                    )
+            return RootResolution(
+                rootItem = fetched,
+                isAttachMode = true,
+                isExistingRoot = true,
+                rootIdStr = rootIdStr,
+                parentId = parentId
+            ) to null
         }
 
         // Create mode: compute root depth + rootId from parent, then build a new WorkItem.
@@ -733,18 +732,16 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         val rootDepth: Int
         val rootRootId: UUID
         if (parentId != null) {
-            when (val parentResult = context.workItemRepository().getById(parentId)) {
-                is Result.Success -> {
-                    rootDepth = parentResult.data.depth + 1
-                    rootRootId = parentResult.data.rootId ?: parentResult.data.id
-                }
-                is Result.Error ->
-                    return null to
-                        errorResponse(
-                            "Parent item '$parentId' not found: ${parentResult.error.message}",
-                            ErrorCodes.RESOURCE_NOT_FOUND
-                        )
-            }
+            val parent =
+                legacyRead({ return null to errorResponse("Failed to read parent item '$parentId': $it", ErrorCodes.DATABASE_ERROR) }) {
+                    context.workItemRepository().getById(parentId)
+                } ?: return null to
+                    errorResponse(
+                        "Parent item '$parentId' not found: WorkItem not found with id: $parentId",
+                        ErrorCodes.RESOURCE_NOT_FOUND
+                    )
+            rootDepth = parent.depth + 1
+            rootRootId = parent.rootId ?: parent.id
         } else {
             rootDepth = 0
             rootRootId = rootItemId
@@ -789,15 +786,15 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         context: ToolExecutionContext
     ): Pair<UUID?, JsonElement?> {
         if (!isAttachMode) return (rootItem.rootId ?: rootItem.id) to null
-        return when (val placementResult = context.workItemRepository().resolveChildPlacement(rootItem.id)) {
-            is Result.Success -> placementResult.data.rootId to null
-            is Result.Error ->
-                null to
-                    errorResponse(
-                        "Root item '$rootIdStr' not found: ${placementResult.error.message}",
-                        ErrorCodes.RESOURCE_NOT_FOUND
-                    )
-        }
+        val placement =
+            legacyRead({ return null to errorResponse("Failed to read root item '$rootIdStr': $it", ErrorCodes.DATABASE_ERROR) }) {
+                context.workItemRepository().resolveChildPlacement(rootItem.id)
+            } ?: return null to
+                errorResponse(
+                    "Root item '$rootIdStr' not found: Parent item not found: ${rootItem.id}",
+                    ErrorCodes.RESOURCE_NOT_FOUND
+                )
+        return placement.rootId to null
     }
 
     private data class DocRefSource(
@@ -1121,17 +1118,18 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         val anchorByRefKey = mutableMapOf<Pair<String, String>, Int>()
         if (docSlug == null) return anchorByRefKey to null
 
-        val docResult = context.repositoryProvider.planDocumentRepository().get(docRootId!!, docSlug)
+        val docResult =
+            legacyRead({
+                return null to
+                    errorResponse(
+                        "Failed to read plan document '$docSlug' (root $docRootId): $it",
+                        ErrorCodes.INTERNAL_ERROR
+                    )
+            }) {
+                context.repositoryProvider.planDocumentRepository().get(docRootId!!, docSlug)
+            }
         val doc =
-            when (docResult) {
-                is Result.Success -> docResult.data
-                is Result.Error ->
-                    return null to
-                        errorResponse(
-                            "Failed to read plan document '$docSlug' (root $docRootId): ${docResult.error.message}",
-                            ErrorCodes.INTERNAL_ERROR
-                        )
-            } ?: return null to
+            docResult ?: return null to
                 errorResponse(
                     "Plan document not found: rootId=$docRootId, slug='$docSlug'",
                     ErrorCodes.RESOURCE_NOT_FOUND
@@ -1311,9 +1309,20 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                     treeResultVar = null
                     var finalInput = input
                     if (anchorId != null) {
-                        when (val placementResult = workItemRepo.resolveChildPlacement(anchorId)) {
-                            is Result.Success -> {
-                                val placement = placementResult.data
+                        val placementResult = workItemRepo.resolveChildPlacement(anchorId)
+                        when (placementResult) {
+                            null -> {
+                                anchorNotFoundMessage =
+                                    if (isAttachMode) {
+                                        "Root item '$rootIdStr' not found: Parent item not found: $anchorId"
+                                    } else {
+                                        "Parent item '$parentId' not found: Parent item not found: $anchorId"
+                                    }
+                                // Nothing was written: the unit commits empty.
+                                return@write Outcome.Ok(Unit)
+                            }
+                            else -> {
+                                val placement = placementResult
                                 if (isAttachMode) finalRootPlacementVar = placement
                                 // The base depth each item's chain was originally built from: for a
                                 // new root (create mode) that is the root's own depth; for attach
@@ -1327,16 +1336,6 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                                         item.copy(depth = item.depth + delta, rootId = placement.rootId)
                                     }
                                 finalInput = input.copy(items = restampedItems)
-                            }
-                            is Result.Error -> {
-                                anchorNotFoundMessage =
-                                    if (isAttachMode) {
-                                        "Root item '$rootIdStr' not found: ${placementResult.error.message}"
-                                    } else {
-                                        "Parent item '$parentId' not found: ${placementResult.error.message}"
-                                    }
-                                // Nothing was written: the unit commits empty.
-                                return@write Outcome.Ok(Unit)
                             }
                         }
                     }
@@ -1606,6 +1605,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                 properties = properties
             )
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             logger.warn("Failed to build WorkItem for $contextLabel: ${e.message}")
             null
         }

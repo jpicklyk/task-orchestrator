@@ -2,11 +2,15 @@ package io.github.jpicklyk.mcptask.current.application.tools.notes
 
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
-import io.github.jpicklyk.mcptask.current.application.support.writeResult
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
+import io.github.jpicklyk.mcptask.current.application.support.legacyWrite
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.support.writeOutcome
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.security.PathContainment
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
@@ -341,11 +345,12 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
 
                 // Validate that the WorkItem exists (cache for itemContext reuse)
                 if (itemId !in validatedItems) {
-                    when (val r = itemRepo.getById(itemId)) {
-                        is Result.Success -> validatedItems[itemId] = r.data
-                        is Result.Error -> throw ToolValidationException(
-                            "Note at index $index: WorkItem '$itemIdStr' not found"
-                        )
+                    run {
+                        val r =
+                            itemRepo.getById(itemId) ?: throw ToolValidationException(
+                                "Note at index $index: WorkItem '$itemIdStr' not found"
+                            )
+                        validatedItems[itemId] = r
                     }
                 }
 
@@ -382,13 +387,10 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                 // One write unit per note: the existing-note lookup (to preserve its ID) and the
                 // upsert commit or roll back together; a store failure rolls the unit back.
                 val upserted =
-                    context.unitOfWork.writeResult("ManageNotesTool.upsert") {
+                    context.unitOfWork.writeOutcome("ManageNotesTool.upsert") {
                         // Check for existing note with same (itemId, key) to preserve its ID
                         val existingNote =
-                            when (val findResult = noteRepo.findByItemIdAndKey(itemId, key)) {
-                                is Result.Success -> findResult.data
-                                is Result.Error -> null
-                            }
+                            legacyReadOrNull { noteRepo.findByItemIdAndKey(itemId, key) }
 
                         val note =
                             Note(
@@ -403,25 +405,25 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                         noteRepo.upsert(note)
                     }
 
-                when (val result = upserted) {
-                    is Result.Success -> {
-                        upsertedNotes.add(
-                            buildJsonObject {
-                                put("id", JsonPrimitive(result.data.id.toString()))
-                                put("itemId", JsonPrimitive(result.data.itemId.toString()))
-                                put("key", JsonPrimitive(result.data.key))
-                                put("role", JsonPrimitive(result.data.role))
-                                actorClaim?.let { put("actor", it.toJson()) }
-                                verification?.toJsonOrOmit()?.let { put("verification", it) }
-                                lengthWarning?.let { put("warning", JsonPrimitive(it)) }
-                            }
-                        )
-                    }
-                    is Result.Error -> {
+                when (upserted) {
+                    is Outcome.Err ->
                         failures.add(
                             buildJsonObject {
                                 put("index", JsonPrimitive(index))
-                                put("error", JsonPrimitive(result.error.message))
+                                put("error", JsonPrimitive(LegacyFaults.message(upserted.error)))
+                            }
+                        )
+                    is Outcome.Ok -> {
+                        val result = upserted.value
+                        upsertedNotes.add(
+                            buildJsonObject {
+                                put("id", JsonPrimitive(result.id.toString()))
+                                put("itemId", JsonPrimitive(result.itemId.toString()))
+                                put("key", JsonPrimitive(result.key))
+                                put("role", JsonPrimitive(result.role))
+                                actorClaim?.let { put("actor", it.toJson()) }
+                                verification?.toJsonOrOmit()?.let { put("verification", it) }
+                                lengthWarning?.let { put("warning", JsonPrimitive(it)) }
                             }
                         )
                     }
@@ -447,6 +449,7 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                     }
                 )
             } catch (e: Exception) {
+                e.rethrowIfCancellation()
                 failures.add(
                     buildJsonObject {
                         put("index", JsonPrimitive(index))
@@ -485,10 +488,7 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                             } ?: continue
                         ).getOrThrow()
                     val allNotes =
-                        when (val nr = noteRepo.findByItemId(itemId)) {
-                            is Result.Success -> nr.data
-                            is Result.Error -> emptyList()
-                        }
+                        (legacyReadOrNull { noteRepo.findByItemId(itemId) } ?: emptyList())
                     val notesByKey = allNotes.associateBy { it.key }
 
                     val phaseContext = computePhaseNoteContext(item.role, resolvedSchema?.notes, notesByKey)
@@ -578,23 +578,25 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                         continue
                     }
 
-                when (val result = context.unitOfWork.writeResult("ManageNotesTool.delete") { noteRepo.delete(id) }) {
-                    is Result.Success ->
-                        if (result.data) {
-                            deletedCount++
-                        } else {
-                            failures.add(
-                                buildJsonObject {
-                                    put("id", JsonPrimitive(idStr))
-                                    put("error", JsonPrimitive("Note '$idStr' not found"))
-                                }
-                            )
-                        }
-                    is Result.Error -> {
+                run {
+                    val result =
+                        context.unitOfWork.legacyWrite("ManageNotesTool.delete", {
+                            return@run run {
+                                failures.add(
+                                    buildJsonObject {
+                                        put("id", JsonPrimitive(idStr))
+                                        put("error", JsonPrimitive(it))
+                                    }
+                                )
+                            }
+                        }) { noteRepo.delete(id) }
+                    if (result) {
+                        deletedCount++
+                    } else {
                         failures.add(
                             buildJsonObject {
                                 put("id", JsonPrimitive(idStr))
-                                put("error", JsonPrimitive(result.error.message))
+                                put("error", JsonPrimitive("Note '$idStr' not found"))
                             }
                         )
                     }
@@ -611,25 +613,22 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                 var lookupFailed = false
                 var deletedNoteId: UUID? = null
                 val keyed =
-                    context.unitOfWork.writeResult("ManageNotesTool.deleteByKey") {
-                        when (val findResult = noteRepo.findByItemIdAndKey(itemId, key)) {
-                            is Result.Error -> findResult.also { lookupFailed = true }
-                            is Result.Success -> {
-                                val note = findResult.data
-                                deletedNoteId = note?.id
-                                if (note == null) Result.Success(false) else noteRepo.delete(note.id)
-                            }
-                        }
+                    context.unitOfWork.writeOutcome("ManageNotesTool.deleteByKey") {
+                        lookupFailed = true
+                        val note = legacyReadOrNull { noteRepo.findByItemIdAndKey(itemId, key) }
+                        lookupFailed = false
+                        deletedNoteId = note?.id
+                        if (note == null) false else noteRepo.delete(note.id)
                     }
                 when (keyed) {
-                    is Result.Success ->
+                    is Outcome.Ok ->
                         if (deletedNoteId != null) {
                             deletedCount++
                         } else {
                             // Key did not exist — not an error, but tracked so callers can distinguish
                             notFoundCount++
                         }
-                    is Result.Error -> {
+                    is Outcome.Err -> {
                         failures.add(
                             buildJsonObject {
                                 put(
@@ -644,23 +643,26 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                                         }
                                     )
                                 )
-                                put("error", JsonPrimitive(keyed.error.message))
+                                put("error", JsonPrimitive(LegacyFaults.message(keyed.error)))
                             }
                         )
                     }
                 }
             } else {
                 // Delete all notes for itemId
-                when (val result = context.unitOfWork.writeResult("ManageNotesTool.deleteByItemId") { noteRepo.deleteByItemId(itemId) }) {
-                    is Result.Success -> deletedCount += result.data
-                    is Result.Error -> {
-                        failures.add(
-                            buildJsonObject {
-                                put("id", JsonPrimitive(itemIdStr))
-                                put("error", JsonPrimitive(result.error.message))
+                run {
+                    val result =
+                        context.unitOfWork.legacyWrite("ManageNotesTool.deleteByItemId", {
+                            return@run run {
+                                failures.add(
+                                    buildJsonObject {
+                                        put("id", JsonPrimitive(itemIdStr))
+                                        put("error", JsonPrimitive(it))
+                                    }
+                                )
                             }
-                        )
-                    }
+                        }) { noteRepo.deleteByItemId(itemId) }
+                    deletedCount += result
                 }
             }
         }

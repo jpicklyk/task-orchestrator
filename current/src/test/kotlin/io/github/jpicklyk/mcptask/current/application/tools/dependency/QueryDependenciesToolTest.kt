@@ -38,7 +38,7 @@ class QueryDependenciesToolTest {
     ): UUID {
         val item = WorkItem(title = title, priority = priority)
         val result = context.workItemRepository().create(item)
-        return (result as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data.id
+        return result.id
     }
 
     /** Helper to create a dependency directly via the repository. */

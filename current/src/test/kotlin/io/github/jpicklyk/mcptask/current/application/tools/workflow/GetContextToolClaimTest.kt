@@ -6,8 +6,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -109,8 +107,8 @@ class GetContextToolClaimTest {
             val itemId = UUID.randomUUID()
             val claimed = makeClaimedItem(id = itemId, agentId = "my-agent-id")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(claimed)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns claimed
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val data = extractData(execute("itemId" to JsonPrimitive(itemId.toString())))
 
@@ -131,8 +129,8 @@ class GetContextToolClaimTest {
             val itemId = UUID.randomUUID()
             val expired = makeClaimedItem(id = itemId, agentId = "stale-agent", expired = true)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(expired)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns expired
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val data = extractData(execute("itemId" to JsonPrimitive(itemId.toString())))
 
@@ -150,8 +148,8 @@ class GetContextToolClaimTest {
             val itemId = UUID.randomUUID()
             val unclaimed = makeUnclaimedItem(id = itemId)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(unclaimed)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns unclaimed
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val data = extractData(execute("itemId" to JsonPrimitive(itemId.toString())))
 
@@ -175,8 +173,8 @@ class GetContextToolClaimTest {
                     originalClaimedAt = originalTime
                 )
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val data = extractData(execute("itemId" to JsonPrimitive(itemId.toString())))
 
@@ -202,8 +200,8 @@ class GetContextToolClaimTest {
                     originalClaimedAt = claimedAtInstant
                 )
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
 
             val data = extractData(execute("itemId" to JsonPrimitive(itemId.toString())))
 
@@ -254,11 +252,11 @@ class GetContextToolClaimTest {
     @Test
     fun `health-check mode includes claimSummary with active and expired counts`(): Unit =
         runBlocking {
-            coEvery { workItemRepo.findByRole(Role.WORK, limit = any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.REVIEW, limit = any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.BLOCKED, limit = any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.WORK, limit = any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.REVIEW, limit = any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.BLOCKED, limit = any()) } returns emptyList()
             coEvery { workItemRepo.countByClaimStatus(null) } returns
-                Result.Success(ClaimStatusCounts(active = 3, expired = 1, unclaimed = 42))
+                ClaimStatusCounts(active = 3, expired = 1, unclaimed = 42)
 
             val data = extractData(execute()) // no params → health-check mode
 
@@ -271,11 +269,11 @@ class GetContextToolClaimTest {
     @Test
     fun `health-check mode claimSummary does NOT include claimedBy identity`(): Unit =
         runBlocking {
-            coEvery { workItemRepo.findByRole(Role.WORK, limit = any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.REVIEW, limit = any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.BLOCKED, limit = any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.WORK, limit = any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.REVIEW, limit = any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.BLOCKED, limit = any()) } returns emptyList()
             coEvery { workItemRepo.countByClaimStatus(null) } returns
-                Result.Success(ClaimStatusCounts(active = 2, expired = 0, unclaimed = 10))
+                ClaimStatusCounts(active = 2, expired = 0, unclaimed = 10)
 
             val result = execute()
             val serialized = result.toString()
@@ -294,11 +292,10 @@ class GetContextToolClaimTest {
     @Test
     fun `health-check mode works when countByClaimStatus fails gracefully`(): Unit =
         runBlocking {
-            coEvery { workItemRepo.findByRole(Role.WORK, limit = any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.REVIEW, limit = any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.BLOCKED, limit = any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.countByClaimStatus(null) } returns
-                Result.Error(RepositoryError.DatabaseError("simulated failure"))
+            coEvery { workItemRepo.findByRole(Role.WORK, limit = any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.REVIEW, limit = any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.BLOCKED, limit = any()) } returns emptyList()
+            coEvery { workItemRepo.countByClaimStatus(null) } throws IllegalStateException("simulated failure")
 
             // Should still succeed — claim summary is additive, not critical
             val result = execute()
@@ -318,9 +315,9 @@ class GetContextToolClaimTest {
     fun `session-resume mode does NOT include claimSummary or claimDetail`(): Unit =
         runBlocking {
             val since = Instant.now().minusSeconds(3600)
-            coEvery { workItemRepo.findByRole(Role.WORK, limit = any()) } returns Result.Success(emptyList())
-            coEvery { workItemRepo.findByRole(Role.REVIEW, limit = any()) } returns Result.Success(emptyList())
-            coEvery { roleTransitionRepo.findSince(any(), limit = any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.WORK, limit = any()) } returns emptyList()
+            coEvery { workItemRepo.findByRole(Role.REVIEW, limit = any()) } returns emptyList()
+            coEvery { roleTransitionRepo.findSince(any(), limit = any()) } returns emptyList()
 
             val data = extractData(execute("since" to JsonPrimitive(since.toString())))
 

@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -43,8 +42,8 @@ class SQLiteResourceLeaseRepositoryConcurrencyTest {
 
     private suspend fun createHolder(title: String = "Holder"): UUID {
         val result = workItemRepository().create(WorkItem(title = title))
-        assertIs<Result.Success<WorkItem>>(result)
-        return result.data.id
+        assertNotNull(result)
+        return result.id
     }
 
     @Test
@@ -115,11 +114,11 @@ class SQLiteResourceLeaseRepositoryConcurrencyTest {
             assertIs<LeaseAcquireResult.Success>(lease)
 
             val afterLease = workItemRepository().getById(holder)
-            assertIs<Result.Success<WorkItem>>(afterLease)
-            assertEquals("agent-x", afterLease.data.claimedBy, "The claim must survive lease acquisition")
-            assertNotNull(afterLease.data.claimedAt)
-            assertNotNull(afterLease.data.claimExpiresAt)
-            assertNotNull(afterLease.data.originalClaimedAt)
+            assertNotNull(afterLease)
+            assertEquals("agent-x", afterLease.claimedBy, "The claim must survive lease acquisition")
+            assertNotNull(afterLease.claimedAt)
+            assertNotNull(afterLease.claimExpiresAt)
+            assertNotNull(afterLease.originalClaimedAt)
         }
 
     @Test
@@ -150,8 +149,8 @@ class SQLiteResourceLeaseRepositoryConcurrencyTest {
             workItemRepository().release(holder, "agent-x")
 
             val afterRelease = workItemRepository().getById(holder)
-            assertIs<Result.Success<WorkItem>>(afterRelease)
-            assertNull(afterRelease.data.claimedBy, "Claim must be released")
+            assertNotNull(afterRelease)
+            assertNull(afterRelease.claimedBy, "Claim must be released")
 
             val activeLeases = leaseRepository().findActiveForItem(holder)
             assertEquals(1, activeLeases.size, "Releasing the claim must not release the item's resource leases")

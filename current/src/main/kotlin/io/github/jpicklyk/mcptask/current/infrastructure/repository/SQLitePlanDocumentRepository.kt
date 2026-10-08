@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentSummary
 import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentAdoptOutcome
 import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentStashOutcome
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.PlanDocumentsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.security.sha256Hex
@@ -38,8 +37,8 @@ class SQLitePlanDocumentRepository(
         rootItemId: UUID,
         slug: String,
         body: String
-    ): Result<PlanDocumentStashOutcome> =
-        databaseManager.writeResult("PlanDocumentRepository.stash", "Failed to stash PlanDocument") {
+    ): PlanDocumentStashOutcome =
+        databaseManager.writeTx("PlanDocumentRepository.stash") {
             val existing =
                 PlanDocumentsTable
                     .selectAll()
@@ -47,9 +46,7 @@ class SQLitePlanDocumentRepository(
                     .singleOrNull()
 
             if (existing != null && existing[PlanDocumentsTable.status] == PlanDocumentStatus.ADOPTED.toDbValue()) {
-                return@writeResult Result.Success(
-                    PlanDocumentStashOutcome.AdoptedConflict(mapRowToPlanDocument(existing))
-                )
+                return@writeTx PlanDocumentStashOutcome.AdoptedConflict(mapRowToPlanDocument(existing))
             }
 
             val contentHash = computeContentHash(body)
@@ -81,27 +78,27 @@ class SQLitePlanDocumentRepository(
                     .where { (PlanDocumentsTable.rootItemId eq rootItemId) and (PlanDocumentsTable.slug eq slug) }
                     .single()
 
-            Result.Success(PlanDocumentStashOutcome.Stored(mapRowToPlanDocument(stored)))
+            PlanDocumentStashOutcome.Stored(mapRowToPlanDocument(stored))
         }
 
     override suspend fun get(
         rootItemId: UUID,
         slug: String
-    ): Result<PlanDocument?> =
-        databaseManager.readResult("Failed to get PlanDocument") {
+    ): PlanDocument? =
+        databaseManager.readTx {
             val row =
                 PlanDocumentsTable
                     .selectAll()
                     .where { (PlanDocumentsTable.rootItemId eq rootItemId) and (PlanDocumentsTable.slug eq slug) }
                     .singleOrNull()
-            Result.Success(row?.let { mapRowToPlanDocument(it) })
+            row?.let { mapRowToPlanDocument(it) }
         }
 
     override suspend fun list(
         rootItemId: UUID,
         status: PlanDocumentStatus?
-    ): Result<List<PlanDocumentSummary>> =
-        databaseManager.readResult("Failed to list PlanDocuments") {
+    ): List<PlanDocumentSummary> =
+        databaseManager.readTx {
             var query =
                 PlanDocumentsTable
                     .select(
@@ -118,16 +115,16 @@ class SQLitePlanDocumentRepository(
                 query = query.andWhere { PlanDocumentsTable.status eq status.toDbValue() }
             }
             val rows = query.orderBy(PlanDocumentsTable.slug, SortOrder.ASC).toList()
-            Result.Success(rows.map { mapRowToPlanDocumentSummary(it) })
+            rows.map { mapRowToPlanDocumentSummary(it) }
         }
 
     override suspend fun markAdopted(
         rootItemId: UUID,
         slug: String,
         adoptedByItemId: UUID
-    ): Result<PlanDocumentAdoptOutcome> =
-        databaseManager.writeResult("PlanDocumentRepository.markAdopted", "Failed to mark PlanDocument adopted") {
-            Result.Success(markAdoptedRow(rootItemId, slug, adoptedByItemId))
+    ): PlanDocumentAdoptOutcome =
+        databaseManager.writeTx("PlanDocumentRepository.markAdopted") {
+            markAdoptedRow(rootItemId, slug, adoptedByItemId)
         }
 
     /**

@@ -18,8 +18,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableE
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.GlobalConfigFile
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
@@ -128,7 +126,7 @@ private fun createRootItem(
     tags: String? = null,
 ): WorkItem =
     runBlocking {
-        (repo.workItemRepository().create(WorkItem(title = title, type = "project", depth = 0, tags = tags)) as Result.Success).data
+        (repo.workItemRepository().create(WorkItem(title = title, type = "project", depth = 0, tags = tags))!!)
     }
 
 /** Independently-computed oracle for `effectiveConfigEtag`'s stated formula (task-scope Build §1). */
@@ -240,7 +238,7 @@ class EffectiveConfigRoutesHappyPathTest {
             val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             runBlocking { repo.projectConfigRepository().upsert(root.id, PER_ROOT_S1) }
-            val rowFingerprint = runBlocking { repo.projectConfigRepository().getFingerprint(root.id).getOrNull() }
+            val rowFingerprint = runBlocking { repo.projectConfigRepository().getFingerprint(root.id) }
             assertNotNull(rowFingerprint, "sanity: the per-root push must persist a fingerprint")
             val globalFingerprint = schemaService.getConfigFingerprint()
             assertNotNull(globalFingerprint, "sanity: the global YAML must produce a fingerprint")
@@ -763,7 +761,7 @@ class EffectiveConfigRoutesAuthzTest {
             val parent = createRootItem(repo, title = "Parent")
             val child =
                 runBlocking {
-                    (repo.workItemRepository().create(WorkItem(title = "Child", parentId = parent.id, depth = 1)) as Result.Success).data
+                    (repo.workItemRepository().create(WorkItem(title = "Child", parentId = parent.id, depth = 1))!!)
                 }
             val (resolver, schemaService) = buildBareApp(repo)
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
@@ -1413,9 +1411,9 @@ private class EffectiveConfigFailingWorkItemRepository(
     private val delegate: WorkItemRepository,
     private val failingId: UUID,
 ) : WorkItemRepository by delegate {
-    override suspend fun getById(id: UUID): Result<WorkItem> =
+    override suspend fun getById(id: UUID): WorkItem? =
         if (id == failingId) {
-            Result.Error(RepositoryError.DatabaseError("Simulated getById failure for $id"))
+            throw IllegalStateException("Simulated getById failure for $id")
         } else {
             delegate.getById(id)
         }

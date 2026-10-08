@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
@@ -67,7 +66,7 @@ class ProjectConfigPushServiceGuardedTest {
 
             service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser, db.unitOfWork())
 
-            rootId = (workItemRepository.create(WorkItem(title = "Root", type = "project")) as Result.Success).data.id
+            rootId = workItemRepository.create(WorkItem(title = "Root", type = "project")).id
             // Establish row A via a normal push so the rest of `push`'s pipeline (size/parse/
             // depth-0) is exercised the same way every other push test exercises it.
             val first = service.push(rootId, yamlA)
@@ -86,7 +85,7 @@ class ProjectConfigPushServiceGuardedTest {
             val currentFingerprint = projectConfigRepository.computeFingerprint(yamlA)
             assertEquals(currentFingerprint, result.currentFingerprint)
 
-            val stored = (projectConfigRepository.get(rootId) as Result.Success).data
+            val stored = projectConfigRepository.get(rootId)
             assertEquals(yamlA, stored?.configYaml, "a rejected precondition must never overwrite the stored row")
         }
 
@@ -102,7 +101,7 @@ class ProjectConfigPushServiceGuardedTest {
                 "force=true skips the rootId-mismatch and Superseded guards only — expectedFingerprint" +
                     " must still be enforced, per the push KDoc",
             )
-            val stored = (projectConfigRepository.get(rootId) as Result.Success).data
+            val stored = projectConfigRepository.get(rootId)
             assertEquals(yamlA, stored?.configYaml, "force=true must not let a mismatched expectedFingerprint through")
         }
 }

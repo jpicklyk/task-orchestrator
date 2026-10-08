@@ -2,6 +2,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerificationScope
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
@@ -9,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
+import io.github.jpicklyk.mcptask.current.infrastructure.database.PersistenceFaults
 import io.github.jpicklyk.mcptask.current.infrastructure.logging.MdcValues
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
@@ -160,7 +163,8 @@ class McpToolAdapter {
                                 )
                             )
                         )
-                    } catch (_: Exception) {
+                    } catch (ignored: Exception) {
+                        ignored.rethrowIfCancellation()
                     }
                     logResponseSize(toolDefinition.name, success = false, responseChars = message.length)
                     val errorEnvelope =
@@ -190,7 +194,8 @@ class McpToolAdapter {
                                 )
                             )
                         )
-                    } catch (_: Exception) {
+                    } catch (ignored: Exception) {
+                        ignored.rethrowIfCancellation()
                     }
                     logResponseSize(toolDefinition.name, success = false, responseChars = message.length)
                     // Reuse the same ToolError -> envelope -> structured-payload pipeline normal tool
@@ -207,6 +212,21 @@ class McpToolAdapter {
                         structuredContent = ResponseUtil.extractErrorPayload(errorEnvelope)
                     )
                 } catch (e: Exception) {
+                    e.rethrowIfCancellation()
+                    // F10: a store fault that escaped the tool (a read the tool does not map itself) keeps the
+                    // 3.x DATABASE_ERROR code with the innermost SQL text, never INTERNAL and never not-found.
+                    if (PersistenceFaults.classify(e) != null) {
+                        val dbMessage = "Database error in '${toolDefinition.name}': ${LegacyFaults.message(e)}"
+                        logger.warn(dbMessage, e)
+                        logResponseSize(toolDefinition.name, success = false, responseChars = dbMessage.length)
+                        val dbEnvelope =
+                            ResponseUtil.createErrorResponse(ToolError.permanent(code = ErrorCodes.DATABASE_ERROR, message = dbMessage))
+                        return@withContext CallToolResult(
+                            content = listOf(TextContent(text = dbMessage)),
+                            isError = true,
+                            structuredContent = ResponseUtil.extractErrorPayload(dbEnvelope)
+                        )
+                    }
                     val message = "Internal error in '${toolDefinition.name}' (session ${clientConnection.sessionId}): ${e.message}"
                     logger.error(message, e)
                     try {
@@ -219,7 +239,8 @@ class McpToolAdapter {
                                 )
                             )
                         )
-                    } catch (_: Exception) {
+                    } catch (ignored: Exception) {
+                        ignored.rethrowIfCancellation()
                     }
                     logResponseSize(toolDefinition.name, success = false, responseChars = message.length)
                     CallToolResult(

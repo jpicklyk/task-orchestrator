@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLitePlanDocumentRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
@@ -56,7 +55,7 @@ class ManagePlanDocumentsToolTest {
 
             context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
 
-            val root = (workItemRepository.create(WorkItem(title = "Project Root", type = "project")) as Result.Success).data
+            val root = workItemRepository.create(WorkItem(title = "Project Root", type = "project"))
             rootId = root.id
         }
 
@@ -191,7 +190,7 @@ class ManagePlanDocumentsToolTest {
     @Test
     fun `stash against an ADOPTED slug returns CONFLICT_ERROR`() {
         stash(rootId.toString(), "plan-a", body = "v1")
-        val adopter = runBlocking { (workItemRepository.create(WorkItem(title = "Adopter")) as Result.Success).data }
+        val adopter = runBlocking { workItemRepository.create(WorkItem(title = "Adopter")) }
         runBlocking { planDocumentRepository.markAdopted(rootId, "plan-a", adopter.id) }
 
         val result = stash(rootId.toString(), "plan-a", body = "v2")
@@ -224,7 +223,7 @@ class ManagePlanDocumentsToolTest {
         Files.writeString(file, "line1\r\nline2\r\n")
 
         stash(rootId.toString(), "plan-crlf", bodyFromFile = "crlf.md")
-        val fetched = runBlocking { (planDocumentRepository.get(rootId, "plan-crlf") as Result.Success).data }
+        val fetched = runBlocking { planDocumentRepository.get(rootId, "plan-crlf") }
         assertEquals("line1\nline2\n", fetched?.body)
     }
 
@@ -270,7 +269,7 @@ class ManagePlanDocumentsToolTest {
     fun `list filters by status`() {
         stash(rootId.toString(), "plan-a", body = "a")
         stash(rootId.toString(), "plan-b", body = "b")
-        val adopter = runBlocking { (workItemRepository.create(WorkItem(title = "Adopter")) as Result.Success).data }
+        val adopter = runBlocking { workItemRepository.create(WorkItem(title = "Adopter")) }
         runBlocking { planDocumentRepository.markAdopted(rootId, "plan-a", adopter.id) }
 
         val pending = list(rootId.toString(), status = "pending")

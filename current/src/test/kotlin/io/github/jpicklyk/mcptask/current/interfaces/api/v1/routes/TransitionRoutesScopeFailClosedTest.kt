@@ -2,8 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
@@ -42,16 +40,16 @@ private class TransitionScopeFailingWorkItemRepository(
     private val failFindByIds: Boolean,
     private val failFindAncestorChains: Boolean,
 ) : WorkItemRepository by delegate {
-    override suspend fun findByIds(ids: Set<UUID>): Result<List<WorkItem>> =
+    override suspend fun findByIds(ids: Set<UUID>): List<WorkItem> =
         if (failFindByIds) {
-            Result.Error(RepositoryError.DatabaseError("Simulated findByIds failure"))
+            throw IllegalStateException("Simulated findByIds failure")
         } else {
             delegate.findByIds(ids)
         }
 
-    override suspend fun findAncestorChains(itemIds: Set<UUID>): Result<Map<UUID, List<WorkItem>>> =
+    override suspend fun findAncestorChains(itemIds: Set<UUID>): Map<UUID, List<WorkItem>> =
         if (failFindAncestorChains) {
-            Result.Error(RepositoryError.DatabaseError("Simulated findAncestorChains failure"))
+            throw IllegalStateException("Simulated findAncestorChains failure")
         } else {
             delegate.findAncestorChains(itemIds)
         }
@@ -85,10 +83,10 @@ class TransitionRoutesScopeFailClosedTest {
     ): Fixture =
         runBlocking {
             val w = repo.workItemRepository()
-            val r = w.create(WorkItem(title = "Root R", depth = 0)).getOrNull()!!
-            val q = w.create(WorkItem(title = "Root Q", depth = 0)).getOrNull()!!
-            val a = w.create(WorkItem(title = "Item A", parentId = r.id, depth = 1, tags = tags)).getOrNull()!!
-            val b = w.create(WorkItem(title = "Item B", parentId = q.id, depth = 1, tags = tags)).getOrNull()!!
+            val r = w.create(WorkItem(title = "Root R", depth = 0))!!
+            val q = w.create(WorkItem(title = "Root Q", depth = 0))!!
+            val a = w.create(WorkItem(title = "Item A", parentId = r.id, depth = 1, tags = tags))!!
+            val b = w.create(WorkItem(title = "Item B", parentId = q.id, depth = 1, tags = tags))!!
             repo.roleTransitionRepository().create(transition(a.id))
             repo.roleTransitionRepository().create(transition(b.id))
             Fixture(r, q, a, b)
@@ -178,11 +176,11 @@ class TransitionRoutesScopeFailClosedTest {
         val items =
             runBlocking {
                 val w = repo.workItemRepository()
-                val r = w.create(WorkItem(title = "Root R", depth = 0)).getOrNull()!!
-                val q = w.create(WorkItem(title = "Root Q", depth = 0)).getOrNull()!!
-                val x1 = w.create(WorkItem(title = "A1", parentId = r.id, depth = 1, tags = "alpha")).getOrNull()!!
-                val x2 = w.create(WorkItem(title = "A2", parentId = r.id, depth = 1, tags = "beta")).getOrNull()!!
-                val y = w.create(WorkItem(title = "B", parentId = q.id, depth = 1, tags = "alpha")).getOrNull()!!
+                val r = w.create(WorkItem(title = "Root R", depth = 0))!!
+                val q = w.create(WorkItem(title = "Root Q", depth = 0))!!
+                val x1 = w.create(WorkItem(title = "A1", parentId = r.id, depth = 1, tags = "alpha"))!!
+                val x2 = w.create(WorkItem(title = "A2", parentId = r.id, depth = 1, tags = "beta"))!!
+                val y = w.create(WorkItem(title = "B", parentId = q.id, depth = 1, tags = "alpha"))!!
                 listOf(x1, x2, y).forEach { repo.roleTransitionRepository().create(transition(it.id)) }
                 listOf(r, x1, x2, y)
             }
@@ -199,9 +197,9 @@ class TransitionRoutesScopeFailClosedTest {
         val rootR =
             runBlocking {
                 val w = repo.workItemRepository()
-                val r = w.create(WorkItem(title = "Root R", depth = 0)).getOrNull()!!
-                val q = w.create(WorkItem(title = "Root Q", depth = 0)).getOrNull()!!
-                val bItem = w.create(WorkItem(title = "Item B", parentId = q.id, depth = 1)).getOrNull()!!
+                val r = w.create(WorkItem(title = "Root R", depth = 0))!!
+                val q = w.create(WorkItem(title = "Root Q", depth = 0))!!
+                val bItem = w.create(WorkItem(title = "Item B", parentId = q.id, depth = 1))!!
                 repeat(2) { repo.roleTransitionRepository().create(transition(bItem.id)) }
                 r
             }

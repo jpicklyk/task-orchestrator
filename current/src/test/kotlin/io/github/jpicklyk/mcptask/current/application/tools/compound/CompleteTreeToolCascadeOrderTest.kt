@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -114,16 +113,16 @@ class CompleteTreeToolCascadeOrderTest {
             val parentItem = makeItem(id = parentId, role = Role.WORK, title = "Cascade Parent")
             val childItem = makeItem(id = childId, role = Role.WORK, title = "Last Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(childId) } returns childItem
+            coEvery { workItemRepo.getById(parentId) } returns parentItem
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(childId) } returns emptyList()
             every { depRepo.findByFromItemId(childId) } returns emptyList()
             // F-003: the terminal cascade now re-validates the parent's blocking dependencies.
             every { depRepo.findByToItemId(parentId) } returns emptyList()
             every { depRepo.findByFromItemId(parentId) } returns emptyList()
-            coEvery { workItemRepo.countChildrenByRole(parentId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns mapOf(Role.TERMINAL to 1)
 
             // Only the child is in the target set — the parent is NOT requested directly.
             val params = buildItemIdsParams(listOf(childId))
@@ -156,15 +155,15 @@ class CompleteTreeToolCascadeOrderTest {
             val depAtoB = Dependency(fromItemId = idA, toItemId = idB, type = DependencyType.BLOCKS)
 
             val applyOrder = mutableListOf<UUID>()
-            coEvery { workItemRepo.getById(idA) } answers { Result.Success(currentA) }
-            coEvery { workItemRepo.getById(idB) } returns Result.Success(itemB)
+            coEvery { workItemRepo.getById(idA) } answers { currentA }
+            coEvery { workItemRepo.getById(idB) } returns itemB
             coEvery { workItemRepo.update(any()) } answers {
                 val updated = firstArg<WorkItem>()
                 applyOrder.add(updated.id)
                 if (updated.id == idA) currentA = updated
-                Result.Success(updated)
+                updated
             }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(idA) } returns emptyList()
             every { depRepo.findByFromItemId(idA) } returns emptyList()
             every { depRepo.findByToItemId(idB) } returns listOf(depAtoB)
@@ -201,8 +200,8 @@ class CompleteTreeToolCascadeOrderTest {
             val blockerC = makeItem(id = idBlockerC, title = "Outside blocker C", role = Role.QUEUE)
             val depCtoB = Dependency(fromItemId = idBlockerC, toItemId = idB, type = DependencyType.BLOCKS)
 
-            coEvery { workItemRepo.getById(idB) } returns Result.Success(itemB)
-            coEvery { workItemRepo.getById(idBlockerC) } returns Result.Success(blockerC)
+            coEvery { workItemRepo.getById(idB) } returns itemB
+            coEvery { workItemRepo.getById(idBlockerC) } returns blockerC
             every { depRepo.findByToItemId(idB) } returns listOf(depCtoB)
             every { depRepo.findByFromItemId(idB) } returns emptyList()
 
@@ -240,15 +239,15 @@ class CompleteTreeToolCascadeOrderTest {
             val childItem = makeItem(id = childId, role = Role.WORK, title = "Only child", parentId = rootId)
 
             var currentRoot = rootItem
-            coEvery { workItemRepo.findDescendants(rootId) } returns Result.Success(listOf(childItem))
-            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
-            coEvery { workItemRepo.getById(rootId) } answers { Result.Success(currentRoot) }
+            coEvery { workItemRepo.findDescendants(rootId) } returns listOf(childItem)
+            coEvery { workItemRepo.getById(childId) } returns childItem
+            coEvery { workItemRepo.getById(rootId) } answers { currentRoot }
             coEvery { workItemRepo.update(any()) } answers {
                 val updated = firstArg<WorkItem>()
                 if (updated.id == rootId) currentRoot = updated
-                Result.Success(updated)
+                updated
             }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(childId) } returns emptyList()
             every { depRepo.findByFromItemId(childId) } returns emptyList()
             // F-003: the terminal cascade now re-validates the parent's blocking dependencies.
@@ -256,7 +255,7 @@ class CompleteTreeToolCascadeOrderTest {
             every { depRepo.findByFromItemId(rootId) } returns emptyList()
             // All (one) of the root's children are now terminal once the child applies — the
             // terminal cascade fires up to the root during the CHILD's own advance() call.
-            coEvery { workItemRepo.countChildrenByRole(rootId) } returns Result.Success(mapOf(Role.TERMINAL to 1))
+            coEvery { workItemRepo.countChildrenByRole(rootId) } returns mapOf(Role.TERMINAL to 1)
 
             // rootId mode, includeRoot=true (default): descendants processed first, root last —
             // per CompleteTreeTool's own documented ordering.

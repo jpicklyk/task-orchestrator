@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.tools.config
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
@@ -61,7 +60,7 @@ class ManageProjectConfigToolSchemaWarningsTest {
 
             context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
 
-            val root = (workItemRepository.create(WorkItem(title = "Project Root", type = "project")) as Result.Success).data
+            val root = workItemRepository.create(WorkItem(title = "Project Root", type = "project"))
             rootId = root.id
         }
 

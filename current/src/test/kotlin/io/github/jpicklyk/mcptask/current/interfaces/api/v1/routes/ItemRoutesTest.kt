@@ -60,7 +60,7 @@ class ItemRoutesTest {
                         .workItemRepository()
                         .create(
                             WorkItem(title = "Root item", depth = 0)
-                        ).getOrNull()!!
+                        )!!
                 }
             application {
                 configureTestApp { itemRoutes(repo) }
@@ -101,7 +101,7 @@ class ItemRoutesTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "My Item", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "My Item", depth = 0))!!
                 }
             application {
                 configureTestApp { itemRoutes(repo) }
@@ -150,7 +150,7 @@ class ItemRoutesTest {
             val repo = db.repositoryProvider()
             val root =
                 runBlocking {
-                    val r = repo.workItemRepository().create(WorkItem(title = "Root", depth = 0)).getOrNull()!!
+                    val r = repo.workItemRepository().create(WorkItem(title = "Root", depth = 0))!!
                     repo.workItemRepository().create(WorkItem(title = "Child", parentId = r.id, depth = 1))
                     r
                 }
@@ -172,8 +172,8 @@ class ItemRoutesTest {
             val repo = db.repositoryProvider()
             val child =
                 runBlocking {
-                    val r = repo.workItemRepository().create(WorkItem(title = "Root", depth = 0)).getOrNull()!!
-                    repo.workItemRepository().create(WorkItem(title = "Child", parentId = r.id, depth = 1)).getOrNull()!!
+                    val r = repo.workItemRepository().create(WorkItem(title = "Root", depth = 0))!!
+                    repo.workItemRepository().create(WorkItem(title = "Child", parentId = r.id, depth = 1))!!
                 }
             application {
                 configureTestApp { itemRoutes(repo) }
@@ -194,7 +194,7 @@ class ItemRoutesTest {
             val repo = db.repositoryProvider()
             val root =
                 runBlocking {
-                    val r = repo.workItemRepository().create(WorkItem(title = "Root", depth = 0)).getOrNull()!!
+                    val r = repo.workItemRepository().create(WorkItem(title = "Root", depth = 0))!!
                     repo.workItemRepository().create(WorkItem(title = "Child1", parentId = r.id, depth = 1))
                     repo.workItemRepository().create(WorkItem(title = "Child2", parentId = r.id, depth = 1))
                     r
@@ -221,7 +221,7 @@ class ItemRoutesTest {
             val r1 = UUID.randomUUID()
             val itemOutsideScope =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Outside Scope Item", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Outside Scope Item", depth = 0))!!
                 }
             // Token scoped to r1 (a random UUID not matching itemOutsideScope's id)
             val authConfig = makeTestAuthConfig(scopeRootIds = setOf(r1))
@@ -241,7 +241,7 @@ class ItemRoutesTest {
             val repo = db.repositoryProvider()
             val root =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "In Scope Root", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "In Scope Root", depth = 0))!!
                 }
             val authConfig = makeTestAuthConfig(scopeRootIds = setOf(root.id))
             application {
@@ -267,7 +267,7 @@ class ItemRoutesTest {
             val repo = db.repositoryProvider()
             val root =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Unauth Item", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Unauth Item", depth = 0))!!
                 }
             application {
                 configureTestApp(ApiAuthConfig.Unauthenticated) { itemRoutes(repo) }
@@ -390,7 +390,7 @@ class ItemRoutesTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    val i = repo.workItemRepository().create(WorkItem(title = "Noted", depth = 0)).getOrNull()!!
+                    val i = repo.workItemRepository().create(WorkItem(title = "Noted", depth = 0))!!
                     repo.noteRepository().upsert(
                         io.github.jpicklyk.mcptask.current.domain.model.Note(
                             itemId = i.id,
@@ -420,7 +420,7 @@ class ItemRoutesTest {
             val repo = db.repositoryProvider()
             val root =
                 runBlocking {
-                    val r = repo.workItemRepository().create(WorkItem(title = "Parent", depth = 0)).getOrNull()!!
+                    val r = repo.workItemRepository().create(WorkItem(title = "Parent", depth = 0))!!
                     repo.workItemRepository().create(WorkItem(title = "Inline Child", parentId = r.id, depth = 1))
                     r
                 }
@@ -459,9 +459,9 @@ class ItemRoutesTest {
             val repo = db.repositoryProvider()
             val (scopeRoot, leaf) =
                 runBlocking {
-                    val a = repo.workItemRepository().create(WorkItem(title = "GrandParentA", depth = 0)).getOrNull()!!
-                    val s = repo.workItemRepository().create(WorkItem(title = "ScopeRootS", parentId = a.id, depth = 1)).getOrNull()!!
-                    val leaf = repo.workItemRepository().create(WorkItem(title = "LeafUnderS", parentId = s.id, depth = 2)).getOrNull()!!
+                    val a = repo.workItemRepository().create(WorkItem(title = "GrandParentA", depth = 0))!!
+                    val s = repo.workItemRepository().create(WorkItem(title = "ScopeRootS", parentId = a.id, depth = 1))!!
+                    val leaf = repo.workItemRepository().create(WorkItem(title = "LeafUnderS", parentId = s.id, depth = 2))!!
                     s to leaf
                 }
             // Token scoped to S — should not see GrandParentA
@@ -489,9 +489,9 @@ class ItemRoutesTest {
             val repo = db.repositoryProvider()
             val leaf =
                 runBlocking {
-                    val a = repo.workItemRepository().create(WorkItem(title = "TopA", depth = 0)).getOrNull()!!
-                    val b = repo.workItemRepository().create(WorkItem(title = "MidB", parentId = a.id, depth = 1)).getOrNull()!!
-                    repo.workItemRepository().create(WorkItem(title = "LeafC", parentId = b.id, depth = 2)).getOrNull()!!
+                    val a = repo.workItemRepository().create(WorkItem(title = "TopA", depth = 0))!!
+                    val b = repo.workItemRepository().create(WorkItem(title = "MidB", parentId = a.id, depth = 1))!!
+                    repo.workItemRepository().create(WorkItem(title = "LeafC", parentId = b.id, depth = 2))!!
                 }
             // Default TEST_TOKEN has null scopeRootIds — unrestricted
             application {
@@ -520,21 +520,21 @@ class ItemRoutesTest {
             val repo = db.repositoryProvider()
             val (root, child1, child2) =
                 runBlocking {
-                    val r = repo.workItemRepository().create(WorkItem(title = "SecRoot", tags = "security,api", depth = 0)).getOrNull()!!
+                    val r = repo.workItemRepository().create(WorkItem(title = "SecRoot", tags = "security,api", depth = 0))!!
                     // child1 does NOT have the 'security' tag
                     val c1 =
                         repo
                             .workItemRepository()
                             .create(
                                 WorkItem(title = "ApiOnlyChild", tags = "api", parentId = r.id, depth = 1)
-                            ).getOrNull()!!
+                            )!!
                     // child2 HAS the 'security' tag
                     val c2 =
                         repo
                             .workItemRepository()
                             .create(
                                 WorkItem(title = "SecChild", tags = "security", parentId = r.id, depth = 1)
-                            ).getOrNull()!!
+                            )!!
                     Triple(r, c1, c2)
                 }
             // Token with tagsInclude = { "security" } — sees root and child2 but NOT child1
@@ -563,19 +563,19 @@ class ItemRoutesTest {
             val repo = db.repositoryProvider()
             val (root, _, _) =
                 runBlocking {
-                    val r = repo.workItemRepository().create(WorkItem(title = "SecParent", tags = "security", depth = 0)).getOrNull()!!
+                    val r = repo.workItemRepository().create(WorkItem(title = "SecParent", tags = "security", depth = 0))!!
                     val c1 =
                         repo
                             .workItemRepository()
                             .create(
                                 WorkItem(title = "ApiChild", tags = "api", parentId = r.id, depth = 1)
-                            ).getOrNull()!!
+                            )!!
                     val c2 =
                         repo
                             .workItemRepository()
                             .create(
                                 WorkItem(title = "SecChild2", tags = "security,api", parentId = r.id, depth = 1)
-                            ).getOrNull()!!
+                            )!!
                     Triple(r, c1, c2)
                 }
             val authConfig = makeTestAuthConfig(tagsInclude = setOf("security"))
@@ -602,7 +602,7 @@ class ItemRoutesTest {
             val repo = db.repositoryProvider()
             val root =
                 runBlocking {
-                    val r = repo.workItemRepository().create(WorkItem(title = "AllRoot", tags = "security", depth = 0)).getOrNull()!!
+                    val r = repo.workItemRepository().create(WorkItem(title = "AllRoot", tags = "security", depth = 0))!!
                     repo.workItemRepository().create(WorkItem(title = "UntaggedChild", depth = 1, parentId = r.id))
                     repo.workItemRepository().create(WorkItem(title = "TaggedChild", tags = "security", depth = 1, parentId = r.id))
                     r
@@ -632,8 +632,8 @@ class ItemRoutesTest {
             val repo = db.repositoryProvider()
             val (inScopeRoot, outScopeRoot) =
                 runBlocking {
-                    val r1 = repo.workItemRepository().create(WorkItem(title = "InScopeRoot", depth = 0)).getOrNull()!!
-                    val r2 = repo.workItemRepository().create(WorkItem(title = "OutOfScopeRoot", depth = 0)).getOrNull()!!
+                    val r1 = repo.workItemRepository().create(WorkItem(title = "InScopeRoot", depth = 0))!!
+                    val r2 = repo.workItemRepository().create(WorkItem(title = "OutOfScopeRoot", depth = 0))!!
                     r1 to r2
                 }
             val authConfig = makeTestAuthConfig(scopeRootIds = setOf(inScopeRoot.id))
@@ -706,12 +706,12 @@ class ItemRoutesTest {
             val database = db.database
             val good1 =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Good root 1", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Good root 1", depth = 0))!!
                 }
             runBlocking { repo.workItemRepository().create(WorkItem(title = "Good root 2", depth = 0)) }
             val corrupt =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Will be corrupted", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Will be corrupted", depth = 0))!!
                 }
             forceBlankTitle(database, corrupt.id)
 
@@ -758,7 +758,7 @@ class ItemRoutesTest {
             runBlocking { repo.workItemRepository().create(WorkItem(title = "Good item", depth = 0)) }
             val corrupt =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Will be corrupted", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Will be corrupted", depth = 0))!!
                 }
             forceBlankTitle(database, corrupt.id)
 

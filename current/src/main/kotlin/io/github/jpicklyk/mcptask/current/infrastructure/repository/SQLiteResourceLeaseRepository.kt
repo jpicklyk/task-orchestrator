@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
@@ -8,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseReposit
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.ResourceLeaseHistoryTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.ResourceLeasesTable
-import kotlinx.coroutines.delay
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.VarCharColumnType
@@ -59,12 +59,6 @@ class SQLiteResourceLeaseRepository(
      */
     private val maxHoldersPerKey = 1
 
-    private companion object {
-        /** Bounded retries for SQLITE_BUSY / SQLITE_LOCKED contention on [acquireAll]. */
-        const val ACQUIRE_LOCK_RETRIES = 5
-        const val ACQUIRE_LOCK_RETRY_DELAY_MS = 40L
-    }
-
     /**
      * Return the database server's current wall-clock time as an [Instant].
      *
@@ -82,6 +76,7 @@ class SQLiteResourceLeaseRepository(
                 }
             } ?: Instant.now()
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             logger.warn("Failed to fetch DB-side current time, falling back to JVM clock: ${e.message}")
             Instant.now()
         }
@@ -100,36 +95,9 @@ class SQLiteResourceLeaseRepository(
             "ttlSeconds must be positive for every requirement: " +
                 requirements.filter { it.second <= 0 }.joinToString { "${it.first}=${it.second}" }
         }
-        // Bounded retry on SQLite lock contention (SQLITE_BUSY on file databases,
-        // SQLITE_LOCKED_SHAREDCACHE on shared-cache connections): the losing writer of a genuine
-        // cross-connection race gets a clean rollback from suspendTransaction, so retrying is safe
-        // and lets it re-evaluate — typically landing on Contended (with retryAfterMs) instead of
-        // surfacing a raw DBError. Exhausting the attempts falls through to the DBError path,
-        // which callers already treat as transient per the interface KDoc.
-        var lastLockException: Exception? = null
-        repeat(ACQUIRE_LOCK_RETRIES) { attempt ->
-            try {
-                return acquireAllOnce(holderItemId, actorId, requirements)
-            } catch (e: Exception) {
-                if (!isSqliteLockContention(e)) throw e
-                lastLockException = e
-                logger.debug("acquireAll lock contention (attempt ${attempt + 1}/$ACQUIRE_LOCK_RETRIES), retrying")
-                delay(ACQUIRE_LOCK_RETRY_DELAY_MS)
-            }
-        }
-        logger.error("Failed to acquire resource leases for holder $holderItemId after $ACQUIRE_LOCK_RETRIES lock-contention retries")
-        return LeaseAcquireResult.DBError(lastLockException ?: IllegalStateException("lock contention"))
-    }
-
-    /** Walks the cause chain for a SQLite busy/locked result code — the only retryable failures. */
-    private fun isSqliteLockContention(e: Throwable?): Boolean {
-        var cause = e
-        while (cause != null) {
-            val msg = cause.message ?: ""
-            if (msg.contains("SQLITE_BUSY") || msg.contains("SQLITE_LOCKED")) return true
-            cause = cause.cause
-        }
-        return false
+        // ONE attempt: the call runs inside the caller's write unit (IMMEDIATE, single writer), and
+        // SQLITE_BUSY/LOCKED is retried by the unit itself. A database failure is thrown.
+        return acquireAllOnce(holderItemId, actorId, requirements)
     }
 
     private suspend fun acquireAllOnce(
@@ -137,7 +105,7 @@ class SQLiteResourceLeaseRepository(
         actorId: String?,
         requirements: List<Pair<String, Int>>
     ): LeaseAcquireResult {
-        return try {
+        return run {
             if (requirements.isEmpty()) {
                 LeaseAcquireResult.Success(emptyList())
             } else {
@@ -280,11 +248,6 @@ class SQLiteResourceLeaseRepository(
                     LeaseAcquireResult.Success(leases)
                 }
             }
-        } catch (e: Exception) {
-            // Lock contention propagates to acquireAll's bounded retry; everything else is terminal.
-            if (isSqliteLockContention(e)) throw e
-            logger.error("Failed to acquire resource leases for holder $holderItemId: ${e.message}", e)
-            LeaseAcquireResult.DBError(e)
         }
     }
 
@@ -365,7 +328,7 @@ class SQLiteResourceLeaseRepository(
     }
 
     override suspend fun releaseAllForItem(holderItemId: UUID): LeaseReleaseResult =
-        try {
+        run {
             databaseManager.writeTx("ResourceLeaseRepository.releaseAllForItem") {
                 val uuidType = UUIDColumnType()
                 // Close every OPEN interval this holder has, across all its keys. releasedAt is
@@ -389,14 +352,11 @@ class SQLiteResourceLeaseRepository(
                 val count = ResourceLeasesTable.deleteWhere { ResourceLeasesTable.holderItemId eq holderItemId }
                 LeaseReleaseResult.Success(count)
             }
-        } catch (e: Exception) {
-            logger.error("Failed to release resource leases for holder $holderItemId: ${e.message}", e)
-            LeaseReleaseResult.DBError(e)
         }
 
     override suspend fun releaseAllForItems(holderItemIds: Set<UUID>): LeaseReleaseResult {
         if (holderItemIds.isEmpty()) return LeaseReleaseResult.Success(0)
-        return try {
+        return run {
             databaseManager.writeTx("ResourceLeaseRepository.releaseAllForItems") {
                 val uuidType = UUIDColumnType()
                 var total = 0
@@ -418,9 +378,6 @@ class SQLiteResourceLeaseRepository(
                 }
                 LeaseReleaseResult.Success(total)
             }
-        } catch (e: Exception) {
-            logger.error("Failed to release resource leases for ${holderItemIds.size} holders: ${e.message}", e)
-            LeaseReleaseResult.DBError(e)
         }
     }
 
@@ -428,7 +385,7 @@ class SQLiteResourceLeaseRepository(
         resourceKey: String,
         actorId: String?
     ): LeaseReleaseResult =
-        try {
+        run {
             databaseManager.writeTx("ResourceLeaseRepository.forceReleaseByKey") {
                 val keyType = VarCharColumnType(255)
                 val actorType = VarCharColumnType(500)
@@ -447,9 +404,6 @@ class SQLiteResourceLeaseRepository(
                 val count = ResourceLeasesTable.deleteWhere { ResourceLeasesTable.resourceKey eq resourceKey }
                 LeaseReleaseResult.Success(count)
             }
-        } catch (e: Exception) {
-            logger.error("Failed to force-release resource leases for key $resourceKey: ${e.message}", e)
-            LeaseReleaseResult.DBError(e)
         }
 
     override suspend fun findActiveByKeys(keys: List<String>): List<ResourceLease> {

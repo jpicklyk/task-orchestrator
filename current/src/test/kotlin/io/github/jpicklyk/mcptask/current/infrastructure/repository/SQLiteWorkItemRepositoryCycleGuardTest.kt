@@ -4,8 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValid
 import io.github.jpicklyk.mcptask.current.domain.model.AncestorChain
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.MAX_TRAVERSAL_DEPTH
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
@@ -21,8 +19,10 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -69,8 +69,8 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
         depth: Int = if (parentId == null) 0 else 1
     ): WorkItem {
         val result = repository.create(WorkItem(title = title, parentId = parentId, depth = depth))
-        assertIs<Result.Success<WorkItem>>(result, "fixture setup: failed to create '$title'")
-        return result.data
+        assertNotNull(result, "fixture setup: failed to create '$title'")
+        return result
     }
 
     /** Directly overwrite parent_id, bypassing [WorkItem.validate] and any DB trigger. */
@@ -99,20 +99,22 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
             // Corrupt: a.parent_id := a.id (self-reference), simulating pre-guard data.
             forceParentId(a.id, a.id)
 
-            val result = repository.findDescendants(a.id)
-            assertIs<Result.Error>(result, "expected the self-parent cycle to be reported, not hang or silently succeed")
-            val error = result.error
-            assertIs<RepositoryError.DatabaseError>(error)
+            val result =
+                assertFailsWith<IllegalStateException>(
+                    message = "expected the self-parent cycle to be reported, not hang or silently succeed"
+                ) {
+                    repository.findDescendants(a.id)
+                }
+            val error = result
             assertTrue(
-                error.message.contains(MAX_TRAVERSAL_DEPTH.toString()),
+                error.message.orEmpty().contains(MAX_TRAVERSAL_DEPTH.toString()),
                 "expected the error to name the traversal bound ($MAX_TRAVERSAL_DEPTH), got: ${error.message}"
             )
 
             // Replay probe: the same corrupt fixture queried again must produce the same
             // kind of outcome, not flip between error/hang/success across calls.
-            val replay = repository.findDescendants(a.id)
-            assertIs<Result.Error>(replay)
-            assertIs<RepositoryError.DatabaseError>(replay.error)
+            val replay = assertFailsWith<IllegalStateException> { repository.findDescendants(a.id) }
+            assertIs<IllegalStateException>(replay)
         }
 
     // ── S3a: two-node mutual cycle, SQLite recursive CTE ───────────────────
@@ -128,9 +130,11 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
             // b.parent_id is already a.id; forcing a.parent_id := b.id closes the mutual cycle.
             forceParentId(a.id, b.id)
 
-            val result = repository.findDescendants(a.id)
-            assertIs<Result.Error>(result, "expected the mutual cycle to be reported, not hang or silently succeed")
-            assertIs<RepositoryError.DatabaseError>(result.error)
+            val result =
+                assertFailsWith<IllegalStateException>(message = "expected the mutual cycle to be reported, not hang or silently succeed") {
+                    repository.findDescendants(a.id)
+                }
+            assertIs<IllegalStateException>(result)
         }
 
     // ── S4: deep legitimate chain — the cap must not regress a real workload ──
@@ -150,11 +154,11 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
             }
 
             val result = repository.findDescendants(rootId!!)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(199, result.data.size, "root must be excluded from its own descendant list")
+            assertNotNull(result)
+            assertEquals(199, result.size, "root must be excluded from its own descendant list")
             assertEquals(
                 199,
-                result.data
+                result
                     .map { it.id }
                     .toSet()
                     .size,
@@ -179,8 +183,8 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
             }
 
             val result = repository.findDescendants(rootId!!)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(MAX_TRAVERSAL_DEPTH - 1, result.data.size, "a chain of exactly the bound's node count must not be capped")
+            assertNotNull(result)
+            assertEquals(MAX_TRAVERSAL_DEPTH - 1, result.size, "a chain of exactly the bound's node count must not be capped")
         }
 
     @Test
@@ -197,9 +201,11 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
                 depth++
             }
 
-            val result = repository.findDescendants(rootId!!)
-            assertIs<Result.Error>(result, "a chain one node over the bound must not silently succeed")
-            assertIs<RepositoryError.DatabaseError>(result.error)
+            val result =
+                assertFailsWith<IllegalStateException>(message = "a chain one node over the bound must not silently succeed") {
+                    repository.findDescendants(rootId!!)
+                }
+            assertIs<IllegalStateException>(result)
         }
 
     // ── S10: ftsSearch subtree-scope CTE on a cycle (SQLite only) ──
@@ -240,9 +246,11 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
             val b = createItem("S11a B", parentId = a.id, depth = 2)
             forceParentId(a.id, b.id)
 
-            val result = repository.findInScope(rootIds = setOf(a.id))
-            assertIs<Result.Error>(result, "expected the cyclic scope to be reported, not hang or silently succeed")
-            assertIs<RepositoryError.DatabaseError>(result.error)
+            val result =
+                assertFailsWith<IllegalStateException>(message = "expected the cyclic scope to be reported, not hang or silently succeed") {
+                    repository.findInScope(rootIds = setOf(a.id))
+                }
+            assertIs<IllegalStateException>(result)
         }
 
     @Test
@@ -254,9 +262,11 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
             val b = createItem("S11a-count B", parentId = a.id, depth = 2)
             forceParentId(a.id, b.id)
 
-            val result = repository.countInScope(rootIds = setOf(a.id))
-            assertIs<Result.Error>(result, "expected the cyclic scope to be reported, not hang or silently succeed")
-            assertIs<RepositoryError.DatabaseError>(result.error)
+            val result =
+                assertFailsWith<IllegalStateException>(message = "expected the cyclic scope to be reported, not hang or silently succeed") {
+                    repository.countInScope(rootIds = setOf(a.id))
+                }
+            assertIs<IllegalStateException>(result)
         }
 
     // ── Ported from the retired in-memory cycle-guard suite (dialect-neutral scenarios, now on SQLite) ──
@@ -286,8 +296,8 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
             forceParentId(b.id, a.id)
 
             val detailed = repository.findAncestorChainsDetailed(setOf(a.id))
-            assertIs<Result.Success<Map<UUID, AncestorChain>>>(detailed)
-            val chain = detailed.data[a.id]
+            assertNotNull(detailed)
+            val chain = detailed[a.id]
             assertTrue(chain != null, "chain entry must exist for the requested item")
             assertTrue(chain.truncated, "a cyclic ancestor walk must report truncated=true")
             assertEquals(AncestorChain.REASON_CYCLE, chain.truncationReason)
@@ -295,8 +305,8 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
             // Legacy findAncestorChains is defined as findAncestorChainsDetailed with the flag
             // dropped - same ancestors, same order, for the same (still cyclic) fixture.
             val legacy = repository.findAncestorChains(setOf(a.id))
-            assertIs<Result.Success<Map<UUID, List<WorkItem>>>>(legacy)
-            assertEquals(chain.ancestors.map { it.id }, legacy.data[a.id]?.map { it.id })
+            assertNotNull(legacy)
+            assertEquals(chain.ancestors.map { it.id }, legacy[a.id]?.map { it.id })
         }
 
     // ── S7: missing / domain-invalid ancestor ───────────────────────────────
@@ -314,8 +324,8 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
             corruptTitleBlank(p.id)
 
             val detailed = repository.findAncestorChainsDetailed(setOf(c.id))
-            assertIs<Result.Success<Map<UUID, AncestorChain>>>(detailed)
-            val chain = detailed.data[c.id]
+            assertNotNull(detailed)
+            val chain = detailed[c.id]
             assertTrue(chain != null, "chain entry must exist for the requested item")
             assertTrue(chain.truncated, "a missing/invalid ancestor must report truncated=true")
             assertEquals(AncestorChain.REASON_MISSING_ANCESTOR, chain.truncationReason)
@@ -332,8 +342,8 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
             val leaf = createItem("S8 leaf", parentId = middle.id, depth = 2)
 
             val detailed = repository.findAncestorChainsDetailed(setOf(leaf.id))
-            assertIs<Result.Success<Map<UUID, AncestorChain>>>(detailed)
-            val chain = detailed.data[leaf.id]
+            assertNotNull(detailed)
+            val chain = detailed[leaf.id]
             assertTrue(chain != null, "chain entry must exist for the requested item")
             assertFalse(chain.truncated, "a genuinely shallow chain must report truncated=false")
             assertNull(chain.truncationReason)
@@ -354,8 +364,8 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
 
             val sibling = createItem("S9 sibling")
             val siblingBefore = repository.getById(sibling.id)
-            assertIs<Result.Success<WorkItem>>(siblingBefore)
-            val versionBefore = siblingBefore.data.version
+            assertNotNull(siblingBefore)
+            val versionBefore = siblingBefore.version
 
             val result =
                 ItemHierarchyValidator().recomputeDescendantDepths(
@@ -364,11 +374,11 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
                     newRootId = UUID.randomUUID(),
                     repo = repository,
                 )
-            assertIs<Result.Error>(result, "the descendant fetch inside recompute must surface the cycle, not hang")
+            assertNotNull(result, "the descendant fetch inside recompute must surface the cycle, not hang")
 
             val siblingAfter = repository.getById(sibling.id)
-            assertIs<Result.Success<WorkItem>>(siblingAfter)
-            assertEquals(versionBefore, siblingAfter.data.version, "an unrelated item must be untouched by the aborted cascade")
+            assertNotNull(siblingAfter)
+            assertEquals(versionBefore, siblingAfter.version, "an unrelated item must be untouched by the aborted cascade")
         }
 
     // ── S11b: control - findInScope / countInScope visit each node once ──
@@ -385,12 +395,12 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
             val expectedIds = setOf(root.id, childA.id, childB.id, grandA1.id, grandA2.id)
 
             val scoped = repository.findInScope(rootIds = setOf(root.id))
-            assertIs<Result.Success<List<WorkItem>>>(scoped)
-            assertEquals(expectedIds.size, scoped.data.size, "no node should be visited more than once")
-            assertEquals(expectedIds, scoped.data.map { it.id }.toSet())
+            assertNotNull(scoped)
+            assertEquals(expectedIds.size, scoped.size, "no node should be visited more than once")
+            assertEquals(expectedIds, scoped.map { it.id }.toSet())
 
             val count = repository.countInScope(rootIds = setOf(root.id))
-            assertIs<Result.Success<Int>>(count)
-            assertEquals(expectedIds.size, count.data)
+            assertNotNull(count)
+            assertEquals(expectedIds.size, count)
         }
 }

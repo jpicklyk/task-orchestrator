@@ -8,7 +8,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -25,6 +24,7 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -135,7 +135,7 @@ class QueryItemsToolSchemaDispatchTest {
 
             val item = WorkItem(id = UUID.randomUUID(), title = "Tagged item", type = "feature-task", depth = 0)
             val created = schemaContext.workItemRepository().create(item)
-            assertTrue(created is Result.Success)
+            assertNotNull(created)
 
             val result =
                 tool.execute(

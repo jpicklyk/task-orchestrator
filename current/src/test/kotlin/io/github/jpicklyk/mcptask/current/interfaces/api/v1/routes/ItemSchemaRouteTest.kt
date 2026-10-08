@@ -9,8 +9,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -149,7 +147,7 @@ class ItemSchemaRouteTest {
         val repo = composition.toolContext.repositoryProvider
         val item =
             runBlocking {
-                val r = repo.workItemRepository().create(WorkItem(title = "Schema S11 Root", depth = 0)).getOrNull()!!
+                val r = repo.workItemRepository().create(WorkItem(title = "Schema S11 Root", depth = 0))!!
                 val i =
                     repo
                         .workItemRepository()
@@ -162,8 +160,8 @@ class ItemSchemaRouteTest {
                                 rootId = r.id,
                                 depth = 1,
                             ),
-                        ).getOrNull()!!
-                repo.projectConfigRepository().upsert(r.id, SEAT_AWARE_PER_ROOT_YAML).getOrNull()
+                        )!!
+                repo.projectConfigRepository().upsert(r.id, SEAT_AWARE_PER_ROOT_YAML)
                     ?: error("fixture: per-root config upsert failed")
                 i
             }
@@ -191,7 +189,7 @@ class ItemSchemaRouteTest {
         val repo = composition.toolContext.repositoryProvider
         val item =
             runBlocking {
-                val r = repo.workItemRepository().create(WorkItem(title = "Schema S11 Root Seatless", depth = 0)).getOrNull()!!
+                val r = repo.workItemRepository().create(WorkItem(title = "Schema S11 Root Seatless", depth = 0))!!
                 val i =
                     repo
                         .workItemRepository()
@@ -204,8 +202,8 @@ class ItemSchemaRouteTest {
                                 rootId = r.id,
                                 depth = 1,
                             ),
-                        ).getOrNull()!!
-                repo.projectConfigRepository().upsert(r.id, SEATLESS_PER_ROOT_YAML).getOrNull()
+                        )!!
+                repo.projectConfigRepository().upsert(r.id, SEATLESS_PER_ROOT_YAML)
                     ?: error("fixture: per-root config upsert failed")
                 i
             }
@@ -249,8 +247,7 @@ class ItemSchemaRouteTest {
             runBlocking {
                 composition.toolContext.repositoryProvider
                     .workItemRepository()
-                    .create(WorkItem(title = "Schema S11b hex", depth = 0))
-                    .getOrNull()!!
+                    .create(WorkItem(title = "Schema S11b hex", depth = 0))!!
             }
         application { configureProductionSchemaApp(composition) }
 
@@ -291,8 +288,7 @@ class ItemSchemaRouteTest {
             runBlocking {
                 composition.toolContext.repositoryProvider
                     .workItemRepository()
-                    .create(WorkItem(title = "Schema S11b free", type = "no-schema-anywhere", depth = 0))
-                    .getOrNull()!!
+                    .create(WorkItem(title = "Schema S11b free", type = "no-schema-anywhere", depth = 0))!!
             }
         application { configureProductionSchemaApp(composition) }
 
@@ -313,8 +309,7 @@ class ItemSchemaRouteTest {
             runBlocking {
                 composition.toolContext.repositoryProvider
                     .workItemRepository()
-                    .create(WorkItem(title = "Schema S11b scope", depth = 0))
-                    .getOrNull()!!
+                    .create(WorkItem(title = "Schema S11b scope", depth = 0))!!
             }
         val authConfig = makeTestAuthConfig(scopeRootIds = setOf(UUID.randomUUID()))
         application { configureProductionSchemaApp(composition, authConfig = authConfig) }
@@ -333,7 +328,7 @@ class ItemSchemaRouteTest {
             val sqlite = db.repositoryProvider()
             val item =
                 runBlocking {
-                    val r = sqlite.workItemRepository().create(WorkItem(title = "Schema S11b 503 root", depth = 0)).getOrNull()!!
+                    val r = sqlite.workItemRepository().create(WorkItem(title = "Schema S11b 503 root", depth = 0))!!
                     // A real row must exist so getFingerprint succeeds first -- resolve() only
                     // reaches the .get() read (which failGet intercepts) once the fingerprint check
                     // has NOT short-circuited on Success(null)/absence. Mirrors
@@ -350,7 +345,7 @@ class ItemSchemaRouteTest {
                                 rootId = r.id,
                                 depth = 1
                             ),
-                        ).getOrNull()!!
+                        )!!
                 }
             val failable = SchemaRouteFailableProjectConfigRepository(sqlite.projectConfigRepository())
             failable.failGet = true
@@ -430,7 +425,7 @@ private class SchemaRouteFailableProjectConfigRepository(
 ) : ProjectConfigRepository by delegate {
     @Volatile var failGet: Boolean = false
 
-    override suspend fun get(rootItemId: UUID) = if (failGet) Result.Error(RepositoryError.DatabaseError("x")) else delegate.get(rootItemId)
+    override suspend fun get(rootItemId: UUID) = if (failGet) throw IllegalStateException("x") else delegate.get(rootItemId)
 }
 
 private class SchemaRouteFailableRepositoryProvider(

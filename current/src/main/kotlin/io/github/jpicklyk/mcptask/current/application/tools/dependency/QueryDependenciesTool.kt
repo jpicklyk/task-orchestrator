@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.application.tools.dependency
 
+import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.BacklinkRow
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
@@ -286,10 +286,7 @@ a backlink row means another item has an edge with toItemId = your itemId. E.g. 
                     relatedIds.add(it.fromItemId)
                     relatedIds.add(it.toItemId)
                 }
-                when (val result = context.workItemRepository().findByIds(relatedIds)) {
-                    is Result.Success -> result.data.associateBy { it.id }
-                    is Result.Error -> emptyMap()
-                }
+                (legacyReadOrNull { context.workItemRepository().findByIds(relatedIds).associateBy { it.id } } ?: emptyMap())
             } else {
                 emptyMap()
             }

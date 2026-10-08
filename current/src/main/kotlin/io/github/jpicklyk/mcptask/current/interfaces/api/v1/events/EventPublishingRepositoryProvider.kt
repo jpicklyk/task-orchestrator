@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
 import io.github.jpicklyk.mcptask.current.application.service.currentEventActor
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.Note
@@ -17,7 +18,6 @@ import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentReposito
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import org.slf4j.LoggerFactory
@@ -87,7 +87,7 @@ class EventPublishingRepositoryProvider(
 
         return try {
             val chains = delegate.workItemRepository().findAncestorChains(setOf(itemId))
-            val chain = chains.getOrNull()?.get(itemId) ?: emptyList()
+            val chain = chains[itemId] ?: emptyList()
             // Ancestor chain is ordered root-first. The root is the first item (depth=0),
             // or the item itself if it has no ancestors (is itself a root).
             val roots =
@@ -99,6 +99,7 @@ class EventPublishingRepositoryProvider(
             rootCache[itemId] = roots
             roots
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             logger.warn("Failed to resolve roots for item {}: {}", itemId, e.message)
             emptySet()
         }
@@ -179,34 +180,32 @@ class EventPublishingRepositoryProvider(
     private inner class EventPublishingWorkItemRepository(
         private val inner: WorkItemRepository,
     ) : WorkItemRepository by inner {
-        override suspend fun create(item: WorkItem): Result<WorkItem> {
+        override suspend fun create(item: WorkItem): WorkItem {
             val result = inner.create(item)
-            if (result is Result.Success) {
-                val roots = resolveRoots(result.data.id)
-                publishScoped(
-                    ApiEventType.ITEM_CREATED,
-                    itemId = result.data.id,
-                    modifiedAt = result.data.createdAt,
-                    roots = roots,
-                )
-            }
+            val roots = resolveRoots(result.id)
+            publishScoped(
+                ApiEventType.ITEM_CREATED,
+                itemId = result.id,
+                modifiedAt = result.createdAt,
+                roots = roots,
+            )
             return result
         }
 
-        override suspend fun update(item: WorkItem): Result<WorkItem> {
+        override suspend fun update(item: WorkItem): WorkItem? {
             // Performance guard: only read the pre-update row (for reparent detection) when an SSE
             // client is connected. With no subscribers this extra getById is pure overhead — we
             // still buffer a plain item.updated event below (roots resolve to emptySet()).
             val hasSubscribers = eventBus.subscriberCount() > 0
-            val oldItem = if (hasSubscribers) (inner.getById(item.id) as? Result.Success)?.data else null
+            val oldItem = if (hasSubscribers) inner.getById(item.id) else null
             // Capture the OLD root set BEFORE the update — while the DB still reflects the old parent
             // chain. After inner.update(), resolveRoots(item.id) returns the NEW roots for this same
             // itemId, so scope.left must use this pre-update snapshot (else it fires to the new root
             // and the old-root subscriber never gets scope.left). Reparent path only; cheap otherwise.
             val oldRoots = if (hasSubscribers && oldItem != null) resolveRoots(item.id) else emptySet()
             val result = inner.update(item)
-            if (result is Result.Success) {
-                val updated = result.data
+            if (result != null) {
+                val updated = result
                 val oldParentId = oldItem?.parentId
                 val newParentId = updated.parentId
 
@@ -254,10 +253,10 @@ class EventPublishingRepositoryProvider(
             return result
         }
 
-        override suspend fun delete(id: UUID): Result<Boolean> {
+        override suspend fun delete(id: UUID): Boolean {
             val roots = resolveRoots(id)
             val result = inner.delete(id)
-            if (result is Result.Success && result.data) {
+            if (result) {
                 invalidateCache(id)
                 publishScoped(
                     ApiEventType.ITEM_DELETED,
@@ -269,21 +268,16 @@ class EventPublishingRepositoryProvider(
             return result
         }
 
-        override suspend fun deleteAll(ids: Set<UUID>): Result<Int> {
+        override suspend fun deleteAll(ids: Set<UUID>): Int {
             // Unconditional pre-read (to learn which ids actually exist, and their pre-delete
             // roots) — replay needs the event even when no SSE client is connected right now: a
             // later Last-Event-ID resume must still see these deletes (as UNRESOLVED entries, via
             // resolveRoots' own no-subscriber guard), matching item delete()/note deleteByItemId's
             // existing behaviour. The 4 guarded delete paths in this file are now uniform.
-            val preDeleteItems = (inner.findByIds(ids) as? Result.Success)?.data
-            val rootsByItemId =
-                if (preDeleteItems != null) {
-                    preDeleteItems.associate { it.id to resolveRoots(it.id) }
-                } else {
-                    emptyMap()
-                }
+            val preDeleteItems = inner.findByIds(ids)
+            val rootsByItemId = preDeleteItems.associate { it.id to resolveRoots(it.id) }
             val result = inner.deleteAll(ids)
-            if (result is Result.Success && result.data > 0 && preDeleteItems != null) {
+            if (result > 0) {
                 clearCache()
                 for (item in preDeleteItems) {
                     publishScoped(
@@ -348,27 +342,25 @@ class EventPublishingRepositoryProvider(
     private inner class EventPublishingNoteRepository(
         private val inner: NoteRepository,
     ) : NoteRepository by inner {
-        override suspend fun upsert(note: Note): Result<Note> {
+        override suspend fun upsert(note: Note): Note {
             val result = inner.upsert(note)
-            if (result is Result.Success) {
-                val roots = resolveRoots(note.itemId)
-                publishScoped(
-                    ApiEventType.NOTE_UPSERTED,
-                    itemId = note.itemId,
-                    modifiedAt = result.data.modifiedAt,
-                    roots = roots,
-                    entityActor = note.actorClaim,
-                )
-            }
+            val roots = resolveRoots(note.itemId)
+            publishScoped(
+                ApiEventType.NOTE_UPSERTED,
+                itemId = note.itemId,
+                modifiedAt = result.modifiedAt,
+                roots = roots,
+                entityActor = note.actorClaim,
+            )
             return result
         }
 
-        override suspend fun delete(id: UUID): Result<Boolean> {
+        override suspend fun delete(id: UUID): Boolean {
             // Unconditional pre-read of the note (to learn its itemId for the event payload) —
             // replay needs the event even at 0 subscribers; see deleteAll()'s comment above.
-            val note = (inner.getById(id) as? Result.Success)?.data
+            val note = inner.getById(id)
             val result = inner.delete(id)
-            if (result is Result.Success && result.data && note != null) {
+            if (result && note != null) {
                 val roots = resolveRoots(note.itemId)
                 publishScoped(
                     ApiEventType.NOTE_DELETED,
@@ -380,13 +372,13 @@ class EventPublishingRepositoryProvider(
             return result
         }
 
-        override suspend fun deleteByItemId(itemId: UUID): Result<Int> {
+        override suspend fun deleteByItemId(itemId: UUID): Int {
             val result = inner.deleteByItemId(itemId)
             // The itemId is already known from the parameter (unlike single-note delete(id), no
             // pre-read is needed to learn it) — one note.deleted event when at least one note was
             // removed. N identical events (one per deleted note) would add nothing since the
             // payload carries no noteId.
-            if (result is Result.Success && result.data > 0) {
+            if (result > 0) {
                 publishScoped(
                     ApiEventType.NOTE_DELETED,
                     itemId = itemId,

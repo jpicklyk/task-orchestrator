@@ -5,6 +5,8 @@ import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValid
 import io.github.jpicklyk.mcptask.current.application.service.PlacedWriteOutcome
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemPlacementService
 import io.github.jpicklyk.mcptask.current.application.service.buildSchemaResponseFields
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -15,7 +17,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import kotlinx.serialization.json.*
 import org.slf4j.LoggerFactory
@@ -62,15 +63,15 @@ class CreateItemHandler(
                 val createResult = createWithPlacement(spec, index, repo, context.unitOfWork)
 
                 when (createResult) {
-                    is Result.Success -> {
-                        createResult.data.rootId?.let { createdRootIds.add(it) }
-                        createdItems.add(buildCreatedItemJson(createResult.data, context))
+                    is PersistedCreate.Written -> {
+                        createResult.item.rootId?.let { createdRootIds.add(it) }
+                        createdItems.add(buildCreatedItemJson(createResult.item, context))
                     }
-                    is Result.Error -> {
+                    is PersistedCreate.Failed -> {
                         failures.add(
                             buildJsonObject {
                                 put("index", JsonPrimitive(index))
-                                put("error", JsonPrimitive(createResult.error.message))
+                                put("error", JsonPrimitive(createResult.message))
                             }
                         )
                     }
@@ -83,6 +84,7 @@ class CreateItemHandler(
                     }
                 )
             } catch (e: Exception) {
+                e.rethrowIfCancellation()
                 failures.add(
                     buildJsonObject {
                         put("index", JsonPrimitive(index))
@@ -273,20 +275,31 @@ class CreateItemHandler(
         index: Int,
         repo: WorkItemRepository,
         unitOfWork: UnitOfWork
-    ): Result<WorkItem> =
+    ): PersistedCreate =
         when (
             val outcome =
                 WorkItemPlacementService(repo, hierarchyValidator).create(unitOfWork, spec.itemId, spec.parentId) { depth, rootId ->
                     spec.toWorkItem(parentId = spec.parentId, rootId = rootId, depth = depth)
                 }
         ) {
-            is PlacedWriteOutcome.Written -> Result.Success(outcome.item)
+            is PlacedWriteOutcome.Written -> PersistedCreate.Written(outcome.item)
             is PlacedWriteOutcome.ParentNotFound ->
                 throw ToolValidationException("Item at index $index: parent '${outcome.parentId}' not found")
             is PlacedWriteOutcome.BuildFailed -> throw ToolValidationException(outcome.message)
-            is PlacedWriteOutcome.WriteFailed -> Result.Error(outcome.error)
+            is PlacedWriteOutcome.WriteFailed -> PersistedCreate.Failed(LegacyFaults.message(outcome.error))
             is PlacedWriteOutcome.CascadeFailed -> throw IllegalStateException(outcome.message)
         }
+
+    /** The per-item result of [createWithPlacement]: the written item, or the legacy failure message. */
+    private sealed interface PersistedCreate {
+        data class Written(
+            val item: WorkItem
+        ) : PersistedCreate
+
+        data class Failed(
+            val message: String
+        ) : PersistedCreate
+    }
 
     /**
      * Builds the response JSON for one successfully-created item, including the response-only

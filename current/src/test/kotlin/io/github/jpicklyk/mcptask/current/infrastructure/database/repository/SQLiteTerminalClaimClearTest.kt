@@ -10,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
@@ -73,7 +72,7 @@ class SQLiteTerminalClaimClearTest {
                     originalClaimedAt = now,
                 ),
             )
-        return (result as Result.Success).data
+        return result
     }
 
     @Test
@@ -95,11 +94,11 @@ class SQLiteTerminalClaimClearTest {
             // confirms the clear was actually written by update(), not merely present on the
             // in-process return value.
             val reFetched = repositoryProvider.workItemRepository().getById(item.id)
-            val persisted = (reFetched as Result.Success).data
-            assertNull(persisted.claimedBy, "claimedBy must be null on the re-fetched row")
-            assertNull(persisted.claimedAt, "claimedAt must be null on the re-fetched row")
-            assertNull(persisted.claimExpiresAt, "claimExpiresAt must be null on the re-fetched row")
-            assertNull(persisted.originalClaimedAt, "originalClaimedAt must be null on the re-fetched row")
+            val persisted = reFetched
+            assertNull(persisted!!.claimedBy, "claimedBy must be null on the re-fetched row")
+            assertNull(persisted!!.claimedAt, "claimedAt must be null on the re-fetched row")
+            assertNull(persisted!!.claimExpiresAt, "claimExpiresAt must be null on the re-fetched row")
+            assertNull(persisted!!.originalClaimedAt, "originalClaimedAt must be null on the re-fetched row")
         }
 
     /**
@@ -123,10 +122,10 @@ class SQLiteTerminalClaimClearTest {
             assertEquals(Role.QUEUE, success.result.newRole)
 
             val reFetched = repositoryProvider.workItemRepository().getById(item.id)
-            val persisted = (reFetched as Result.Success).data
-            assertNull(persisted.claimedBy)
-            assertNull(persisted.claimedAt)
-            assertNull(persisted.claimExpiresAt)
-            assertNull(persisted.originalClaimedAt)
+            val persisted = reFetched
+            assertNull(persisted!!.claimedBy)
+            assertNull(persisted!!.claimedAt)
+            assertNull(persisted!!.claimExpiresAt)
+            assertNull(persisted!!.originalClaimedAt)
         }
 }

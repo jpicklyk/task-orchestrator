@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
@@ -93,8 +92,8 @@ class ItemWriteIdempotencyConcurrencyTest {
             )
 
             val items = runBlocking { repo.workItemRepository().findByFilters() }
-            val firstTitleCount = (items as Result.Success).data.items.count { it.title == "First Body" }
-            val secondTitleCount = items.data.items.count { it.title == "Second Body Completely Different" }
+            val firstTitleCount = items.items.count { it.title == "First Body" }
+            val secondTitleCount = items.items.count { it.title == "Second Body Completely Different" }
             assertEquals(1, firstTitleCount, "exactly one item must be persisted for a replayed idempotency key")
             assertEquals(0, secondTitleCount, "the second body must never reach persistence")
         }
@@ -110,7 +109,7 @@ class ItemWriteIdempotencyConcurrencyTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "S6 Target", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "S6 Target", depth = 0))!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -132,7 +131,7 @@ class ItemWriteIdempotencyConcurrencyTest {
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
             assertEquals(
                 "S6 Target",
-                (persisted as Result.Success).data.title,
+                persisted!!.title,
                 "a malformed, never-parsed body must never be applied to the item",
             )
         }
@@ -174,7 +173,7 @@ class ItemWriteIdempotencyConcurrencyTest {
             )
 
             val items = runBlocking { repo.workItemRepository().findByFilters() }
-            val matching = (items as Result.Success).data.items.count { it.title == "Mixed Case First" }
+            val matching = items.items.count { it.title == "Mixed Case First" }
             assertEquals(1, matching)
         }
 }

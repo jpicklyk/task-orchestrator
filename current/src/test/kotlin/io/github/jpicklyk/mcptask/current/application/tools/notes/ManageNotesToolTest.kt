@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationExcept
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -48,7 +47,7 @@ class ManageNotesToolTest {
     private suspend fun createTestItem(title: String = "Test Item"): String {
         val item = WorkItem(title = title)
         val result = context.workItemRepository().create(item)
-        return ((result as Result.Success).data.id).toString()
+        return (result.id).toString()
     }
 
     // ──────────────────────────────────────────────
@@ -488,7 +487,7 @@ class ManageNotesToolTest {
     ): String {
         val item = WorkItem(title = title, tags = tags, role = role)
         val result = context.workItemRepository().create(item)
-        return ((result as Result.Success).data.id).toString()
+        return (result.id).toString()
     }
 
     private fun contextWithSchema(
@@ -1101,7 +1100,7 @@ class ManageNotesToolTest {
             // Verify the persisted note has the second actor via direct repo query
             val noteRepo = context.noteRepository()
             val itemUUID = java.util.UUID.fromString(itemId)
-            val found = (noteRepo.findByItemIdAndKey(itemUUID, "actor-replace") as Result.Success).data
+            val found = noteRepo.findByItemIdAndKey(itemUUID, "actor-replace")
             assertNotNull(found, "note should exist")
             assertNotNull(found.actorClaim, "actorClaim should be persisted")
             assertEquals("agent-second", found.actorClaim.id)
@@ -1673,7 +1672,7 @@ class ManageNotesToolTest {
     ): String {
         val item = WorkItem(title = title, tags = tags, role = Role.QUEUE, rootId = rootId)
         val result = context.workItemRepository().create(item)
-        return ((result as Result.Success).data.id).toString()
+        return (result.id).toString()
     }
 
     @Test

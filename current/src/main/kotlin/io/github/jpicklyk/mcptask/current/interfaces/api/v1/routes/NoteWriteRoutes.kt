@@ -4,10 +4,15 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
-import io.github.jpicklyk.mcptask.current.application.support.writeResult
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.legacyWrite
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
+import io.github.jpicklyk.mcptask.current.application.support.writeOutcome
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Note
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
@@ -109,7 +114,7 @@ fun Route.noteWriteRoutes(
                     return@put
                 }
             val id =
-                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
                     return@put
                 }
@@ -135,8 +140,11 @@ fun Route.noteWriteRoutes(
             // ETag) AND the upsert run INSIDE the captured block, so an Idempotency-Key replay
             // returns the cached response verbatim without re-evaluating the now-mutated note's ETag.
             suspend fun executeUpsert(): CachedHttpResponse {
-                val itemResult = workItemRepo.getById(id)
-                if (itemResult is Result.Error) {
+                val itemResult =
+                    legacyRead({ return noteErrorCaptured(HttpStatusCode.InternalServerError, "db_error", DB_QUERY_FAILED) }) {
+                        workItemRepo.getById(id)
+                    }
+                if (itemResult == null) {
                     return noteErrorCaptured(HttpStatusCode.NotFound, "not_found", "Item $id not found")
                 }
 
@@ -146,9 +154,8 @@ fun Route.noteWriteRoutes(
 
                 // Check for existing note to handle ETag and ID preservation
                 val existingNote =
-                    when (val findResult = noteRepo.findByItemIdAndKey(id, key)) {
-                        is Result.Success -> findResult.data
-                        is Result.Error -> null
+                    legacyRead({ return noteErrorCaptured(HttpStatusCode.InternalServerError, "db_error", DB_QUERY_FAILED) }) {
+                        noteRepo.findByItemIdAndKey(id, key)
                     }
 
                 // If-Match for update path (optional but validated when present)
@@ -195,23 +202,25 @@ fun Route.noteWriteRoutes(
                             verification = verification,
                         )
                     } catch (e: Exception) {
+                        e.rethrowIfCancellation()
                         return noteErrorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Validation failed")
                     }
 
-                return when (val result = unitOfWork.writeResult("NoteWriteRoutes.upsert") { noteRepo.upsert(note) }) {
-                    is Result.Error -> {
-                        noteWriteLogger.warn("PUT /items/{}/notes/{} DB error: {}", id, key, result.error.message)
-                        noteErrorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to upsert note")
-                    }
-                    is Result.Success -> {
-                        val isCreate = existingNote == null
-                        val redactedDto = redactor.redact(result.data.toDto(), call)
-                        CachedHttpResponse(
-                            statusCode = if (isCreate) HttpStatusCode.Created.value else HttpStatusCode.OK.value,
-                            bodyJson = noteWriteJson.encodeToString(NoteDto.serializer(), redactedDto),
-                            etag = etagFor(result.data.modifiedAt),
-                        )
-                    }
+                return run {
+                    val result =
+                        unitOfWork.legacyWrite("NoteWriteRoutes.upsert", {
+                            return@run run {
+                                noteWriteLogger.warn("PUT /items/{}/notes/{} DB error: {}", id, key, it)
+                                noteErrorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to upsert note")
+                            }
+                        }) { noteRepo.upsert(note) }
+                    val isCreate = existingNote == null
+                    val redactedDto = redactor.redact(result.toDto(), call)
+                    CachedHttpResponse(
+                        statusCode = if (isCreate) HttpStatusCode.Created.value else HttpStatusCode.OK.value,
+                        bodyJson = noteWriteJson.encodeToString(NoteDto.serializer(), redactedDto),
+                        etag = etagFor(result.modifiedAt),
+                    )
                 }
             }
 
@@ -226,7 +235,7 @@ fun Route.noteWriteRoutes(
                     return@delete
                 }
             val id =
-                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
                     return@delete
                 }
@@ -236,8 +245,12 @@ fun Route.noteWriteRoutes(
                     return@delete
                 }
 
-            val itemResult = workItemRepo.getById(id)
-            if (itemResult is Result.Error) {
+            val itemResult =
+                legacyRead({
+                    call.respondDbError()
+                    return@delete
+                }) { workItemRepo.getById(id) }
+            if (itemResult == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
                 return@delete
             }
@@ -247,12 +260,11 @@ fun Route.noteWriteRoutes(
                 return@delete
             }
 
-            val noteResult = noteRepo.findByItemIdAndKey(id, key)
             val existingNote =
-                when (noteResult) {
-                    is Result.Success -> noteResult.data
-                    is Result.Error -> null
-                }
+                legacyRead({
+                    call.respondDbError()
+                    return@delete
+                }) { noteRepo.findByItemIdAndKey(id, key) }
 
             if (existingNote == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Note '$key' not found on item $id"))
@@ -263,13 +275,13 @@ fun Route.noteWriteRoutes(
                 val result =
                     withEventActor(
                         ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey])
-                    ) { unitOfWork.writeResult("NoteWriteRoutes.delete") { noteRepo.delete(existingNote.id) } }
+                    ) { unitOfWork.writeOutcome("NoteWriteRoutes.delete") { noteRepo.delete(existingNote.id) } }
             ) {
-                is Result.Error -> {
-                    noteWriteLogger.warn("DELETE /items/{}/notes/{} DB error: {}", id, key, result.error.message)
+                is Outcome.Err -> {
+                    noteWriteLogger.warn("DELETE /items/{}/notes/{} DB error: {}", id, key, LegacyFaults.message(result.error))
                     call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to delete note"))
                 }
-                is Result.Success -> {
+                is Outcome.Ok -> {
                     call.respond(HttpStatusCode.NoContent)
                 }
             }

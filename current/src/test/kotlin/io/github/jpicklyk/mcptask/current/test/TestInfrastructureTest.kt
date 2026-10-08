@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.test
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.Test
@@ -288,8 +287,8 @@ class TestInfrastructureTest {
         runBlocking {
             val mock = MockRepositoryProvider()
             val result = mock.noteRepo.findByItemId(UUID.randomUUID())
-            assertIs<Result.Success<*>>(result)
-            assertTrue((result as Result.Success).data.isEmpty())
+            assertNotNull(result)
+            assertTrue(result.isEmpty())
         }
 
     // ── TestNoteSchemaService ──

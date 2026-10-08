@@ -16,7 +16,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -248,7 +247,7 @@ private fun DefaultRepositoryProvider.createTracedItem(title: String): WorkItem 
                     depth = 0,
                     properties = """{"traits":["needs-staging-db"]}""",
                 ),
-            ).getOrNull()!!
+            )!!
     }
 
 class AdvanceRouteResourceLeaseTest {
@@ -296,7 +295,7 @@ class AdvanceRouteResourceLeaseTest {
 
             // Hard negative: the item did NOT advance.
             val persisted = runBlocking { sqlite.workItemRepository().getById(item.id) }
-            assertEquals(Role.QUEUE, (persisted as Result.Success).data.role)
+            assertEquals(Role.QUEUE, persisted!!.role)
         }
 
     @Test
@@ -373,7 +372,7 @@ class AdvanceRouteResourceLeaseTest {
 
             // The flag must never be silently ignored — the item stays put.
             val persisted = runBlocking { sqlite.workItemRepository().getById(item.id) }
-            assertEquals(Role.QUEUE, (persisted as Result.Success).data.role)
+            assertEquals(Role.QUEUE, persisted!!.role)
         }
 
     @Test
@@ -394,14 +393,14 @@ class AdvanceRouteResourceLeaseTest {
 
             assertEquals(HttpStatusCode.OK, response.status)
             val persisted = runBlocking { sqlite.workItemRepository().getById(item.id) }
-            assertEquals(Role.WORK, (persisted as Result.Success).data.role)
+            assertEquals(Role.WORK, persisted!!.role)
             // No lease was taken — the gate was skipped, not satisfied.
             assertTrue(fake.leases.isEmpty())
 
             // The durable audit row records the override alongside the WARN log line.
             val transitions =
                 runBlocking { sqlite.roleTransitionRepository().findByItemId(item.id) }
-                    .let { (it as Result.Success).data }
+                    .let { it }
             val summary = transitions.firstNotNullOfOrNull { it.summary }
             assertNotNull(summary, "the override must be recorded on the transition audit row")
             assertTrue(summary.contains("resource leases overridden"), "summary was: $summary")
@@ -434,7 +433,7 @@ class AdvanceRouteResourceLeaseTest {
             val fake = LeaseGateFakeRepository()
             val item =
                 runBlocking {
-                    sqlite.workItemRepository().create(WorkItem(title = "Plain", depth = 0)).getOrNull()!!
+                    sqlite.workItemRepository().create(WorkItem(title = "Plain", depth = 0))!!
                 }
             fake.forceContended = listOf("staging-db-credential")
             application { configureLeaseTestApp(LeaseOverridingProvider(sqlite, fake), unitOfWork = db.unitOfWork()) }

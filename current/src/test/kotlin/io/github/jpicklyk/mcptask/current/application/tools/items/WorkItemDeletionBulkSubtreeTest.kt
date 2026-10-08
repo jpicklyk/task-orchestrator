@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
 import io.github.jpicklyk.mcptask.current.test.inUnit
@@ -42,9 +41,9 @@ class WorkItemDeletionBulkSubtreeTest {
         title: String,
         parentId: UUID? = null,
         depth: Int = 0,
-    ): WorkItem = (repo.create(WorkItem(parentId = parentId, depth = depth, title = title)) as Result.Success).data
+    ): WorkItem = repo.create(WorkItem(parentId = parentId, depth = depth, title = title))
 
-    private suspend fun exists(id: UUID) = repo.getById(id) is Result.Success
+    private suspend fun exists(id: UUID) = repo.getById(id) != null
 
     @Test
     fun `T2 recursive delete of a tree larger than the bind-variable limit deletes every row and cascades`(): Unit =
@@ -81,7 +80,7 @@ class WorkItemDeletionBulkSubtreeTest {
             assertEquals(WorkItemDeleteOutcome.Deleted(root.id, expectedDescendants), outcome)
             assertTrue(!exists(root.id))
             assertTrue(all.none { exists(it) })
-            assertTrue((repositoryProvider.noteRepository().findByItemId(noted) as Result.Success).data.isEmpty())
+            assertTrue((repositoryProvider.noteRepository().findByItemId(noted)!!).isEmpty())
             assertNull(repositoryProvider.dependencyRepository().findById(dep.id))
             assertTrue(lease.findActiveForItem(all.first()).isEmpty())
             assertTrue(exists(external.id))

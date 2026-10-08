@@ -5,6 +5,9 @@ import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValid
 import io.github.jpicklyk.mcptask.current.application.service.PlacedWriteOutcome
 import io.github.jpicklyk.mcptask.current.application.service.ReparentCheck
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemPlacementService
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -12,7 +15,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationExcept
 import io.github.jpicklyk.mcptask.current.application.tools.resolveWorkItemIdString
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import kotlinx.serialization.json.*
 import java.util.UUID
@@ -63,31 +65,25 @@ class UpdateItemHandler(
 
                 // Fetch existing item
                 val existing =
-                    when (val getResult = repo.getById(id)) {
-                        is Result.Success -> getResult.data
-                        is Result.Error -> throw ToolValidationException(
-                            "Item '$itemId' not found: ${getResult.error.message}"
-                        )
-                    }
+                    legacyRead({ throw IllegalStateException(it) }) { repo.getById(id) }
+                        ?: throw ToolValidationException("Item '$itemId' not found: WorkItem not found with id: $id")
 
                 val spec = parseUpdateFields(itemObj, itemId, id, existing, sharedTraits, context, repo)
-                val updateResult = persistWithPlacement(id, itemId, existing, spec, repo, context.unitOfWork)
-
-                when (updateResult) {
-                    is Result.Success -> {
+                when (val updateResult = persistWithPlacement(id, itemId, existing, spec, repo, context.unitOfWork)) {
+                    is PersistedUpdate.Written -> {
                         updatedItems.add(
                             buildJsonObject {
-                                put("id", JsonPrimitive(updateResult.data.id.toString()))
-                                put("modifiedAt", JsonPrimitive(updateResult.data.modifiedAt.toString()))
-                                put("requiresVerification", JsonPrimitive(updateResult.data.requiresVerification))
+                                put("id", JsonPrimitive(updateResult.item.id.toString()))
+                                put("modifiedAt", JsonPrimitive(updateResult.item.modifiedAt.toString()))
+                                put("requiresVerification", JsonPrimitive(updateResult.item.requiresVerification))
                             }
                         )
                     }
-                    is Result.Error -> {
+                    is PersistedUpdate.Failed -> {
                         failures.add(
                             buildJsonObject {
                                 put("id", JsonPrimitive(itemId))
-                                put("error", JsonPrimitive(updateResult.error.message))
+                                put("error", JsonPrimitive(updateResult.message))
                             }
                         )
                     }
@@ -100,6 +96,7 @@ class UpdateItemHandler(
                     }
                 )
             } catch (e: Exception) {
+                e.rethrowIfCancellation()
                 failures.add(
                     buildJsonObject {
                         put("id", JsonPrimitive(itemId ?: "unknown"))
@@ -277,7 +274,7 @@ class UpdateItemHandler(
         spec: ParsedUpdateSpec,
         repo: WorkItemRepository,
         unitOfWork: UnitOfWork
-    ): Result<WorkItem> {
+    ): PersistedUpdate {
         // Builds the fully-updated WorkItem given a resolved placement, applying all the
         // other partial-update fields extracted above via the update builder (monotonic
         // modifiedAt).
@@ -312,13 +309,24 @@ class UpdateItemHandler(
                         buildUpdatedItem(depth, rootId)
                     }
         ) {
-            is PlacedWriteOutcome.Written -> Result.Success(outcome.item)
+            is PlacedWriteOutcome.Written -> PersistedUpdate.Written(outcome.item)
             is PlacedWriteOutcome.ParentNotFound ->
                 throw ToolValidationException("Item '$itemId': parent '${outcome.parentId}' not found")
             is PlacedWriteOutcome.BuildFailed -> throw ToolValidationException(outcome.message)
             is PlacedWriteOutcome.CascadeFailed ->
                 throw ToolValidationException("Item '$itemId': failed to update descendant depths: ${outcome.message}")
-            is PlacedWriteOutcome.WriteFailed -> Result.Error(outcome.error)
+            is PlacedWriteOutcome.WriteFailed -> PersistedUpdate.Failed(LegacyFaults.message(outcome.error))
         }
+    }
+
+    /** The per-item result of [persistWithPlacement]: the written item, or the legacy failure message. */
+    private sealed interface PersistedUpdate {
+        data class Written(
+            val item: WorkItem
+        ) : PersistedUpdate
+
+        data class Failed(
+            val message: String
+        ) : PersistedUpdate
     }
 }

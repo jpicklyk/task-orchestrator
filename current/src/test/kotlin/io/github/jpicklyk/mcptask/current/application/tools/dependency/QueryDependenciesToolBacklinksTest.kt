@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationExcept
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
@@ -49,8 +48,8 @@ class QueryDependenciesToolBacklinksTest {
     private suspend fun createItem(title: String): UUID {
         val item = WorkItem(title = title)
         val result = context.workItemRepository().create(item)
-        assertIs<Result.Success<WorkItem>>(result)
-        return result.data.id
+        assertNotNull(result)
+        return result.id
     }
 
     private fun createDependency(

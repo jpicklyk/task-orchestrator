@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -61,7 +60,7 @@ class DependencyDirectionTreeToolsTest {
         role: Role = Role.QUEUE
     ): UUID {
         val result = workItemRepository.create(WorkItem(title = title, role = role))
-        return (result as Result.Success).data.id
+        return result.id
     }
 
     private fun buildItemIdsParams(
@@ -238,7 +237,7 @@ class DependencyDirectionTreeToolsTest {
                 "Expected the detectInMemoryCycle message, got: $message"
             )
 
-            val descendants = (workItemRepository.findDescendants(existingRootId) as Result.Success).data
+            val descendants = workItemRepository.findDescendants(existingRootId)
             assertTrue(descendants.isEmpty(), "Cycle detection runs before any insert — no children should be persisted")
         }
 
@@ -271,7 +270,7 @@ class DependencyDirectionTreeToolsTest {
                 "Expected the detectInMemoryCycle message, got: $message"
             )
 
-            val descendants = (workItemRepository.findDescendants(existingRootId) as Result.Success).data
+            val descendants = workItemRepository.findDescendants(existingRootId)
             assertTrue(descendants.isEmpty(), "Nothing should be persisted once a cycle is detected")
         }
 }

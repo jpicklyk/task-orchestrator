@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
@@ -48,6 +47,7 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
+import kotlin.test.assertNotNull
 import kotlin.time.Duration.Companion.seconds
 import io.ktor.client.plugins.sse.SSE as ClientSSE
 
@@ -268,11 +268,11 @@ class EventRoutesTest {
                     depth = 0,
                 )
             val createResult = decorated.workItemRepository().create(item)
-            assertTrue(createResult is Result.Success, "Item creation should succeed: $createResult")
+            assertNotNull(createResult, "Item creation should succeed: $createResult")
 
             val updated = item.copy(title = "MCP-path test item updated")
             val updateResult = decorated.workItemRepository().update(updated)
-            assertTrue(updateResult is Result.Success, "Item update should succeed: $updateResult")
+            assertNotNull(updateResult, "Item update should succeed: $updateResult")
 
             val collectedEvents = collectorDeferred.await()
             bus.unsubscribe("mcp-proof-sub")
@@ -308,12 +308,12 @@ class EventRoutesTest {
 
             val itemId = UUID.randomUUID()
             val item = WorkItem(id = itemId, parentId = null, title = "Advance test", depth = 0, role = Role.QUEUE)
-            assertTrue(decorated.workItemRepository().create(item) is Result.Success)
+            assertTrue(decorated.workItemRepository().create(item) != null)
 
             // Change the ROLE (a phase advance) — must surface as item.advanced (carries newRole),
             // distinct from item.updated, capturing the MCP advance path (AdvanceItemTool → update).
             val advanced = item.copy(role = Role.WORK)
-            assertTrue(decorated.workItemRepository().update(advanced) is Result.Success)
+            assertTrue(decorated.workItemRepository().update(advanced) != null)
 
             val events = collectorDeferred.await()
             bus.unsubscribe("advance-sub")
@@ -623,10 +623,10 @@ class EventRoutesTest {
 
             // Read via decorated repo — should return same result
             val result = decorated.workItemRepository().getById(item.id)
-            assertTrue(result is Result.Success, "Read should succeed via decorated provider")
-            val retrieved = (result as Result.Success).data
-            assertEquals(item.id, retrieved.id)
-            assertEquals("Transparency test", retrieved.title)
+            assertNotNull(result, "Read should succeed via decorated provider")
+            val retrieved = result
+            assertEquals(item.id, retrieved!!.id)
+            assertEquals("Transparency test", retrieved!!.title)
 
             // Verify no spurious events were emitted on the read
             assertEquals(0, bus.subscriberCount(), "No subscribers should be active")

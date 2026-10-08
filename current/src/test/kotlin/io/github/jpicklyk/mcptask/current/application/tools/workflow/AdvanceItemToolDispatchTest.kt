@@ -10,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -65,8 +64,8 @@ class AdvanceItemToolDispatchTest {
         every { repoProvider.workItemRepository() } returns workItemRepo
         every { repoProvider.dependencyRepository() } returns depRepo
         val defaultNoteRepo = mockk<NoteRepository>()
-        coEvery { defaultNoteRepo.findByItemId(any()) } returns Result.Success(emptyList())
-        coEvery { defaultNoteRepo.findByItemId(any(), any()) } returns Result.Success(emptyList())
+        coEvery { defaultNoteRepo.findByItemId(any()) } returns emptyList()
+        coEvery { defaultNoteRepo.findByItemId(any(), any()) } returns emptyList()
         every { repoProvider.noteRepository() } returns defaultNoteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
         every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
@@ -145,14 +144,14 @@ class AdvanceItemToolDispatchTest {
                 )
 
             val noteRepo = mockk<NoteRepository>()
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
 
             val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -194,14 +193,14 @@ class AdvanceItemToolDispatchTest {
 
             val noteRepo = mockk<NoteRepository>()
             val workNote = Note(itemId = itemId, key = "implementation-notes", role = "work", body = "Done")
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(workNote))
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(listOf(workNote))
+            coEvery { noteRepo.findByItemId(itemId) } returns listOf(workNote)
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns listOf(workNote)
 
             val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -242,14 +241,14 @@ class AdvanceItemToolDispatchTest {
                 )
 
             val noteRepo = mockk<NoteRepository>()
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
 
             val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -271,9 +270,9 @@ class AdvanceItemToolDispatchTest {
             val itemId = UUID.randomUUID()
             val item = WorkItem(id = itemId, title = "Plain item", role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.update(any()) } answers { firstArg() }
+            coEvery { roleTransitionRepo.create(any()) } returns mockk()
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 

@@ -1,9 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.CountingUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -51,15 +50,15 @@ class WorkItemPlacementServiceTest {
 
         val transactionCount: Int get() = units.writes
 
-        override suspend fun findAncestorChains(itemIds: Set<UUID>): Result<Map<UUID, List<WorkItem>>> =
+        override suspend fun findAncestorChains(itemIds: Set<UUID>): Map<UUID, List<WorkItem>> =
             if (failAncestorChains) {
-                Result.Error(RepositoryError.DatabaseError("ancestor lookup boom"))
+                throw IllegalStateException("ancestor lookup boom")
             } else {
                 delegate.findAncestorChains(itemIds)
             }
 
-        override suspend fun update(item: WorkItem): Result<WorkItem> =
-            if (item.id == failUpdateFor) Result.Error(RepositoryError.DatabaseError("update boom")) else delegate.update(item)
+        override suspend fun update(item: WorkItem): WorkItem? =
+            if (item.id == failUpdateFor) throw IllegalStateException("update boom") else delegate.update(item)
     }
 
     @BeforeEach
@@ -70,8 +69,8 @@ class WorkItemPlacementServiceTest {
     }
 
     private suspend fun root(title: String): WorkItem {
-        val created = (plainRepo.create(WorkItem(title = title, depth = 0)) as Result.Success).data
-        return (plainRepo.update(created.copy(rootId = created.id)) as Result.Success).data
+        val created = plainRepo.create(WorkItem(title = title, depth = 0))
+        return plainRepo.update(created.copy(rootId = created.id))!!
     }
 
     private suspend fun child(
@@ -87,10 +86,10 @@ class WorkItemPlacementServiceTest {
                     rootId = parent.rootId ?: parent.id,
                     depth = depthOverride ?: (parent.depth + 1)
                 )
-            ) as Result.Success
-        ).data
+            )!!
+        )
 
-    private suspend fun load(id: UUID): WorkItem = (plainRepo.getById(id) as Result.Success).data
+    private suspend fun load(id: UUID): WorkItem = plainRepo.getById(id)!!
 
     // ───────────────────────── checkReparent ─────────────────────────
 
@@ -202,7 +201,7 @@ class WorkItemPlacementServiceTest {
                 }
 
             assertEquals(PlacedWriteOutcome.ParentNotFound(a.id), outcome)
-            assertIs<Result.Error>(plainRepo.getById(id))
+            assertNull(plainRepo.getById(id))
         }
 
     @Test
@@ -217,7 +216,7 @@ class WorkItemPlacementServiceTest {
                 ).create(db.unitOfWork(), id, r.id) { _, _ -> throw IllegalArgumentException("bad title") }
 
             assertEquals(PlacedWriteOutcome.BuildFailed("bad title"), outcome)
-            assertIs<Result.Error>(plainRepo.getById(id))
+            assertNull(plainRepo.getById(id))
         }
 
     // ───────────────────────── update ─────────────────────────
@@ -327,7 +326,7 @@ class WorkItemPlacementServiceTest {
                 }
 
             assertIs<PlacedWriteOutcome.WriteFailed>(outcome)
-            assertIs<RepositoryError.ConflictError>(outcome.error)
+            assertEquals(ErrorCode.VERSION_CONFLICT, outcome.error.code)
         }
 
     @Test

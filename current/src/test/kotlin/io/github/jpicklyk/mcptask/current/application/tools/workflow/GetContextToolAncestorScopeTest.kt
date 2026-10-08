@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -63,7 +62,7 @@ class GetContextToolAncestorScopeTest {
             } else {
                 WorkItem(parentId = parentId, title = title, role = role, depth = depth)
             }
-        return (context.workItemRepository().create(item) as Result.Success).data
+        return (context.workItemRepository().create(item)!!)
     }
 
     private fun activeItemIds(result: JsonElement): Set<String> {

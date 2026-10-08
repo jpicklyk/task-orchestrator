@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -95,13 +94,13 @@ class StartCascadeGateIntegrationTest {
         val depth =
             if (parentId != null) {
                 val parentResult = context.workItemRepository().getById(parentId)
-                (parentResult as Result.Success).data.depth + 1
+                parentResult!!.depth + 1
             } else {
                 0
             }
         val item = WorkItem(title = title, tags = tags, parentId = parentId, depth = depth)
         val result = context.workItemRepository().create(item)
-        return (result as Result.Success).data
+        return result
     }
 
     private suspend fun createNote(
@@ -112,10 +111,10 @@ class StartCascadeGateIntegrationTest {
     ): Note {
         val note = Note(itemId = itemId, key = key, role = role.name.lowercase(), body = body)
         val result = context.noteRepository().upsert(note)
-        return (result as Result.Success).data
+        return result
     }
 
-    private suspend fun getItem(itemId: UUID): WorkItem = (context.workItemRepository().getById(itemId) as Result.Success).data
+    private suspend fun getItem(itemId: UUID): WorkItem = (context.workItemRepository().getById(itemId)!!)
 
     private fun buildTransitionParams(vararg transitions: JsonObject): JsonObject =
         buildJsonObject {

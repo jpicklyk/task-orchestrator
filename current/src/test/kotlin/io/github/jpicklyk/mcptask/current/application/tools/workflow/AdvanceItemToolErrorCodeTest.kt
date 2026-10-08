@@ -9,8 +9,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -76,8 +74,8 @@ class AdvanceItemToolErrorCodeTest {
         every { repoProvider.workItemRepository() } returns workItemRepo
         every { repoProvider.dependencyRepository() } returns depRepo
         val defaultNoteRepo = mockk<NoteRepository>()
-        coEvery { defaultNoteRepo.findByItemId(any()) } returns Result.Success(emptyList())
-        coEvery { defaultNoteRepo.findByItemId(any(), any()) } returns Result.Success(emptyList())
+        coEvery { defaultNoteRepo.findByItemId(any()) } returns emptyList()
+        coEvery { defaultNoteRepo.findByItemId(any(), any()) } returns emptyList()
         every { repoProvider.noteRepository() } returns defaultNoteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
         every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
@@ -162,11 +160,11 @@ class AdvanceItemToolErrorCodeTest {
 
             val noteSchemaService = schemaServiceWith(gateSchemaEntries())
             val noteRepo = mockk<NoteRepository>()
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
+            coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
             val gatedContext = contextWithSchema(noteRepo, noteSchemaService)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
@@ -192,8 +190,8 @@ class AdvanceItemToolErrorCodeTest {
             val item = makeItem(id = itemId, role = Role.QUEUE)
             val blockerItem = makeItem(id = blockerId, role = Role.QUEUE, title = "Blocker Task")
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
+            coEvery { workItemRepo.getById(itemId) } returns item
+            coEvery { workItemRepo.getById(blockerId) } returns blockerItem
 
             val dep = Dependency(fromItemId = blockerId, toItemId = itemId, type = DependencyType.BLOCKS)
             every { depRepo.findByToItemId(itemId) } returns listOf(dep)
@@ -218,8 +216,7 @@ class AdvanceItemToolErrorCodeTest {
         runBlocking {
             val itemId = UUID.randomUUID()
 
-            coEvery { workItemRepo.getById(itemId) } returns
-                Result.Error(RepositoryError.NotFound(itemId, "WorkItem not found: $itemId"))
+            coEvery { workItemRepo.getById(itemId) } returns null
 
             val result = tool.execute(buildParams(transitionObj(itemId, "start")), context)
 
@@ -239,7 +236,7 @@ class AdvanceItemToolErrorCodeTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.TERMINAL)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             val result = tool.execute(buildParams(transitionObj(itemId, "start")), context)
 
@@ -270,16 +267,15 @@ class AdvanceItemToolErrorCodeTest {
 
             val noteSchemaService = schemaServiceWith(gateSchemaEntries())
             val noteRepo = mockk<NoteRepository>()
-            coEvery { noteRepo.findByItemId(gateItemId) } returns Result.Success(emptyList())
-            coEvery { noteRepo.findByItemId(gateItemId, any()) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemId(gateItemId) } returns emptyList()
+            coEvery { noteRepo.findByItemId(gateItemId, any()) } returns emptyList()
             val batchContext = contextWithSchema(noteRepo, noteSchemaService)
 
-            coEvery { workItemRepo.getById(gateItemId) } returns Result.Success(gateItem)
-            coEvery { workItemRepo.getById(depItemId) } returns Result.Success(depItem)
-            coEvery { workItemRepo.getById(blockerId) } returns Result.Success(blockerItem)
-            coEvery { workItemRepo.getById(terminalId) } returns Result.Success(terminalItem)
-            coEvery { workItemRepo.getById(notFoundId) } returns
-                Result.Error(RepositoryError.NotFound(notFoundId, "WorkItem not found: $notFoundId"))
+            coEvery { workItemRepo.getById(gateItemId) } returns gateItem
+            coEvery { workItemRepo.getById(depItemId) } returns depItem
+            coEvery { workItemRepo.getById(blockerId) } returns blockerItem
+            coEvery { workItemRepo.getById(terminalId) } returns terminalItem
+            coEvery { workItemRepo.getById(notFoundId) } returns null
 
             // gateItemId and terminalId have no dependency edges; depItemId is blocked by blockerId.
             every { depRepo.findByToItemId(gateItemId) } returns emptyList()
@@ -334,7 +330,7 @@ class AdvanceItemToolErrorCodeTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             val result = tool.execute(buildParams(transitionObj(itemId, "reboot")), context)
 
@@ -350,7 +346,7 @@ class AdvanceItemToolErrorCodeTest {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
 
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(itemId) } returns item
 
             val actorJson =
                 buildJsonObject {

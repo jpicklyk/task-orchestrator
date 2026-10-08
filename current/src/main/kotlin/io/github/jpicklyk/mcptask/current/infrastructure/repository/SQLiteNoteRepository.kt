@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
 import io.github.jpicklyk.mcptask.current.application.service.search.RrfFusion
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
@@ -10,8 +11,6 @@ import io.github.jpicklyk.mcptask.current.domain.repository.FTS_CANDIDATE_ROWS
 import io.github.jpicklyk.mcptask.current.domain.repository.MAX_FTS_RESULTS
 import io.github.jpicklyk.mcptask.current.domain.repository.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchHit
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchResult
@@ -37,13 +36,13 @@ import java.util.UUID
 class SQLiteNoteRepository(
     private val databaseManager: DatabaseManager
 ) : NoteRepository {
-    override suspend fun getById(id: UUID): Result<Note> =
-        databaseManager.readResult("Failed to get Note by id") {
+    override suspend fun getById(id: UUID): Note? =
+        databaseManager.readTx {
             val row = NotesTable.selectAll().where { NotesTable.id eq id }.singleOrNull()
             if (row != null) {
-                Result.Success(mapRowToNote(row))
+                mapRowToNote(row)
             } else {
-                Result.Error(RepositoryError.NotFound(id, "Note not found with id: $id"))
+                null
             }
         }
 
@@ -79,7 +78,7 @@ class SQLiteNoteRepository(
      *
      * Returns the note with the correct ID (existing ID preserved on conflict, new ID on fresh insert).
      */
-    internal fun upsertRow(note: Note): Result<Note> {
+    internal fun upsertRow(note: Note): Note {
         note.validate()
         val now = Instant.now()
 
@@ -134,33 +133,33 @@ class SQLiteNoteRepository(
                 .selectAll()
                 .where { (NotesTable.itemId eq note.itemId) and (NotesTable.key eq note.key) }
                 .singleOrNull()
-                ?: return Result.Error(RepositoryError.NotFound(note.id, "Note not found after upsert: (${note.itemId}, ${note.key})"))
+                ?: error("Note not found after upsert: (${note.itemId}, ${note.key})")
 
-        return Result.Success(mapRowToNote(row))
+        return mapRowToNote(row)
     }
 
-    override suspend fun upsert(note: Note): Result<Note> =
-        databaseManager.writeResult("NoteRepository.upsert", "Failed to upsert Note") {
+    override suspend fun upsert(note: Note): Note =
+        databaseManager.writeTx("NoteRepository.upsert") {
             upsertRow(note)
         }
 
-    override suspend fun delete(id: UUID): Result<Boolean> =
-        databaseManager.writeResult("NoteRepository.delete", "Failed to delete Note") {
+    override suspend fun delete(id: UUID): Boolean =
+        databaseManager.writeTx("NoteRepository.delete") {
             val deletedCount = NotesTable.deleteWhere { NotesTable.id eq id }
-            Result.Success(deletedCount > 0)
+            deletedCount > 0
         }
 
-    override suspend fun deleteByItemId(itemId: UUID): Result<Int> =
-        databaseManager.writeResult("NoteRepository.deleteByItemId", "Failed to delete Notes by itemId") {
+    override suspend fun deleteByItemId(itemId: UUID): Int =
+        databaseManager.writeTx("NoteRepository.deleteByItemId") {
             val deletedCount = NotesTable.deleteWhere { NotesTable.itemId eq itemId }
-            Result.Success(deletedCount)
+            deletedCount
         }
 
     override suspend fun findByItemId(
         itemId: UUID,
         role: String?
-    ): Result<List<Note>> =
-        databaseManager.readResult("Failed to find Notes by itemId") {
+    ): List<Note> =
+        databaseManager.readTx {
             val notes =
                 if (role != null) {
                     NotesTable
@@ -171,32 +170,32 @@ class SQLiteNoteRepository(
                         .selectAll()
                         .where { NotesTable.itemId eq itemId }
                 }.map { mapRowToNote(it) }
-            Result.Success(notes)
+            notes
         }
 
-    override suspend fun findByItemIds(itemIds: Set<UUID>): Result<Map<UUID, List<Note>>> {
-        if (itemIds.isEmpty()) return Result.Success(emptyMap())
-        return databaseManager.readResult("Failed to find Notes by itemIds") {
+    override suspend fun findByItemIds(itemIds: Set<UUID>): Map<UUID, List<Note>> {
+        if (itemIds.isEmpty()) return emptyMap()
+        return databaseManager.readTx {
             val notes =
                 NotesTable
                     .selectAll()
                     .where { NotesTable.itemId inList itemIds }
                     .map { mapRowToNote(it) }
-            Result.Success(notes.groupBy { it.itemId })
+            notes.groupBy { it.itemId }
         }
     }
 
     override suspend fun findByItemIdAndKey(
         itemId: UUID,
         key: String
-    ): Result<Note?> =
-        databaseManager.readResult("Failed to find Note by itemId and key") {
+    ): Note? =
+        databaseManager.readTx {
             val row =
                 NotesTable
                     .selectAll()
                     .where { (NotesTable.itemId eq itemId) and (NotesTable.key eq key) }
                     .singleOrNull()
-            Result.Success(row?.let { mapRowToNote(it) })
+            row?.let { mapRowToNote(it) }
         }
 
     private fun mapRowToNote(row: ResultRow): Note {
@@ -529,6 +528,7 @@ class SQLiteNoteRepository(
                 )
             }
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             logger.error("FTS5 note search failed: ${e.message}", e)
             throw e
         }

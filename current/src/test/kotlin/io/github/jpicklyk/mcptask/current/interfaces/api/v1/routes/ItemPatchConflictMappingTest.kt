@@ -4,10 +4,9 @@ import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.domain.error.VersionConflictException
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -84,20 +83,20 @@ class ItemPatchConflictMappingTest {
      */
     private class ScriptedWorkItemRepository(
         private val delegate: WorkItemRepository,
-        private val onUpdate: ((WorkItem) -> Result<WorkItem>)? = null,
-        private val onDelete: ((UUID) -> Result<Boolean>)? = null,
+        private val onUpdate: ((WorkItem) -> WorkItem)? = null,
+        private val onDelete: ((UUID) -> Boolean)? = null,
     ) : WorkItemRepository by delegate {
         var updateCallCount: Int = 0
             private set
         var deleteCallCount: Int = 0
             private set
 
-        override suspend fun update(item: WorkItem): Result<WorkItem> {
+        override suspend fun update(item: WorkItem): WorkItem? {
             updateCallCount++
             return onUpdate?.invoke(item) ?: delegate.update(item)
         }
 
-        override suspend fun delete(id: UUID): Result<Boolean> {
+        override suspend fun delete(id: UUID): Boolean {
             deleteCallCount++
             return onDelete?.invoke(id) ?: delegate.delete(id)
         }
@@ -164,7 +163,7 @@ class ItemPatchConflictMappingTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Original", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Original", depth = 0))!!
                 }
             application { configureConflictTestApp(repo) }
 
@@ -185,7 +184,7 @@ class ItemPatchConflictMappingTest {
             assertFalse(newEtag == originalEtag, "ETag must change after a successful update")
 
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
-            assertEquals("Updated Title", (persisted as Result.Success).data.title)
+            assertEquals("Updated Title", persisted!!.title)
         }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -198,12 +197,12 @@ class ItemPatchConflictMappingTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Conflict Target", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Conflict Target", depth = 0))!!
                 }
             val scripted =
                 ScriptedWorkItemRepository(
                     repo.workItemRepository(),
-                    onUpdate = { Result.Error(RepositoryError.ConflictError("row version moved underneath the request")) },
+                    onUpdate = { throw VersionConflictException(it.id, it.version, it.version + 1) },
                 )
             application { configureConflictTestApp(WorkItemRepoOverrideProvider(repo, scripted)) }
 
@@ -239,12 +238,12 @@ class ItemPatchConflictMappingTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "DB Error Target", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "DB Error Target", depth = 0))!!
                 }
             val scripted =
                 ScriptedWorkItemRepository(
                     repo.workItemRepository(),
-                    onUpdate = { Result.Error(RepositoryError.DatabaseError("query failed")) },
+                    onUpdate = { throw IllegalStateException("query failed") },
                 )
             application { configureConflictTestApp(WorkItemRepoOverrideProvider(repo, scripted)) }
 
@@ -271,14 +270,14 @@ class ItemPatchConflictMappingTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Stale ETag Target", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Stale ETag Target", depth = 0))!!
                 }
             // Scripted to ALWAYS conflict if reached — proves 412 comes from the precondition
             // check itself, not from a ConflictError that happens to also map to something else.
             val scripted =
                 ScriptedWorkItemRepository(
                     repo.workItemRepository(),
-                    onUpdate = { Result.Error(RepositoryError.ConflictError("must not be reached")) },
+                    onUpdate = { throw VersionConflictException(it.id, it.version, it.version + 1) },
                 )
             application { configureConflictTestApp(WorkItemRepoOverrideProvider(repo, scripted)) }
 
@@ -302,12 +301,12 @@ class ItemPatchConflictMappingTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "No ETag Target", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "No ETag Target", depth = 0))!!
                 }
             val scripted =
                 ScriptedWorkItemRepository(
                     repo.workItemRepository(),
-                    onUpdate = { Result.Error(RepositoryError.ConflictError("must not be reached")) },
+                    onUpdate = { throw VersionConflictException(it.id, it.version, it.version + 1) },
                 )
             application { configureConflictTestApp(WorkItemRepoOverrideProvider(repo, scripted)) }
 
@@ -334,14 +333,14 @@ class ItemPatchConflictMappingTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Shape Target", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Shape Target", depth = 0))!!
                 }
             // A deliberately internal-looking repository message that must NOT leak verbatim.
             val internalMarker = "SQLITE_BUSY_ROWLOCKED offset=0xdeadbeef txn=42"
             val scripted =
                 ScriptedWorkItemRepository(
                     repo.workItemRepository(),
-                    onUpdate = { Result.Error(RepositoryError.ConflictError(internalMarker)) },
+                    onUpdate = { throw VersionConflictException(it.id, it.version, it.version + 1) },
                 )
             application { configureConflictTestApp(WorkItemRepoOverrideProvider(repo, scripted)) }
 
@@ -381,12 +380,12 @@ class ItemPatchConflictMappingTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Idempotent Conflict Target", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Idempotent Conflict Target", depth = 0))!!
                 }
             val scripted =
                 ScriptedWorkItemRepository(
                     repo.workItemRepository(),
-                    onUpdate = { Result.Error(RepositoryError.ConflictError("row version moved underneath the request")) },
+                    onUpdate = { throw VersionConflictException(it.id, it.version, it.version + 1) },
                 )
             val cache = IdempotencyCache()
             application { configureConflictTestApp(WorkItemRepoOverrideProvider(repo, scripted), idempotencyCache = cache) }
@@ -438,12 +437,12 @@ class ItemPatchConflictMappingTest {
                 runBlocking {
                     // No explicit rootId: the item is its own root (see ItemRoutesTest scope
                     // convention: a root-level item's effective scope root is its own id).
-                    repo.workItemRepository().create(WorkItem(title = "Scoped Out Target", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Scoped Out Target", depth = 0))!!
                 }
             val scripted =
                 ScriptedWorkItemRepository(
                     repo.workItemRepository(),
-                    onUpdate = { Result.Error(RepositoryError.ConflictError("must not be reached")) },
+                    onUpdate = { throw VersionConflictException(it.id, it.version, it.version + 1) },
                 )
             // WRITE_TOKEN scoped to an unrelated random root — item is outside scope.
             val authConfig = makeWriteAuthConfig(scopeRootIds = setOf(UUID.randomUUID()))
@@ -473,12 +472,12 @@ class ItemPatchConflictMappingTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Empty Patch Target", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Empty Patch Target", depth = 0))!!
                 }
             val scripted =
                 ScriptedWorkItemRepository(
                     repo.workItemRepository(),
-                    onUpdate = { Result.Error(RepositoryError.ConflictError("row version moved underneath the request")) },
+                    onUpdate = { throw VersionConflictException(it.id, it.version, it.version + 1) },
                 )
             application { configureConflictTestApp(WorkItemRepoOverrideProvider(repo, scripted)) }
 
@@ -502,12 +501,12 @@ class ItemPatchConflictMappingTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Blank ETag Target", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Blank ETag Target", depth = 0))!!
                 }
             val scripted =
                 ScriptedWorkItemRepository(
                     repo.workItemRepository(),
-                    onUpdate = { Result.Error(RepositoryError.ConflictError("must not be reached")) },
+                    onUpdate = { throw VersionConflictException(it.id, it.version, it.version + 1) },
                 )
             application { configureConflictTestApp(WorkItemRepoOverrideProvider(repo, scripted)) }
 
@@ -550,12 +549,12 @@ class ItemPatchConflictMappingTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Unquoted ETag Target", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Unquoted ETag Target", depth = 0))!!
                 }
             val scripted =
                 ScriptedWorkItemRepository(
                     repo.workItemRepository(),
-                    onUpdate = { Result.Error(RepositoryError.ConflictError("must not be reached")) },
+                    onUpdate = { throw VersionConflictException(it.id, it.version, it.version + 1) },
                 )
             application { configureConflictTestApp(WorkItemRepoOverrideProvider(repo, scripted)) }
 
@@ -583,12 +582,12 @@ class ItemPatchConflictMappingTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Delete Conflict Target", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Delete Conflict Target", depth = 0))!!
                 }
             val scripted =
                 ScriptedWorkItemRepository(
                     repo.workItemRepository(),
-                    onDelete = { Result.Error(RepositoryError.ConflictError("delete-path conflict, out of scope for this fix")) },
+                    onDelete = { throw IllegalStateException("delete-path conflict, out of scope for this fix") },
                 )
             application { configureConflictTestApp(WorkItemRepoOverrideProvider(repo, scripted)) }
 

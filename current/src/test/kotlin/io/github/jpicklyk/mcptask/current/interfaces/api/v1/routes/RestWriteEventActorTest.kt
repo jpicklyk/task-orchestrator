@@ -83,8 +83,7 @@ class RestWriteEventActorTest {
         runBlocking {
             repo
                 .workItemRepository()
-                .create(WorkItem(title = title, parentId = parent?.id, depth = (parent?.depth ?: -1) + 1))
-                .getOrNull()!!
+                .create(WorkItem(title = title, parentId = parent?.id, depth = (parent?.depth ?: -1) + 1))!!
         }
 
     private fun etag(item: WorkItem) = "\"v1-${item.modifiedAt.toEpochMilli()}\""

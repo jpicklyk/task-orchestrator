@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.tools.compound
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ChildPlacement
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -26,6 +25,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -76,18 +76,14 @@ class CreateWorkTreeParentPlacementInTxnTest {
             }
         }
 
-        override suspend fun resolveChildPlacement(parentId: UUID): Result<ChildPlacement> =
-            when (val parent = getById(parentId)) {
-                is Result.Success ->
-                    Result.Success(
-                        ChildPlacement(
-                            parentId = parent.data.id,
-                            depth = parent.data.depth + 1,
-                            rootId =
-                                parent.data.rootId ?: parent.data.id
-                        )
-                    )
-                is Result.Error -> Result.Error(parent.error)
+        override suspend fun resolveChildPlacement(parentId: UUID): ChildPlacement? =
+            getById(parentId)?.let { parent ->
+                ChildPlacement(
+                    parentId = parent.id,
+                    depth = parent.depth + 1,
+                    rootId =
+                        parent.rootId ?: parent.id
+                )
             }
     }
 
@@ -107,10 +103,10 @@ class CreateWorkTreeParentPlacementInTxnTest {
         repositoryProvider = db.repositoryProvider()
     }
 
-    private suspend fun create(item: WorkItem): WorkItem = (repositoryProvider.workItemRepository().create(item) as Result.Success).data
+    private suspend fun create(item: WorkItem): WorkItem = (repositoryProvider.workItemRepository().create(item)!!)
 
     private suspend fun stampSelfRoot(item: WorkItem): WorkItem =
-        (repositoryProvider.workItemRepository().update(item.copy(rootId = item.id)) as Result.Success).data
+        (repositoryProvider.workItemRepository().update(item.copy(rootId = item.id))!!)
 
     /** R (root, self-rooted) -> A (depth1) -> P (depth2); Q is a second, unrelated self-rooted root. */
     private data class Tree(
@@ -179,14 +175,14 @@ class CreateWorkTreeParentPlacementInTxnTest {
             // 3da296d8), so rootId is read back through the UNDERLYING repository instead.
             val rootId = UUID.fromString(rootJson["id"]!!.jsonPrimitive.content)
             val persistedRoot = repositoryProvider.workItemRepository().getById(rootId)
-            assertTrue(persistedRoot is Result.Success)
-            assertEquals(2, (persistedRoot as Result.Success).data.depth)
-            assertEquals(tree.q.id, persistedRoot.data.rootId, "O1: new root must inherit P's LIVE rootId (Q)")
+            assertNotNull(persistedRoot)
+            assertEquals(2, persistedRoot.depth)
+            assertEquals(tree.q.id, persistedRoot.rootId, "O1: new root must inherit P's LIVE rootId (Q)")
 
             val childId = UUID.fromString(childJson["id"]!!.jsonPrimitive.content)
             val persistedChild = repositoryProvider.workItemRepository().getById(childId)
-            assertTrue(persistedChild is Result.Success)
-            assertEquals(tree.q.id, (persistedChild as Result.Success).data.rootId)
+            assertNotNull(persistedChild)
+            assertEquals(tree.q.id, persistedChild.rootId)
         }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -233,10 +229,10 @@ class CreateWorkTreeParentPlacementInTxnTest {
             // assertion for this scenario.
             val childId = UUID.fromString(childJson["id"]!!.jsonPrimitive.content)
             val persistedChild = repositoryProvider.workItemRepository().getById(childId)
-            assertTrue(persistedChild is Result.Success)
+            assertNotNull(persistedChild)
             assertEquals(
                 q.id,
-                (persistedChild as Result.Success).data.rootId,
+                persistedChild.rootId,
                 "O1: child must inherit A's LIVE rootId (Q), not the pre-transaction rootId (R)"
             )
         }
@@ -265,8 +261,8 @@ class CreateWorkTreeParentPlacementInTxnTest {
             assertTrue(errorMsg.contains("not found"), "O3: actual: $errorMsg")
 
             val all = repositoryProvider.workItemRepository().findByFilters()
-            assertTrue(all is Result.Success)
-            val orphan = (all as Result.Success).data.items.filter { it.title == "Orphan Root S11" }
+            assertNotNull(all)
+            val orphan = all.items.filter { it.title == "Orphan Root S11" }
             assertTrue(orphan.isEmpty(), "O3: a parent deleted inside the write transaction must leave NO orphan root row: $orphan")
         }
 
@@ -298,8 +294,8 @@ class CreateWorkTreeParentPlacementInTxnTest {
                 // persisted row through the underlying repository instead.
                 val newRootId = UUID.fromString(rootJson["id"]!!.jsonPrimitive.content)
                 val persisted = repositoryProvider.workItemRepository().getById(newRootId)
-                assertTrue(persisted is Result.Success)
-                assertEquals(root.id, (persisted as Result.Success).data.rootId, "actual: $r")
+                assertNotNull(persisted)
+                assertEquals(root.id, persisted.rootId, "actual: $r")
             }
         }
 

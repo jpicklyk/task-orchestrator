@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
@@ -15,6 +14,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -59,8 +59,8 @@ class ProjectConfigPushServiceTest {
 
             service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser, db.unitOfWork())
 
-            rootId = (workItemRepository.create(WorkItem(title = "Root", type = "project")) as Result.Success).data.id
-            otherRootId = (workItemRepository.create(WorkItem(title = "Other Root", type = "project")) as Result.Success).data.id
+            rootId = workItemRepository.create(WorkItem(title = "Root", type = "project")).id
+            otherRootId = workItemRepository.create(WorkItem(title = "Other Root", type = "project")).id
         }
 
     // Deliberately plain concatenation (not a nested trimIndent template) — interpolating an
@@ -95,8 +95,7 @@ class ProjectConfigPushServiceTest {
             assertEquals(otherRootId, mismatch.embeddedRootId)
 
             val stored = projectConfigRepository.get(rootId)
-            assertTrue(stored is Result.Success)
-            assertNull((stored as Result.Success).data, "mismatched push must not write a row")
+            assertNull(stored, "mismatched push must not write a row")
         }
 
     @Test
@@ -114,8 +113,8 @@ class ProjectConfigPushServiceTest {
 
             assertTrue(result is ProjectConfigPushResult.Success)
             val stored = projectConfigRepository.get(rootId)
-            assertTrue(stored is Result.Success)
-            assertEquals(rootId, (stored as Result.Success).data?.rootItemId)
+            assertNotNull(stored)
+            assertEquals(rootId, stored?.rootItemId)
         }
 
     // ──────────────────────────────────────────────
@@ -133,7 +132,7 @@ class ProjectConfigPushServiceTest {
             val result = service.push(rootId, yamlB)
 
             assertTrue(result is ProjectConfigPushResult.Success)
-            val stored = (projectConfigRepository.get(rootId) as Result.Success).data
+            val stored = projectConfigRepository.get(rootId)
             assertEquals(yamlB, stored?.configYaml)
         }
 
@@ -169,7 +168,7 @@ class ProjectConfigPushServiceTest {
             val superseded = result as ProjectConfigPushResult.Superseded
             assertEquals(rootId, superseded.rootItemId)
 
-            val currentStored = (projectConfigRepository.get(rootId) as Result.Success).data
+            val currentStored = projectConfigRepository.get(rootId)
             assertEquals(
                 currentStored?.updatedAt,
                 superseded.currentUpdatedAt,
@@ -191,7 +190,7 @@ class ProjectConfigPushServiceTest {
             val result = service.push(rootId, yamlA, force = true)
 
             assertTrue(result is ProjectConfigPushResult.Success)
-            val stored = (projectConfigRepository.get(rootId) as Result.Success).data
+            val stored = projectConfigRepository.get(rootId)
             assertEquals(yamlA, stored?.configYaml, "force=true should allow reverting to the known-old content")
         }
 

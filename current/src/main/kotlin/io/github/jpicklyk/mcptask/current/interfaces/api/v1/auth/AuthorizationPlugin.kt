@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
@@ -179,20 +179,22 @@ suspend fun allowedItemIdsForTagScope(
     repo: WorkItemRepository,
 ): Set<UUID> {
     if (!principal.hasTagScope() || itemIds.isEmpty()) return itemIds
-    return when (val result = repo.findByIds(itemIds)) {
-        is Result.Success ->
-            result.data
-                .filterByTagScope(principal)
-                .map { it.id }
-                .toSet()
-        is Result.Error -> {
-            authzLogger.warn(
-                "Tag scope filter: failed to load {} items for tag lookup: {}",
-                itemIds.size,
-                result.error.message,
-            )
-            emptySet()
-        }
+    return run {
+        val result =
+            legacyRead({
+                return@run run {
+                    authzLogger.warn(
+                        "Tag scope filter: failed to load {} items for tag lookup: {}",
+                        itemIds.size,
+                        it,
+                    )
+                    emptySet()
+                }
+            }) { repo.findByIds(itemIds) }
+        result
+            .filterByTagScope(principal)
+            .map { it.id }
+            .toSet()
     }
 }
 
@@ -230,16 +232,12 @@ suspend fun allowedItemIdsForScope(
     var candidates = itemIds
 
     if (rootIds != null) {
-        val chainResult = repo.findAncestorChains(itemIds)
-        if (chainResult.isError()) {
-            authzLogger.warn(
-                "Scope filter: failed to fetch ancestor chains for {} items: {}",
-                itemIds.size,
-                (chainResult as Result.Error).error.message,
-            )
-            return emptySet()
-        }
-        val chains = chainResult.getOrNull()!!
+        // A lookup fault DENIES (drops every row) rather than leaking them unfiltered.
+        val chains =
+            legacyRead({
+                authzLogger.warn("Scope filter: failed to fetch ancestor chains for {} items: {}", itemIds.size, it)
+                return emptySet()
+            }) { repo.findAncestorChains(itemIds) }
         candidates =
             candidates.filterTo(mutableSetOf()) { itemId ->
                 val ancestors = chains[itemId] ?: emptyList()
@@ -283,16 +281,12 @@ suspend fun enforceScopeForItem(
     // rootIds check -- walk ancestor chain
     val rootIds = scope.rootIds
     if (rootIds != null) {
-        val chainResult = repo.findAncestorChains(setOf(itemId))
-        if (chainResult.isError()) {
-            authzLogger.warn(
-                "Failed to fetch ancestor chain for itemId={}: {}",
-                itemId,
-                (chainResult as Result.Error).error.message,
-            )
-            return false
-        }
-        val chain = chainResult.getOrNull()!!
+        // A lookup fault DENIES (fail closed).
+        val chain =
+            legacyRead({
+                authzLogger.warn("Failed to fetch ancestor chain for itemId={}: {}", itemId, it)
+                return false
+            }) { repo.findAncestorChains(setOf(itemId)) }
         val ancestors = chain[itemId] ?: emptyList()
         // The chain is root-first; itemId itself is NOT in the chain, so we add it manually.
         val idsInChain = ancestors.map { it.id }.toSet() + itemId
@@ -312,16 +306,15 @@ suspend fun enforceScopeForItem(
     // so single-item access and collection filtering can never drift apart.
     val tagsInclude = scope.tagsInclude
     if (tagsInclude.isNotEmpty()) {
-        val itemResult = repo.getById(itemId)
-        if (itemResult.isError()) {
-            authzLogger.warn(
-                "Failed to fetch item {} for tag scope check: {}",
-                itemId,
-                (itemResult as Result.Error).error.message,
-            )
-            return false
-        }
-        val item: WorkItem = itemResult.getOrNull()!!
+        // A lookup fault or a missing item DENIES (fail closed).
+        val item: WorkItem =
+            legacyRead({
+                authzLogger.warn("Failed to fetch item {} for tag scope check: {}", itemId, it)
+                return false
+            }) { repo.getById(itemId) } ?: run {
+                authzLogger.warn("Failed to fetch item {} for tag scope check: WorkItem not found with id: {}", itemId, itemId)
+                return false
+            }
 
         if (!principal.allowsItemTags(item.tags)) {
             authzLogger.debug(

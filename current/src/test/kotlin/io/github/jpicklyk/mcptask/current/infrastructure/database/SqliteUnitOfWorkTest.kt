@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.readTx
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.writeTx
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -351,18 +350,18 @@ class SqliteUnitOfWorkTest {
             val result =
                 uow.write("S7.create") {
                     val repo = repositories.workItemRepository()
-                    assertIs<Result.Success<WorkItem>>(repo.create(item))
-                    assertIs<Result.Success<WorkItem>>(repo.getById(item.id), "the unit must see its own insert")
+                    assertNotNull(repo.create(item))
+                    assertNotNull(repo.getById(item.id), "the unit must see its own insert")
                     // A separate thread has no ambient unit: it reads from the reader pool and must not see an uncommitted row.
                     val outside = db.repositoryProvider().workItemRepository()
-                    val t = thread { runBlocking { outsideSawItem = outside.getById(item.id) is Result.Success } }
+                    val t = thread { runBlocking { outsideSawItem = outside.getById(item.id) != null } }
                     t.join(10_000)
                     Outcome.Ok(Unit)
                 }
             assertEquals(Outcome.Ok(Unit), result)
             assertEquals(false, outsideSawItem, "an outside read before commit must not see the row")
             val after = db.repositoryProvider().workItemRepository().getById(item.id)
-            assertIs<Result.Success<WorkItem>>(after, "after commit the row is visible to everyone")
+            assertNotNull(after, "after commit the row is visible to everyone")
         }
 
     // ---------------------------------------------------------------- S14

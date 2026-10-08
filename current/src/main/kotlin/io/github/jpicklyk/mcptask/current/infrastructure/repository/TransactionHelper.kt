@@ -3,8 +3,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.repository
 import io.github.jpicklyk.mcptask.current.application.port.ActiveUnit
 import io.github.jpicklyk.mcptask.current.application.port.UnitElement
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import org.jetbrains.exposed.v1.jdbc.JdbcTransaction
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
@@ -82,31 +80,3 @@ fun <T> DatabaseManager.readTxBlocking(block: JdbcTransaction.() -> T): T {
     val database = TransactionManager.currentOrNull()?.db ?: reader()
     return transaction(db = database) { block() }
 }
-
-/**
- * Legacy bridge for the `Result`-returning stores (until P5b): [readTx] with any non-cancellation
- * exception mapped to [Result.Error] carrying a [RepositoryError.DatabaseError].
- */
-suspend fun <T> DatabaseManager.readResult(
-    errorMessage: String,
-    block: suspend JdbcTransaction.() -> Result<T>
-): Result<T> =
-    try {
-        readTx(block)
-    } catch (e: Exception) {
-        e.rethrowIfCancellation()
-        Result.Error(RepositoryError.DatabaseError("$errorMessage: ${e.message}", e))
-    }
-
-/** Legacy bridge for the `Result`-returning stores (until P5b): [writeTx] with the same mapping as [readResult]. */
-suspend fun <T> DatabaseManager.writeResult(
-    op: String,
-    errorMessage: String,
-    block: suspend JdbcTransaction.() -> Result<T>
-): Result<T> =
-    try {
-        writeTx(op, block)
-    } catch (e: Exception) {
-        e.rethrowIfCancellation()
-        Result.Error(RepositoryError.DatabaseError("$errorMessage: ${e.message}", e))
-    }

@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.repository
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -12,7 +11,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class WorkItemRepositoryGraphTest {
@@ -42,8 +41,8 @@ class WorkItemRepositoryGraphTest {
     ): WorkItem {
         val item = WorkItem(title = title, parentId = parentId, depth = depth)
         val result = repository.create(item)
-        assertIs<Result.Success<WorkItem>>(result)
-        return result.data
+        assertNotNull(result)
+        return result
     }
 
     // ─────────────────────────────────────────────────────────
@@ -54,8 +53,8 @@ class WorkItemRepositoryGraphTest {
     fun `findByIds with empty set returns empty list`(): Unit =
         runBlocking {
             val result = repository.findByIds(emptySet())
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertTrue(result.data.isEmpty())
+            assertNotNull(result)
+            assertTrue(result.isEmpty())
         }
 
     @Test
@@ -64,10 +63,10 @@ class WorkItemRepositoryGraphTest {
             val item = createItem("Single Item")
 
             val result = repository.findByIds(setOf(item.id))
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size)
-            assertEquals(item.id, result.data[0].id)
-            assertEquals("Single Item", result.data[0].title)
+            assertNotNull(result)
+            assertEquals(1, result.size)
+            assertEquals(item.id, result[0].id)
+            assertEquals("Single Item", result[0].title)
         }
 
     @Test
@@ -78,9 +77,9 @@ class WorkItemRepositoryGraphTest {
             val itemC = createItem("Item C")
 
             val result = repository.findByIds(setOf(itemA.id, itemB.id, itemC.id))
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(3, result.data.size)
-            val ids = result.data.map { it.id }.toSet()
+            assertNotNull(result)
+            assertEquals(3, result.size)
+            val ids = result.map { it.id }.toSet()
             assertTrue(itemA.id in ids)
             assertTrue(itemB.id in ids)
             assertTrue(itemC.id in ids)
@@ -93,9 +92,9 @@ class WorkItemRepositoryGraphTest {
             val fakeId = UUID.randomUUID()
 
             val result = repository.findByIds(setOf(item.id, fakeId))
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size)
-            assertEquals(item.id, result.data[0].id)
+            assertNotNull(result)
+            assertEquals(1, result.size)
+            assertEquals(item.id, result[0].id)
         }
 
     @Test
@@ -105,8 +104,8 @@ class WorkItemRepositoryGraphTest {
             val fakeId2 = UUID.randomUUID()
 
             val result = repository.findByIds(setOf(fakeId1, fakeId2))
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertTrue(result.data.isEmpty())
+            assertNotNull(result)
+            assertTrue(result.isEmpty())
         }
 
     // ─────────────────────────────────────────────────────────
@@ -117,8 +116,8 @@ class WorkItemRepositoryGraphTest {
     fun `findAncestorChains with empty set returns empty map`(): Unit =
         runBlocking {
             val result = repository.findAncestorChains(emptySet())
-            assertIs<Result.Success<Map<UUID, List<WorkItem>>>>(result)
-            assertTrue(result.data.isEmpty())
+            assertNotNull(result)
+            assertTrue(result.isEmpty())
         }
 
     @Test
@@ -127,8 +126,8 @@ class WorkItemRepositoryGraphTest {
             val root = createItem("Root", parentId = null, depth = 0)
 
             val result = repository.findAncestorChains(setOf(root.id))
-            assertIs<Result.Success<Map<UUID, List<WorkItem>>>>(result)
-            val chain = result.data[root.id]
+            assertNotNull(result)
+            val chain = result[root.id]
             assertTrue(chain != null)
             assertTrue(chain.isEmpty(), "Root item should have no ancestors, but got: $chain")
         }
@@ -140,8 +139,8 @@ class WorkItemRepositoryGraphTest {
             val child = createItem("Child", parentId = root.id, depth = 1)
 
             val result = repository.findAncestorChains(setOf(child.id))
-            assertIs<Result.Success<Map<UUID, List<WorkItem>>>>(result)
-            val chain = result.data[child.id]
+            assertNotNull(result)
+            val chain = result[child.id]
             assertTrue(chain != null)
             assertEquals(1, chain.size)
             assertEquals(root.id, chain[0].id)
@@ -155,8 +154,8 @@ class WorkItemRepositoryGraphTest {
             val leaf = createItem("Leaf", parentId = middle.id, depth = 2)
 
             val result = repository.findAncestorChains(setOf(leaf.id))
-            assertIs<Result.Success<Map<UUID, List<WorkItem>>>>(result)
-            val chain = result.data[leaf.id]
+            assertNotNull(result)
+            val chain = result[leaf.id]
             assertTrue(chain != null)
             assertEquals(2, chain.size)
             // root-first ordering: chain[0] = root, chain[1] = middle (direct parent)
@@ -176,8 +175,8 @@ class WorkItemRepositoryGraphTest {
                 repository.findAncestorChains(
                     setOf(root.id, child.id, grandchild.id, anotherRoot.id)
                 )
-            assertIs<Result.Success<Map<UUID, List<WorkItem>>>>(result)
-            val data = result.data
+            assertNotNull(result)
+            val data = result
 
             // root has no ancestors
             val rootChain = data[root.id]

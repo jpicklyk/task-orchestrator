@@ -6,11 +6,14 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.UnitResult
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.application.support.writeUnit
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
 import io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.ProjectConfig
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import java.time.Instant
 import java.util.UUID
 
@@ -76,10 +79,9 @@ class ProjectConfigPushService(
         }
 
         val item =
-            when (val itemResult = repositoryProvider.workItemRepository().getById(rootItemId)) {
-                is Result.Success -> itemResult.data
-                is Result.Error -> return ProjectConfigPushResult.NotFound(rootItemId)
-            }
+            legacyRead({ return ProjectConfigPushResult.RepositoryError(it) }) {
+                repositoryProvider.workItemRepository().getById(rootItemId)
+            } ?: return ProjectConfigPushResult.NotFound(rootItemId)
 
         if (item.depth != 0) {
             return ProjectConfigPushResult.NotDepthZero(rootItemId, item.depth)
@@ -108,30 +110,22 @@ class ProjectConfigPushService(
 
         val projectConfigRepository = repositoryProvider.projectConfigRepository()
 
-        val result =
-            unitOfWork.writeUnit(
-                "ProjectConfigPushService.push",
-                onFault = { Result.Error(LegacyFaults.toRepositoryError(it)) }
-            ) {
-                when (
-                    val upserted =
-                        projectConfigRepository.upsertGuarded(
-                            rootItemId = rootItemId,
-                            configYaml = configYaml,
-                            // Unlike rejectSuperseded, expectedFingerprint is NOT skipped by force=true:
-                            // force bypasses the rootId-mismatch and fast-forward guards only, not an
-                            // explicit If-Match precondition the caller supplied for THIS request.
-                            expectedFingerprint = expectedFingerprint,
-                            rejectSuperseded = !force,
-                        )
-                ) {
-                    is Result.Success -> UnitResult.Commit(upserted)
-                    is Result.Error -> UnitResult.Rollback(upserted)
-                }
-            }
-        return when (result) {
-            is Result.Success ->
-                when (val outcome = result.data) {
+        return unitOfWork.writeUnit(
+            "ProjectConfigPushService.push",
+            onFault = { ProjectConfigPushResult.RepositoryError(LegacyFaults.message(it)) }
+        ) {
+            val outcome =
+                projectConfigRepository.upsertGuarded(
+                    rootItemId = rootItemId,
+                    configYaml = configYaml,
+                    // Unlike rejectSuperseded, expectedFingerprint is NOT skipped by force=true:
+                    // force bypasses the rootId-mismatch and fast-forward guards only, not an
+                    // explicit If-Match precondition the caller supplied for THIS request.
+                    expectedFingerprint = expectedFingerprint,
+                    rejectSuperseded = !force,
+                )
+            UnitResult.Commit(
+                when (outcome) {
                     is GuardedUpsertOutcome.Applied ->
                         ProjectConfigPushResult.Success(
                             rootItemId = outcome.config.rootItemId,
@@ -145,7 +139,7 @@ class ProjectConfigPushService(
                     is GuardedUpsertOutcome.PreconditionFailed ->
                         ProjectConfigPushResult.PreconditionFailed(rootItemId, outcome.currentFingerprint)
                 }
-            is Result.Error -> ProjectConfigPushResult.RepositoryError(result.error.message)
+            )
         }
     }
 
@@ -162,7 +156,7 @@ class ProjectConfigPushService(
         parsedRoot?.keys?.filterNot { it in ConfigDocument.PER_ROOT_HONORED_SECTIONS } ?: emptyList()
 
     /** Reads back the stored config for [rootItemId], or a null payload when no row exists. */
-    suspend fun get(rootItemId: UUID): Result<ProjectConfig?> = repositoryProvider.projectConfigRepository().get(rootItemId)
+    suspend fun get(rootItemId: UUID): ProjectConfig? = repositoryProvider.projectConfigRepository().get(rootItemId)
 
     /**
      * Classifies [fingerprint] against [rootItemId]'s stored fingerprint (+ history) and returns
@@ -174,28 +168,25 @@ class ProjectConfigPushService(
      * `get` operation and [io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.projectConfigRoutes]'s
      * `GET` route — both need the exact same "unclassifiable = absent from the response, not an
      * error surfaced to the caller" policy, which is why a repository error swallows to null here
-     * rather than propagating a [Result.Error]: an unclassifiable fingerprint is deliberately
+     * rather than propagating the fault: an unclassifiable fingerprint is deliberately
      * treated as if the caller simply hadn't supplied one.
      */
     suspend fun classifyRelation(
         rootItemId: UUID,
         fingerprint: String,
     ): String? =
-        when (val result = repositoryProvider.projectConfigRepository().classifyFingerprint(rootItemId, fingerprint)) {
-            is Result.Success -> result.data.name.lowercase()
-            is Result.Error -> null
+        legacyReadOrNull {
+            repositoryProvider
+                .projectConfigRepository()
+                .classifyFingerprint(rootItemId, fingerprint)
+                .name
+                .lowercase()
         }
 
     /** Deletes the stored config row for [rootItemId]. Returns true when a row was deleted. */
-    suspend fun delete(rootItemId: UUID): Result<Boolean> =
-        unitOfWork.writeUnit(
-            "ProjectConfigPushService.delete",
-            onFault = { Result.Error(LegacyFaults.toRepositoryError(it)) }
-        ) {
-            when (val deleted = repositoryProvider.projectConfigRepository().delete(rootItemId)) {
-                is Result.Success -> UnitResult.Commit(deleted)
-                is Result.Error -> UnitResult.Rollback(deleted)
-            }
+    suspend fun delete(rootItemId: UUID): Outcome<Boolean> =
+        unitOfWork.write("ProjectConfigPushService.delete") {
+            Outcome.Ok(repositoryProvider.projectConfigRepository().delete(rootItemId))
         }
 
     /**
@@ -240,7 +231,7 @@ class ProjectConfigPushService(
     private fun extractEmbeddedRootId(root: Map<String, Any>): UUID? {
         val project = root["project"] as? Map<*, *> ?: return null
         val rawRootId = project["rootId"] as? String ?: return null
-        return runCatching { UUID.fromString(rawRootId) }.getOrNull()
+        return runCatchingNonCancellation { UUID.fromString(rawRootId) }.getOrNull()
     }
 
     /** Outcome of a single [parser] parse pass over `configYaml`. */

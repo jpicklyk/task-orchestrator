@@ -1,7 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowedItemIdsForScope
@@ -54,13 +55,17 @@ fun Route.dependencyRoutes(repositoryProvider: RepositoryProvider) {
                     return@get
                 }
             val id =
-                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
                     return@get
                 }
 
-            val itemResult = workItemRepo.getById(id)
-            if (itemResult is Result.Error) {
+            val itemResult =
+                legacyRead({
+                    call.respondDbError()
+                    return@get
+                }) { workItemRepo.getById(id) }
+            if (itemResult == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
                 return@get
             }
@@ -96,13 +101,17 @@ fun Route.dependencyRoutes(repositoryProvider: RepositoryProvider) {
                     return@get
                 }
             val id =
-                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
                     return@get
                 }
 
-            val itemResult = workItemRepo.getById(id)
-            if (itemResult is Result.Error) {
+            val itemResult =
+                legacyRead({
+                    call.respondDbError()
+                    return@get
+                }) { workItemRepo.getById(id) }
+            if (itemResult == null) {
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
                 return@get
             }

@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteRoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
@@ -20,7 +19,6 @@ import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -64,12 +62,12 @@ class SQLiteRoleTransitionRepositoryTest {
                     summary = "Starting work"
                 )
             val result = transitionRepository.create(transition)
-            assertIs<Result.Success<RoleTransition>>(result)
-            assertEquals(transition.id, result.data.id)
-            assertEquals("queue", result.data.fromRole)
-            assertEquals("work", result.data.toRole)
-            assertEquals("start", result.data.trigger)
-            assertEquals("Starting work", result.data.summary)
+            assertNotNull(result)
+            assertEquals(transition.id, result.id)
+            assertEquals("queue", result.fromRole)
+            assertEquals("work", result.toRole)
+            assertEquals("start", result.trigger)
+            assertEquals("Starting work", result.summary)
         }
 
     @Test
@@ -85,9 +83,9 @@ class SQLiteRoleTransitionRepositoryTest {
                     trigger = "complete"
                 )
             val result = transitionRepository.create(transition)
-            assertIs<Result.Success<RoleTransition>>(result)
-            assertEquals("in-progress", result.data.fromStatusLabel)
-            assertEquals("in-review", result.data.toStatusLabel)
+            assertNotNull(result)
+            assertEquals("in-progress", result.fromStatusLabel)
+            assertEquals("in-review", result.toStatusLabel)
         }
 
     // --- findByItemId ---
@@ -125,20 +123,20 @@ class SQLiteRoleTransitionRepositoryTest {
             transitionRepository.create(t3)
 
             val result = transitionRepository.findByItemId(testItemId)
-            assertIs<Result.Success<List<RoleTransition>>>(result)
-            assertEquals(3, result.data.size)
+            assertNotNull(result)
+            assertEquals(3, result.size)
             // Should be newest first
-            assertEquals("terminal", result.data[0].toRole)
-            assertEquals("review", result.data[1].toRole)
-            assertEquals("work", result.data[2].toRole)
+            assertEquals("terminal", result[0].toRole)
+            assertEquals("review", result[1].toRole)
+            assertEquals("work", result[2].toRole)
         }
 
     @Test
     fun `findByItemId returns empty for item with no transitions`() =
         runBlocking {
             val result = transitionRepository.findByItemId(UUID.randomUUID())
-            assertIs<Result.Success<List<RoleTransition>>>(result)
-            assertTrue(result.data.isEmpty())
+            assertNotNull(result)
+            assertTrue(result.isEmpty())
         }
 
     @Test
@@ -158,8 +156,8 @@ class SQLiteRoleTransitionRepositoryTest {
             }
 
             val result = transitionRepository.findByItemId(testItemId, limit = 3)
-            assertIs<Result.Success<List<RoleTransition>>>(result)
-            assertEquals(3, result.data.size)
+            assertNotNull(result)
+            assertEquals(3, result.size)
         }
 
     // --- findByTimeRange ---
@@ -197,9 +195,9 @@ class SQLiteRoleTransitionRepositoryTest {
                     startTime = twoHoursAgo,
                     endTime = now
                 )
-            assertIs<Result.Success<List<RoleTransition>>>(result)
-            assertEquals(1, result.data.size)
-            assertEquals("review", result.data[0].toRole)
+            assertNotNull(result)
+            assertEquals(1, result.size)
+            assertEquals("review", result[0].toRole)
         }
 
     @Test
@@ -235,9 +233,9 @@ class SQLiteRoleTransitionRepositoryTest {
                     endTime = now,
                     role = "review"
                 )
-            assertIs<Result.Success<List<RoleTransition>>>(result)
-            assertEquals(1, result.data.size)
-            assertEquals("review", result.data[0].toRole)
+            assertNotNull(result)
+            assertEquals(1, result.size)
+            assertEquals("review", result[0].toRole)
         }
 
     @Test
@@ -263,8 +261,8 @@ class SQLiteRoleTransitionRepositoryTest {
                     endTime = now,
                     role = "work"
                 )
-            assertIs<Result.Success<List<RoleTransition>>>(result)
-            assertEquals(1, result.data.size)
+            assertNotNull(result)
+            assertEquals(1, result.size)
         }
 
     @Test
@@ -288,8 +286,8 @@ class SQLiteRoleTransitionRepositoryTest {
                     startTime = now.minus(3, ChronoUnit.HOURS),
                     endTime = now.minus(2, ChronoUnit.HOURS)
                 )
-            assertIs<Result.Success<List<RoleTransition>>>(result)
-            assertTrue(result.data.isEmpty())
+            assertNotNull(result)
+            assertTrue(result.isEmpty())
         }
 
     // --- deleteByItemId ---
@@ -315,20 +313,20 @@ class SQLiteRoleTransitionRepositoryTest {
             )
 
             val result = transitionRepository.deleteByItemId(testItemId)
-            assertIs<Result.Success<Int>>(result)
-            assertEquals(2, result.data)
+            assertNotNull(result)
+            assertEquals(2, result)
 
             val findResult = transitionRepository.findByItemId(testItemId)
-            assertIs<Result.Success<List<RoleTransition>>>(findResult)
-            assertTrue(findResult.data.isEmpty())
+            assertNotNull(findResult)
+            assertTrue(findResult.isEmpty())
         }
 
     @Test
     fun `deleteByItemId returns 0 for item with no transitions`() =
         runBlocking {
             val result = transitionRepository.deleteByItemId(UUID.randomUUID())
-            assertIs<Result.Success<Int>>(result)
-            assertEquals(0, result.data)
+            assertNotNull(result)
+            assertEquals(0, result)
         }
 
     // --- Actor attribution ---
@@ -361,9 +359,9 @@ class SQLiteRoleTransitionRepositoryTest {
             transitionRepository.create(transition)
 
             val result = transitionRepository.findByItemId(testItemId)
-            assertIs<Result.Success<List<RoleTransition>>>(result)
-            assertEquals(1, result.data.size)
-            val found = result.data[0]
+            assertNotNull(result)
+            assertEquals(1, result.size)
+            val found = result[0]
             assertNotNull(found.actorClaim)
             assertEquals("agent-42", found.actorClaim.id)
             assertEquals(ActorKind.SUBAGENT, found.actorClaim.kind)
@@ -388,9 +386,9 @@ class SQLiteRoleTransitionRepositoryTest {
             transitionRepository.create(transition)
 
             val result = transitionRepository.findByItemId(testItemId)
-            assertIs<Result.Success<List<RoleTransition>>>(result)
-            assertEquals(1, result.data.size)
-            val found = result.data[0]
+            assertNotNull(result)
+            assertEquals(1, result.size)
+            val found = result[0]
             assertNull(found.actorClaim)
             assertNull(found.verification)
         }
@@ -424,12 +422,12 @@ class SQLiteRoleTransitionRepositoryTest {
             transitionRepository.create(withoutActor)
 
             val result = transitionRepository.findByItemId(testItemId)
-            assertIs<Result.Success<List<RoleTransition>>>(result)
-            assertEquals(2, result.data.size)
+            assertNotNull(result)
+            assertEquals(2, result.size)
 
             // Results are newest-first; withoutActor has later transitionedAt
-            val noActorFound = result.data[0]
-            val actorFound = result.data[1]
+            val noActorFound = result[0]
+            val actorFound = result[1]
 
             assertNull(noActorFound.actorClaim)
             assertNull(noActorFound.verification)
@@ -458,9 +456,9 @@ class SQLiteRoleTransitionRepositoryTest {
             transitionRepository.create(transition)
 
             val result = transitionRepository.findByItemId(testItemId)
-            assertIs<Result.Success<List<RoleTransition>>>(result)
-            assertEquals(1, result.data.size)
-            assertTrue(result.data[0].consumedCredentials.isEmpty())
+            assertNotNull(result)
+            assertEquals(1, result.size)
+            assertTrue(result[0].consumedCredentials.isEmpty())
         }
 
     @Test
@@ -478,9 +476,9 @@ class SQLiteRoleTransitionRepositoryTest {
             transitionRepository.create(transition)
 
             val result = transitionRepository.findByItemId(testItemId)
-            assertIs<Result.Success<List<RoleTransition>>>(result)
-            assertEquals(1, result.data.size)
-            assertEquals(refs, result.data[0].consumedCredentials)
+            assertNotNull(result)
+            assertEquals(1, result.size)
+            assertEquals(refs, result[0].consumedCredentials)
         }
 
     @Test
@@ -497,8 +495,8 @@ class SQLiteRoleTransitionRepositoryTest {
             transitionRepository.create(transition)
 
             val result = transitionRepository.findByItemId(testItemId)
-            assertIs<Result.Success<List<RoleTransition>>>(result)
-            assertEquals(listOf("vault:prod-db-password"), result.data[0].consumedCredentials)
+            assertNotNull(result)
+            assertEquals(listOf("vault:prod-db-password"), result[0].consumedCredentials)
         }
 
     @Test
@@ -519,12 +517,12 @@ class SQLiteRoleTransitionRepositoryTest {
             }
 
             val page = transitionRepository.findByItemId(testItemId, limit = 2, offset = 2)
-            assertIs<Result.Success<List<RoleTransition>>>(page)
-            assertEquals(listOf("t2", "t1"), page.data.map { it.summary })
+            assertNotNull(page)
+            assertEquals(listOf("t2", "t1"), page.map { it.summary })
 
             val beyond = transitionRepository.findByItemId(testItemId, limit = 2, offset = 10)
-            assertIs<Result.Success<List<RoleTransition>>>(beyond)
-            assertTrue(beyond.data.isEmpty())
+            assertNotNull(beyond)
+            assertTrue(beyond.isEmpty())
         }
 
     @Test
@@ -548,8 +546,8 @@ class SQLiteRoleTransitionRepositoryTest {
             val seen =
                 (0 until 4).flatMap { off ->
                     val r = transitionRepository.findByItemId(testItemId, limit = 1, offset = off)
-                    assertIs<Result.Success<List<RoleTransition>>>(r)
-                    r.data.map { it.id }
+                    assertNotNull(r)
+                    r.map { it.id }
                 }
             assertEquals(created.toSet(), seen.toSet())
             assertEquals(4, seen.size)

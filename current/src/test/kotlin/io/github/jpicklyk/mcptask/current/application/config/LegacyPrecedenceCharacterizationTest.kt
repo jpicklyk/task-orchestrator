@@ -9,8 +9,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService
@@ -575,7 +573,7 @@ class LegacyPrecedenceCharacterizationTest {
 
         override suspend fun getFingerprint(rootItemId: UUID) =
             if (failFingerprint) {
-                Result.Error(RepositoryError.DatabaseError("boom"))
+                throw IllegalStateException("boom")
             } else {
                 delegate.getFingerprint(rootItemId)
             }

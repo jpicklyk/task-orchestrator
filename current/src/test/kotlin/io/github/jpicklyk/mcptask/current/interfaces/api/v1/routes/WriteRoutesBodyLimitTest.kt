@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
@@ -83,7 +82,7 @@ private class CountingChunkedJsonContent(
 
 private fun createRoot(repo: io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider): WorkItem =
     runBlocking {
-        (repo.workItemRepository().create(WorkItem(title = "Root", type = "project", depth = 0)) as Result.Success).data
+        (repo.workItemRepository().create(WorkItem(title = "Root", type = "project", depth = 0))!!)
     }
 
 class WriteRoutesBodyLimitTest {
@@ -117,14 +116,14 @@ class WriteRoutesBodyLimitTest {
             assertTrue(body.contains("declares"), "stage 1 must fire on the header alone: $body")
 
             val items = runBlocking { repo.workItemRepository().findByFilters() }
-            assertTrue((items as Result.Success).data.items.isEmpty(), "no item should be created on 413")
+            assertTrue(items.items.isEmpty(), "no item should be created on 413")
         }
 
     @Test
     fun `PATCH items id with an overstated Content-Length is rejected 413`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Patch Target", depth = 0)).getOrNull()!! }
+            val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Patch Target", depth = 0))!! }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
@@ -143,14 +142,14 @@ class WriteRoutesBodyLimitTest {
             assertTrue(response.bodyAsText().contains("payload_too_large"))
 
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
-            assertEquals("Patch Target", (persisted as Result.Success).data.title, "PATCH body must never have been applied")
+            assertEquals("Patch Target", persisted!!.title, "PATCH body must never have been applied")
         }
 
     @Test
     fun `POST items id advance with an overstated Content-Length is rejected 413`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Advance Target", depth = 0)).getOrNull()!! }
+            val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Advance Target", depth = 0))!! }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
@@ -169,14 +168,14 @@ class WriteRoutesBodyLimitTest {
             assertTrue(response.bodyAsText().contains("payload_too_large"))
 
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
-            assertEquals(Role.QUEUE, (persisted as Result.Success).data.role, "advance must never have been applied")
+            assertEquals(Role.QUEUE, persisted!!.role, "advance must never have been applied")
         }
 
     @Test
     fun `PUT note with an overstated Content-Length is rejected 413`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Note Target", depth = 0)).getOrNull()!! }
+            val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Note Target", depth = 0))!! }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
@@ -195,15 +194,15 @@ class WriteRoutesBodyLimitTest {
             assertTrue(response.bodyAsText().contains("payload_too_large"))
 
             val noteResult = runBlocking { repo.noteRepository().findByItemIdAndKey(item.id, "impl-note") }
-            assertTrue((noteResult as Result.Success).data == null, "no note should be created on 413")
+            assertTrue(noteResult == null, "no note should be created on 413")
         }
 
     @Test
     fun `POST dependencies with an overstated Content-Length is rejected 413`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
-            val from = runBlocking { repo.workItemRepository().create(WorkItem(title = "From", depth = 0)).getOrNull()!! }
-            runBlocking { repo.workItemRepository().create(WorkItem(title = "To", depth = 0)).getOrNull()!! }
+            val from = runBlocking { repo.workItemRepository().create(WorkItem(title = "From", depth = 0))!! }
+            runBlocking { repo.workItemRepository().create(WorkItem(title = "To", depth = 0))!! }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
             val response =
@@ -254,7 +253,7 @@ class WriteRoutesBodyLimitTest {
             assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
             assertTrue(response.bodyAsText().contains("payload_too_large"))
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue((persisted as Result.Success).data == null, "oversized payload must never be stored")
+            assertTrue(persisted == null, "oversized payload must never be stored")
         }
 
     @Test
@@ -279,7 +278,7 @@ class WriteRoutesBodyLimitTest {
             assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
             assertTrue(response.bodyAsText().contains("payload_too_large"))
             val persisted = runBlocking { repo.planDocumentRepository().get(root.id, "plan-a") }
-            assertTrue((persisted as Result.Success).data == null)
+            assertTrue(persisted == null)
         }
 
     // S4 (edge, NEW-SURFACE): the exact-at-cap acceptance boundary, proven ONCE at real
@@ -353,6 +352,6 @@ class WriteRoutesBodyLimitTest {
             )
 
             val items = runBlocking { repo.workItemRepository().findByFilters() }
-            assertTrue((items as Result.Success).data.items.isEmpty(), "no item should be created on 413")
+            assertTrue(items.items.isEmpty(), "no item should be created on 413")
         }
 }

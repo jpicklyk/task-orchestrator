@@ -53,7 +53,7 @@ class EventPublishingTransactionRollbackTest {
             // Created OUTSIDE any transaction opened by this test, so it already published
             // synchronously (its own internal suspendTransaction commits before the decorator
             // publishes). We only assert on events published AFTER this baseline.
-            val item = provider.workItemRepository().create(WorkItem(title = "S4 Item", depth = 0)).getOrNull()!!
+            val item = provider.workItemRepository().create(WorkItem(title = "S4 Item", depth = 0))!!
             val baselineCount = bus.ringBufferSnapshot().size
 
             var caught: Throwable? = null
@@ -85,8 +85,8 @@ class EventPublishingTransactionRollbackTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
-            val itemA = provider.workItemRepository().create(WorkItem(title = "S5 A", depth = 0)).getOrNull()!!
-            val itemB = provider.workItemRepository().create(WorkItem(title = "S5 B", depth = 0)).getOrNull()!!
+            val itemA = provider.workItemRepository().create(WorkItem(title = "S5 A", depth = 0))!!
+            val itemB = provider.workItemRepository().create(WorkItem(title = "S5 B", depth = 0))!!
             val baselineCount = bus.ringBufferSnapshot().size
 
             var caught: Throwable? = null
@@ -121,7 +121,7 @@ class EventPublishingTransactionRollbackTest {
             val provider = EventPublishingRepositoryProvider(delegate, bus)
             val baselineCount = bus.ringBufferSnapshot().size
 
-            val item = provider.workItemRepository().create(WorkItem(title = "S8 Item", depth = 0)).getOrNull()!!
+            val item = provider.workItemRepository().create(WorkItem(title = "S8 Item", depth = 0))!!
             provider.noteRepository().upsert(Note(itemId = item.id, key = "s8-note", role = "queue", body = "hello"))
 
             val events = bus.ringBufferSnapshot().drop(baselineCount)
@@ -143,7 +143,7 @@ class EventPublishingTransactionRollbackTest {
             val provider = EventPublishingRepositoryProvider(delegate, bus)
             assertEquals(0, bus.subscriberCount(), "precondition: no subscriber connected")
 
-            val item = provider.workItemRepository().create(WorkItem(title = "S9 Item", depth = 0)).getOrNull()!!
+            val item = provider.workItemRepository().create(WorkItem(title = "S9 Item", depth = 0))!!
             val baselineCount = bus.ringBufferSnapshot().size
 
             var caught: Throwable? = null

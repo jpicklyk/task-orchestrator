@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.dependency
 
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
@@ -473,6 +474,7 @@ with `deleteAll=true` for every dependency on that item.
                 buildValidationFailureResponse(listOf(DependencyFailure(0, e.message ?: "Dependency creation failed")))
             )
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             errorResponse(e.message ?: "Unexpected error creating dependencies", ErrorCodes.INTERNAL_ERROR)
         }
     }
@@ -736,6 +738,7 @@ with `deleteAll=true` for every dependency on that item.
                     )
             }
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             errorResponse(e.message ?: "Unexpected error deleting dependencies", ErrorCodes.INTERNAL_ERROR)
         }
     }

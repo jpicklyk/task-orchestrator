@@ -3,13 +3,13 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.UnitResult
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.application.tools.ActorAware
 import io.github.jpicklyk.mcptask.current.application.tools.PolicyResolution
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import org.slf4j.LoggerFactory
@@ -586,22 +586,18 @@ class RoleTransitionHandler {
                 val thresholdRole = Role.fromString(threshold) ?: continue
                 val blockerItemId = dep.fromItemId
 
-                val blockerResult = workItemRepository.getById(blockerItemId)
-                val blockerItem =
-                    when (blockerResult) {
-                        is Result.Success -> blockerResult.data
-                        is Result.Error -> {
-                            blockers.add(
-                                BlockerInfo(
-                                    itemId = item.id,
-                                    fromItemId = blockerItemId,
-                                    currentRole = Role.QUEUE,
-                                    requiredRole = threshold
-                                )
-                            )
-                            continue
-                        }
-                    }
+                val blockerItem = workItemRepository.getById(blockerItemId)
+                if (blockerItem == null) {
+                    blockers.add(
+                        BlockerInfo(
+                            itemId = item.id,
+                            fromItemId = blockerItemId,
+                            currentRole = Role.QUEUE,
+                            requiredRole = threshold
+                        )
+                    )
+                    continue
+                }
 
                 if (!Role.isAtOrBeyond(blockerItem.role, thresholdRole)) {
                     blockers.add(
@@ -624,22 +620,18 @@ class RoleTransitionHandler {
                 val thresholdRole = Role.fromString(threshold) ?: continue
                 val blockerItemId = dep.toItemId
 
-                val blockerResult = workItemRepository.getById(blockerItemId)
-                val blockerItem =
-                    when (blockerResult) {
-                        is Result.Success -> blockerResult.data
-                        is Result.Error -> {
-                            blockers.add(
-                                BlockerInfo(
-                                    itemId = item.id,
-                                    fromItemId = blockerItemId,
-                                    currentRole = Role.QUEUE,
-                                    requiredRole = threshold
-                                )
-                            )
-                            continue
-                        }
-                    }
+                val blockerItem = workItemRepository.getById(blockerItemId)
+                if (blockerItem == null) {
+                    blockers.add(
+                        BlockerInfo(
+                            itemId = item.id,
+                            fromItemId = blockerItemId,
+                            currentRole = Role.QUEUE,
+                            requiredRole = threshold
+                        )
+                    )
+                    continue
+                }
 
                 if (!Role.isAtOrBeyond(blockerItem.role, thresholdRole)) {
                     blockers.add(
@@ -788,12 +780,16 @@ class RoleTransitionHandler {
                 "RoleTransitionHandler.applyTransition",
                 onFault = { TransitionApplyResult(success = false, error = "Failed to apply transition: ${LegacyFaults.message(it)}") }
             ) {
-                when (val result = workItemRepository.update(updatedItem)) {
-                    is Result.Error ->
+                val updated =
+                    legacyRead({
+                        return@writeUnit UnitResult.Rollback(TransitionApplyResult(success = false, error = "Failed to update item: $it"))
+                    }) { workItemRepository.update(updatedItem) }
+                when (updated) {
+                    null ->
                         UnitResult.Rollback(
-                            TransitionApplyResult(success = false, error = "Failed to update item: ${result.error.message}")
+                            TransitionApplyResult(success = false, error = "Failed to update item: WorkItem not found with id: ${item.id}")
                         )
-                    is Result.Success -> {
+                    else -> {
                         // Record the audit trail inside the same unit
                         val transition =
                             RoleTransition(
@@ -808,25 +804,21 @@ class RoleTransitionHandler {
                                 verification = verification,
                                 consumedCredentials = consumedCredentials
                             )
-                        when (val createResult = roleTransitionRepository.create(transition)) {
-                            is Result.Success ->
-                                UnitResult.Commit(
-                                    TransitionApplyResult(
-                                        success = true,
-                                        item = result.data,
-                                        transition = createResult.data,
-                                        previousRole = previousRole,
-                                        newRole = targetRole
-                                    )
+                        val created =
+                            legacyRead({
+                                return@writeUnit UnitResult.Rollback(
+                                    TransitionApplyResult(success = false, error = "Failed to create audit transition: $it")
                                 )
-                            is Result.Error ->
-                                UnitResult.Rollback(
-                                    TransitionApplyResult(
-                                        success = false,
-                                        error = "Failed to create audit transition: ${createResult.error.message}"
-                                    )
-                                )
-                        }
+                            }) { roleTransitionRepository.create(transition) }
+                        UnitResult.Commit(
+                            TransitionApplyResult(
+                                success = true,
+                                item = updated,
+                                transition = created,
+                                previousRole = previousRole,
+                                newRole = targetRole
+                            )
+                        )
                     }
                 }
             }

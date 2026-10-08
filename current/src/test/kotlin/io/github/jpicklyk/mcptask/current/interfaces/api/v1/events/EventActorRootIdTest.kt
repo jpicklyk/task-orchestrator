@@ -135,12 +135,12 @@ class EventActorRootIdTest {
     }
 
     private suspend fun EventPublishingRepositoryProvider.newRoot(title: String): WorkItem =
-        workItemRepository().create(WorkItem(title = title, depth = 0)).getOrNull()!!
+        workItemRepository().create(WorkItem(title = title, depth = 0))!!
 
     private suspend fun EventPublishingRepositoryProvider.newChild(
         title: String,
         parent: WorkItem,
-    ): WorkItem = workItemRepository().create(WorkItem(title = title, parentId = parent.id, depth = 1)).getOrNull()!!
+    ): WorkItem = workItemRepository().create(WorkItem(title = title, parentId = parent.id, depth = 1))!!
 
     // -------------------------------------------------------------------------
     // S1 -- rootId per event type [AC1]
@@ -155,8 +155,8 @@ class EventActorRootIdTest {
 
             val root = provider.newRoot("R-s1a")
             val child = provider.newChild("C-s1a", root)
-            val renamed = provider.workItemRepository().update(child.copy(title = "C-s1a-renamed")).getOrNull()!!
-            provider.workItemRepository().update(renamed.copy(role = Role.WORK)).getOrNull()!!
+            val renamed = provider.workItemRepository().update(child.copy(title = "C-s1a-renamed"))!!
+            provider.workItemRepository().update(renamed.copy(role = Role.WORK))!!
             provider.workItemRepository().delete(child.id)
 
             val events = bus.drainDelivered("s1a", flow)
@@ -189,7 +189,7 @@ class EventActorRootIdTest {
 
             val root = provider.newRoot("R-s1c")
             val child = provider.newChild("C-s1c", root)
-            val saved = provider.noteRepository().upsert(note(child.id, "k-s1c")).getOrNull()!!
+            val saved = provider.noteRepository().upsert(note(child.id, "k-s1c"))!!
             provider.noteRepository().delete(saved.id)
 
             val events = bus.drainDelivered("s1c", flow)
@@ -685,7 +685,7 @@ class EventActorRootIdTest {
             val flow = bus.subscribe("s11c", emptySet(), lastEventId = null)
             val ctx = toolContext(bus)
             val item = provider.newRoot("X-s11c")
-            val saved = provider.noteRepository().upsert(note(item.id, "k-s11c")).getOrNull()!!
+            val saved = provider.noteRepository().upsert(note(item.id, "k-s11c"))!!
 
             val result =
                 ManageNotesTool().execute(

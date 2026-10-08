@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -81,15 +80,15 @@ class QueryItemsToolClaimStatusTest {
         itemId: UUID,
         agentId: String
     ) {
-        val item = (workItemRepo.getById(itemId) as Result.Success).data
+        val item = workItemRepo.getById(itemId)
         val now = Instant.now()
         workItemRepo.update(
-            item.copy(
+            item!!.copy(
                 claimedBy = agentId,
                 claimedAt = now,
                 claimExpiresAt = now.plusSeconds(900),
                 originalClaimedAt = now,
-                version = item.version
+                version = item!!.version
             )
         )
     }
@@ -101,15 +100,15 @@ class QueryItemsToolClaimStatusTest {
         itemId: UUID,
         agentId: String
     ) {
-        val item = (workItemRepo.getById(itemId) as Result.Success).data
+        val item = workItemRepo.getById(itemId)
         val past = Instant.now().minusSeconds(3600) // 1 hour ago
         workItemRepo.update(
-            item.copy(
+            item!!.copy(
                 claimedBy = agentId,
                 claimedAt = past.minusSeconds(900),
                 claimExpiresAt = past, // expired
                 originalClaimedAt = past.minusSeconds(900),
-                version = item.version
+                version = item!!.version
             )
         )
     }

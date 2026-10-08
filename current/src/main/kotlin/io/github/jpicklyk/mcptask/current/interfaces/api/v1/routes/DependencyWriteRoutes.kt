@@ -3,12 +3,14 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.EventActor
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.validation.DuplicateDependencyException
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -103,12 +105,12 @@ fun Route.dependencyWriteRoutes(
                 }
 
             val fromId =
-                runCatching { UUID.fromString(dto.fromItemId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(dto.fromItemId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", "Invalid fromItemId UUID"))
                     return@post
                 }
             val toId =
-                runCatching { UUID.fromString(dto.toItemId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(dto.toItemId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", "Invalid toItemId UUID"))
                     return@post
                 }
@@ -140,13 +142,21 @@ fun Route.dependencyWriteRoutes(
             }
 
             // Verify both items exist and are in scope
-            val fromResult = workItemRepo.getById(fromId)
-            if (fromResult is Result.Error) {
+            val fromResult =
+                legacyRead({
+                    call.respondDbError()
+                    return@post
+                }) { workItemRepo.getById(fromId) }
+            if (fromResult == null) {
                 call.respond(HttpStatusCode.BadRequest, ErrorDto("not_found", "fromItemId $fromId not found"))
                 return@post
             }
-            val toResult = workItemRepo.getById(toId)
-            if (toResult is Result.Error) {
+            val toResult =
+                legacyRead({
+                    call.respondDbError()
+                    return@post
+                }) { workItemRepo.getById(toId) }
+            if (toResult == null) {
                 call.respond(HttpStatusCode.BadRequest, ErrorDto("not_found", "toItemId $toId not found"))
                 return@post
             }
@@ -170,6 +180,7 @@ fun Route.dependencyWriteRoutes(
                         unblockAt = dto.unblockAt,
                     )
                 } catch (e: Exception) {
+                    e.rethrowIfCancellation()
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", e.message ?: "Validation failed"))
                     return@post
                 }
@@ -232,7 +243,7 @@ fun Route.dependencyWriteRoutes(
                     return@delete
                 }
             val id =
-                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
                     return@delete
                 }

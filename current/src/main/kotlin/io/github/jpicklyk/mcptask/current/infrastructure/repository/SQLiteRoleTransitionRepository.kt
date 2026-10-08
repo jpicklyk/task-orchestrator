@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.RoleTransitionsTable
@@ -33,8 +33,8 @@ import java.util.UUID
 class SQLiteRoleTransitionRepository(
     private val databaseManager: DatabaseManager
 ) : RoleTransitionRepository {
-    override suspend fun create(transition: RoleTransition): Result<RoleTransition> =
-        databaseManager.writeResult("RoleTransitionRepository.create", "Failed to create RoleTransition") {
+    override suspend fun create(transition: RoleTransition): RoleTransition =
+        databaseManager.writeTx("RoleTransitionRepository.create") {
             RoleTransitionsTable.insert {
                 it[id] = transition.id
                 it[itemId] = transition.itemId
@@ -61,15 +61,15 @@ class SQLiteRoleTransitionRepository(
                         Json.encodeToString(ListSerializer(String.serializer()), creds)
                     }
             }
-            Result.Success(transition)
+            transition
         }
 
     override suspend fun findByItemId(
         itemId: UUID,
         limit: Int,
         offset: Int
-    ): Result<List<RoleTransition>> =
-        databaseManager.readResult("Failed to find RoleTransitions by itemId") {
+    ): List<RoleTransition> =
+        databaseManager.readTx {
             val transitions =
                 RoleTransitionsTable
                     .selectAll()
@@ -80,7 +80,7 @@ class SQLiteRoleTransitionRepository(
                     ).limit(limit)
                     .offset(offset.coerceAtLeast(0).toLong())
                     .map { mapRowToRoleTransition(it) }
-            Result.Success(transitions)
+            transitions
         }
 
     override suspend fun findByTimeRange(
@@ -88,8 +88,8 @@ class SQLiteRoleTransitionRepository(
         endTime: Instant,
         role: String?,
         limit: Int
-    ): Result<List<RoleTransition>> =
-        databaseManager.readResult("Failed to find RoleTransitions by time range") {
+    ): List<RoleTransition> =
+        databaseManager.readTx {
             var query =
                 RoleTransitionsTable.selectAll().where {
                     (RoleTransitionsTable.transitionedAt greaterEq startTime) and
@@ -108,14 +108,14 @@ class SQLiteRoleTransitionRepository(
                     .orderBy(RoleTransitionsTable.transitionedAt, SortOrder.DESC)
                     .limit(limit)
                     .map { mapRowToRoleTransition(it) }
-            Result.Success(transitions)
+            transitions
         }
 
     override suspend fun findSince(
         since: Instant,
         limit: Int
-    ): Result<List<RoleTransition>> =
-        databaseManager.readResult("Failed to find transitions since $since") {
+    ): List<RoleTransition> =
+        databaseManager.readTx {
             val results =
                 RoleTransitionsTable
                     .selectAll()
@@ -125,13 +125,13 @@ class SQLiteRoleTransitionRepository(
                         RoleTransitionsTable.id to SortOrder.DESC
                     ).limit(limit)
                     .map { mapRowToRoleTransition(it) }
-            Result.Success(results)
+            results
         }
 
-    override suspend fun deleteByItemId(itemId: UUID): Result<Int> =
-        databaseManager.writeResult("RoleTransitionRepository.deleteByItemId", "Failed to delete RoleTransitions by itemId") {
+    override suspend fun deleteByItemId(itemId: UUID): Int =
+        databaseManager.writeTx("RoleTransitionRepository.deleteByItemId") {
             val deletedCount = RoleTransitionsTable.deleteWhere { RoleTransitionsTable.itemId eq itemId }
-            Result.Success(deletedCount)
+            deletedCount
         }
 
     private fun mapRowToRoleTransition(row: ResultRow): RoleTransition {
@@ -189,6 +189,7 @@ class SQLiteRoleTransitionRepository(
                 try {
                     Json.decodeFromString(ListSerializer(String.serializer()), raw)
                 } catch (e: Exception) {
+                    e.rethrowIfCancellation()
                     logger.warn(
                         "RoleTransition {}: invalid consumedCredentials JSON '{}'; defaulting to empty list",
                         transitionId,

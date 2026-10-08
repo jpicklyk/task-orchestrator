@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import java.util.UUID
 
@@ -35,30 +36,30 @@ class ItemHierarchyValidator {
      * own depth/rootId write and this cascade to be atomic (all-or-nothing) MUST invoke both
      * inside one shared unit of work (`UnitOfWork.write`).
      *
-     * @return [Result.Success] once every descendant has been updated (including the trivial case
-     *   of zero descendants); [Result.Error] on the first failure encountered — either the
-     *   descendant fetch or a single descendant's update (e.g. a version-mismatch conflict).
+     * @return null once every descendant has been updated (including the trivial case of zero
+     *   descendants); otherwise the failure message of the first failure encountered: the descendant
+     *   fetch or a single descendant's update throwing (e.g. a version-mismatch conflict), or a
+     *   descendant row that vanished. The caller rolls its unit back on a non-null return.
      */
     suspend fun recomputeDescendantDepths(
         itemId: UUID,
         delta: Int,
         newRootId: UUID,
         repo: WorkItemRepository
-    ): Result<Unit> {
-        val descendants =
-            when (val descendantsResult = repo.findDescendants(itemId)) {
-                is Result.Success -> descendantsResult.data
-                is Result.Error -> return descendantsResult
+    ): String? =
+        try {
+            val descendants = repo.findDescendants(itemId)
+            var failure: String? = null
+            for (descendant in descendants) {
+                val updatedDescendant = descendant.update { d -> d.copy(depth = d.depth + delta, rootId = newRootId) }
+                if (repo.update(updatedDescendant) == null) {
+                    failure = "WorkItem not found with id: ${descendant.id}"
+                    break
+                }
             }
-
-        for (descendant in descendants) {
-            val updatedDescendant = descendant.update { d -> d.copy(depth = d.depth + delta, rootId = newRootId) }
-            when (val updateResult = repo.update(updatedDescendant)) {
-                is Result.Success -> {}
-                is Result.Error -> return updateResult
-            }
+            failure
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            LegacyFaults.message(e)
         }
-
-        return Result.Success(Unit)
-    }
 }

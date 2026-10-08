@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentAdoptOutcome
 import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentStashOutcome
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLitePlanDocumentRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
@@ -51,8 +50,7 @@ class SQLitePlanDocumentRepositoryTest {
     fun `get returns null when no document row exists`() =
         runBlocking {
             val result = planDocumentRepository.get(rootItemId, "plan-a")
-            assertIs<Result.Success<*>>(result)
-            assertNull((result as Result.Success).data)
+            assertNull(result)
         }
 
     // --- stash: fresh insert ---
@@ -61,8 +59,8 @@ class SQLitePlanDocumentRepositoryTest {
     fun `stash stores a PENDING document and returns it with a computed content hash`() =
         runBlocking {
             val result = planDocumentRepository.stash(rootItemId, "plan-a", "# Plan A\n")
-            assertIs<Result.Success<*>>(result)
-            val outcome = (result as Result.Success).data
+            assertNotNull(result)
+            val outcome = result
             assertIs<PlanDocumentStashOutcome.Stored>(outcome)
             val stored = outcome.document
             assertEquals(rootItemId, stored.rootItemId)
@@ -73,8 +71,8 @@ class SQLitePlanDocumentRepositoryTest {
             assertTrue(stored.contentHash.isNotBlank())
 
             val fetched = planDocumentRepository.get(rootItemId, "plan-a")
-            assertEquals(stored.body, (fetched as Result.Success).data?.body)
-            assertEquals(stored.contentHash, fetched.data?.contentHash)
+            assertEquals(stored.body, fetched?.body)
+            assertEquals(stored.contentHash, fetched?.contentHash)
         }
 
     @Test
@@ -93,12 +91,12 @@ class SQLitePlanDocumentRepositoryTest {
         runBlocking {
             planDocumentRepository.stash(rootItemId, "plan-a", "v1")
             val second = planDocumentRepository.stash(rootItemId, "plan-a", "v2")
-            assertIs<PlanDocumentStashOutcome.Stored>((second as Result.Success).data)
+            assertIs<PlanDocumentStashOutcome.Stored>(second)
 
-            val fetched = (planDocumentRepository.get(rootItemId, "plan-a") as Result.Success).data
+            val fetched = planDocumentRepository.get(rootItemId, "plan-a")
             assertEquals("v2", fetched?.body)
 
-            val summaries = (planDocumentRepository.list(rootItemId) as Result.Success).data
+            val summaries = planDocumentRepository.list(rootItemId)
             assertEquals(1, summaries.size, "Overwrite must not create a second row for the same slug")
         }
 
@@ -108,16 +106,16 @@ class SQLitePlanDocumentRepositoryTest {
     fun `stash against an ADOPTED slug is rejected and does not modify the row`() =
         runBlocking {
             planDocumentRepository.stash(rootItemId, "plan-a", "v1")
-            val adopter = (workItemRepository.create(WorkItem(title = "Adopter")) as Result.Success).data
+            val adopter = workItemRepository.create(WorkItem(title = "Adopter"))
             planDocumentRepository.markAdopted(rootItemId, "plan-a", adopter.id)
 
             val result = planDocumentRepository.stash(rootItemId, "plan-a", "v2 — should not land")
-            assertIs<Result.Success<*>>(result)
-            val outcome = (result as Result.Success).data
+            assertNotNull(result)
+            val outcome = result
             assertIs<PlanDocumentStashOutcome.AdoptedConflict>(outcome)
             assertEquals("v1", outcome.existing.body, "The adopted row's body must remain unchanged")
 
-            val fetched = (planDocumentRepository.get(rootItemId, "plan-a") as Result.Success).data
+            val fetched = planDocumentRepository.get(rootItemId, "plan-a")
             assertEquals("v1", fetched?.body)
             assertEquals(PlanDocumentStatus.ADOPTED, fetched?.status)
         }
@@ -128,11 +126,11 @@ class SQLitePlanDocumentRepositoryTest {
     fun `markAdopted transitions PENDING to ADOPTED and records the adopting item`() =
         runBlocking {
             planDocumentRepository.stash(rootItemId, "plan-a", "v1")
-            val adopter = (workItemRepository.create(WorkItem(title = "Adopter")) as Result.Success).data
+            val adopter = workItemRepository.create(WorkItem(title = "Adopter"))
 
             val result = planDocumentRepository.markAdopted(rootItemId, "plan-a", adopter.id)
-            assertIs<Result.Success<*>>(result)
-            val outcome = (result as Result.Success).data
+            assertNotNull(result)
+            val outcome = result
             assertIs<PlanDocumentAdoptOutcome.Adopted>(outcome)
             assertEquals(PlanDocumentStatus.ADOPTED, outcome.document.status)
             assertEquals(adopter.id, outcome.document.adoptedByItemId)
@@ -141,23 +139,23 @@ class SQLitePlanDocumentRepositoryTest {
     @Test
     fun `markAdopted on a missing slug returns NotFound`() =
         runBlocking {
-            val adopter = (workItemRepository.create(WorkItem(title = "Adopter")) as Result.Success).data
+            val adopter = workItemRepository.create(WorkItem(title = "Adopter"))
             val result = planDocumentRepository.markAdopted(rootItemId, "no-such-slug", adopter.id)
-            assertIs<Result.Success<*>>(result)
-            assertIs<PlanDocumentAdoptOutcome.NotFound>((result as Result.Success).data)
+            assertNotNull(result)
+            assertIs<PlanDocumentAdoptOutcome.NotFound>(result)
         }
 
     @Test
     fun `markAdopted on an already-ADOPTED slug returns AlreadyAdopted without changing the adopter`() =
         runBlocking {
             planDocumentRepository.stash(rootItemId, "plan-a", "v1")
-            val firstAdopter = (workItemRepository.create(WorkItem(title = "First Adopter")) as Result.Success).data
-            val secondAdopter = (workItemRepository.create(WorkItem(title = "Second Adopter")) as Result.Success).data
+            val firstAdopter = workItemRepository.create(WorkItem(title = "First Adopter"))
+            val secondAdopter = workItemRepository.create(WorkItem(title = "Second Adopter"))
             planDocumentRepository.markAdopted(rootItemId, "plan-a", firstAdopter.id)
 
             val result = planDocumentRepository.markAdopted(rootItemId, "plan-a", secondAdopter.id)
-            assertIs<Result.Success<*>>(result)
-            val outcome = (result as Result.Success).data
+            assertNotNull(result)
+            val outcome = result
             assertIs<PlanDocumentAdoptOutcome.AlreadyAdopted>(outcome)
             assertEquals(firstAdopter.id, outcome.existing.adoptedByItemId, "Re-adoption must not change the recorded adopter")
         }
@@ -171,8 +169,8 @@ class SQLitePlanDocumentRepositoryTest {
             planDocumentRepository.stash(rootItemId, "alpha", "a")
 
             val result = planDocumentRepository.list(rootItemId)
-            assertIs<Result.Success<*>>(result)
-            val summaries = (result as Result.Success).data
+            assertNotNull(result)
+            val summaries = result
             assertEquals(listOf("alpha", "zeta"), summaries.map { it.slug })
         }
 
@@ -181,24 +179,24 @@ class SQLitePlanDocumentRepositoryTest {
         runBlocking {
             planDocumentRepository.stash(rootItemId, "plan-a", "a")
             planDocumentRepository.stash(rootItemId, "plan-b", "b")
-            val adopter = (workItemRepository.create(WorkItem(title = "Adopter")) as Result.Success).data
+            val adopter = workItemRepository.create(WorkItem(title = "Adopter"))
             planDocumentRepository.markAdopted(rootItemId, "plan-a", adopter.id)
 
-            val pending = (planDocumentRepository.list(rootItemId, PlanDocumentStatus.PENDING) as Result.Success).data
+            val pending = planDocumentRepository.list(rootItemId, PlanDocumentStatus.PENDING)
             assertEquals(listOf("plan-b"), pending.map { it.slug })
 
-            val adopted = (planDocumentRepository.list(rootItemId, PlanDocumentStatus.ADOPTED) as Result.Success).data
+            val adopted = planDocumentRepository.list(rootItemId, PlanDocumentStatus.ADOPTED)
             assertEquals(listOf("plan-a"), adopted.map { it.slug })
         }
 
     @Test
     fun `list scopes to the given root only`() =
         runBlocking {
-            val otherRoot = (workItemRepository.create(WorkItem(title = "Other Root")) as Result.Success).data
+            val otherRoot = workItemRepository.create(WorkItem(title = "Other Root"))
             planDocumentRepository.stash(rootItemId, "plan-a", "a")
             planDocumentRepository.stash(otherRoot.id, "plan-b", "b")
 
-            val summaries = (planDocumentRepository.list(rootItemId) as Result.Success).data
+            val summaries = planDocumentRepository.list(rootItemId)
             assertEquals(listOf("plan-a"), summaries.map { it.slug })
         }
 
@@ -212,8 +210,7 @@ class SQLitePlanDocumentRepositoryTest {
             workItemRepository.delete(rootItemId)
 
             val fetched = planDocumentRepository.get(rootItemId, "plan-a")
-            assertIs<Result.Success<*>>(fetched)
-            assertNull((fetched as Result.Success).data, "Expected CASCADE delete to remove the plan_documents row")
+            assertNull(fetched, "Expected CASCADE delete to remove the plan_documents row")
         }
 
     // --- FK set-null: deleting the adopting work item unlinks adoption without deleting the row ---
@@ -222,12 +219,12 @@ class SQLitePlanDocumentRepositoryTest {
     fun `deleting the adopting work item sets adoptedByItemId to null without deleting the document`() =
         runBlocking {
             planDocumentRepository.stash(rootItemId, "plan-a", "a")
-            val adopter = (workItemRepository.create(WorkItem(title = "Adopter")) as Result.Success).data
+            val adopter = workItemRepository.create(WorkItem(title = "Adopter"))
             planDocumentRepository.markAdopted(rootItemId, "plan-a", adopter.id)
 
             workItemRepository.delete(adopter.id)
 
-            val fetched = (planDocumentRepository.get(rootItemId, "plan-a") as Result.Success).data
+            val fetched = planDocumentRepository.get(rootItemId, "plan-a")
             assertNotNull(fetched, "Document row must survive the adopter's deletion")
             assertNull(fetched.adoptedByItemId, "Expected ON DELETE SET NULL to unlink the adopter")
             assertEquals(

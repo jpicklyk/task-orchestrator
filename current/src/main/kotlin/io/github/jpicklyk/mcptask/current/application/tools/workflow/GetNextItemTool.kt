@@ -1,9 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.*
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
@@ -260,7 +262,8 @@ Call when choosing what to work on next — at session start or after finishing 
             if (raw != null) {
                 try {
                     Instant.parse(raw)
-                } catch (_: Exception) {
+                } catch (ignored: Exception) {
+                    ignored.rethrowIfCancellation()
                     throw ToolValidationException(
                         "validation_error: $field must be a valid ISO 8601 timestamp — got: $raw"
                     )
@@ -339,26 +342,28 @@ Call when choosing what to work on next — at session start or after finishing 
         // disclosure contract — claimedBy/claimedAt are never exposed in either path.
         val recommendations: List<WorkItem> =
             if (!includeClaimed) {
-                when (val result = context.nextItemRecommender.recommend(criteria, limit)) {
-                    is Result.Success -> result.data
-                    is Result.Error -> return errorResponse(result.error.message, ErrorCodes.DATABASE_ERROR)
+                run {
+                    val result =
+                        legacyRead(
+                            { return errorResponse(it, ErrorCodes.DATABASE_ERROR) }
+                        ) { context.nextItemRecommender.recommend(criteria, limit) }
+                    result
                 }
             } else {
                 val dependencyRepo = context.dependencyRepository()
                 val candidatesResult =
-                    workItemRepo.findForNextItem(
-                        role = targetRole,
-                        parentId = parentId,
-                        excludeActiveClaims = false,
-                        limit = NextItemRecommender.OVER_FETCH_LIMIT,
-                        rootIds = ancestorId?.let { setOf(it) }
-                    )
+                    legacyRead({ return errorResponse(it, ErrorCodes.DATABASE_ERROR) }) {
+                        workItemRepo.findForNextItem(
+                            role = targetRole,
+                            parentId = parentId,
+                            excludeActiveClaims = false,
+                            limit = NextItemRecommender.OVER_FETCH_LIMIT,
+                            rootIds = ancestorId?.let { setOf(it) }
+                        )
+                    }
 
                 val candidates =
-                    when (candidatesResult) {
-                        is Result.Success -> candidatesResult.data
-                        is Result.Error -> return errorResponse(candidatesResult.error.message, ErrorCodes.DATABASE_ERROR)
-                    }
+                    candidatesResult
 
                 // Apply new filters in-memory for the includeClaimed=true path.
                 // Tag matching mirrors the DB-side semantics in SQLiteWorkItemRepository.buildTagFilter:
@@ -414,10 +419,7 @@ Call when choosing what to work on next — at session start or after finishing 
         val ancestorChains: Map<java.util.UUID, List<WorkItem>> =
             if (includeAncestors && recommendations.isNotEmpty()) {
                 val allIds = recommendations.map { it.id }.toSet()
-                when (val r = workItemRepo.findAncestorChains(allIds)) {
-                    is Result.Success -> r.data
-                    is Result.Error -> emptyMap()
-                }
+                (legacyReadOrNull { workItemRepo.findAncestorChains(allIds) } ?: emptyMap())
             } else {
                 emptyMap()
             }

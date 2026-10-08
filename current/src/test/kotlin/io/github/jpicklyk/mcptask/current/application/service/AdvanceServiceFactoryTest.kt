@@ -11,7 +11,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
@@ -58,9 +57,9 @@ class AdvanceServiceFactoryTest {
         noteRepo = mockk()
 
         coEvery { workItemRepo.dbNow() } returns Instant.now()
-        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
-        coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.update(any()) } answers { firstArg() }
+        coEvery { roleTransitionRepo.create(any()) } returns mockk()
+        coEvery { noteRepo.findByItemId(any()) } returns emptyList()
         every { depRepo.findByToItemId(any()) } returns emptyList()
         every { depRepo.findByFromItemId(any()) } returns emptyList()
     }

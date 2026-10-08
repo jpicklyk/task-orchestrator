@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationExcept
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -32,12 +31,12 @@ private class CountingWorkItemRepository(
     var getByIdCalls = 0
     var findByIdsCalls = 0
 
-    override suspend fun getById(id: UUID): Result<WorkItem> {
+    override suspend fun getById(id: UUID): WorkItem? {
         getByIdCalls++
         return delegate.getById(id)
     }
 
-    override suspend fun findByIds(ids: Set<UUID>): Result<List<WorkItem>> {
+    override suspend fun findByIds(ids: Set<UUID>): List<WorkItem> {
         findByIdsCalls++
         return delegate.findByIds(ids)
     }
@@ -53,10 +52,10 @@ private class OmittingWorkItemRepository(
     private val delegate: WorkItemRepository,
     private val missingId: UUID
 ) : WorkItemRepository by delegate {
-    override suspend fun findByIds(ids: Set<UUID>): Result<List<WorkItem>> {
+    override suspend fun findByIds(ids: Set<UUID>): List<WorkItem> {
         val real = delegate.findByIds(ids)
-        return if (real is Result.Success) {
-            Result.Success(real.data.filter { it.id != missingId })
+        return if (real != null) {
+            real.filter { it.id != missingId }
         } else {
             real
         }
@@ -109,8 +108,8 @@ class QueryDependenciesToolBoundsTest {
 
     private suspend fun createItem(title: String): UUID {
         val result = context.workItemRepository().create(WorkItem(title = title))
-        assertIs<Result.Success<WorkItem>>(result, "fixture setup: failed to create '$title'")
-        return result.data.id
+        assertNotNull(result, "fixture setup: failed to create '$title'")
+        return result.id
     }
 
     private fun createDependency(

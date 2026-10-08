@@ -15,7 +15,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
@@ -52,7 +51,6 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -151,8 +149,8 @@ class ItemCreateRouteTest {
             val itemId = extractId(body)
             assertNotNull(itemId, "Response should contain id: $body")
             val persisted = runBlocking { repo.workItemRepository().getById(UUID.fromString(itemId)) }
-            assertTrue(persisted is Result.Success, "Item should be persisted in DB")
-            assertEquals("New Task", (persisted as Result.Success).data.title)
+            assertNotNull(persisted, "Item should be persisted in DB")
+            assertEquals("New Task", persisted.title)
         }
 
     @Test
@@ -171,9 +169,9 @@ class ItemCreateRouteTest {
 
             // Hard negative assertion: no item with that title should exist
             val items = runBlocking { repo.workItemRepository().findByFilters() }
-            assertTrue(items is Result.Success)
+            assertNotNull(items)
             assertTrue(
-                (items as Result.Success).data.items.none { it.title == "Should Not Create" },
+                items.items.none { it.title == "Should Not Create" },
                 "Item should NOT be created when capability is missing"
             )
         }
@@ -201,7 +199,7 @@ class ItemCreateRouteTest {
             val repo = db.repositoryProvider()
             val parent =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Root", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Root", depth = 0))!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -218,8 +216,8 @@ class ItemCreateRouteTest {
             assertNotNull(childId)
 
             val persistedChild = runBlocking { repo.workItemRepository().getById(UUID.fromString(childId)) }
-            assertIs<Result.Success<WorkItem>>(persistedChild)
-            assertEquals(parent.id, persistedChild.data.rootId, "Child must inherit the root's id")
+            assertNotNull(persistedChild)
+            assertEquals(parent.id, persistedChild.rootId, "Child must inherit the root's id")
         }
 
     @Test
@@ -239,8 +237,8 @@ class ItemCreateRouteTest {
             assertNotNull(itemId)
 
             val persisted = runBlocking { repo.workItemRepository().getById(UUID.fromString(itemId)) }
-            assertIs<Result.Success<WorkItem>>(persisted)
-            assertEquals(UUID.fromString(itemId), persisted.data.rootId, "A root-level item must be its own root")
+            assertNotNull(persisted)
+            assertEquals(UUID.fromString(itemId), persisted.rootId, "A root-level item must be its own root")
         }
 }
 
@@ -258,7 +256,7 @@ class ItemPatchRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Original", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Original", depth = 0))!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -277,8 +275,8 @@ class ItemPatchRouteTest {
 
             // Hard assertion: query back and verify persisted
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
-            assertTrue(persisted is Result.Success)
-            assertEquals("Updated Title", (persisted as Result.Success).data.title)
+            assertNotNull(persisted)
+            assertEquals("Updated Title", persisted.title)
         }
 
     @Test
@@ -287,7 +285,7 @@ class ItemPatchRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "No ETag", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "No ETag", depth = 0))!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -301,7 +299,7 @@ class ItemPatchRouteTest {
 
             // Hard negative: title unchanged
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
-            assertEquals("No ETag", (persisted as Result.Success).data.title)
+            assertEquals("No ETag", persisted!!.title)
         }
 
     @Test
@@ -310,7 +308,7 @@ class ItemPatchRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Stale ETag Test", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Stale ETag Test", depth = 0))!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -332,7 +330,7 @@ class ItemPatchRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Protected Fields", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Protected Fields", depth = 0))!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -351,7 +349,7 @@ class ItemPatchRouteTest {
 
             // Hard assertion: item unchanged
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
-            assertEquals("Protected Fields", (persisted as Result.Success).data.title)
+            assertEquals("Protected Fields", persisted!!.title)
         }
 
     @Test
@@ -360,7 +358,7 @@ class ItemPatchRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Content Type Test", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Content Type Test", depth = 0))!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -389,7 +387,7 @@ class ItemPatchRouteTest {
                         .workItemRepository()
                         .create(
                             WorkItem(title = "Has Description", description = "to remove", depth = 0)
-                        ).getOrNull()!!
+                        )!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -406,7 +404,7 @@ class ItemPatchRouteTest {
             // Hard assertion: description removed (RFC 7396 null = delete)
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
             assertNull(
-                (persisted as Result.Success).data.description,
+                persisted!!.description,
                 "Description should be cleared to null by an explicit null patch"
             )
         }
@@ -421,7 +419,7 @@ class ItemPatchRouteTest {
                         .workItemRepository()
                         .create(
                             WorkItem(title = "Keep Description", description = "keep me", depth = 0)
-                        ).getOrNull()!!
+                        )!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -436,10 +434,10 @@ class ItemPatchRouteTest {
 
             assertEquals(HttpStatusCode.OK, response.status)
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
-            assertEquals("Only Title Changed", (persisted as Result.Success).data.title)
+            assertEquals("Only Title Changed", persisted!!.title)
             assertEquals(
                 "keep me",
-                (persisted as Result.Success).data.description,
+                persisted!!.description,
                 "Description should be unchanged when absent from patch"
             )
         }
@@ -450,7 +448,7 @@ class ItemPatchRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Priority Test", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Priority Test", depth = 0))!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -471,8 +469,8 @@ class ItemPatchRouteTest {
             val repo = db.repositoryProvider()
             val (parent, child) =
                 runBlocking {
-                    val p = repo.workItemRepository().create(WorkItem(title = "Parent", depth = 0)).getOrNull()!!
-                    val c = repo.workItemRepository().create(WorkItem(title = "Child", parentId = p.id, depth = 1)).getOrNull()!!
+                    val p = repo.workItemRepository().create(WorkItem(title = "Parent", depth = 0))!!
+                    val c = repo.workItemRepository().create(WorkItem(title = "Child", parentId = p.id, depth = 1))!!
                     Pair(p, c)
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
@@ -499,10 +497,10 @@ class ItemPatchRouteTest {
             // root A(0) -> b(1) -> c(2), plus sibling target d(1) under root A.
             val (_, b, c, d) =
                 runBlocking {
-                    val a = repo.workItemRepository().create(WorkItem(title = "Root A", depth = 0)).getOrNull()!!
-                    val b = repo.workItemRepository().create(WorkItem(title = "B", parentId = a.id, depth = 1)).getOrNull()!!
-                    val c = repo.workItemRepository().create(WorkItem(title = "C", parentId = b.id, depth = 2)).getOrNull()!!
-                    val d = repo.workItemRepository().create(WorkItem(title = "D", parentId = a.id, depth = 1)).getOrNull()!!
+                    val a = repo.workItemRepository().create(WorkItem(title = "Root A", depth = 0))!!
+                    val b = repo.workItemRepository().create(WorkItem(title = "B", parentId = a.id, depth = 1))!!
+                    val c = repo.workItemRepository().create(WorkItem(title = "C", parentId = b.id, depth = 2))!!
+                    val d = repo.workItemRepository().create(WorkItem(title = "D", parentId = a.id, depth = 1))!!
                     listOf(a, b, c, d)
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
@@ -522,7 +520,7 @@ class ItemPatchRouteTest {
 
             // C must cascade from depth 2 to depth 3 even though this PATCH only targeted B.
             val persistedC = runBlocking { repo.workItemRepository().getById(c.id) }
-            assertEquals(3, (persistedC as Result.Success).data.depth, "C's depth must cascade with B's move")
+            assertEquals(3, persistedC!!.depth, "C's depth must cascade with B's move")
         }
 
     @Test
@@ -534,23 +532,21 @@ class ItemPatchRouteTest {
             val (_, b, c, rootD) =
                 runBlocking {
                     val a =
-                        repo.workItemRepository().create(WorkItem(title = "Root A", depth = 0)).getOrNull()!!
+                        repo.workItemRepository().create(WorkItem(title = "Root A", depth = 0))!!
                     val aWithRoot =
-                        repo.workItemRepository().update(a.copy(rootId = a.id)).getOrNull()!!
+                        repo.workItemRepository().update(a.copy(rootId = a.id))!!
                     val b =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "B", parentId = aWithRoot.id, depth = 1, rootId = aWithRoot.id))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "B", parentId = aWithRoot.id, depth = 1, rootId = aWithRoot.id))!!
                     val c =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "C", parentId = b.id, depth = 2, rootId = aWithRoot.id))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "C", parentId = b.id, depth = 2, rootId = aWithRoot.id))!!
                     val d =
-                        repo.workItemRepository().create(WorkItem(title = "Root D", depth = 0)).getOrNull()!!
+                        repo.workItemRepository().create(WorkItem(title = "Root D", depth = 0))!!
                     val dWithRoot =
-                        repo.workItemRepository().update(d.copy(rootId = d.id)).getOrNull()!!
+                        repo.workItemRepository().update(d.copy(rootId = d.id))!!
                     listOf(aWithRoot, b, c, dWithRoot)
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
@@ -568,10 +564,10 @@ class ItemPatchRouteTest {
 
             val persistedB = runBlocking { repo.workItemRepository().getById(b.id) }
             val persistedC = runBlocking { repo.workItemRepository().getById(c.id) }
-            assertIs<Result.Success<WorkItem>>(persistedB)
-            assertIs<Result.Success<WorkItem>>(persistedC)
-            assertEquals(rootD.id, persistedB.data.rootId, "B's rootId must flip to Root D after reparent")
-            assertEquals(rootD.id, persistedC.data.rootId, "C must cascade to Root D even though depth didn't change")
+            assertNotNull(persistedB)
+            assertNotNull(persistedC)
+            assertEquals(rootD.id, persistedB.rootId, "B's rootId must flip to Root D after reparent")
+            assertEquals(rootD.id, persistedC.rootId, "C must cascade to Root D even though depth didn't change")
         }
 
     @Test
@@ -580,13 +576,12 @@ class ItemPatchRouteTest {
             val repo = db.repositoryProvider()
             val (parent, child) =
                 runBlocking {
-                    val p = repo.workItemRepository().create(WorkItem(title = "Parent", depth = 0)).getOrNull()!!
-                    val pWithRoot = repo.workItemRepository().update(p.copy(rootId = p.id)).getOrNull()!!
+                    val p = repo.workItemRepository().create(WorkItem(title = "Parent", depth = 0))!!
+                    val pWithRoot = repo.workItemRepository().update(p.copy(rootId = p.id))!!
                     val c =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "Child", parentId = pWithRoot.id, depth = 1, rootId = pWithRoot.id))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "Child", parentId = pWithRoot.id, depth = 1, rootId = pWithRoot.id))!!
                     Pair(pWithRoot, c)
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
@@ -602,8 +597,8 @@ class ItemPatchRouteTest {
             assertEquals(HttpStatusCode.OK, response.status)
 
             val persistedChild = runBlocking { repo.workItemRepository().getById(child.id) }
-            assertIs<Result.Success<WorkItem>>(persistedChild)
-            assertEquals(child.id, persistedChild.data.rootId, "Child must become its own root after moving to root level")
+            assertNotNull(persistedChild)
+            assertEquals(child.id, persistedChild.rootId, "Child must become its own root after moving to root level")
         }
 
     @Test
@@ -616,7 +611,7 @@ class ItemPatchRouteTest {
                         .workItemRepository()
                         .create(
                             WorkItem(title = "Props Test", properties = """{"key1":"val1","key2":"val2"}""", depth = 0)
-                        ).getOrNull()!!
+                        )!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -631,7 +626,7 @@ class ItemPatchRouteTest {
 
             assertEquals(HttpStatusCode.OK, response.status)
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
-            val props = (persisted as Result.Success).data.properties
+            val props = persisted!!.properties
             assertNotNull(props, "Properties should not be null")
             // key1 preserved from original, key2 updated, key3 added
             assertTrue(props.contains("key1"), "key1 should be preserved: $props")
@@ -645,7 +640,7 @@ class ItemPatchRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Validation Test", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Validation Test", depth = 0))!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -667,7 +662,7 @@ class ItemPatchRouteTest {
             // Hard assertion: complexity unchanged in DB
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
             assertNull(
-                (persisted as Result.Success).data.complexity,
+                persisted!!.complexity,
                 "Complexity should be unchanged after failed patch"
             )
         }
@@ -678,7 +673,7 @@ class ItemPatchRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Role Test", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Role Test", depth = 0))!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -711,7 +706,7 @@ class ItemDeleteRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "To Delete", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "To Delete", depth = 0))!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -723,7 +718,7 @@ class ItemDeleteRouteTest {
 
             // Hard assertion: item gone
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
-            assertTrue(persisted is Result.Error, "Item should be deleted from DB")
+            assertNull(persisted, "Item should be deleted from DB")
         }
 
     @Test
@@ -732,7 +727,7 @@ class ItemDeleteRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Protected", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Protected", depth = 0))!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -744,7 +739,7 @@ class ItemDeleteRouteTest {
 
             // Hard negative: item still exists
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
-            assertTrue(persisted is Result.Success, "Item should still exist")
+            assertNotNull(persisted, "Item should still exist")
         }
 
     @Test
@@ -753,7 +748,7 @@ class ItemDeleteRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "ETag Guard", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "ETag Guard", depth = 0))!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -766,7 +761,7 @@ class ItemDeleteRouteTest {
 
             // Hard negative: item still exists
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
-            assertTrue(persisted is Result.Success, "Item should still exist after rejected delete")
+            assertNotNull(persisted, "Item should still exist after rejected delete")
         }
 }
 
@@ -784,7 +779,7 @@ class AdvanceRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Advance Me", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Advance Me", depth = 0))!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -803,8 +798,8 @@ class AdvanceRouteTest {
             // Hard assertion: role transition persisted — query back
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
             assertTrue(
-                (persisted as Result.Success)
-                    .data.role.name
+                (persisted!!)
+                    .role.name
                     .lowercase() != "queue",
                 "Item role should have advanced from queue"
             )
@@ -816,7 +811,7 @@ class AdvanceRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Label Parity", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Label Parity", depth = 0))!!
                 }
             application { configureWriteTestApp(repo, statusLabelService = NoOpStatusLabelService, unitOfWork = db.unitOfWork()) }
 
@@ -839,7 +834,7 @@ class AdvanceRouteTest {
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
             assertEquals(
                 "in-progress",
-                (persisted as Result.Success).data.statusLabel,
+                persisted!!.statusLabel,
                 "Persisted item must carry the REST-stamped statusLabel",
             )
         }
@@ -855,8 +850,7 @@ class AdvanceRouteTest {
                 runBlocking {
                     repo
                         .workItemRepository()
-                        .create(WorkItem(title = "No Review Label", type = "flat-type", role = Role.WORK, depth = 0))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "No Review Label", type = "flat-type", role = Role.WORK, depth = 0))!!
                 }
             application {
                 configureWriteTestApp(
@@ -876,11 +870,11 @@ class AdvanceRouteTest {
 
             assertEquals(HttpStatusCode.OK, response.status)
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
-            val data = (persisted as Result.Success).data
-            assertEquals("terminal", data.role.name.lowercase())
+            val data = persisted
+            assertEquals("terminal", data!!.role.name.lowercase())
             assertEquals(
                 "done",
-                data.statusLabel,
+                data!!.statusLabel,
                 "REST start->TERMINAL must stamp the terminal label, not 'in-progress' or null",
             )
         }
@@ -891,7 +885,7 @@ class AdvanceRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Audit Test", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Audit Test", depth = 0))!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -906,8 +900,8 @@ class AdvanceRouteTest {
                 runBlocking {
                     repo.roleTransitionRepository().findByItemId(item.id)
                 }
-            assertTrue(transitionsResult is Result.Success, "Role transition query should succeed")
-            val transitions = (transitionsResult as Result.Success).data
+            assertNotNull(transitionsResult, "Role transition query should succeed")
+            val transitions = transitionsResult
             assertTrue(transitions.isNotEmpty(), "Role transition row should be created")
             // findByItemId returns rows ordered by transitionedAt DESC — the most recent is first.
             val transition = transitions.first()
@@ -930,7 +924,7 @@ class AdvanceRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Protected Advance", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Protected Advance", depth = 0))!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -946,8 +940,8 @@ class AdvanceRouteTest {
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
             assertEquals(
                 "queue",
-                (persisted as Result.Success)
-                    .data.role.name
+                (persisted!!)
+                    .role.name
                     .lowercase()
             )
         }
@@ -958,7 +952,7 @@ class AdvanceRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Bad Trigger", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Bad Trigger", depth = 0))!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -997,7 +991,7 @@ class AdvanceRouteTest {
                                 claimExpiresAt = now.plusSeconds(900),
                                 originalClaimedAt = now,
                             ),
-                        ).getOrNull()!!
+                        )!!
                 }
             // Sanity: the item is actively claimed by a different agent before the API advance.
             assertEquals("fleet-agent-7", item.claimedBy)
@@ -1022,14 +1016,14 @@ class AdvanceRouteTest {
 
             // 1b. Hard assertion: the role actually advanced from queue.
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
-            val persistedItem = (persisted as Result.Success).data
-            assertTrue(persistedItem.role.name.lowercase() != "queue", "Item should have advanced from queue")
+            val persistedItem = persisted
+            assertTrue(persistedItem!!.role.name.lowercase() != "queue", "Item should have advanced from queue")
             // The claim holder is unchanged (API does not touch claim fields).
-            assertEquals("fleet-agent-7", persistedItem.claimedBy, "API advance must not alter claimedBy")
+            assertEquals("fleet-agent-7", persistedItem!!.claimedBy, "API advance must not alter claimedBy")
 
             // 2. The role_transitions row records the API actor (audit must not be lost).
             val transitionsResult = runBlocking { repo.roleTransitionRepository().findByItemId(item.id) }
-            val transitions = (transitionsResult as Result.Success).data
+            val transitions = transitionsResult
             assertTrue(transitions.isNotEmpty(), "A role_transitions row must be recorded")
             val transition = transitions.first()
             assertEquals("api:$WRITE_TOKEN_ID", transition.actorClaim?.id, "Transition must record the API actor id")
@@ -1045,8 +1039,7 @@ class AdvanceRouteTest {
                 runBlocking {
                     repo
                         .workItemRepository()
-                        .create(WorkItem(title = "Gated", type = "gated-type", role = Role.QUEUE, depth = 0))
-                        .getOrNull()!!
+                        .create(WorkItem(title = "Gated", type = "gated-type", role = Role.QUEUE, depth = 0))!!
                 }
             application { configureWriteTestApp(repo, schemaService = GatedSchemaService(), unitOfWork = db.unitOfWork()) }
 
@@ -1067,8 +1060,8 @@ class AdvanceRouteTest {
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
             assertEquals(
                 "queue",
-                (persisted as Result.Success)
-                    .data.role.name
+                (persisted!!)
+                    .role.name
                     .lowercase(),
                 "Gate-blocked item must NOT have advanced",
             )
@@ -1083,8 +1076,7 @@ class AdvanceRouteTest {
                     val i =
                         repo
                             .workItemRepository()
-                            .create(WorkItem(title = "Gated OK", type = "gated-type", role = Role.QUEUE, depth = 0))
-                            .getOrNull()!!
+                            .create(WorkItem(title = "Gated OK", type = "gated-type", role = Role.QUEUE, depth = 0))!!
                     // Fill the required queue note so the gate passes.
                     repo.noteRepository().upsert(Note(itemId = i.id, key = "spec", role = "queue", body = "done"))
                     i
@@ -1108,8 +1100,8 @@ class AdvanceRouteTest {
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
             assertEquals(
                 "work",
-                (persisted as Result.Success)
-                    .data.role.name
+                (persisted!!)
+                    .role.name
                     .lowercase()
             )
         }
@@ -1190,7 +1182,7 @@ class AdvanceReviewPhaseTest {
                         .workItemRepository()
                         .create(
                             WorkItem(title = "Has Review", type = "review-type", role = Role.WORK, depth = 0),
-                        ).getOrNull()!!
+                        )!!
                 }
             application { configureWriteTestApp(repo, schemaService = ReviewPhaseSchemaService(), unitOfWork = db.unitOfWork()) }
 
@@ -1206,8 +1198,8 @@ class AdvanceReviewPhaseTest {
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
             assertEquals(
                 "review",
-                (persisted as Result.Success)
-                    .data.role.name
+                (persisted!!)
+                    .role.name
                     .lowercase(),
                 "WORK→start with a review schema must land in REVIEW, not terminal",
             )
@@ -1224,7 +1216,7 @@ class AdvanceReviewPhaseTest {
                         .workItemRepository()
                         .create(
                             WorkItem(title = "No Review", type = "flat-type", role = Role.WORK, depth = 0),
-                        ).getOrNull()!!
+                        )!!
                 }
             application { configureWriteTestApp(repo, schemaService = ReviewPhaseSchemaService(), unitOfWork = db.unitOfWork()) }
 
@@ -1240,8 +1232,8 @@ class AdvanceReviewPhaseTest {
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
             assertEquals(
                 "terminal",
-                (persisted as Result.Success)
-                    .data.role.name
+                (persisted!!)
+                    .role.name
                     .lowercase(),
                 "WORK→start with no review schema must advance straight to terminal",
             )
@@ -1262,7 +1254,7 @@ class NoteWriteRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Note Target", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Note Target", depth = 0))!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -1281,8 +1273,8 @@ class NoteWriteRouteTest {
 
             // Hard assertion: query back actor attribution
             val noteResult = runBlocking { repo.noteRepository().findByItemIdAndKey(item.id, "impl-note") }
-            assertTrue(noteResult is Result.Success)
-            val note = (noteResult as Result.Success).data
+            assertNotNull(noteResult)
+            val note = noteResult
             assertNotNull(note, "Note should be persisted")
             assertNotNull(note!!.actorClaim, "Actor claim should be persisted on note")
             assertEquals(
@@ -1303,7 +1295,7 @@ class NoteWriteRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Update Note Item", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Update Note Item", depth = 0))!!
                 }
             // Pre-create note
             runBlocking {
@@ -1332,7 +1324,7 @@ class NoteWriteRouteTest {
 
             // Hard assertion: body updated in DB
             val noteResult = runBlocking { repo.noteRepository().findByItemIdAndKey(item.id, "update-me") }
-            assertEquals("updated content", ((noteResult as Result.Success).data)!!.body)
+            assertEquals("updated content", (noteResult)!!.body)
         }
 
     @Test
@@ -1341,7 +1333,7 @@ class NoteWriteRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Note ETag", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Note ETag", depth = 0))!!
                 }
             runBlocking {
                 repo.noteRepository().upsert(Note(itemId = item.id, key = "stale-test", role = "work", body = "original"))
@@ -1360,7 +1352,7 @@ class NoteWriteRouteTest {
 
             // Hard negative: body unchanged
             val noteResult = runBlocking { repo.noteRepository().findByItemIdAndKey(item.id, "stale-test") }
-            assertEquals("original", ((noteResult as Result.Success).data)!!.body)
+            assertEquals("original", (noteResult)!!.body)
         }
 
     @Test
@@ -1369,7 +1361,7 @@ class NoteWriteRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Notes Forbidden", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Notes Forbidden", depth = 0))!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -1383,7 +1375,7 @@ class NoteWriteRouteTest {
 
             // Hard negative: note not created
             val noteResult = runBlocking { repo.noteRepository().findByItemIdAndKey(item.id, "new-note") }
-            assertTrue((noteResult as Result.Success).data == null, "Note should NOT be created")
+            assertTrue(noteResult == null, "Note should NOT be created")
         }
 
     @Test
@@ -1392,7 +1384,7 @@ class NoteWriteRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Delete Note Item", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Delete Note Item", depth = 0))!!
                 }
             runBlocking {
                 repo.noteRepository().upsert(Note(itemId = item.id, key = "delete-me", role = "work", body = "bye"))
@@ -1407,7 +1399,7 @@ class NoteWriteRouteTest {
 
             // Hard assertion: note gone
             val noteResult = runBlocking { repo.noteRepository().findByItemIdAndKey(item.id, "delete-me") }
-            assertTrue((noteResult as Result.Success).data == null, "Note should be deleted")
+            assertTrue(noteResult == null, "Note should be deleted")
         }
 }
 
@@ -1425,8 +1417,8 @@ class DependencyWriteRouteTest {
             val repo = db.repositoryProvider()
             val (from, to) =
                 runBlocking {
-                    val a = repo.workItemRepository().create(WorkItem(title = "From", depth = 0)).getOrNull()!!
-                    val b = repo.workItemRepository().create(WorkItem(title = "To", depth = 0)).getOrNull()!!
+                    val a = repo.workItemRepository().create(WorkItem(title = "From", depth = 0))!!
+                    val b = repo.workItemRepository().create(WorkItem(title = "To", depth = 0))!!
                     Pair(a, b)
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
@@ -1459,7 +1451,7 @@ class DependencyWriteRouteTest {
             val repo = db.repositoryProvider()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Self Dep", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Self Dep", depth = 0))!!
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -1478,8 +1470,8 @@ class DependencyWriteRouteTest {
             val repo = db.repositoryProvider()
             val (a, b) =
                 runBlocking {
-                    val a = repo.workItemRepository().create(WorkItem(title = "A", depth = 0)).getOrNull()!!
-                    val b = repo.workItemRepository().create(WorkItem(title = "B", depth = 0)).getOrNull()!!
+                    val a = repo.workItemRepository().create(WorkItem(title = "A", depth = 0))!!
+                    val b = repo.workItemRepository().create(WorkItem(title = "B", depth = 0))!!
                     // Create A → B
                     repo.dependencyRepository().create(Dependency(fromItemId = a.id, toItemId = b.id, type = DependencyType.BLOCKS))
                     Pair(a, b)
@@ -1505,8 +1497,8 @@ class DependencyWriteRouteTest {
             val repo = db.repositoryProvider()
             val (from, to) =
                 runBlocking {
-                    val a = repo.workItemRepository().create(WorkItem(title = "From Del", depth = 0)).getOrNull()!!
-                    val b = repo.workItemRepository().create(WorkItem(title = "To Del", depth = 0)).getOrNull()!!
+                    val a = repo.workItemRepository().create(WorkItem(title = "From Del", depth = 0))!!
+                    val b = repo.workItemRepository().create(WorkItem(title = "To Del", depth = 0))!!
                     Pair(a, b)
                 }
             val dep =
@@ -1542,8 +1534,8 @@ class DependencyWriteRouteTest {
             // 'from' is a root inside the caller's scope; 'to' is a separate root OUTSIDE it.
             val (from, to) =
                 runBlocking {
-                    val a = repo.workItemRepository().create(WorkItem(title = "In Scope From", depth = 0)).getOrNull()!!
-                    val b = repo.workItemRepository().create(WorkItem(title = "Out Of Scope To", depth = 0)).getOrNull()!!
+                    val a = repo.workItemRepository().create(WorkItem(title = "In Scope From", depth = 0))!!
+                    val b = repo.workItemRepository().create(WorkItem(title = "Out Of Scope To", depth = 0))!!
                     Pair(a, b)
                 }
             val dep =
@@ -1581,8 +1573,8 @@ class DependencyWriteRouteTest {
             val repo = db.repositoryProvider()
             val (from, to) =
                 runBlocking {
-                    val a = repo.workItemRepository().create(WorkItem(title = "From Forbidden", depth = 0)).getOrNull()!!
-                    val b = repo.workItemRepository().create(WorkItem(title = "To Forbidden", depth = 0)).getOrNull()!!
+                    val a = repo.workItemRepository().create(WorkItem(title = "From Forbidden", depth = 0))!!
+                    val b = repo.workItemRepository().create(WorkItem(title = "To Forbidden", depth = 0))!!
                     Pair(a, b)
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
@@ -1630,7 +1622,7 @@ class IdempotencyTest {
 
             // Hard assertion: EXACTLY one item was created (not two)
             val items = runBlocking { repo.workItemRepository().findByFilters() }
-            val matching = (items as Result.Success).data.items.filter { it.title == "Idempotent Item" }
+            val matching = items.items.filter { it.title == "Idempotent Item" }
             assertEquals(1, matching.size, "Idempotent POST should create exactly one item, got ${matching.size}")
         }
 
@@ -1656,7 +1648,7 @@ class IdempotencyTest {
 
             // Hard assertion: two items created (different keys = different operations)
             val items = runBlocking { repo.workItemRepository().findByFilters() }
-            val matching = (items as Result.Success).data.items.filter { it.title == "Separate Item" }
+            val matching = items.items.filter { it.title == "Separate Item" }
             assertEquals(2, matching.size, "Different Idempotency-Keys should create 2 items, got ${matching.size}")
         }
 
@@ -1692,7 +1684,7 @@ class WriteScopeEnforcementTest {
             val scopeRootId = UUID.randomUUID()
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Out Of Scope", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "Out Of Scope", depth = 0))!!
                 }
             // Scoped auth config: only allows access to scopeRootId subtree (item is not there)
             val scopedAuthConfig = makeWriteAuthConfig(scopeRootIds = setOf(scopeRootId))
@@ -1710,7 +1702,7 @@ class WriteScopeEnforcementTest {
 
             // Hard assertion: title unchanged
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
-            assertEquals("Out Of Scope", (persisted as Result.Success).data.title)
+            assertEquals("Out Of Scope", persisted!!.title)
         }
 }
 

@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.repository
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -9,7 +8,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class SQLiteWorkItemRepositoryPrefixTest {
@@ -34,9 +33,9 @@ class SQLiteWorkItemRepositoryPrefixTest {
             val prefix = item.id.toString().substring(0, 8)
 
             val result = repository.findByIdPrefix(prefix)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size)
-            assertEquals(item.id, result.data.first().id)
+            assertNotNull(result)
+            assertEquals(1, result.size)
+            assertEquals(item.id, result.first().id)
         }
 
     @Test
@@ -47,10 +46,10 @@ class SQLiteWorkItemRepositoryPrefixTest {
 
             // Use a prefix that almost certainly won't match (all zeros)
             val result = repository.findByIdPrefix("00000000")
-            assertIs<Result.Success<List<WorkItem>>>(result)
+            assertNotNull(result)
             // Might match if the UUID starts with 00000000, but extremely unlikely
             // Just verify it returns a valid result
-            assertTrue(result.data.isEmpty() || result.data.all { it.id.toString().startsWith("00000000") })
+            assertTrue(result.isEmpty() || result.all { it.id.toString().startsWith("00000000") })
         }
 
     @Test
@@ -65,9 +64,9 @@ class SQLiteWorkItemRepositoryPrefixTest {
                     .lowercase()
 
             val result = repository.findByIdPrefix(prefix)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size)
-            assertEquals(item.id, result.data.first().id)
+            assertNotNull(result)
+            assertEquals(1, result.size)
+            assertEquals(item.id, result.first().id)
         }
 
     @Test
@@ -81,8 +80,8 @@ class SQLiteWorkItemRepositoryPrefixTest {
             // Use a very short prefix that might match multiple items
             // Query with limit=2
             val result = repository.findByIdPrefix("", limit = 2)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertTrue(result.data.size <= 2)
+            assertNotNull(result)
+            assertTrue(result.size <= 2)
         }
 
     @Test
@@ -102,8 +101,8 @@ class SQLiteWorkItemRepositoryPrefixTest {
 
             if (sharedGroup != null) {
                 val result = repository.findByIdPrefix(sharedGroup.key)
-                assertIs<Result.Success<List<WorkItem>>>(result)
-                assertTrue(result.data.size >= 2)
+                assertNotNull(result)
+                assertTrue(result.size >= 2)
             }
             // If no collision, test passes — just verifying the method works
         }
@@ -117,8 +116,8 @@ class SQLiteWorkItemRepositoryPrefixTest {
             // Strip dashes from UUID to get 32 hex chars (the repo expects hex-only prefix)
             val fullHex = item.id.toString().replace("-", "")
             val result = repository.findByIdPrefix(fullHex)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size)
-            assertEquals(item.id, result.data.first().id)
+            assertNotNull(result)
+            assertEquals(1, result.size)
+            assertEquals(item.id, result.first().id)
         }
 }

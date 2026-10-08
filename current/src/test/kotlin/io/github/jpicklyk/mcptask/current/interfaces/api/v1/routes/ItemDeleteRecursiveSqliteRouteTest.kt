@@ -11,8 +11,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -62,16 +60,16 @@ private class DeleteRouteFailOnIdWorkItemRepository(
     private val delegate: WorkItemRepository,
     private val failingId: UUID,
 ) : WorkItemRepository by delegate {
-    override suspend fun delete(id: UUID): Result<Boolean> =
+    override suspend fun delete(id: UUID): Boolean =
         if (id == failingId) {
-            Result.Error(RepositoryError.DatabaseError("Simulated delete failure for $id"))
+            throw IllegalStateException("Simulated delete failure for $id")
         } else {
             delegate.delete(id)
         }
 
-    override suspend fun deleteAll(ids: Set<UUID>): Result<Int> =
+    override suspend fun deleteAll(ids: Set<UUID>): Int =
         if (failingId in ids) {
-            Result.Error(RepositoryError.DatabaseError("Simulated bulk delete failure for $failingId"))
+            throw IllegalStateException("Simulated bulk delete failure for $failingId")
         } else {
             delegate.deleteAll(ids)
         }
@@ -151,8 +149,8 @@ class ItemDeleteRecursiveSqliteRouteTest {
     private val repositoryProvider get() = db.repositoryProvider()
 
     private suspend fun createRoot(title: String): WorkItem {
-        val created = repositoryProvider.workItemRepository().create(WorkItem(title = title, depth = 0)).getOrNull()!!
-        return repositoryProvider.workItemRepository().update(created.copy(rootId = created.id)).getOrNull()!!
+        val created = repositoryProvider.workItemRepository().create(WorkItem(title = title, depth = 0))!!
+        return repositoryProvider.workItemRepository().update(created.copy(rootId = created.id))!!
     }
 
     private suspend fun createChild(
@@ -169,9 +167,9 @@ class ItemDeleteRecursiveSqliteRouteTest {
                     rootId = parent.rootId ?: parent.id,
                     depth = depth,
                 ),
-            ).getOrNull()!!
+            )!!
 
-    private suspend fun exists(id: UUID): Boolean = repositoryProvider.workItemRepository().getById(id) is Result.Success
+    private suspend fun exists(id: UUID): Boolean = repositoryProvider.workItemRepository().getById(id) != null
 
     // -----------------------------------------------------------------------
     // S1 -- happy: DELETE a parent with no query param -> 409 has_children, nothing deleted
@@ -262,8 +260,7 @@ class ItemDeleteRecursiveSqliteRouteTest {
                 assertTrue(exists(x.id), "X (outside the subtree) must persist")
 
                 val note = repositoryProvider.noteRepository().findByItemIdAndKey(g.id, "spec")
-                assertIs<Result.Success<*>>(note)
-                assertNull((note as Result.Success<*>).data, "G note must be gone")
+                assertNull(note, "G note must be gone")
 
                 val xDeps = repositoryProvider.dependencyRepository().findByItemId(x.id)
                 assertTrue(xDeps.none { it.fromItemId == c.id }, "the C->X dependency edge must be gone")

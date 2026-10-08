@@ -15,7 +15,6 @@ import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
@@ -63,9 +62,9 @@ class AdvanceServiceStartCascadeGateTest {
         leaseRepo = mockk()
 
         coEvery { workItemRepo.dbNow() } returns Instant.now()
-        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
-        coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
+        coEvery { workItemRepo.update(any()) } answers { firstArg() }
+        coEvery { roleTransitionRepo.create(any()) } returns mockk()
+        coEvery { noteRepo.findByItemId(any()) } returns emptyList()
         every { depRepo.findByToItemId(any()) } returns emptyList()
         every { depRepo.findByFromItemId(any()) } returns emptyList()
         coEvery { leaseRepo.acquireAll(any(), any(), any()) } returns LeaseAcquireResult.Success(emptyList())
@@ -151,9 +150,9 @@ class AdvanceServiceStartCascadeGateTest {
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
             val schema = featureSchema()
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
-            coEvery { noteRepo.findByItemId(child.id) } returns Result.Success(listOf(filledNote(child.id)))
-            coEvery { noteRepo.findByItemId(parentId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(parentId) } returns parent
+            coEvery { noteRepo.findByItemId(child.id) } returns listOf(filledNote(child.id))
+            coEvery { noteRepo.findByItemId(parentId) } returns emptyList()
 
             val outcome =
                 serviceWith(schemasById = mapOf(child.id to schema, parentId to schema))
@@ -185,9 +184,9 @@ class AdvanceServiceStartCascadeGateTest {
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
             val schema = featureSchema()
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
-            coEvery { noteRepo.findByItemId(child.id) } returns Result.Success(listOf(filledNote(child.id)))
-            coEvery { noteRepo.findByItemId(parentId) } returns Result.Success(listOf(filledNote(parentId)))
+            coEvery { workItemRepo.getById(parentId) } returns parent
+            coEvery { noteRepo.findByItemId(child.id) } returns listOf(filledNote(child.id))
+            coEvery { noteRepo.findByItemId(parentId) } returns listOf(filledNote(parentId))
 
             val outcome =
                 serviceWith(schemasById = mapOf(child.id to schema, parentId to schema))
@@ -212,7 +211,7 @@ class AdvanceServiceStartCascadeGateTest {
             val parent = makeItem(id = parentId, role = Role.QUEUE, title = "Parent")
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(parentId) } returns parent
 
             // No entry in schemasById for either id => schemaResolver returns null for both.
             val outcome =
@@ -246,8 +245,8 @@ class AdvanceServiceStartCascadeGateTest {
             // Parent carries the full feature-implementation schema but ZERO notes are filled.
             val schema = featureSchema()
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
-            coEvery { noteRepo.findByItemId(parentId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(parentId) } returns parent
+            coEvery { noteRepo.findByItemId(parentId) } returns emptyList()
 
             val outcome =
                 serviceWith(schemasById = mapOf(parentId to schema))
@@ -275,10 +274,10 @@ class AdvanceServiceStartCascadeGateTest {
             val child = makeItem(role = Role.WORK, title = "Child", parentId = parentId)
             val schema = featureSchema()
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(parentId) } returns parent
             coEvery { workItemRepo.countChildrenByRole(parentId) } returns
-                Result.Success(mapOf(Role.TERMINAL to 1))
-            coEvery { noteRepo.findByItemId(parentId) } returns Result.Success(emptyList())
+                mapOf(Role.TERMINAL to 1)
+            coEvery { noteRepo.findByItemId(parentId) } returns emptyList()
 
             // Child itself is schema-free so its own gate trivially passes on "complete".
             val outcome =
@@ -316,9 +315,9 @@ class AdvanceServiceStartCascadeGateTest {
                         )
                 )
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(parentId) } returns parent
             // Required note filled, optional note absent entirely.
-            coEvery { noteRepo.findByItemId(parentId) } returns Result.Success(listOf(filledNote(parentId)))
+            coEvery { noteRepo.findByItemId(parentId) } returns listOf(filledNote(parentId))
 
             val outcome =
                 serviceWith(schemasById = mapOf(parentId to schema))
@@ -342,7 +341,7 @@ class AdvanceServiceStartCascadeGateTest {
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
             val schema = featureSchema()
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(parentId) } returns parent
 
             val outcome =
                 serviceWith(schemasById = mapOf(parentId to schema))
@@ -366,8 +365,8 @@ class AdvanceServiceStartCascadeGateTest {
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
             val schema = featureSchema()
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
-            coEvery { noteRepo.findByItemId(parentId) } returns Result.Success(listOf(filledNote(parentId)))
+            coEvery { workItemRepo.getById(parentId) } returns parent
+            coEvery { noteRepo.findByItemId(parentId) } returns listOf(filledNote(parentId))
             // Deliberately NO stub for grandparentId: if a recursion regression crept in and the
             // implementation tried to fetch/gate-check the grandparent, this test fails loudly
             // (MockK throws on an unstubbed call) rather than silently passing.
@@ -396,9 +395,9 @@ class AdvanceServiceStartCascadeGateTest {
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
             val schema = featureSchema()
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
+            coEvery { workItemRepo.getById(parentId) } returns parent
             // The note row exists but its body is whitespace-only.
-            coEvery { noteRepo.findByItemId(parentId) } returns Result.Success(listOf(blankNote(parentId)))
+            coEvery { noteRepo.findByItemId(parentId) } returns listOf(blankNote(parentId))
 
             val outcome =
                 serviceWith(schemasById = mapOf(parentId to schema))
@@ -435,7 +434,7 @@ class AdvanceServiceStartCascadeGateTest {
             val child = makeItem(role = Role.WORK, title = "Child", parentId = parentId)
 
             coEvery { noteRepo.findByItemId(child.id) } returns
-                Result.Success(listOf(filledNote(child.id, key = "implementation-notes", role = Role.WORK)))
+                listOf(filledNote(child.id, key = "implementation-notes", role = Role.WORK))
 
             val outcome =
                 serviceWith(schemasById = mapOf(child.id to childSchema))
@@ -459,8 +458,8 @@ class AdvanceServiceStartCascadeGateTest {
             val child = makeItem(role = Role.QUEUE, title = "Child", parentId = parentId)
             val schema = featureSchema()
 
-            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parent)
-            coEvery { noteRepo.findByItemId(parentId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(parentId) } returns parent
+            coEvery { noteRepo.findByItemId(parentId) } returns emptyList()
 
             val outcome =
                 serviceWith(

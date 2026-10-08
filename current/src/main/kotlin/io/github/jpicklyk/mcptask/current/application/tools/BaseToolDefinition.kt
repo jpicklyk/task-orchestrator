@@ -1,8 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
+import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import kotlinx.serialization.json.*
 import org.slf4j.LoggerFactory
 import java.time.Instant
@@ -201,7 +202,8 @@ abstract class BaseToolDefinition : ToolDefinition {
             !value.isString ->
                 try {
                     value.boolean
-                } catch (_: Exception) {
+                } catch (ignored: Exception) {
+                    ignored.rethrowIfCancellation()
                     throw ToolValidationException("Parameter $name must be a boolean")
                 }
             // String representations
@@ -586,9 +588,12 @@ abstract class BaseToolDefinition : ToolDefinition {
             )
         }
 
-        return when (val result = context.workItemRepository().findByIdPrefix(idStr)) {
-            is Result.Success -> {
-                val matches = result.data
+        val matches =
+            legacyRead({
+                return Pair(null, errorResponse("Failed to resolve ID prefix: $it", ErrorCodes.INTERNAL_ERROR))
+            }) { context.workItemRepository().findByIdPrefix(idStr) }
+        return run {
+            run {
                 when {
                     matches.isEmpty() ->
                         Pair(
@@ -621,11 +626,6 @@ abstract class BaseToolDefinition : ToolDefinition {
                     else -> Pair(matches.first().id, null)
                 }
             }
-            is Result.Error ->
-                Pair(
-                    null,
-                    errorResponse("Failed to resolve ID prefix: ${result.error.message}", ErrorCodes.INTERNAL_ERROR)
-                )
         }
     }
 

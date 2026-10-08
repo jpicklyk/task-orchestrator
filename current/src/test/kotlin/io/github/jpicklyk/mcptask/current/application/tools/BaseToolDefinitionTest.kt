@@ -1,8 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
 import io.mockk.coEvery
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
@@ -798,7 +796,7 @@ class BaseToolDefinitionTest {
         runBlocking {
             val item = makeWorkItem(title = "Prefix Match")
             val mocks = MockRepositoryProvider()
-            coEvery { mocks.workItemRepo.findByIdPrefix(any(), any()) } returns Result.Success(listOf(item))
+            coEvery { mocks.workItemRepo.findByIdPrefix(any(), any()) } returns listOf(item)
             val prefix = item.id.toString().substring(0, 8)
             val p = params("id" to JsonPrimitive(prefix))
 
@@ -813,7 +811,7 @@ class BaseToolDefinitionTest {
         runBlocking {
             val item = makeWorkItem(title = "Short Prefix Match")
             val mocks = MockRepositoryProvider()
-            coEvery { mocks.workItemRepo.findByIdPrefix(any(), any()) } returns Result.Success(listOf(item))
+            coEvery { mocks.workItemRepo.findByIdPrefix(any(), any()) } returns listOf(item)
             val prefix = item.id.toString().substring(0, 4)
             val p = params("id" to JsonPrimitive(prefix))
 
@@ -827,7 +825,7 @@ class BaseToolDefinitionTest {
     fun `resolveItemId returns not-found error when prefix matches nothing`(): Unit =
         runBlocking {
             val mocks = MockRepositoryProvider()
-            coEvery { mocks.workItemRepo.findByIdPrefix(any(), any()) } returns Result.Success(emptyList())
+            coEvery { mocks.workItemRepo.findByIdPrefix(any(), any()) } returns emptyList()
             val p = params("id" to JsonPrimitive("dead0000"))
 
             val (resolved, error) = tool.testResolveItemId(p, "id", mocks.context())
@@ -847,7 +845,7 @@ class BaseToolDefinitionTest {
             val mocks = MockRepositoryProvider()
             coEvery {
                 mocks.workItemRepo.findByIdPrefix(any(), any())
-            } returns Result.Success(listOf(item1, item2))
+            } returns listOf(item1, item2)
             val p = params("id" to JsonPrimitive("abcd1234"))
 
             val (resolved, error) = tool.testResolveItemId(p, "id", mocks.context())
@@ -867,8 +865,7 @@ class BaseToolDefinitionTest {
             val mocks = MockRepositoryProvider()
             coEvery {
                 mocks.workItemRepo.findByIdPrefix(any(), any())
-            } returns
-                Result.Error(RepositoryError.DatabaseError("Database connection failed"))
+            } throws IllegalStateException("Database connection failed")
             val p = params("id" to JsonPrimitive("abcd1234"))
 
             val (resolved, error) = tool.testResolveItemId(p, "id", mocks.context())

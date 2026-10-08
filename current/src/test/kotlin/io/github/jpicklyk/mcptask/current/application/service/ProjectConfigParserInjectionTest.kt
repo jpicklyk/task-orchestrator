@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParse
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
@@ -67,7 +66,7 @@ class ProjectConfigParserInjectionTest {
             every { provider.projectConfigRepository() } returns projectConfigRepository
             repositoryProvider = provider
 
-            val root = (workItemRepository.create(WorkItem(title = "PCPS Root", type = "project")) as Result.Success).data
+            val root = workItemRepository.create(WorkItem(title = "PCPS Root", type = "project"))
             rootId = root.id
         }
 

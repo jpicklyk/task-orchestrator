@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 import io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
@@ -69,13 +68,10 @@ Call to check one item's advance-readiness when a full context snapshot is not n
         // Fetch the WorkItem
         val itemResult = context.workItemRepository().getById(itemId)
         val item =
-            when (itemResult) {
-                is Result.Success -> itemResult.data
-                is Result.Error -> return errorResponse(
-                    "WorkItem not found: $itemId",
-                    ErrorCodes.RESOURCE_NOT_FOUND
-                )
-            }
+            itemResult ?: return errorResponse(
+                "WorkItem not found: $itemId",
+                ErrorCodes.RESOURCE_NOT_FOUND
+            )
 
         val handler = RoleTransitionHandler()
 

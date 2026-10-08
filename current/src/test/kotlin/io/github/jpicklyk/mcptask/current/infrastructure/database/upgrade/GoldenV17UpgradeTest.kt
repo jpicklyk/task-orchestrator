@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.upgrade
 
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.FlywayDatabaseSchemaManager
@@ -12,6 +11,7 @@ import java.io.File
 import java.security.MessageDigest
 import java.sql.DriverManager
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -147,18 +147,18 @@ class GoldenV17UpgradeTest {
             runBlocking {
                 for (name in BaselineDataset.ITEM_NAMES) {
                     val r = provider.workItemRepository().getById(BaselineDataset.uuid(name))
-                    assertTrue(r is Result.Success, "work item $name unreadable through the repository: $r")
+                    assertNotNull(r, "work item $name unreadable through the repository: $r")
                 }
                 val note = provider.noteRepository().getById(BaselineDataset.uuid("note:task1:task-scope"))
-                assertTrue(note is Result.Success, "attributed note unreadable: $note")
+                assertNotNull(note, "attributed note unreadable: $note")
                 val deps = provider.dependencyRepository().findByItemId(BaselineDataset.uuid("task1"))
                 assertTrue(deps.size >= 2, "task1 must have its BLOCKS and RELATES_TO edges, got ${deps.size}")
                 val transitions = provider.roleTransitionRepository().findByItemId(BaselineDataset.uuid("task2"))
-                assertTrue(transitions is Result.Success && transitions.data.size == 2, "task2 transitions unreadable: $transitions")
+                assertTrue(transitions.size == 2, "task2 transitions unreadable: $transitions")
                 val config = provider.projectConfigRepository().get(BaselineDataset.uuid("root"))
-                assertTrue(config is Result.Success && config.data != null, "project_config unreadable: $config")
+                assertTrue(config != null, "project_config unreadable: $config")
                 val plan = provider.planDocumentRepository().get(BaselineDataset.uuid("root"), "adopted-plan")
-                assertTrue(plan is Result.Success && plan.data != null, "plan document unreadable: $plan")
+                assertTrue(plan != null, "plan document unreadable: $plan")
             }
         } finally {
             manager.shutdown()

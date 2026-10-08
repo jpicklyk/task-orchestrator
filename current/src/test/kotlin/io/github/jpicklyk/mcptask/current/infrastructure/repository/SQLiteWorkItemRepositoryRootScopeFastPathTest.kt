@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValid
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
 import io.github.jpicklyk.mcptask.current.test.sqlite.CycleTriggers
@@ -22,7 +21,8 @@ import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -70,8 +70,8 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest {
     ): WorkItem =
         runBlocking {
             val result = repository.create(WorkItem(id = id, title = title, depth = 0, rootId = if (stamped) id else null))
-            assertIs<Result.Success<WorkItem>>(result, "fixture setup: failed to create root '$title'")
-            result.data
+            assertNotNull(result, "fixture setup: failed to create root '$title'")
+            result
         }
 
     /**
@@ -89,8 +89,8 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest {
         runBlocking {
             val rootId = if (stamped) (parent.rootId ?: parent.id) else null
             val result = repository.create(WorkItem(title = title, parentId = parent.id, depth = depth, rootId = rootId))
-            assertIs<Result.Success<WorkItem>>(result, "fixture setup: failed to create '$title'")
-            result.data
+            assertNotNull(result, "fixture setup: failed to create '$title'")
+            result
         }
 
     /** Directly overwrites parent_id, bypassing [WorkItem.validate] -- forces a cycle for S8. */
@@ -164,18 +164,18 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest {
             // CTE-expanded `id IN (?,...)` binds 32,768 params here and throws "too many SQL
             // variables" -> Result.Error(DatabaseError). The fast path binds exactly 1.
             val countResult = repository.countInScope(rootIds = setOf(root.id))
-            assertIs<Result.Success<Int>>(countResult, "expected Success, not a bound-overflow DatabaseError")
-            assertEquals(32_768, countResult.data, "32,767 children + the root itself")
+            assertNotNull(countResult, "expected Success, not a bound-overflow DatabaseError")
+            assertEquals(32_768, countResult, "32,767 children + the root itself")
 
             val pageResult = repository.findInScope(rootIds = setOf(root.id), limit = 50)
-            assertIs<Result.Success<List<WorkItem>>>(pageResult)
-            assertEquals(50, pageResult.data.size)
+            assertNotNull(pageResult)
+            assertEquals(50, pageResult.size)
 
             // Paging composes identically on the fast path (diagnosis: "ordering/limit/offset
             // /filters compose identically"): an offset near the tail returns just the remainder.
             val tailResult = repository.findInScope(rootIds = setOf(root.id), limit = 10, offset = 32_760)
-            assertIs<Result.Success<List<WorkItem>>>(tailResult)
-            assertEquals(8, tailResult.data.size, "32,768 total - 32,760 offset = 8 remaining")
+            assertNotNull(tailResult)
+            assertEquals(8, tailResult.size, "32,768 total - 32,760 offset = 8 remaining")
         }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -194,8 +194,8 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest {
             createChild("S2 gc2", c2)
             val stampedIds =
                 repository.findInScope(rootIds = setOf(r.id)).let {
-                    assertIs<Result.Success<List<WorkItem>>>(it)
-                    it.data
+                    assertNotNull(it)
+                    it
                         .map { w ->
                             w.id
                         }.toSet()
@@ -214,8 +214,8 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest {
             createChild("S2 legacy gc2", cu2, stamped = false)
             val legacyIds =
                 repository.findInScope(rootIds = setOf(ru.id)).let {
-                    assertIs<Result.Success<List<WorkItem>>>(it)
-                    it.data
+                    assertNotNull(it)
+                    it
                         .map { w ->
                             w.id
                         }.toSet()
@@ -224,53 +224,53 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest {
 
             val stampedByRole = repository.findByRole(role = Role.QUEUE, rootIds = setOf(r.id))
             val legacyByRole = repository.findByRole(role = Role.QUEUE, rootIds = setOf(ru.id))
-            assertIs<Result.Success<List<WorkItem>>>(stampedByRole)
-            assertIs<Result.Success<List<WorkItem>>>(legacyByRole)
-            assertEquals(stampedIds, stampedByRole.data.map { it.id }.toSet(), "findByRole (fast path)")
-            assertEquals(legacyIds, legacyByRole.data.map { it.id }.toSet(), "findByRole (CTE fallback)")
+            assertNotNull(stampedByRole)
+            assertNotNull(legacyByRole)
+            assertEquals(stampedIds, stampedByRole.map { it.id }.toSet(), "findByRole (fast path)")
+            assertEquals(legacyIds, legacyByRole.map { it.id }.toSet(), "findByRole (CTE fallback)")
 
             val stampedNext = repository.findForNextItem(role = Role.QUEUE, rootIds = setOf(r.id))
             val legacyNext = repository.findForNextItem(role = Role.QUEUE, rootIds = setOf(ru.id))
-            assertIs<Result.Success<List<WorkItem>>>(stampedNext)
-            assertIs<Result.Success<List<WorkItem>>>(legacyNext)
-            assertEquals(stampedIds, stampedNext.data.map { it.id }.toSet(), "findForNextItem (fast path)")
-            assertEquals(legacyIds, legacyNext.data.map { it.id }.toSet(), "findForNextItem (CTE fallback)")
+            assertNotNull(stampedNext)
+            assertNotNull(legacyNext)
+            assertEquals(stampedIds, stampedNext.map { it.id }.toSet(), "findForNextItem (fast path)")
+            assertEquals(legacyIds, legacyNext.map { it.id }.toSet(), "findForNextItem (CTE fallback)")
 
             val stampedClaimable = repository.findClaimable(role = Role.QUEUE, rootIds = setOf(r.id))
             val legacyClaimable = repository.findClaimable(role = Role.QUEUE, rootIds = setOf(ru.id))
-            assertIs<Result.Success<List<WorkItem>>>(stampedClaimable)
-            assertIs<Result.Success<List<WorkItem>>>(legacyClaimable)
-            assertEquals(stampedIds, stampedClaimable.data.map { it.id }.toSet(), "findClaimable (fast path)")
-            assertEquals(legacyIds, legacyClaimable.data.map { it.id }.toSet(), "findClaimable (CTE fallback)")
+            assertNotNull(stampedClaimable)
+            assertNotNull(legacyClaimable)
+            assertEquals(stampedIds, stampedClaimable.map { it.id }.toSet(), "findClaimable (fast path)")
+            assertEquals(legacyIds, legacyClaimable.map { it.id }.toSet(), "findClaimable (CTE fallback)")
 
             val stampedClaimStatus = repository.countByClaimStatus(rootIds = setOf(r.id))
             val legacyClaimStatus = repository.countByClaimStatus(rootIds = setOf(ru.id))
-            assertIs<Result.Success<ClaimStatusCounts>>(stampedClaimStatus)
-            assertIs<Result.Success<ClaimStatusCounts>>(legacyClaimStatus)
+            assertNotNull(stampedClaimStatus)
+            assertNotNull(legacyClaimStatus)
             assertEquals(
                 ClaimStatusCounts(active = 0, expired = 0, unclaimed = 6),
-                stampedClaimStatus.data,
+                stampedClaimStatus,
                 "countByClaimStatus (fast path)"
             )
             assertEquals(
                 ClaimStatusCounts(active = 0, expired = 0, unclaimed = 6),
-                legacyClaimStatus.data,
+                legacyClaimStatus,
                 "countByClaimStatus (CTE fallback)"
             )
 
             val stampedCount = repository.countInScope(rootIds = setOf(r.id))
             val legacyCount = repository.countInScope(rootIds = setOf(ru.id))
-            assertIs<Result.Success<Int>>(stampedCount)
-            assertIs<Result.Success<Int>>(legacyCount)
-            assertEquals(6, stampedCount.data, "countInScope (fast path)")
-            assertEquals(6, legacyCount.data, "countInScope (CTE fallback)")
+            assertNotNull(stampedCount)
+            assertNotNull(legacyCount)
+            assertEquals(6, stampedCount, "countInScope (fast path)")
+            assertEquals(6, legacyCount, "countInScope (CTE fallback)")
 
             val stampedByRoleCount = repository.countInScopeByRole(rootIds = setOf(r.id))
             val legacyByRoleCount = repository.countInScopeByRole(rootIds = setOf(ru.id))
-            assertIs<Result.Success<Map<Role, Int>>>(stampedByRoleCount)
-            assertIs<Result.Success<Map<Role, Int>>>(legacyByRoleCount)
-            assertEquals(mapOf(Role.QUEUE to 6), stampedByRoleCount.data, "countInScopeByRole (fast path)")
-            assertEquals(mapOf(Role.QUEUE to 6), legacyByRoleCount.data, "countInScopeByRole (CTE fallback)")
+            assertNotNull(stampedByRoleCount)
+            assertNotNull(legacyByRoleCount)
+            assertEquals(mapOf(Role.QUEUE to 6), stampedByRoleCount, "countInScopeByRole (fast path)")
+            assertEquals(mapOf(Role.QUEUE to 6), legacyByRoleCount, "countInScopeByRole (CTE fallback)")
         }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -288,14 +288,14 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest {
 
             // B has parent_id = r.id (not NULL) -> guard fails -> CTE, exactly as before the fix.
             val result = repository.findInScope(rootIds = setOf(b.id))
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            val ids = result.data.map { it.id }.toSet()
+            assertNotNull(result)
+            val ids = result.map { it.id }.toSet()
             assertEquals(setOf(b.id, bChild1.id, bChild2.id), ids, "below-root scope: B and its own descendants only")
             assertTrue(r.id !in ids && sibling.id !in ids, "R and B's sibling must be excluded")
 
             val count = repository.countInScope(rootIds = setOf(b.id))
-            assertIs<Result.Success<Int>>(count)
-            assertEquals(3, count.data)
+            assertNotNull(count)
+            assertEquals(3, count)
         }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -318,8 +318,8 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest {
             // root_id = R.id, not rChild.id, so a wrong fast path would drop them. The guard must
             // see rChild fails "parent_id IS NULL" and send the WHOLE call to the CTE union.
             val result = repository.findInScope(rootIds = setOf(r2.id, rChild.id))
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            val ids = result.data.map { it.id }.toSet()
+            assertNotNull(result)
+            val ids = result.map { it.id }.toSet()
             assertEquals(setOf(r2.id, r2Child.id, r2Grandchild.id, rChild.id), ids)
             assertTrue(r.id !in ids, "R itself was never in the requested scope")
 
@@ -327,8 +327,8 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest {
             // subtree(R), so the CTE union must equal exactly subtree(R): no duplicates, nothing
             // dropped.
             val overlapResult = repository.findInScope(rootIds = setOf(r.id, rChild.id))
-            assertIs<Result.Success<List<WorkItem>>>(overlapResult)
-            assertEquals(setOf(r.id, rChild.id), overlapResult.data.map { it.id }.toSet())
+            assertNotNull(overlapResult)
+            assertEquals(setOf(r.id, rChild.id), overlapResult.map { it.id }.toSet())
         }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -349,18 +349,18 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest {
             // ItemHierarchyValidator.kt:97-118 (diagnosis part D / DECLARATIONS section A/D).
             val movedB = b.update { item -> item.copy(parentId = r2.id, depth = 1, rootId = r2.id) }
             val updateResult = repository.update(movedB)
-            assertIs<Result.Success<WorkItem>>(updateResult)
+            assertNotNull(updateResult)
 
             val cascadeResult = validator.recomputeDescendantDepths(b.id, 0, r2.id, repository)
-            assertIs<Result.Success<Unit>>(cascadeResult)
+            assertNull(cascadeResult)
 
             val underR2 = repository.findInScope(rootIds = setOf(r2.id))
-            assertIs<Result.Success<List<WorkItem>>>(underR2)
-            assertEquals(setOf(r2.id, b.id, g.id), underR2.data.map { it.id }.toSet(), "R2 must now own B and G")
+            assertNotNull(underR2)
+            assertEquals(setOf(r2.id, b.id, g.id), underR2.map { it.id }.toSet(), "R2 must now own B and G")
 
             val underR = repository.findInScope(rootIds = setOf(r.id))
-            assertIs<Result.Success<List<WorkItem>>>(underR)
-            assertEquals(setOf(r.id), underR.data.map { it.id }.toSet(), "R must lose B and G after the move")
+            assertNotNull(underR)
+            assertEquals(setOf(r.id), underR.map { it.id }.toSet(), "R must lose B and G after the move")
         }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -379,8 +379,8 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest {
             createChild("S7 R2 child 2", r2)
 
             val result = repository.countInScopeByRole(rootIds = setOf(r1.id))
-            assertIs<Result.Success<Map<Role, Int>>>(result)
-            assertEquals(mapOf(Role.QUEUE to 3), result.data, "R1 + its 2 children only; R2's identical tree excluded")
+            assertNotNull(result)
+            assertEquals(mapOf(Role.QUEUE to 3), result, "R1 + its 2 children only; R2's identical tree excluded")
         }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -405,10 +405,10 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest {
             // cyclic edge below R must not surface as a MAX_TRAVERSAL_DEPTH DatabaseError -- it
             // must return the (still root_id-stamped) rows.
             val result = repository.findInScope(rootIds = setOf(r.id))
-            assertIs<Result.Success<List<WorkItem>>>(
+            assertNotNull(
                 result,
                 "fast path does no traversal; a cyclic parent_id edge below a stamped root must not error",
             )
-            assertEquals(setOf(r.id, a.id, b.id), result.data.map { it.id }.toSet())
+            assertEquals(setOf(r.id, a.id, b.id), result.map { it.id }.toSet())
         }
 }

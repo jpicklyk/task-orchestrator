@@ -43,9 +43,9 @@ class EventPublishingWriteCoverageTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
-            val a = provider.workItemRepository().create(WorkItem(title = "A", depth = 0)).getOrNull()!!
-            val b = provider.workItemRepository().create(WorkItem(title = "B", depth = 0)).getOrNull()!!
-            val c = provider.workItemRepository().create(WorkItem(title = "C", depth = 0)).getOrNull()!!
+            val a = provider.workItemRepository().create(WorkItem(title = "A", depth = 0))!!
+            val b = provider.workItemRepository().create(WorkItem(title = "B", depth = 0))!!
+            val c = provider.workItemRepository().create(WorkItem(title = "C", depth = 0))!!
 
             val flow = bus.subscribe("s1", emptySet(), lastEventId = null)
 
@@ -77,9 +77,9 @@ class EventPublishingWriteCoverageTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
-            val a = provider.workItemRepository().create(WorkItem(title = "A2", depth = 0)).getOrNull()!!
-            val b = provider.workItemRepository().create(WorkItem(title = "B2", depth = 0)).getOrNull()!!
-            val c = provider.workItemRepository().create(WorkItem(title = "C2", depth = 0)).getOrNull()!!
+            val a = provider.workItemRepository().create(WorkItem(title = "A2", depth = 0))!!
+            val b = provider.workItemRepository().create(WorkItem(title = "B2", depth = 0))!!
+            val c = provider.workItemRepository().create(WorkItem(title = "C2", depth = 0))!!
             provider.dependencyRepository().createBatch(
                 listOf(
                     Dependency(fromItemId = a.id, toItemId = b.id, type = DependencyType.BLOCKS),
@@ -109,7 +109,7 @@ class EventPublishingWriteCoverageTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
-            val x = provider.workItemRepository().create(WorkItem(title = "X3", depth = 0)).getOrNull()!!
+            val x = provider.workItemRepository().create(WorkItem(title = "X3", depth = 0))!!
             provider.noteRepository().upsert(Note(itemId = x.id, key = "note-a", role = "work", body = "a"))
             provider.noteRepository().upsert(Note(itemId = x.id, key = "note-b", role = "work", body = "b"))
 
@@ -135,8 +135,8 @@ class EventPublishingWriteCoverageTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
-            val a = provider.workItemRepository().create(WorkItem(title = "A4", depth = 0)).getOrNull()!!
-            val b = provider.workItemRepository().create(WorkItem(title = "B4", depth = 0)).getOrNull()!!
+            val a = provider.workItemRepository().create(WorkItem(title = "A4", depth = 0))!!
+            val b = provider.workItemRepository().create(WorkItem(title = "B4", depth = 0))!!
             val missingId = UUID.randomUUID()
 
             val flow = bus.subscribe("s4", emptySet(), lastEventId = null)
@@ -216,8 +216,8 @@ class EventPublishingWriteCoverageTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
-            val a = provider.workItemRepository().create(WorkItem(title = "A9", depth = 0)).getOrNull()!!
-            val b = provider.workItemRepository().create(WorkItem(title = "B9", depth = 0)).getOrNull()!!
+            val a = provider.workItemRepository().create(WorkItem(title = "A9", depth = 0))!!
+            val b = provider.workItemRepository().create(WorkItem(title = "B9", depth = 0))!!
 
             val flow = bus.subscribe("s9", emptySet(), lastEventId = null)
 
@@ -327,7 +327,7 @@ class EventPublishingWriteCoverageTest {
             val events = bus.drainDelivered("s12", flow)
             assertTrue(events.isEmpty(), "no events may be published once the outer transaction rolls back, got: $events")
 
-            val rows = provider.workItemRepository().findByIds(setOf(rootId, c1Id, c2Id)).getOrNull()
+            val rows = provider.workItemRepository().findByIds(setOf(rootId, c1Id, c2Id))
             assertTrue(rows.isNullOrEmpty(), "no rows may persist after the outer transaction rolls back, got: $rows")
         }
 
@@ -346,7 +346,7 @@ class EventPublishingWriteCoverageTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
-            val lonely = provider.workItemRepository().create(WorkItem(title = "Lonely S14", depth = 0)).getOrNull()!!
+            val lonely = provider.workItemRepository().create(WorkItem(title = "Lonely S14", depth = 0))!!
 
             run {
                 val flow = bus.subscribe("s14-a", emptySet(), lastEventId = null)
@@ -386,7 +386,7 @@ class EventPublishingWriteCoverageTest {
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
             val existingRoot =
-                provider.workItemRepository().create(WorkItem(title = "Existing Root S15", depth = 0)).getOrNull()!!
+                provider.workItemRepository().create(WorkItem(title = "Existing Root S15", depth = 0))!!
             val c1Id = UUID.randomUUID()
             val c1 = WorkItem(id = c1Id, parentId = existingRoot.id, depth = 1, title = "Attached Child S15")
             val input =

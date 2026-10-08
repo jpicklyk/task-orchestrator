@@ -17,7 +17,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.CacheState
@@ -204,16 +203,16 @@ class ActorVerificationScopeTest {
         val depRepo = mockk<DependencyRepository>()
         val roleTransitionRepo = mockk<RoleTransitionRepository>()
         val noteRepo = mockk<NoteRepository>()
-        coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
-        coEvery { noteRepo.findByItemId(any(), any()) } returns Result.Success(emptyList())
+        coEvery { noteRepo.findByItemId(any()) } returns emptyList()
+        coEvery { noteRepo.findByItemId(any(), any()) } returns emptyList()
 
         items.forEach { (id, item) ->
-            coEvery { workItemRepo.getById(id) } returns Result.Success(item)
+            coEvery { workItemRepo.getById(id) } returns item
             every { depRepo.findByToItemId(id) } returns emptyList()
             every { depRepo.findByFromItemId(id) } returns emptyList()
         }
-        coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
-        coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+        coEvery { workItemRepo.update(any()) } answers { firstArg() }
+        coEvery { roleTransitionRepo.create(any()) } returns mockk()
         coEvery { workItemRepo.dbNow() } returns Instant.now()
 
         val repoProvider = mockk<RepositoryProvider>()

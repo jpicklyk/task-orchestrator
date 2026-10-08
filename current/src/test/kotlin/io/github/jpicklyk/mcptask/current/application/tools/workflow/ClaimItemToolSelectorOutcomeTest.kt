@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -34,6 +33,7 @@ import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 /**
@@ -147,8 +147,8 @@ class ClaimItemToolSelectorOutcomeTest {
             repository.create(
                 WorkItem(title = title, role = role, parentId = parentId, depth = depth, tags = tags, complexity = complexity)
             )
-        assertIs<Result.Success<WorkItem>>(result)
-        return result.data
+        assertNotNull(result)
+        return result
     }
 
     private fun firstClaimResult(result: JsonElement): JsonObject {
@@ -400,7 +400,7 @@ class ClaimItemToolSelectorOutcomeTest {
             val itemId = UUID.randomUUID()
             val matchedItem = WorkItem(id = itemId, title = "Previously expired claim", role = Role.QUEUE)
             val recommender = mockk<NextItemRecommender>()
-            coEvery { recommender.recommend(any(), any()) } returns Result.Success(listOf(matchedItem))
+            coEvery { recommender.recommend(any(), any()) } returns listOf(matchedItem)
 
             val mockWorkItemRepo = mockk<WorkItemRepository>()
             val now = Instant.now()

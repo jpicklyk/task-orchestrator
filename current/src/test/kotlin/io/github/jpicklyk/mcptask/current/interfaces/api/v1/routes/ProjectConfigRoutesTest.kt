@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
@@ -93,7 +92,7 @@ private fun createRoot(
     type: String? = "project",
 ): WorkItem =
     runBlocking {
-        (repo.workItemRepository().create(WorkItem(title = title, type = type, depth = 0)) as Result.Success).data
+        (repo.workItemRepository().create(WorkItem(title = title, type = type, depth = 0))!!)
     }
 
 class ProjectConfigPutRouteTest {
@@ -122,8 +121,8 @@ class ProjectConfigPutRouteTest {
             assertTrue(etag.startsWith("\"cfg-"), "ETag should use the cfg- prefix: $etag")
 
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue(persisted is Result.Success)
-            val config = (persisted as Result.Success).data
+            assertNotNull(persisted)
+            val config = persisted
             assertNotNull(config, "Config should be persisted")
             assertEquals(VALID_YAML, config!!.configYaml)
         }
@@ -183,7 +182,7 @@ class ProjectConfigPutRouteTest {
 
             assertEquals(HttpStatusCode.Forbidden, response.status)
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue((persisted as Result.Success).data == null, "Config should NOT be created")
+            assertTrue(persisted == null, "Config should NOT be created")
         }
 
     @Test
@@ -210,7 +209,7 @@ class ProjectConfigPutRouteTest {
 
             assertEquals(HttpStatusCode.Forbidden, response.status)
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue((persisted as Result.Success).data == null, "Config should NOT be created outside token scope")
+            assertTrue(persisted == null, "Config should NOT be created outside token scope")
         }
 
     @Test
@@ -232,7 +231,7 @@ class ProjectConfigPutRouteTest {
             assertTrue(body.contains("parse_error") || body.contains("failed to parse"), "Should report a parse error: $body")
 
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue((persisted as Result.Success).data == null, "Malformed YAML must never be stored")
+            assertTrue(persisted == null, "Malformed YAML must never be stored")
         }
 
     @Test
@@ -252,7 +251,7 @@ class ProjectConfigPutRouteTest {
 
             assertEquals(HttpStatusCode.UnprocessableEntity, response.status)
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue((persisted as Result.Success).data == null, "A type-tagged payload must never be stored")
+            assertTrue(persisted == null, "A type-tagged payload must never be stored")
         }
 
     @Test
@@ -272,7 +271,7 @@ class ProjectConfigPutRouteTest {
 
             assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue((persisted as Result.Success).data == null, "Oversized payload must never be stored")
+            assertTrue(persisted == null, "Oversized payload must never be stored")
         }
 
     @Test
@@ -328,8 +327,8 @@ class ProjectConfigPutRouteTest {
                     (
                         repo.workItemRepository().create(
                             WorkItem(title = "Child", parentId = parent.id, depth = 1),
-                        ) as Result.Success
-                    ).data
+                        )!!
+                    )
                 }
             application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
 
@@ -367,7 +366,7 @@ class ProjectConfigPutRouteTest {
             assertTrue(body.contains(otherRootId.toString()), "Should name the embedded rootId: $body")
 
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue((persisted as Result.Success).data == null, "Mismatched embedded rootId must never be stored")
+            assertTrue(persisted == null, "Mismatched embedded rootId must never be stored")
         }
 
     @Test
@@ -387,7 +386,7 @@ class ProjectConfigPutRouteTest {
 
             assertEquals(HttpStatusCode.OK, response.status)
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue((persisted as Result.Success).data != null, "force=true should allow the push to persist")
+            assertTrue(persisted != null, "force=true should allow the push to persist")
         }
 
     @Test
@@ -423,7 +422,7 @@ class ProjectConfigPutRouteTest {
             assertTrue(body.contains("superseded"), "Should report the superseded error code: $body")
 
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertEquals(yamlB, (persisted as Result.Success).data?.configYaml, "Rejected push must not overwrite the current row")
+            assertEquals(yamlB, persisted?.configYaml, "Rejected push must not overwrite the current row")
         }
 
     @Test
@@ -454,7 +453,7 @@ class ProjectConfigPutRouteTest {
 
             assertEquals(HttpStatusCode.OK, response.status)
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertEquals(VALID_YAML, (persisted as Result.Success).data?.configYaml)
+            assertEquals(VALID_YAML, persisted?.configYaml)
         }
 }
 
@@ -672,7 +671,7 @@ class ProjectConfigDeleteRouteTest {
 
             assertEquals(HttpStatusCode.NoContent, response.status)
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue((persisted as Result.Success).data == null, "Config row should be deleted")
+            assertTrue(persisted == null, "Config row should be deleted")
         }
 
     @Test
@@ -740,8 +739,8 @@ class ProjectConfigUnauthenticatedModeTest {
 
             assertEquals(HttpStatusCode.OK, response.status)
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertTrue(persisted is Result.Success)
-            val config = (persisted as Result.Success).data
+            assertNotNull(persisted)
+            val config = persisted
             assertNotNull(config, "Config should be persisted even with no token")
             assertEquals(VALID_YAML, config!!.configYaml)
         }
@@ -808,8 +807,8 @@ class ProjectConfigConvergenceTest {
                 }
             assertEquals(HttpStatusCode.OK, response.status)
 
-            val configViaTool = (runBlocking { repo.projectConfigRepository().get(rootViaTool.id) } as Result.Success).data
-            val configViaRest = (runBlocking { repo.projectConfigRepository().get(rootViaRest.id) } as Result.Success).data
+            val configViaTool = (runBlocking { repo.projectConfigRepository().get(rootViaTool.id) }!!)
+            val configViaRest = (runBlocking { repo.projectConfigRepository().get(rootViaRest.id) }!!)
             assertNotNull(configViaTool)
             assertNotNull(configViaRest)
             assertEquals(configViaTool!!.fingerprint, configViaRest!!.fingerprint, "Fingerprints must match for identical content")

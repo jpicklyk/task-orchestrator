@@ -44,8 +44,8 @@ class DependencyDirectionRestTest {
             val repo = db.repositoryProvider()
             val (a, b) =
                 runBlocking {
-                    val x = repo.workItemRepository().create(WorkItem(title = "A", depth = 0)).getOrNull()!!
-                    val y = repo.workItemRepository().create(WorkItem(title = "B", depth = 0)).getOrNull()!!
+                    val x = repo.workItemRepository().create(WorkItem(title = "A", depth = 0))!!
+                    val y = repo.workItemRepository().create(WorkItem(title = "B", depth = 0))!!
                     // A BLOCKS B already stored
                     repo.dependencyRepository().create(
                         Dependency(fromItemId = x.id, toItemId = y.id, type = DependencyType.BLOCKS)
@@ -104,8 +104,8 @@ class DependencyDirectionRestTest {
             val repo = db.repositoryProvider()
             val (a, b) =
                 runBlocking {
-                    val x = repo.workItemRepository().create(WorkItem(title = "A", depth = 0)).getOrNull()!!
-                    val y = repo.workItemRepository().create(WorkItem(title = "B", depth = 0)).getOrNull()!!
+                    val x = repo.workItemRepository().create(WorkItem(title = "A", depth = 0))!!
+                    val y = repo.workItemRepository().create(WorkItem(title = "B", depth = 0))!!
                     Pair(x, y)
                 }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }

@@ -4,8 +4,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
 import io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.ProjectConfig
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.ProjectConfigTable
 import io.github.jpicklyk.mcptask.current.infrastructure.security.configFingerprint
@@ -38,8 +36,8 @@ import java.util.UUID
  *
  * @param beforeGuardedWrite test-only hook invoked by [upsertGuarded], inside its transaction,
  *   after the guard read and before the conditional write. Lets a race test run a competing write
- *   (on another thread/connection) in that window, so the write below observes it as a lost race
- *   and retries. Always null in production.
+ *   in that window (e.g. a joined write that changes the row), so the write below observes a lost
+ *   compare-and-set and the call fails (single attempt). Always null in production.
  */
 class SQLiteProjectConfigRepository(
     private val databaseManager: DatabaseManager,
@@ -48,8 +46,8 @@ class SQLiteProjectConfigRepository(
     override suspend fun upsert(
         rootItemId: UUID,
         configYaml: String
-    ): Result<ProjectConfig> =
-        databaseManager.writeResult("ProjectConfigRepository.upsert", "Failed to upsert ProjectConfig") {
+    ): ProjectConfig =
+        databaseManager.writeTx("ProjectConfigRepository.upsert") {
             val fingerprint = computeFingerprint(configYaml)
             val now = Instant.now()
 
@@ -88,13 +86,11 @@ class SQLiteProjectConfigRepository(
                 it[ProjectConfigTable.fingerprintHistory] = newFingerprintHistory
             }
 
-            Result.Success(
-                ProjectConfig(
-                    rootItemId = rootItemId,
-                    configYaml = configYaml,
-                    fingerprint = fingerprint,
-                    updatedAt = now
-                )
+            ProjectConfig(
+                rootItemId = rootItemId,
+                configYaml = configYaml,
+                fingerprint = fingerprint,
+                updatedAt = now
             )
         }
 
@@ -103,47 +99,22 @@ class SQLiteProjectConfigRepository(
         configYaml: String,
         expectedFingerprint: String?,
         rejectSuperseded: Boolean
-    ): Result<GuardedUpsertOutcome> {
-        var lastError: Exception? = null
-        repeat(MAX_GUARDED_UPSERT_ATTEMPTS) {
-            try {
-                val outcome =
-                    databaseManager.writeTx("ProjectConfigRepository.upsertGuarded") {
-                        attemptGuardedUpsert(rootItemId, configYaml, expectedFingerprint, rejectSuperseded)
-                    }
-                if (outcome != null) return Result.Success(outcome)
-                // null: this attempt lost the compare-and-set race between its guard read and its
-                // write (another writer committed a different row version in between). Retry in a
-                // FRESH transaction so the guards re-evaluate against the winning committed row.
-            } catch (
-                @Suppress("TooGenericExceptionCaught") e: Exception
-            ) {
-                // A conflicting insert (row-absent race) or a snapshot conflict on the conditional
-                // update (SQLITE_BUSY_SNAPSHOT) both surface here as an exception from the
-                // transaction rather than as a 0-row update; both are retried the same way.
-                // Transactions now begin IMMEDIATE (DatabaseManager), so a writer acquires the
-                // write lock at BEGIN and SQLITE_BUSY_SNAPSHOT should no longer occur in practice
-                // for this path -- this retry stays in place as defence in depth.
-                lastError = e
-            }
-        }
-        return Result.Error(
-            RepositoryError.DatabaseError(
-                "Failed to upsert ProjectConfig (guarded): exhausted $MAX_GUARDED_UPSERT_ATTEMPTS " +
-                    "attempts racing concurrent writers" +
-                    (lastError?.let { ": ${it.message}" } ?: ""),
-                lastError
-            )
+    ): GuardedUpsertOutcome {
+        // ONE attempt, inside the caller's write unit (IMMEDIATE, single writer): no other writer can
+        // commit between the guard read and the conditional write, so a 0-row write is an invariant
+        // violation, not a lost race. SQLITE_BUSY is retried by the unit itself.
+        return databaseManager.writeTx("ProjectConfigRepository.upsertGuarded") {
+            attemptGuardedUpsert(rootItemId, configYaml, expectedFingerprint, rejectSuperseded)
+        } ?: throw IllegalStateException(
+            "Guarded upsert of the project config for root $rootItemId lost its compare-and-set inside one unit"
         )
     }
 
     /**
-     * Runs ONE guarded-upsert attempt inside an already-open transaction: reads the row, evaluates
-     * the [rejectSuperseded] and [expectedFingerprint] guards against that SAME read, then writes
+     * Runs the guarded upsert inside an already-open transaction: reads the row, evaluates the
+     * [rejectSuperseded] and [expectedFingerprint] guards against that SAME read, then writes
      * conditionally on the row being unchanged since the read. Returns the outcome, or null when
-     * the conditional write affected zero rows (lost the race -- the caller retries in a fresh
-     * transaction). May also throw (unique-constraint violation on insert, or a snapshot conflict
-     * on update) -- the caller's retry loop treats that the same as a null return.
+     * the conditional write affected zero rows (the caller treats that as an invariant violation).
      */
     private suspend fun attemptGuardedUpsert(
         rootItemId: UUID,
@@ -164,8 +135,7 @@ class SQLiteProjectConfigRepository(
 
         if (existing == null) {
             // Nothing to compare expectedFingerprint or supersession against -- a first push is a
-            // create. A concurrent first-insert from another writer throws a unique-constraint
-            // violation here, which the caller's retry loop catches and re-attempts.
+            // create.
             ProjectConfigTable.insert {
                 it[ProjectConfigTable.rootItemId] = rootItemId
                 it[ProjectConfigTable.configYaml] = configYaml
@@ -226,31 +196,31 @@ class SQLiteProjectConfigRepository(
         )
     }
 
-    override suspend fun get(rootItemId: UUID): Result<ProjectConfig?> =
-        databaseManager.readResult("Failed to get ProjectConfig") {
+    override suspend fun get(rootItemId: UUID): ProjectConfig? =
+        databaseManager.readTx {
             val row =
                 ProjectConfigTable
                     .selectAll()
                     .where { ProjectConfigTable.rootItemId eq rootItemId }
                     .singleOrNull()
-            Result.Success(row?.let { mapRowToProjectConfig(it) })
+            row?.let { mapRowToProjectConfig(it) }
         }
 
-    override suspend fun getFingerprint(rootItemId: UUID): Result<String?> =
-        databaseManager.readResult("Failed to get ProjectConfig fingerprint") {
+    override suspend fun getFingerprint(rootItemId: UUID): String? =
+        databaseManager.readTx {
             val fingerprint =
                 ProjectConfigTable
                     .select(ProjectConfigTable.fingerprint)
                     .where { ProjectConfigTable.rootItemId eq rootItemId }
                     .singleOrNull()
                     ?.get(ProjectConfigTable.fingerprint)
-            Result.Success(fingerprint)
+            fingerprint
         }
 
-    override suspend fun delete(rootItemId: UUID): Result<Boolean> =
-        databaseManager.writeResult("ProjectConfigRepository.delete", "Failed to delete ProjectConfig") {
+    override suspend fun delete(rootItemId: UUID): Boolean =
+        databaseManager.writeTx("ProjectConfigRepository.delete") {
             val deletedCount = ProjectConfigTable.deleteWhere { ProjectConfigTable.rootItemId eq rootItemId }
-            Result.Success(deletedCount > 0)
+            deletedCount > 0
         }
 
     override fun computeFingerprint(configYaml: String): String = configFingerprint(configYaml)
@@ -258,8 +228,8 @@ class SQLiteProjectConfigRepository(
     override suspend fun classifyFingerprint(
         rootItemId: UUID,
         fingerprint: String
-    ): Result<FingerprintRelation> =
-        databaseManager.readResult("Failed to classify ProjectConfig fingerprint") {
+    ): FingerprintRelation =
+        databaseManager.readTx {
             val row =
                 ProjectConfigTable
                     .select(ProjectConfigTable.fingerprint, ProjectConfigTable.fingerprintHistory)
@@ -273,7 +243,7 @@ class SQLiteProjectConfigRepository(
                     decodeHistory(row[ProjectConfigTable.fingerprintHistory]).contains(fingerprint) -> FingerprintRelation.SUPERSEDED
                     else -> FingerprintRelation.UNKNOWN
                 }
-            Result.Success(relation)
+            relation
         }
 
     private fun mapRowToProjectConfig(row: ResultRow): ProjectConfig =
@@ -302,12 +272,5 @@ class SQLiteProjectConfigRepository(
     companion object {
         /** Fingerprint history is pruned to this many entries (newest first) on every changed-fingerprint upsert. */
         private const val MAX_HISTORY_SIZE = 20
-
-        /**
-         * Bounded retry budget for [upsertGuarded] when it loses the compare-and-set race between
-         * its guard read and its write. Each retry re-runs the WHOLE transaction (fresh guard read
-         * included), so a losing attempt always re-evaluates against the winning committed row.
-         */
-        private const val MAX_GUARDED_UPSERT_ATTEMPTS = 3
     }
 }

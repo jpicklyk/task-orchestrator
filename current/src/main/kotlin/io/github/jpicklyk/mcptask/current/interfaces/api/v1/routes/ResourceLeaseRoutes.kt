@@ -108,15 +108,12 @@ fun Route.resourceLeaseRoutes(
                 }
 
                 val principal = call.attributes.getOrNull(ApiPrincipalKey)
-                val released =
-                    unitOfWork.writeUnit(
+                val released: Any =
+                    unitOfWork.writeUnit<Any>(
                         "ResourceLeaseRoutes.forceRelease",
-                        onFault = { LeaseReleaseResult.DBError(IllegalStateException(LegacyFaults.message(it))) }
+                        onFault = { LegacyFaults.message(it) }
                     ) {
-                        when (val release = leaseRepo.forceReleaseByKey(key, principal?.tokenId)) {
-                            is LeaseReleaseResult.Success -> UnitResult.Commit(release)
-                            is LeaseReleaseResult.DBError -> UnitResult.Rollback(release)
-                        }
+                        UnitResult.Commit(leaseRepo.forceReleaseByKey(key, principal?.tokenId))
                     }
                 when (val result = released) {
                     is LeaseReleaseResult.Success -> {
@@ -137,8 +134,8 @@ fun Route.resourceLeaseRoutes(
                             ResourceLeaseReleaseResponseDto(resourceKey = key, releasedCount = result.releasedCount),
                         )
                     }
-                    is LeaseReleaseResult.DBError -> {
-                        resourceLeaseLogger.warn("DELETE /resources/leases/{} DB error: {}", key, result.cause.message)
+                    else -> {
+                        resourceLeaseLogger.warn("DELETE /resources/leases/{} DB error: {}", key, result)
                         call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to force-release lease"))
                     }
                 }

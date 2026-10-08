@@ -18,7 +18,7 @@ import java.util.UUID
  *
  * Traversals that feed destructive or whole-subtree work ([WorkItemRepository.findDescendants],
  * scope resolution behind [WorkItemRepository.findInScope] / [WorkItemRepository.countInScope])
- * fail loud with [RepositoryError.DatabaseError] when the bound is hit — a silently short list is
+ * fail loud (throw) when the bound is hit — a silently short list is
  * worse than an error there. Search-scope traversals are merely bounded, since degraded results
  * beat failing every search on a corrupt database.
  */
@@ -31,7 +31,8 @@ const val MAX_TRAVERSAL_DEPTH: Int = 1000
  * - [AlreadyClaimed] — another agent holds a live (non-expired) claim. [retryAfterMs] is a hint for backoff.
  * - [NotFound] — no work item with the given [id] exists (row absent).
  * - [TerminalItem] — the item's role is TERMINAL; claiming terminal items is not supported.
- * - [DBError] — an unexpected database exception occurred; the operation did not complete.
+ *
+ * A database failure is thrown, never returned.
  */
 sealed class ClaimResult {
     data class Success(
@@ -61,11 +62,6 @@ sealed class ClaimResult {
     data class TerminalItem(
         val itemId: UUID
     ) : ClaimResult()
-
-    data class DBError(
-        val itemId: UUID,
-        val cause: Exception
-    ) : ClaimResult()
 }
 
 /**
@@ -74,7 +70,8 @@ sealed class ClaimResult {
  * - [Success] — the claim was cleared; [item] reflects DB state after release.
  * - [NotClaimedByYou] — the item is claimed by a different agent (or is unclaimed).
  * - [NotFound] — no work item with the given [id] exists (row absent).
- * - [DBError] — an unexpected database exception occurred; the operation did not complete.
+ *
+ * A database failure is thrown, never returned.
  */
 sealed class ReleaseResult {
     data class Success(
@@ -87,11 +84,6 @@ sealed class ReleaseResult {
 
     data class NotFound(
         val itemId: UUID
-    ) : ReleaseResult()
-
-    data class DBError(
-        val itemId: UUID,
-        val cause: Exception
     ) : ReleaseResult()
 }
 
@@ -107,18 +99,18 @@ interface WorkItemRepository {
      */
     suspend fun dbNow(): Instant
 
-    suspend fun getById(id: UUID): Result<WorkItem>
+    suspend fun getById(id: UUID): WorkItem?
 
-    suspend fun create(item: WorkItem): Result<WorkItem>
+    suspend fun create(item: WorkItem): WorkItem
 
-    suspend fun update(item: WorkItem): Result<WorkItem>
+    suspend fun update(item: WorkItem): WorkItem?
 
-    suspend fun delete(id: UUID): Result<Boolean>
+    suspend fun delete(id: UUID): Boolean
 
     suspend fun findByParent(
         parentId: UUID,
         limit: Int = 50
-    ): Result<List<WorkItem>>
+    ): List<WorkItem>
 
     /**
      * @param rootIds Optional subtree scope. When null (default), unscoped — behavior is
@@ -130,12 +122,12 @@ interface WorkItemRepository {
         role: Role,
         limit: Int = 50,
         rootIds: Set<UUID>? = null
-    ): Result<List<WorkItem>>
+    ): List<WorkItem>
 
     suspend fun findByDepth(
         depth: Int,
         limit: Int = 50
-    ): Result<List<WorkItem>>
+    ): List<WorkItem>
 
     /**
      * Find all project anchor items: depth-0 roots with `type = "project"`.
@@ -144,16 +136,16 @@ interface WorkItemRepository {
      * project-root scoping convention). Returns an empty list when the workspace has no
      * project anchors — e.g. a legacy single-project database that has not been adopted.
      */
-    suspend fun findProjectRoots(): Result<List<WorkItem>>
+    suspend fun findProjectRoots(): List<WorkItem>
 
     suspend fun search(
         query: String,
         limit: Int = 20
-    ): Result<List<WorkItem>>
+    ): List<WorkItem>
 
-    suspend fun count(): Result<Long>
+    suspend fun count(): Long
 
-    suspend fun findChildren(parentId: UUID): Result<List<WorkItem>>
+    suspend fun findChildren(parentId: UUID): List<WorkItem>
 
     /**
      * Find work items matching multiple filter criteria.
@@ -199,7 +191,7 @@ interface WorkItemRepository {
         offset: Int = 0,
         type: String? = null,
         claimStatus: String? = null
-    ): Result<ItemFetchResult>
+    ): ItemFetchResult
 
     /**
      * Count work items matching multiple filter criteria (same filters as findByFilters, no pagination).
@@ -222,13 +214,13 @@ interface WorkItemRepository {
         roleChangedBefore: Instant? = null,
         type: String? = null,
         claimStatus: String? = null
-    ): Result<Int>
+    ): Int
 
     /**
      * Count direct children of a work item grouped by their current role.
      * Returns a map of Role to count. Roles with zero children are omitted.
      */
-    suspend fun countChildrenByRole(parentId: UUID): Result<Map<Role, Int>>
+    suspend fun countChildrenByRole(parentId: UUID): Map<Role, Int>
 
     /**
      * Find all root items (items with no parent), ordered newest-createdAt-first.
@@ -250,7 +242,7 @@ interface WorkItemRepository {
         limit: Int = 50,
         offset: Int = 0,
         excludeTerminal: Boolean = false,
-    ): Result<ItemFetchResult>
+    ): ItemFetchResult
 
     /**
      * True count of root items (items with `parentId IS NULL`), unaffected by any `limit` and
@@ -262,29 +254,28 @@ interface WorkItemRepository {
      * @param excludeTerminal When true, counts only roots whose `role` is not `terminal` —
      *   i.e. the count matches the filtered set [findRootItems] returns with the same flag.
      */
-    suspend fun countRootItems(excludeTerminal: Boolean = false): Result<Long>
+    suspend fun countRootItems(excludeTerminal: Boolean = false): Long
 
     /**
      * Find all descendants of the given item (children, grandchildren, etc.) recursively.
      * Does not include the item itself.
      *
      * The traversal is bounded at [MAX_TRAVERSAL_DEPTH] levels and never revisits a node. Cyclic
-     * or pathologically deep `parent_id` data yields [Result.Error] with a
-     * [RepositoryError.DatabaseError] naming the bound — callers of this method drive cascade
+     * or pathologically deep `parent_id` data throws an exception naming the bound — callers of this method drive cascade
      * deletes and subtree restamps, where a silently truncated list would corrupt more than it
      * reports.
      */
-    suspend fun findDescendants(id: UUID): Result<List<WorkItem>>
+    suspend fun findDescendants(id: UUID): List<WorkItem>
 
     /**
      * Fetch multiple items by ID in one query. Missing IDs are silently omitted.
      */
-    suspend fun findByIds(ids: Set<UUID>): Result<List<WorkItem>>
+    suspend fun findByIds(ids: Set<UUID>): List<WorkItem>
 
     /**
      * Delete multiple items by ID in one query. Returns the number of rows deleted.
      */
-    suspend fun deleteAll(ids: Set<UUID>): Result<Int>
+    suspend fun deleteAll(ids: Set<UUID>): Int
 
     /**
      * Atomically claim a work item for the given agent, or refresh an existing claim.
@@ -331,7 +322,7 @@ interface WorkItemRepository {
     suspend fun findByIdPrefix(
         prefix: String,
         limit: Int = 10
-    ): Result<List<WorkItem>>
+    ): List<WorkItem>
 
     /**
      * For each itemId, resolve its full ancestor chain (root -> direct parent).
@@ -343,7 +334,7 @@ interface WorkItemRepository {
      * indistinguishable from a genuinely shallow item. Callers that make a safety decision on chain
      * completeness must use [findAncestorChainsDetailed] instead.
      */
-    suspend fun findAncestorChains(itemIds: Set<UUID>): Result<Map<UUID, List<WorkItem>>>
+    suspend fun findAncestorChains(itemIds: Set<UUID>): Map<UUID, List<WorkItem>>
 
     /**
      * [findAncestorChains] with an explicit completeness signal per item.
@@ -353,7 +344,7 @@ interface WorkItemRepository {
      * cycle or a missing ancestor, with [AncestorChain.truncationReason] naming which.
      * [findAncestorChains] is defined as this method with the flag dropped.
      */
-    suspend fun findAncestorChainsDetailed(itemIds: Set<UUID>): Result<Map<UUID, AncestorChain>>
+    suspend fun findAncestorChainsDetailed(itemIds: Set<UUID>): Map<UUID, AncestorChain>
 
     /**
      * Find work items for the "get next" recommendation query, supporting optional claim filtering.
@@ -379,7 +370,7 @@ interface WorkItemRepository {
         excludeActiveClaims: Boolean = true,
         limit: Int = 200,
         rootIds: Set<UUID>? = null
-    ): Result<List<WorkItem>>
+    ): List<WorkItem>
 
     /**
      * Find work items that are eligible to be claimed, combining the filter flexibility of
@@ -436,8 +427,7 @@ interface WorkItemRepository {
      *   identical to the pre-scoping contract. When non-null, candidates are additionally
      *   restricted to items within the subtree(s) rooted at [rootIds] (roots included),
      *   resolved the same way as [findInScope]. An empty (non-null) set yields an empty result.
-     * @return [Result.Success] with the list of matching, claimable items (may be empty), or
-     *         [Result.Error] on a database failure.
+     * @return the list of matching, claimable items (may be empty); a database failure is thrown.
      */
     suspend fun findClaimable(
         role: Role,
@@ -456,7 +446,7 @@ interface WorkItemRepository {
         limit: Int = 200,
         requestingAgentId: String? = null,
         rootIds: Set<UUID>? = null,
-    ): Result<List<WorkItem>>
+    ): List<WorkItem>
 
     /**
      * Count work items by claim status within an optional parent scope.
@@ -481,7 +471,7 @@ interface WorkItemRepository {
     suspend fun countByClaimStatus(
         parentId: UUID? = null,
         rootIds: Set<UUID>? = null
-    ): Result<ClaimStatusCounts>
+    ): ClaimStatusCounts
 
     /**
      * Count how many items match the selector filters used by [findClaimable] — same filter set
@@ -517,7 +507,7 @@ interface WorkItemRepository {
         roleChangedAfter: Instant? = null,
         roleChangedBefore: Instant? = null,
         rootIds: Set<UUID>? = null,
-    ): Result<SelectorMatchCounts> {
+    ): SelectorMatchCounts {
         val matchedResult =
             countByFilters(
                 parentId = parentId,
@@ -532,7 +522,6 @@ interface WorkItemRepository {
                 roleChangedBefore = roleChangedBefore,
                 type = type,
             )
-        if (matchedResult is Result.Error) return matchedResult
 
         val claimedResult =
             countByFilters(
@@ -549,13 +538,9 @@ interface WorkItemRepository {
                 type = type,
                 claimStatus = "claimed",
             )
-        if (claimedResult is Result.Error) return claimedResult
-
-        return Result.Success(
-            SelectorMatchCounts(
-                matched = (matchedResult as Result.Success).data,
-                activelyClaimed = (claimedResult as Result.Success).data,
-            )
+        return SelectorMatchCounts(
+            matched = matchedResult,
+            activelyClaimed = claimedResult,
         )
     }
 
@@ -595,7 +580,7 @@ interface WorkItemRepository {
         offset: Int = 0,
         type: String? = null,
         claimStatus: String? = null,
-    ): Result<List<WorkItem>>
+    ): List<WorkItem>
 
     /**
      * Count work items within the subtree rooted at any of [rootIds] (roots included).
@@ -621,7 +606,7 @@ interface WorkItemRepository {
         roleChangedBefore: Instant? = null,
         type: String? = null,
         claimStatus: String? = null,
-    ): Result<Int>
+    ): Int
 
     /**
      * Count work items within the subtree rooted at any of [rootIds] (roots included), grouped by
@@ -630,7 +615,7 @@ interface WorkItemRepository {
      *
      * When [rootIds] is empty, returns an empty map immediately.
      */
-    suspend fun countInScopeByRole(rootIds: Set<UUID>): Result<Map<Role, Int>>
+    suspend fun countInScopeByRole(rootIds: Set<UUID>): Map<Role, Int>
 
     /**
      * Full-text search on work items using the V7 FTS5 virtual tables.
@@ -667,27 +652,16 @@ interface WorkItemRepository {
      * override this for the event-publishing decorator to keep working — no event is published
      * by a read.
      *
-     * @return [Result.Success] with the resolved [ChildPlacement], or [Result.Error] wrapping
-     *   [RepositoryError.NotFound] when [parentId] does not resolve to an existing item.
+     * @return the resolved [ChildPlacement], or null when [parentId] does not resolve to an existing item.
      */
-    suspend fun resolveChildPlacement(parentId: UUID): Result<ChildPlacement> =
-        when (val parentResult = getById(parentId)) {
-            is Result.Success -> {
-                val parent = parentResult.data
-                Result.Success(
-                    ChildPlacement(
-                        parentId = parentId,
-                        depth = parent.depth + 1,
-                        rootId = parent.rootId ?: parent.id
-                    )
-                )
-            }
-
-            is Result.Error ->
-                Result.Error(
-                    RepositoryError.NotFound(parentId, "Parent item not found: $parentId")
-                )
-        }
+    suspend fun resolveChildPlacement(parentId: UUID): ChildPlacement? {
+        val parent = getById(parentId) ?: return null
+        return ChildPlacement(
+            parentId = parentId,
+            depth = parent.depth + 1,
+            rootId = parent.rootId ?: parent.id
+        )
+    }
 }
 
 /**

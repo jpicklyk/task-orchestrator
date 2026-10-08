@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -12,7 +11,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -67,22 +66,22 @@ class SQLiteWorkItemRepositoryFindInScopeTest {
     private fun create(item: WorkItem): WorkItem =
         runBlocking {
             val result = repository.create(item)
-            assertIs<Result.Success<WorkItem>>(result, "Expected item '${item.title}' to be created")
-            result.data
+            assertNotNull(result, "Expected item '${item.title}' to be created")
+            result
         }
 
     private fun findInScope(vararg ids: UUID): List<WorkItem> =
         runBlocking {
             val result = repository.findInScope(rootIds = ids.toSet())
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            result.data
+            assertNotNull(result)
+            result
         }
 
     private fun countInScope(vararg ids: UUID): Int =
         runBlocking {
             val result = repository.countInScope(rootIds = ids.toSet())
-            assertIs<Result.Success<Int>>(result)
-            result.data
+            assertNotNull(result)
+            result
         }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -213,8 +212,8 @@ class SQLiteWorkItemRepositoryFindInScopeTest {
             create(newItem("some-item"))
 
             val result = repository.findInScope(rootIds = emptySet())
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertTrue(result.data.isEmpty(), "Empty rootIds must produce an empty result")
+            assertNotNull(result)
+            assertTrue(result.isEmpty(), "Empty rootIds must produce an empty result")
         }
 
     @Test
@@ -223,8 +222,8 @@ class SQLiteWorkItemRepositoryFindInScopeTest {
             create(newItem("some-item"))
 
             val result = repository.countInScope(rootIds = emptySet())
-            assertIs<Result.Success<Int>>(result)
-            assertEquals(0, result.data)
+            assertNotNull(result)
+            assertEquals(0, result)
         }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -286,14 +285,14 @@ class SQLiteWorkItemRepositoryFindInScopeTest {
                 runBlocking {
                     repository.findInScope(rootIds = setOf(root.id), role = Role.WORK)
                 }
-            assertIs<Result.Success<List<WorkItem>>>(result)
+            assertNotNull(result)
 
-            val ids = result.data.map { it.id }.toSet()
+            val ids = result.map { it.id }.toSet()
             assertTrue(workChild.id in ids, "WORK-role child must be included")
             assertTrue(queueChild.id !in ids, "QUEUE-role child must be excluded by role filter")
             // Root itself has role QUEUE so it should also be excluded
             assertTrue(root.id !in ids, "Root (QUEUE) must be excluded by role=WORK filter")
 
-            assertEquals(1, result.data.size)
+            assertEquals(1, result.size)
         }
 }

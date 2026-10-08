@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -11,7 +10,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -61,8 +59,8 @@ class SQLiteWorkItemRepositoryFtsTest {
                 role = role,
             )
         val result = repo.create(item)
-        assertIs<Result.Success<WorkItem>>(result)
-        return result.data
+        assertNotNull(result)
+        return result
     }
 
     private fun repo(): SQLiteWorkItemRepository = repositoryProvider.workItemRepository() as SQLiteWorkItemRepository
@@ -307,7 +305,7 @@ class SQLiteWorkItemRepositoryFtsTest {
 
             // Update title; FTS _au trigger must re-index.
             val updated = repo().update(item.copy(title = "Refreshed contraption identifier"))
-            assertIs<Result.Success<WorkItem>>(updated)
+            assertNotNull(updated)
 
             val newTitleHit =
                 repo().ftsSearch(
@@ -350,8 +348,8 @@ class SQLiteWorkItemRepositoryFtsTest {
             )
 
             val deleted = repo().delete(item.id)
-            assertIs<Result.Success<Boolean>>(deleted)
-            assertTrue(deleted.data, "Expected delete to return true for existing item")
+            assertNotNull(deleted)
+            assertTrue(deleted, "Expected delete to return true for existing item")
 
             val after =
                 repo().ftsSearch(

@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.PlanDocument
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentSummary
 import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentStashOutcome
-import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import java.util.UUID
 
 /**
@@ -59,23 +58,17 @@ class PlanDocumentService(
             onFault = { PlanDocumentStashResult.RepositoryError(LegacyFaults.message(it)) }
         ) {
             val item =
-                when (val itemResult = repositoryProvider.workItemRepository().getById(rootItemId)) {
-                    is Result.Success -> itemResult.data
-                    is Result.Error -> return@writeUnit UnitResult.Rollback(PlanDocumentStashResult.NotFound(rootItemId))
-                }
+                repositoryProvider.workItemRepository().getById(rootItemId)
+                    ?: return@writeUnit UnitResult.Rollback(PlanDocumentStashResult.NotFound(rootItemId))
 
             if (item.depth != 0) {
                 return@writeUnit UnitResult.Rollback(PlanDocumentStashResult.NotDepthZero(rootItemId, item.depth))
             }
 
-            when (val result = repositoryProvider.planDocumentRepository().stash(rootItemId, slug, body)) {
-                is Result.Success ->
-                    when (val outcome = result.data) {
-                        is PlanDocumentStashOutcome.Stored -> UnitResult.Commit(PlanDocumentStashResult.Success(outcome.document))
-                        is PlanDocumentStashOutcome.AdoptedConflict ->
-                            UnitResult.Rollback(PlanDocumentStashResult.AdoptedConflict(outcome.existing))
-                    }
-                is Result.Error -> UnitResult.Rollback(PlanDocumentStashResult.RepositoryError(result.error.message))
+            when (val outcome = repositoryProvider.planDocumentRepository().stash(rootItemId, slug, body)) {
+                is PlanDocumentStashOutcome.Stored -> UnitResult.Commit(PlanDocumentStashResult.Success(outcome.document))
+                is PlanDocumentStashOutcome.AdoptedConflict ->
+                    UnitResult.Rollback(PlanDocumentStashResult.AdoptedConflict(outcome.existing))
             }
         }
     }
@@ -84,13 +77,13 @@ class PlanDocumentService(
     suspend fun get(
         rootItemId: UUID,
         slug: String,
-    ): Result<PlanDocument?> = repositoryProvider.planDocumentRepository().get(rootItemId, slug)
+    ): PlanDocument? = repositoryProvider.planDocumentRepository().get(rootItemId, slug)
 
     /** Lists metadata-only summaries (no body) for every document under [rootItemId], optionally filtered by [status]. */
     suspend fun list(
         rootItemId: UUID,
         status: PlanDocumentStatus? = null,
-    ): Result<List<PlanDocumentSummary>> = repositoryProvider.planDocumentRepository().list(rootItemId, status)
+    ): List<PlanDocumentSummary> = repositoryProvider.planDocumentRepository().list(rootItemId, status)
 
     /**
      * Computes the SHA-256 hex digest [body] would be stored under — the exact algorithm [stash]
