@@ -52,6 +52,10 @@ data class AppConfig(
      *  after a successful Flyway-mode schema update. Set to `false` to opt out (e.g. to run the
      *  offline compaction runbook manually instead). */
     val dbCompactOnUpgrade: Boolean = true,
+    /** `USE_FLYWAY` is ignored (Flyway is the only schema path); true when it is set so startup can warn. Not a parsed boolean. */
+    val ignoredUseFlywaySet: Boolean = false,
+    /** Raw `SCHEMA_MODE` (`migrate` | `validate`); parsed by `SchemaMode.parse` where the schema manager is built, so a bad value still fails startup there. */
+    val schemaModeRaw: String? = null,
     // ---- REST API: SSE / events ----
     val apiAllowQueryTokenForSse: Boolean,
     val apiSseAuthCheckIntervalSeconds: Int,
@@ -110,6 +114,8 @@ data class AppConfig(
                 // Flyway.
                 flywayRepair = EnvBoolean.parse("FLYWAY_REPAIR", env("FLYWAY_REPAIR"), false),
                 dbCompactOnUpgrade = EnvBoolean.parse("DB_COMPACT_ON_UPGRADE", env("DB_COMPACT_ON_UPGRADE"), true),
+                ignoredUseFlywaySet = env("USE_FLYWAY") != null,
+                schemaModeRaw = env("SCHEMA_MODE"),
                 // REST API SSE / events.
                 apiAllowQueryTokenForSse =
                     EnvBoolean.parse("API_ALLOW_QUERY_TOKEN_FOR_SSE", env("API_ALLOW_QUERY_TOKEN_FOR_SSE"), false),

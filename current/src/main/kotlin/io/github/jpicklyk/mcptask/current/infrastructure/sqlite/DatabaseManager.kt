@@ -170,7 +170,7 @@ class DatabaseManager(
 
             // Create schema manager if not already created
             if (!::schemaManager.isInitialized) {
-                if (appConfig.envResolver("USE_FLYWAY") != null) {
+                if (appConfig.ignoredUseFlywaySet) {
                     logger.warn(
                         "USE_FLYWAY is ignored: Flyway is the only schema path and Direct mode has been removed. " +
                             "Remove USE_FLYWAY from the environment."
@@ -178,7 +178,7 @@ class DatabaseManager(
                 }
                 val schemaMode =
                     try {
-                        SchemaMode.parse(appConfig.envResolver("SCHEMA_MODE"))
+                        SchemaMode.parse(appConfig.schemaModeRaw)
                     } catch (e: IllegalArgumentException) {
                         logger.error("${e.message}. Failing startup.")
                         return false
