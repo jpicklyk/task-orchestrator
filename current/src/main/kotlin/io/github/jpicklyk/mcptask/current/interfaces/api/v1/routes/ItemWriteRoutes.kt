@@ -9,7 +9,7 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
+import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.PlacedWriteOutcome
 import io.github.jpicklyk.mcptask.current.application.service.ReparentCheck
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemPlacementService
@@ -39,6 +39,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.hasCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.mayHoldRoot
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.AdvanceRequestDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.AdvanceResponseDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemCreateDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemDeleteResultDto
@@ -163,64 +164,60 @@ private fun errorCaptured(
  *   enforced on the REST path, so this is not expected to occur here).
  * - [AdvanceFailure.OwnershipRejected] → **409** `not_claim_holder` (defensive — same caveat).
  *
- * See also [respondAdvanceConfigUnavailable], which handles the sibling 503 case raised by a
+ * See also [advanceConfigUnavailableCaptured], which handles the sibling 503 case raised by a
  * [PerRootConfigUnavailableException] mid-pipeline rather than by an [AdvanceFailure] outcome.
  */
-private suspend fun respondAdvanceFailure(
-    call: ApplicationCall,
-    failure: AdvanceFailure,
-) {
+private fun advanceFailureCaptured(failure: AdvanceFailure): CachedHttpResponse =
     when (failure) {
-        is AdvanceFailure.GateBlocked -> {
-            call.respond(
+        is AdvanceFailure.GateBlocked ->
+            detailedErrorCaptured(
                 HttpStatusCode.UnprocessableEntity,
-                ErrorDto("gate_blocked", failure.message, buildGateBlockedDetails(failure)),
+                ErrorDto("gate_blocked", failure.message, buildGateBlockedDetails(failure))
             )
-        }
-        is AdvanceFailure.ValidationFailed -> {
-            call.respond(
+        is AdvanceFailure.ValidationFailed ->
+            detailedErrorCaptured(
                 HttpStatusCode.UnprocessableEntity,
                 ErrorDto("transition_blocked", failure.message, buildValidationFailedDetails(failure)),
             )
-        }
-        is AdvanceFailure.ResourceLeaseUnavailable -> {
-            // Round UP to whole seconds: Retry-After has second granularity, and rounding down
-            // would tell the client to retry before the lease can possibly have expired.
-            failure.retryAfterMs?.let { ms ->
-                call.response.header(HttpHeaders.RetryAfter, ((ms + 999) / 1000).coerceAtLeast(1).toString())
-            }
-            call.respond(
+        is AdvanceFailure.ResourceLeaseUnavailable ->
+            detailedErrorCaptured(
                 HttpStatusCode.Conflict,
                 ErrorDto("resource_unavailable", failure.message, buildResourceLeaseUnavailableDetails(failure)),
+                // Round UP to whole seconds: Retry-After has second granularity, and rounding down
+                // would tell the client to retry before the lease can possibly have expired.
+                failure.retryAfterMs?.let { ms -> mapOf(HttpHeaders.RetryAfter to ((ms + 999) / 1000).coerceAtLeast(1).toString()) }
+                    ?: emptyMap(),
             )
-        }
-        is AdvanceFailure.ResolutionFailed ->
-            call.respond(HttpStatusCode.UnprocessableEntity, ErrorDto("transition_failed", failure.message))
-        is AdvanceFailure.ApplyFailed ->
-            call.respond(HttpStatusCode.UnprocessableEntity, ErrorDto("transition_failed", failure.message))
-        is AdvanceFailure.PolicyRejected ->
-            call.respond(HttpStatusCode.Unauthorized, ErrorDto("verification_failed", failure.reason))
-        is AdvanceFailure.OwnershipRejected ->
-            call.respond(HttpStatusCode.Conflict, ErrorDto("not_claim_holder", failure.message))
+        is AdvanceFailure.ResolutionFailed -> errorCaptured(HttpStatusCode.UnprocessableEntity, "transition_failed", failure.message)
+        is AdvanceFailure.ApplyFailed -> errorCaptured(HttpStatusCode.UnprocessableEntity, "transition_failed", failure.message)
+        is AdvanceFailure.PolicyRejected -> errorCaptured(HttpStatusCode.Unauthorized, "verification_failed", failure.reason)
+        is AdvanceFailure.OwnershipRejected -> errorCaptured(HttpStatusCode.Conflict, "not_claim_holder", failure.message)
     }
-}
+
+/** Builds a [CachedHttpResponse] from a full [ErrorDto] (with details) at [status]. */
+private fun detailedErrorCaptured(
+    status: HttpStatusCode,
+    dto: ErrorDto,
+    extraHeaders: Map<String, String> = emptyMap(),
+): CachedHttpResponse =
+    CachedHttpResponse(
+        statusCode = status.value,
+        bodyJson = writeJson.encodeToString(ErrorDto.serializer(), dto),
+        extraHeaders = extraHeaders,
+    )
 
 /**
  * Responds 503 `config_unavailable` for a [PerRootConfigUnavailableException] raised mid-advance-
  * pipeline (status label resolution, gate check, review-phase detection — see the advance route's
- * D6 note). Sibling to [respondAdvanceFailure]; the catch site still decides when to call this and
+ * D6 note). Sibling to [advanceFailureCaptured]; the catch site still decides when to call this and
  * still returns immediately afterward.
  */
-private suspend fun respondAdvanceConfigUnavailable(
-    call: ApplicationCall,
+private fun advanceConfigUnavailableCaptured(
     itemId: UUID,
     e: PerRootConfigUnavailableException,
-) {
+): CachedHttpResponse {
     writeLogger.warn("Per-root config unavailable advancing item {}: {}", itemId, e.message)
-    call.respond(
-        HttpStatusCode.ServiceUnavailable,
-        ErrorDto(PerRootConfigUnavailableException.CODE, e.message),
-    )
+    return errorCaptured(HttpStatusCode.ServiceUnavailable, PerRootConfigUnavailableException.CODE, e.message)
 }
 
 /** Builds the `details` object for a [AdvanceFailure.GateBlocked] 422 response. */
@@ -332,7 +329,7 @@ private data class ParsedAdvanceRequest(
 fun Route.itemWriteRoutes(
     repositoryProvider: RepositoryProvider,
     degradedModePolicy: DegradedModePolicy,
-    idempotencyCache: IdempotencyCache,
+    idempotency: IdempotencyService,
     advanceServiceFactory: AdvanceServiceFactory,
     unitOfWork: UnitOfWork,
     warnOnClaimedAdvance: Boolean = defaultWarnOnClaimedAdvance,
@@ -340,39 +337,26 @@ fun Route.itemWriteRoutes(
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
 
-    // Parses and validates the POST /items/{id}/advance request body: the 415 Content-Type gate,
-    // the bounded body read + AdvanceRequestDto decode, trigger parsing, and credentialRefs
-    // validation. The ADMIN-only overrideResourceLeases 403 check is a separate step
-    // (checkLeaseOverrideAllowed below), called by the caller immediately after this returns — same
-    // overall precedence as before extraction. On any failure this already calls `call.respond(...)`
-    // and returns null — the caller does `?: return@post`. Mirrors the pre-refactor inline logic
-    // byte-for-byte, including error precedence.
-    suspend fun parseAdvanceRequest(call: ApplicationCall): ParsedAdvanceRequest? {
-        if (respondIfNotJsonContentType(call)) return null
-
-        // Bounded (bug e941c2c7 — this route had no size limit at all before this fix; see
-        // receiveBounded's KDoc). Decoded with McpJson, the same instance ContentNegotiation
-        // is installed with, so this behaves exactly as `receive<AdvanceRequestDto>()` did,
-        // minus the unbounded buffering.
-        val advanceBodyText = call.receiveBounded(MAX_JSON_WRITE_BODY_BYTES) ?: return null
-
+    // Parses and validates the POST /items/{id}/advance request body text: the AdvanceRequestDto decode,
+    // trigger parsing and credentialRefs validation. A failure is a payload rejection (a pure function
+    // of the body), returned as the second element; the 415 Content-Type gate and the bounded body read
+    // happen BEFORE this, in the route. The ADMIN-only overrideResourceLeases 403 check is a separate
+    // step (leaseOverrideForbidden below), called immediately after this returns.
+    fun parseAdvanceRequest(advanceBodyText: String): Pair<ParsedAdvanceRequest?, CachedHttpResponse?> {
+        // Decoded with McpJson, the same instance ContentNegotiation is installed with, so this behaves
+        // exactly as `receive<AdvanceRequestDto>()` did, minus the unbounded buffering.
         val advanceDto =
             try {
                 McpJson.decodeFromString(AdvanceRequestDto.serializer(), advanceBodyText)
             } catch (e: SerializationException) {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", e.message ?: "Invalid request body"))
-                return null
+                return null to payloadRejection(e.message ?: "Invalid request body")
             }
 
         val userTrigger =
             UserTrigger.fromString(advanceDto.trigger) ?: run {
                 val validTriggers = UserTrigger.entries.joinToString { it.triggerString }
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    ErrorDto("validation_error", "Invalid trigger '${advanceDto.trigger}'. Valid: $validTriggers"),
-                )
-                null
-            } ?: return null
+                return null to payloadRejection("Invalid trigger '${advanceDto.trigger}'. Valid: $validTriggers")
+            }
 
         // Optional credentialRefs: same shared rules as the MCP advance_item tool
         // (CredentialRefValidation) — a violation fails the request before anything is persisted.
@@ -380,43 +364,29 @@ fun Route.itemWriteRoutes(
         when (val credentialRefsResult = CredentialRefValidation.validate(credentialRefs)) {
             is CredentialRefValidation.Result.Invalid -> {
                 val suffix = if (credentialRefsResult.index >= 0) "[${credentialRefsResult.index}]" else ""
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    ErrorDto("validation_error", "credentialRefs$suffix ${credentialRefsResult.reason}"),
-                )
-                return null
+                return null to payloadRejection("credentialRefs$suffix ${credentialRefsResult.reason}")
             }
             is CredentialRefValidation.Result.Valid -> {} // ok
         }
 
         val overrideResourceLeases = advanceDto.overrideResourceLeases == true
 
-        return ParsedAdvanceRequest(advanceDto, userTrigger, credentialRefs, overrideResourceLeases)
+        return ParsedAdvanceRequest(advanceDto, userTrigger, credentialRefs, overrideResourceLeases) to null
     }
 
     // Optional ADMIN-only resource-lease override gate, called right after parseAdvanceRequest
-    // returns (same position in the overall check order as the inline check it replaces). Sent by
-    // a non-admin principal this is a hard 403, never a silent no-op: an operator who thinks they
-    // bypassed the lease and did not would go on to touch a resource another item is actively
-    // holding. On failure this already calls `call.respond(...)` and returns false — the caller
-    // does `if (!checkLeaseOverrideAllowed(...)) return@post`.
-    suspend fun checkLeaseOverrideAllowed(
+    // returns. Sent by a non-admin principal this is a hard 403, never a silent no-op: an operator who
+    // thinks they bypassed the lease and did not would go on to touch a resource another item is
+    // actively holding. Returns the 403 response, or null when the request may proceed.
+    fun leaseOverrideForbidden(
         call: ApplicationCall,
         overrideResourceLeases: Boolean,
-    ): Boolean {
+    ): CachedHttpResponse? =
         if (overrideResourceLeases && !hasCapability(call, ApiCapability.ADMIN)) {
-            call.respond(
-                HttpStatusCode.Forbidden,
-                ErrorDto(
-                    "insufficient_capability",
-                    "overrideResourceLeases requires the admin capability",
-                ),
-            )
-            return false
+            errorCaptured(HttpStatusCode.Forbidden, "insufficient_capability", "overrideResourceLeases requires the admin capability")
+        } else {
+            null
         }
-        return true
-    }
-
     // ─── POST /items ─────────────────────────────────────────────────────────
     requireCapability(ApiCapability.WRITE_ITEMS) {
         post("/items") {
@@ -449,13 +419,13 @@ fun Route.itemWriteRoutes(
                     try {
                         McpJson.decodeFromString(ItemCreateDto.serializer(), bodyText)
                     } catch (e: SerializationException) {
-                        return errorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Invalid request body")
+                        return payloadRejection(e.message ?: "Invalid request body")
                     }
 
                 val parentId =
                     dto.parentId?.let { pid ->
                         runCatchingNonCancellation { UUID.fromString(pid) }.getOrNull()
-                            ?: return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid parentId UUID: $pid")
+                            ?: return payloadRejection("Invalid parentId UUID: $pid")
                     }
 
                 // Pre-generate the id so a root-level create (parentId == null) can stamp
@@ -497,7 +467,7 @@ fun Route.itemWriteRoutes(
                 val priority =
                     dto.priority?.let { pStr ->
                         Priority.entries.find { it.name.equals(pStr, ignoreCase = true) }
-                            ?: return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid priority: $pStr")
+                            ?: return payloadRejection("Invalid priority: $pStr")
                     } ?: Priority.MEDIUM
 
                 val propertiesStr = dto.properties?.toString()
@@ -554,7 +524,7 @@ fun Route.itemWriteRoutes(
                 }
             }
 
-            call.runWithIdempotency(idempotencyCache, trustedActorId, idempotencyKeyResult) { executeCreate() }
+            call.runWithIdempotency(idempotency, trustedActorId, idempotencyKeyResult, "/items", bodyText) { executeCreate() }
         }
     }
 
@@ -649,13 +619,13 @@ fun Route.itemWriteRoutes(
                 val patchObject =
                     try {
                         Json.parseToJsonElement(bodyText) as? JsonObject
-                            ?: return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "PATCH body must be a JSON object")
+                            ?: return payloadRejection("PATCH body must be a JSON object")
                     } catch (e: Exception) {
                         // Log the parse detail server-side; do not echo the raw exception message back
                         // to the client (avoids leaking parser internals / input fragments).
                         e.rethrowIfCancellation()
                         writeLogger.debug("PATCH body JSON parse failed: {}", e.message)
-                        return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid JSON in request body")
+                        return payloadRejection("Invalid JSON in request body")
                     }
 
                 // Security: reject any attempt to patch server-owned fields
@@ -695,7 +665,7 @@ fun Route.itemWriteRoutes(
                         // Log the decode detail server-side; return a generic message to the client.
                         e.rethrowIfCancellation()
                         writeLogger.debug("PATCH patch-value decode failed: {}", e.message)
-                        return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid patch values")
+                        return payloadRejection("Invalid patch values")
                     }
 
                 // The projection (WorkItemPatchProjection) includes EVERY patchable field in `base`,
@@ -708,7 +678,7 @@ fun Route.itemWriteRoutes(
                 val newPriority =
                     patchDto.priority?.let { pStr ->
                         Priority.entries.find { it.name.equals(pStr, ignoreCase = true) }
-                            ?: return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid priority: $pStr")
+                            ?: return payloadRejection("Invalid priority: $pStr")
                     } ?: existing.priority
 
                 // parentId: patchDto.parentId is the FINAL parent (null = move to root). Depth is
@@ -720,7 +690,7 @@ fun Route.itemWriteRoutes(
                 val newParentId =
                     patchDto.parentId?.let { pid ->
                         runCatchingNonCancellation { UUID.fromString(pid) }.getOrNull()
-                            ?: return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid parentId UUID: $pid")
+                            ?: return payloadRejection("Invalid parentId UUID: $pid")
                     }
                 val parentChanged = newParentId != existing.parentId
 
@@ -857,7 +827,7 @@ fun Route.itemWriteRoutes(
                 }
             }
 
-            call.runWithIdempotency(idempotencyCache, trustedActorId, idempotencyKeyResult) { executePatch() }
+            call.runWithIdempotency(idempotency, trustedActorId, idempotencyKeyResult, "/items/{id}", bodyText) { executePatch() }
         }
     }
 
@@ -976,10 +946,10 @@ fun Route.itemWriteRoutes(
     requireCapability(ApiCapability.ADVANCE) {
         post("/items/{id}/advance") {
             val principal = call.attributes[ApiPrincipalKey]
-            // Resolved for its fail-closed side effect (an unverified JWKS actor would throw
-            // here) — the id itself is not otherwise used on this route; the audit trail below
-            // is built directly from `principal` via ApiAuditBridge.toActorClaim/toVerificationResult.
-            ApiAuditBridge.resolveTrustedActorIdOrNull(principal, degradedModePolicy)
+            // Resolved for its fail-closed side effect (an unverified JWKS actor would throw here) and
+            // as the principal an Idempotency-Key is scoped to; the audit trail below is built directly
+            // from `principal` via ApiAuditBridge.toActorClaim/toVerificationResult.
+            val trustedActorId = ApiAuditBridge.resolveTrustedActorIdOrNull(principal, degradedModePolicy)
 
             val rawId =
                 call.parameters["id"] ?: run {
@@ -992,134 +962,141 @@ fun Route.itemWriteRoutes(
                     return@post
                 }
 
-            // Content-Type gate, bounded body read + decode, trigger parsing and credentialRefs
-            // validation live in the local `parseAdvanceRequest` helper above; the ADMIN-only
-            // overrideResourceLeases 403 check follows in `checkLeaseOverrideAllowed`. On failure
-            // either one has already responded.
-            val parsedRequest = parseAdvanceRequest(call) ?: return@post
-            val advanceDto = parsedRequest.advanceDto
-            val userTrigger = parsedRequest.userTrigger
-            val credentialRefs = parsedRequest.credentialRefs
-            val overrideResourceLeases = parsedRequest.overrideResourceLeases
-            if (!checkLeaseOverrideAllowed(call, overrideResourceLeases)) return@post
+            // Content-Type gate, then the bounded body read (bug e941c2c7); parsing and every
+            // state-dependent check run inside `executeAdvance` so an Idempotency-Key replay returns the
+            // stored response without re-evaluating them.
+            if (respondIfNotJsonContentType(call)) return@post
+            val idempotencyKeyResult = call.parseIdempotencyKey()
+            if (idempotencyKeyResult is IdempotencyKeyResult.Invalid) return@post
+            val advanceBodyText = call.receiveBounded(MAX_JSON_WRITE_BODY_BYTES) ?: return@post
 
-            val itemResult =
-                legacyRead({
-                    call.respondDbError()
-                    return@post
-                }) { workItemRepo.getById(id) }
-            if (itemResult == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
-                return@post
-            }
-            val item = itemResult
+            suspend fun executeAdvance(): CachedHttpResponse {
+                // Payload decode, trigger parsing and credentialRefs validation live in the local
+                // `parseAdvanceRequest` helper above; the ADMIN-only overrideResourceLeases 403 check
+                // follows in `leaseOverrideForbidden`.
+                val (parsedRequest, rejection) = parseAdvanceRequest(advanceBodyText)
+                if (parsedRequest == null) return rejection!!
+                val advanceDto = parsedRequest.advanceDto
+                val userTrigger = parsedRequest.userTrigger
+                val credentialRefs = parsedRequest.credentialRefs
+                val overrideResourceLeases = parsedRequest.overrideResourceLeases
+                leaseOverrideForbidden(call, overrideResourceLeases)?.let { return it }
 
-            if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
-                return@post
-            }
+                val itemResult =
+                    legacyRead({
+                        return errorCaptured(HttpStatusCode.InternalServerError, "db_error", DB_QUERY_FAILED)
+                    }) { workItemRepo.getById(id) }
+                if (itemResult == null) {
+                    return errorCaptured(HttpStatusCode.NotFound, "not_found", "Item $id not found")
+                }
+                val item = itemResult
 
-            // Claimed item: emit WARN but proceed — API callers override MCP claim semantics
-            val isActivelyClaimed = ClaimState.isActive(item, clock.unitNow())
+                if (!enforceScopeForItem(call, id, workItemRepo)) {
+                    return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for item $id")
+                }
 
-            if (isActivelyClaimed && warnOnClaimedAdvance) {
-                writeLogger.warn(
-                    "API_WARN_ON_CLAIMED_ADVANCE: API advance on claimed item; itemId={}, apiTokenId={}, trigger={}",
-                    id,
-                    principal.tokenId,
-                    advanceDto.trigger,
-                )
-            }
+                // Claimed item: emit WARN but proceed — API callers override MCP claim semantics
+                val isActivelyClaimed = ClaimState.isActive(item, clock.unitNow())
 
-            // A lease override is always audited: it is the one way an exclusive resource can be
-            // entered by two items at once, so it must be reconstructible from logs alone. The
-            // transition summary carries the same fact into the durable role_transitions row.
-            if (overrideResourceLeases) {
-                writeLogger.warn(
-                    "Resource-lease override: admin principal tokenId='{}' bypassed the resource gate for " +
-                        "itemId={}, trigger={}. Another work item may hold this item's exclusive resources.",
-                    principal.tokenId,
-                    id,
-                    advanceDto.trigger,
-                )
-            }
-            val transitionSummary = if (overrideResourceLeases) "(resource leases overridden)" else null
+                if (isActivelyClaimed && warnOnClaimedAdvance) {
+                    writeLogger.warn(
+                        "API_WARN_ON_CLAIMED_ADVANCE: API advance on claimed item; itemId={}, apiTokenId={}, trigger={}",
+                        id,
+                        principal.tokenId,
+                        advanceDto.trigger,
+                    )
+                }
 
-            // Build the synthesized actor for the transition audit trail (server-side only)
-            val actorClaim = ApiAuditBridge.toActorClaim(principal)
-            val verification = ApiAuditBridge.toVerificationResult(principal)
+                // A lease override is always audited: it is the one way an exclusive resource can be
+                // entered by two items at once, so it must be reconstructible from logs alone. The
+                // transition summary carries the same fact into the durable role_transitions row.
+                if (overrideResourceLeases) {
+                    writeLogger.warn(
+                        "Resource-lease override: admin principal tokenId='{}' bypassed the resource gate for " +
+                            "itemId={}, trigger={}. Another work item may hold this item's exclusive resources.",
+                        principal.tokenId,
+                        id,
+                        advanceDto.trigger,
+                    )
+                }
+                val transitionSummary = if (overrideResourceLeases) "(resource leases overridden)" else null
 
-            // Delegate to the shared AdvanceService — the SAME pipeline the MCP advance_item tool
-            // uses (resolve → validate → required-note gate → resource-lease gate → apply → cascade
-            // → unblock). The schema resolver mirrors AdvanceItemTool's trait-merged resolution.
-            //
-            // The two enforcement flags are DELIBERATELY ASYMMETRIC:
-            //
-            //  * enforceOwnership = false — the REST API bypasses claim ownership entirely (plan §2
-            //    — API callers are operators, not fleet agents). The advance SUCCEEDS even when the
-            //    item is claimed by a different MCP agent, while the synthesized API actor is still
-            //    recorded on the role_transitions row for audit. A claim is one agent's bookkeeping,
-            //    and an operator is entitled to overrule it.
-            //  * enforceResourceLeases = true (unless an ADMIN explicitly sent overrideResourceLeases)
-            //    — a resource lease protects a shared EXTERNAL resource (a credential, a staging
-            //    environment). Operator authority cannot make two concurrent holders of a single
-            //    credential safe, so this gate is NOT waived by virtue of being an operator; it takes
-            //    an explicit, admin-gated, WARN-logged opt-out per request.
-            //
-            // Unlike the prior userTransition() path, the required-note gate is now ENFORCED.
-            // statusLabelService is bound to THIS item's rootId via the SAME root-aware factory
-            // AdvanceItemTool uses, so REST advances stamp identical (config-driven, per-root)
-            // status labels instead of applying none at all (bug 80e48e55).
-            // Per D6: a per-root config read failure anywhere in this pre-commit pipeline (status
-            // label resolution, gate check, review-phase detection) responds 503 with a
-            // config_unavailable ErrorDto — no Retry-After header, matching the ErrorKind contract
-            // used on the MCP side (RFC 9110 §15.6.4: 503 describes a temporary server-side
-            // inability, distinct from the 409 used for resource-state conflicts).
-            val outcome =
-                try {
-                    withConfigSession {
-                        val advanceService = advanceServiceFactory.forItem(item, userTrigger.triggerString)
+                // Build the synthesized actor for the transition audit trail (server-side only)
+                val actorClaim = ApiAuditBridge.toActorClaim(principal)
+                val verification = ApiAuditBridge.toVerificationResult(principal)
 
-                        withEventActor(actorClaim) {
-                            advanceService.advance(
-                                item = item,
-                                trigger = userTrigger.triggerString,
-                                summary = transitionSummary,
-                                actorClaim = actorClaim,
-                                verification = verification,
-                                degradedModePolicy = degradedModePolicy,
-                                enforceOwnership = false,
-                                credentialRefs = credentialRefs,
-                                enforceResourceLeases = !overrideResourceLeases,
-                            )
+                // Delegate to the shared AdvanceService — the SAME pipeline the MCP advance_item tool
+                // uses (resolve → validate → required-note gate → resource-lease gate → apply → cascade
+                // → unblock). The schema resolver mirrors AdvanceItemTool's trait-merged resolution.
+                //
+                // The two enforcement flags are DELIBERATELY ASYMMETRIC:
+                //
+                //  * enforceOwnership = false — the REST API bypasses claim ownership entirely (plan §2
+                //    — API callers are operators, not fleet agents). The advance SUCCEEDS even when the
+                //    item is claimed by a different MCP agent, while the synthesized API actor is still
+                //    recorded on the role_transitions row for audit. A claim is one agent's bookkeeping,
+                //    and an operator is entitled to overrule it.
+                //  * enforceResourceLeases = true (unless an ADMIN explicitly sent overrideResourceLeases)
+                //    — a resource lease protects a shared EXTERNAL resource (a credential, a staging
+                //    environment). Operator authority cannot make two concurrent holders of a single
+                //    credential safe, so this gate is NOT waived by virtue of being an operator; it takes
+                //    an explicit, admin-gated, WARN-logged opt-out per request.
+                //
+                // Unlike the prior userTransition() path, the required-note gate is now ENFORCED.
+                // statusLabelService is bound to THIS item's rootId via the SAME root-aware factory
+                // AdvanceItemTool uses, so REST advances stamp identical (config-driven, per-root)
+                // status labels instead of applying none at all (bug 80e48e55).
+                // Per D6: a per-root config read failure anywhere in this pre-commit pipeline (status
+                // label resolution, gate check, review-phase detection) responds 503 with a
+                // config_unavailable ErrorDto — no Retry-After header, matching the ErrorKind contract
+                // used on the MCP side (RFC 9110 §15.6.4: 503 describes a temporary server-side
+                // inability, distinct from the 409 used for resource-state conflicts).
+                val outcome =
+                    try {
+                        withConfigSession {
+                            val advanceService = advanceServiceFactory.forItem(item, userTrigger.triggerString)
+
+                            withEventActor(actorClaim) {
+                                advanceService.advance(
+                                    item = item,
+                                    trigger = userTrigger.triggerString,
+                                    summary = transitionSummary,
+                                    actorClaim = actorClaim,
+                                    verification = verification,
+                                    degradedModePolicy = degradedModePolicy,
+                                    enforceOwnership = false,
+                                    credentialRefs = credentialRefs,
+                                    enforceResourceLeases = !overrideResourceLeases,
+                                )
+                            }
                         }
+                    } catch (e: PerRootConfigUnavailableException) {
+                        return advanceConfigUnavailableCaptured(id, e)
                     }
-                } catch (e: PerRootConfigUnavailableException) {
-                    respondAdvanceConfigUnavailable(call, id, e)
-                    return@post
-                }
 
-            val advanceResult =
-                when (outcome) {
-                    is AdvanceOutcome.Success -> outcome.result
-                    is AdvanceOutcome.Failure -> {
-                        respondAdvanceFailure(call, outcome.failure)
-                        return@post
+                val advanceResult =
+                    when (outcome) {
+                        is AdvanceOutcome.Success -> outcome.result
+                        is AdvanceOutcome.Failure -> return advanceFailureCaptured(outcome.failure)
                     }
-                }
 
-            // Build expectedNotes parity: fetch the item's current note keys for the `exists` flag.
-            val existingNoteKeys =
-                run {
-                    val notesResult = legacyRead({ return@run emptySet() }) { repositoryProvider.noteRepository().findByItemId(id) }
-                    notesResult.map { it.key }.toSet()
-                }
+                // Build expectedNotes parity: fetch the item's current note keys for the `exists` flag.
+                val existingNoteKeys =
+                    run {
+                        val notesResult = legacyRead({ return@run emptySet() }) { repositoryProvider.noteRepository().findByItemId(id) }
+                        notesResult.map { it.key }.toSet()
+                    }
 
-            // Response body MUST NOT disclose claimedBy (tiered-disclosure principle)
-            call.respond(
-                HttpStatusCode.OK,
-                advanceResult.toDto(existingNoteKeys),
-            )
+                // Response body MUST NOT disclose claimedBy (tiered-disclosure principle)
+                return CachedHttpResponse(
+                    statusCode = HttpStatusCode.OK.value,
+                    bodyJson = writeJson.encodeToString(AdvanceResponseDto.serializer(), advanceResult.toDto(existingNoteKeys)),
+                )
+            }
+
+            call.runWithIdempotency(idempotency, trustedActorId, idempotencyKeyResult, "/items/{id}/advance", advanceBodyText) {
+                executeAdvance()
+            }
         }
     }
 }

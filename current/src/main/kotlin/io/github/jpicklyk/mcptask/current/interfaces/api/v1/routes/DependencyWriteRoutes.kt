@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.EventActor
+import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
@@ -18,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependencyCreateDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependencyEdgeDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.ktor.http.HttpStatusCode
@@ -31,10 +33,28 @@ import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import java.util.UUID
 
 private val depWriteLogger = LoggerFactory.getLogger("DependencyWriteRoutes")
+
+// JSON encoder for capturing serialized dependency responses (matches the server explicitNulls=false).
+private val depWriteJson =
+    Json {
+        explicitNulls = false
+        encodeDefaults = true
+    }
+
+private fun depErrorCaptured(
+    status: HttpStatusCode,
+    error: String,
+    message: String,
+): CachedHttpResponse =
+    CachedHttpResponse(
+        statusCode = status.value,
+        bodyJson = depWriteJson.encodeToString(ErrorDto.serializer(), ErrorDto(error, message)),
+    )
 
 // Accepted Content-Types for the JSON dependency-create body (POST /dependencies). `*/*` is what
 // `call.request.contentType()` reports when the header is ABSENT, which ContentNegotiation's
@@ -64,7 +84,8 @@ private val JSON_WRITE_CONTENT_TYPES = setOf("application/json", "*/*")
  */
 fun Route.dependencyWriteRoutes(
     repositoryProvider: RepositoryProvider,
-    @Suppress("UNUSED_PARAMETER") degradedModePolicy: DegradedModePolicy,
+    degradedModePolicy: DegradedModePolicy,
+    idempotency: IdempotencyService,
     unitOfWork: UnitOfWork,
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
@@ -90,149 +111,139 @@ fun Route.dependencyWriteRoutes(
                 return@post
             }
 
+            val trustedActorId = ApiAuditBridge.resolveTrustedActorIdOrNull(call.attributes[ApiPrincipalKey], degradedModePolicy)
+            val idempotencyKeyResult = call.parseIdempotencyKey()
+            if (idempotencyKeyResult is IdempotencyKeyResult.Invalid) return@post
+
             // Bounded (bug e941c2c7 — this route had no size limit at all before this fix; see
             // receiveBounded's KDoc). Decoded with McpJson, the same instance ContentNegotiation
             // is installed with, so this behaves exactly as `receive<DependencyCreateDto>()` did,
             // minus the unbounded buffering.
             val bodyText = call.receiveBounded(MAX_JSON_WRITE_BODY_BYTES) ?: return@post
 
-            val dto =
-                try {
-                    McpJson.decodeFromString(DependencyCreateDto.serializer(), bodyText)
-                } catch (e: SerializationException) {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", e.message ?: "Invalid request body"))
-                    return@post
+            // Produce a CachedHttpResponse so the body is serialized once and replayed verbatim on an
+            // Idempotency-Key hit (the write runs at most once). Parsing and every state-dependent check
+            // stay inside: only a pure payload rejection is recorded, any other failure rolls back.
+            suspend fun executeCreate(): CachedHttpResponse {
+                val dto =
+                    try {
+                        McpJson.decodeFromString(DependencyCreateDto.serializer(), bodyText)
+                    } catch (e: SerializationException) {
+                        return payloadRejection(e.message ?: "Invalid request body")
+                    }
+
+                val fromId =
+                    runCatchingNonCancellation { UUID.fromString(dto.fromItemId) }.getOrNull()
+                        ?: return payloadRejection("Invalid fromItemId UUID")
+                val toId =
+                    runCatchingNonCancellation { UUID.fromString(dto.toItemId) }.getOrNull()
+                        ?: return payloadRejection("Invalid toItemId UUID")
+
+                if (fromId == toId) {
+                    return payloadRejection("fromItemId and toItemId must differ")
                 }
 
-            val fromId =
-                runCatchingNonCancellation { UUID.fromString(dto.fromItemId) }.getOrNull() ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", "Invalid fromItemId UUID"))
-                    return@post
-                }
-            val toId =
-                runCatchingNonCancellation { UUID.fromString(dto.toItemId) }.getOrNull() ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", "Invalid toItemId UUID"))
-                    return@post
+                val depType =
+                    when (dto.type.lowercase()) {
+                        "blocks" -> DependencyType.BLOCKS
+                        "relates_to" -> DependencyType.RELATES_TO
+                        else -> return payloadRejection("type must be 'blocks' or 'relates_to'")
+                    }
+
+                if (depType == DependencyType.RELATES_TO && dto.unblockAt != null) {
+                    return payloadRejection("unblockAt is not allowed for relates_to dependencies")
                 }
 
-            if (fromId == toId) {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", "fromItemId and toItemId must differ"))
-                return@post
-            }
+                // Verify both items exist and are in scope
+                val fromResult =
+                    legacyRead({
+                        return depErrorCaptured(HttpStatusCode.InternalServerError, "db_error", DB_QUERY_FAILED)
+                    }) { workItemRepo.getById(fromId) }
+                if (fromResult == null) {
+                    return depErrorCaptured(HttpStatusCode.BadRequest, "not_found", "fromItemId $fromId not found")
+                }
+                val toResult =
+                    legacyRead({
+                        return depErrorCaptured(HttpStatusCode.InternalServerError, "db_error", DB_QUERY_FAILED)
+                    }) { workItemRepo.getById(toId) }
+                if (toResult == null) {
+                    return depErrorCaptured(HttpStatusCode.BadRequest, "not_found", "toItemId $toId not found")
+                }
 
-            val depType =
-                when (dto.type.lowercase()) {
-                    "blocks" -> DependencyType.BLOCKS
-                    "relates_to" -> DependencyType.RELATES_TO
-                    else -> {
-                        call.respond(
-                            HttpStatusCode.BadRequest,
-                            ErrorDto("validation_error", "type must be 'blocks' or 'relates_to'"),
+                if (!enforceScopeForItem(call, fromId, workItemRepo)) {
+                    return depErrorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for fromItemId $fromId")
+                }
+                if (!enforceScopeForItem(call, toId, workItemRepo)) {
+                    return depErrorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for toItemId $toId")
+                }
+
+                // Cycle detection and create (JDBC-blocking: wrap in withContext(IO) + suspendTransaction)
+                val dep =
+                    try {
+                        Dependency(
+                            fromItemId = fromId,
+                            toItemId = toId,
+                            type = depType,
+                            unblockAt = dto.unblockAt,
                         )
-                        return@post
+                    } catch (e: Exception) {
+                        e.rethrowIfCancellation()
+                        return payloadRejection(e.message ?: "Validation failed")
                     }
-                }
 
-            if (depType == DependencyType.RELATES_TO && dto.unblockAt != null) {
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    ErrorDto("validation_error", "unblockAt is not allowed for relates_to dependencies"),
-                )
-                return@post
-            }
-
-            // Verify both items exist and are in scope
-            val fromResult =
-                legacyRead({
-                    call.respondDbError()
-                    return@post
-                }) { workItemRepo.getById(fromId) }
-            if (fromResult == null) {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("not_found", "fromItemId $fromId not found"))
-                return@post
-            }
-            val toResult =
-                legacyRead({
-                    call.respondDbError()
-                    return@post
-                }) { workItemRepo.getById(toId) }
-            if (toResult == null) {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("not_found", "toItemId $toId not found"))
-                return@post
-            }
-
-            if (!enforceScopeForItem(call, fromId, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for fromItemId $fromId"))
-                return@post
-            }
-            if (!enforceScopeForItem(call, toId, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for toItemId $toId"))
-                return@post
-            }
-
-            // Cycle detection and create (JDBC-blocking: wrap in withContext(IO) + suspendTransaction)
-            val dep =
-                try {
-                    Dependency(
-                        fromItemId = fromId,
-                        toItemId = toId,
-                        type = depType,
-                        unblockAt = dto.unblockAt,
-                    )
-                } catch (e: Exception) {
-                    e.rethrowIfCancellation()
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", e.message ?: "Validation failed"))
-                    return@post
-                }
-
-            val created: Dependency? =
-                try {
-                    val outcome =
-                        withContext(Dispatchers.IO + EventActor(ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey]))) {
-                            // ONE unit: the repo methods below join it, so the cycle check and the insert
-                            // stay atomic against a concurrent writer.
-                            unitOfWork.write("dependency.create") {
-                                // RELATES_TO has no blocking edge, so it skips the cycle pre-check.
-                                val edge = dep.blockingEdge()
-                                val hasCycle = edge != null && depRepo.hasCyclicDependency(edge.first, edge.second)
-                                Outcome.Ok(if (hasCycle) null else depRepo.create(dep))
+                val created: Dependency? =
+                    try {
+                        val outcome =
+                            withContext(Dispatchers.IO + EventActor(ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey]))) {
+                                // ONE unit: the repo methods below join it, so the cycle check and the insert
+                                // stay atomic against a concurrent writer.
+                                unitOfWork.write("dependency.create") {
+                                    // RELATES_TO has no blocking edge, so it skips the cycle pre-check.
+                                    val edge = dep.blockingEdge()
+                                    val hasCycle = edge != null && depRepo.hasCyclicDependency(edge.first, edge.second)
+                                    Outcome.Ok(if (hasCycle) null else depRepo.create(dep))
+                                }
+                            }
+                        when (outcome) {
+                            is Outcome.Ok -> outcome.value
+                            is Outcome.Err -> {
+                                val error = outcome.error
+                                return when (error.code) {
+                                    ErrorCode.DUPLICATE ->
+                                        depErrorCaptured(
+                                            HttpStatusCode.Conflict,
+                                            "duplicate_dependency",
+                                            "A dependency of this type already exists between these items",
+                                        )
+                                    ErrorCode.UNAVAILABLE ->
+                                        depErrorCaptured(
+                                            HttpStatusCode.ServiceUnavailable,
+                                            "unavailable",
+                                            error.message
+                                        )
+                                    else -> depErrorCaptured(HttpStatusCode.InternalServerError, "internal", error.message)
+                                }
                             }
                         }
-                    when (outcome) {
-                        is Outcome.Ok -> outcome.value
-                        is Outcome.Err -> {
-                            val error = outcome.error
-                            when (error.code) {
-                                ErrorCode.DUPLICATE ->
-                                    call.respond(
-                                        HttpStatusCode.Conflict,
-                                        ErrorDto("duplicate_dependency", "A dependency of this type already exists between these items"),
-                                    )
-                                ErrorCode.UNAVAILABLE ->
-                                    call.respond(HttpStatusCode.ServiceUnavailable, ErrorDto("unavailable", error.message))
-                                else ->
-                                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("internal", error.message))
-                            }
-                            return@post
-                        }
+                    } catch (e: DuplicateDependencyException) {
+                        return depErrorCaptured(
+                            HttpStatusCode.Conflict,
+                            "duplicate_dependency",
+                            e.message ?: "A dependency of this type already exists between these items",
+                        )
                     }
-                } catch (e: DuplicateDependencyException) {
-                    call.respond(
-                        HttpStatusCode.Conflict,
-                        ErrorDto("duplicate_dependency", e.message ?: "A dependency of this type already exists between these items"),
-                    )
-                    return@post
+
+                if (created == null) {
+                    return depErrorCaptured(HttpStatusCode.BadRequest, "cycle_detected", "Adding this dependency would create a cycle")
                 }
 
-            if (created == null) {
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    ErrorDto("cycle_detected", "Adding this dependency would create a cycle"),
+                return CachedHttpResponse(
+                    statusCode = HttpStatusCode.Created.value,
+                    bodyJson = depWriteJson.encodeToString(DependencyEdgeDto.serializer(), created.toDto()),
                 )
-                return@post
             }
 
-            call.respond(HttpStatusCode.Created, created.toDto())
+            call.runWithIdempotency(idempotency, trustedActorId, idempotencyKeyResult, "/dependencies", bodyText) { executeCreate() }
         }
 
         // ─── DELETE /dependencies/{id} ───────────────────────────────────────

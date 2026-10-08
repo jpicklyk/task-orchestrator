@@ -321,6 +321,17 @@ object BaselineDataset {
 
         insert(
             conn,
+            "idempotency_records",
+            "principal_id" to "actor-one",
+            "operation" to "mcp.manage_items.create",
+            "key" to "0b7f6c1e-2d4a-4c3e-9a51-6f0e8d2c4b17:0",
+            "fingerprint" to "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+            "result_json" to "{\"v\":1,\"ok\":true,\"value\":{\"id\":\"baseline\"}}",
+            "created_at" to "2026-03-01 10:15:30.123"
+        )
+
+        insert(
+            conn,
             "project_config",
             "id" to id("project-config"),
             "root_item_id" to id("root"),

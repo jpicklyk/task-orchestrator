@@ -99,7 +99,6 @@ class RulePointerOnlyGoldenTest {
         val repositoryProvider: RepositoryProvider,
         val noteSchemaService: io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService,
         val degradedModePolicy: io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy,
-        val idempotencyCache: io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache,
     )
 
     /** Reuses the A1 golden fixture verbatim, then stashes two rule/ documents at ROOT_ID (this item's addition). */
@@ -184,7 +183,6 @@ class RulePointerOnlyGoldenTest {
             repositoryProvider = repo,
             noteSchemaService = composition.noteSchemaService,
             degradedModePolicy = composition.degradedModePolicy,
-            idempotencyCache = composition.idempotencyCache,
         )
     }
 
@@ -338,7 +336,6 @@ class RulePointerOnlyGoldenTest {
                     noteSchemaService = fx.noteSchemaService,
                     toolContext = fx.toolContext,
                     degradedModePolicy = fx.degradedModePolicy,
-                    idempotencyCache = fx.idempotencyCache,
                 )
             }
 

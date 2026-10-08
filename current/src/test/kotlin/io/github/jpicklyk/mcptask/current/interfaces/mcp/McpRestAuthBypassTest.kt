@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -102,7 +101,6 @@ class McpRestAuthBypassTest {
                             unitOfWork = db.unitOfWork(),
                         ),
                     degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
-                    idempotencyCache = IdempotencyCache(),
                 )
             }
 

@@ -1,9 +1,2 @@
 # Two-way ratchet baseline: <path relative to current/src/main/kotlin/.../current/> <violating line count>
 # Fix a site and LOWER or DELETE its line; a new violation (or a stale line) fails the test.
-application/tools/compound/CompleteTreeTool.kt 1
-application/tools/compound/CreateWorkTreeTool.kt 1
-application/tools/dependency/ManageDependenciesTool.kt 1
-application/tools/items/ManageItemsTool.kt 1
-application/tools/notes/ManageNotesTool.kt 1
-application/tools/workflow/AdvanceItemTool.kt 1
-application/tools/workflow/ClaimItemTool.kt 1

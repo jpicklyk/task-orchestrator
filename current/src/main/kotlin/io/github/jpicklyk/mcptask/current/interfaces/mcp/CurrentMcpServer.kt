@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -23,6 +22,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextT
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.infrastructure.IdempotencyPruner
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.health.ReadinessMarker
@@ -202,7 +202,14 @@ class CurrentMcpServer(
             val apiWiring = composition.apiWiring
             val noteSchemaService = composition.noteSchemaService
             val degradedModePolicy = composition.degradedModePolicy
-            val idempotencyCache = composition.idempotencyCache
+
+            // Expired idempotency records are pruned once now and then hourly. Registered AFTER Close Database
+            // so the LIFO drain stops the pruner first.
+            val idempotencyPruner = IdempotencyPruner(composition.unitOfWork)
+            idempotencyPruner.start()
+            shutdownCoordinator.addCleanupAction("Stop Idempotency Pruner") {
+                runBlocking { idempotencyPruner.stop() }
+            }
 
             // Build tool list (shared with tests via buildMcpTools())
             val tools = buildMcpTools()
@@ -247,7 +254,6 @@ class CurrentMcpServer(
                             noteSchemaService,
                             toolContext,
                             degradedModePolicy,
-                            idempotencyCache,
                             composition.actorAuthEnabled,
                             readinessMarker
                         )
@@ -350,7 +356,6 @@ class CurrentMcpServer(
         noteSchemaService: WorkItemSchemaService,
         toolContext: ToolExecutionContext,
         degradedModePolicy: DegradedModePolicy,
-        idempotencyCache: IdempotencyCache,
         actorAuthEnabled: Boolean,
         readinessMarker: ReadinessMarker,
     ): StartupOutcome {
@@ -429,7 +434,6 @@ class CurrentMcpServer(
                     noteSchemaService = noteSchemaService,
                     toolContext = toolContext,
                     degradedModePolicy = degradedModePolicy,
-                    idempotencyCache = idempotencyCache,
                     jwksVerifier = jwksVerifier,
                     appConfig = appConfig,
                 )
@@ -631,7 +635,6 @@ internal fun Application.installRestApiRoutes(
     noteSchemaService: WorkItemSchemaService,
     toolContext: ToolExecutionContext,
     degradedModePolicy: DegradedModePolicy,
-    idempotencyCache: IdempotencyCache,
     jwksVerifier: JwksApiVerifier? = null,
     appConfig: AppConfig = AppConfig.fromEnv(),
 ) {
@@ -689,14 +692,14 @@ internal fun Application.installRestApiRoutes(
             itemWriteRoutes(
                 effectiveProvider,
                 degradedModePolicy,
-                idempotencyCache,
+                toolContext.idempotency,
                 toolContext.advanceServiceFactory(),
                 toolContext.unitOfWork,
                 warnOnClaimedAdvance = appConfig.apiWarnOnClaimedAdvance,
                 clock = toolContext.clock,
             )
-            noteWriteRoutes(effectiveProvider, degradedModePolicy, idempotencyCache, toolContext.unitOfWork)
-            dependencyWriteRoutes(effectiveProvider, degradedModePolicy, toolContext.unitOfWork)
+            noteWriteRoutes(effectiveProvider, degradedModePolicy, toolContext.idempotency, toolContext.unitOfWork)
+            dependencyWriteRoutes(effectiveProvider, degradedModePolicy, toolContext.idempotency, toolContext.unitOfWork)
             // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete —
             // converges on the same ProjectConfigPushService the manage_project_config MCP tool uses.
             projectConfigRoutes(effectiveProvider, toolContext.unitOfWork)

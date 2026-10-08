@@ -35,4 +35,6 @@ interface RepositoryProvider {
     fun resourceLeaseRepository(): LeaseStore
 
     fun workTreeExecutor(): WorkTreeExecutor
+
+    fun idempotencyStore(): IdempotencyStore
 }

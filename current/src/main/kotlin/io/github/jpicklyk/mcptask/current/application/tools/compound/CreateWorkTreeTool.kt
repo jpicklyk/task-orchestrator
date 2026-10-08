@@ -18,7 +18,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import java.util.UUID
 
@@ -193,7 +192,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Client-generated UUID for idempotency (10 min cache, keyed by actor+requestId); " +
+                                    "Client-generated UUID; the call runs once per 24h (keyed by actor+requestId, as element 0); " +
                                         "requires actor; malformed values rejected."
                                 )
                             )
@@ -571,22 +570,22 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                 else -> null
             }
 
-        // Atomic getOrCompute: check-compute-store under a single lock to prevent TOCTOU races.
-        // kotlinx.coroutines.runBlocking bridges the suspend execution into the lock-held lambda.
-        // This is safe because the tree creation logic only accesses DB repositories and never
-        // re-acquires the IdempotencyCache lock.
-        if (requestId != null && trustedActorId != null) {
-            return context.idempotencyCache.getOrCompute(trustedActorId, requestId) {
-                runBlocking {
-                    withEventActor(noteActorClaim) {
-                        executeCreateWorkTree(paramsObj, params, context, noteActorClaim, noteVerification)
-                    }
-                }
-            }
-        }
-
+        // A keyed call (requestId plus a trusted principal) is one atomic element 0: the whole tree commits
+        // together with its record, or rolls back unrecorded. Unkeyed calls never touch the idempotency service.
         return withEventActor(noteActorClaim) {
-            executeCreateWorkTree(paramsObj, params, context, noteActorClaim, noteVerification)
+            if (requestId != null && trustedActorId != null) {
+                KeyedCall(
+                    context.idempotency,
+                    trustedActorId,
+                    requestId,
+                    KeyedCall.op(name),
+                    KeyedCall.withoutKeyFields(params)
+                ).whole(KeyedCall.withoutKeyFields(params)) {
+                    executeCreateWorkTree(paramsObj, params, context, noteActorClaim, noteVerification)
+                }
+            } else {
+                executeCreateWorkTree(paramsObj, params, context, noteActorClaim, noteVerification)
+            }
         }
     }
 

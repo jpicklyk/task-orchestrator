@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
@@ -73,7 +72,6 @@ class CompositionResult(
     val apiWiring: ApiWiring,
     val noteSchemaService: WorkItemSchemaService,
     val degradedModePolicy: DegradedModePolicy,
-    val idempotencyCache: IdempotencyCache,
     val actorAuthEnabled: Boolean,
     val configResolver: EffectiveConfigResolver,
     val advanceServiceFactory: AdvanceServiceFactory,
@@ -137,7 +135,6 @@ class ServerComposition(
         val statusLabelService = YamlStatusLabelService(globalConfigFile)
         val actorAuthConfigService = YamlActorAuthenticationConfigService(globalConfigFile, envResolver = appConfig.envResolver)
         val (actorVerifier, degradedModePolicy) = createActorVerifierAndPolicy(actorAuthConfigService)
-        val idempotencyCache = IdempotencyCache()
 
         // Resolve the REST/SSE API wiring ONCE, EARLY — before the tool context is built — so the
         // SAME event bus and SAME decorated provider feed BOTH the MCP tool context AND the REST
@@ -169,7 +166,6 @@ class ServerComposition(
                 statusLabelService = statusLabelService,
                 actorVerifier = actorVerifier,
                 degradedModePolicy = degradedModePolicy,
-                idempotencyCache = idempotencyCache,
                 nextItemRecommender = nextItemRecommender,
                 perRootConfigService = perRootConfigService,
                 configResolver = configResolver,
@@ -193,7 +189,6 @@ class ServerComposition(
             apiWiring = apiWiring,
             noteSchemaService = noteSchemaService,
             degradedModePolicy = degradedModePolicy,
-            idempotencyCache = idempotencyCache,
             actorAuthEnabled = actorAuthEnabled,
             configResolver = configResolver,
             advanceServiceFactory = toolContext.advanceServiceFactory(),

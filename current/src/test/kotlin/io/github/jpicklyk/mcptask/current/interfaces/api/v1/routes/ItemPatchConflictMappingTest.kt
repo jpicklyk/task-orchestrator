@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
+import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -120,7 +120,6 @@ class ItemPatchConflictMappingTest {
      */
     private fun Application.configureConflictTestApp(
         repositoryProvider: RepositoryProvider,
-        idempotencyCache: IdempotencyCache = IdempotencyCache(),
         authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig(),
     ) {
         install(ContentNegotiation) { json(McpJson) }
@@ -137,7 +136,7 @@ class ItemPatchConflictMappingTest {
                 itemWriteRoutes(
                     repositoryProvider,
                     DegradedModePolicy.ACCEPT_CACHED,
-                    idempotencyCache,
+                    IdempotencyService(db.unitOfWork()),
                     ToolExecutionContext(
                         repositoryProvider,
                         NoOpNoteSchemaService,
@@ -375,7 +374,7 @@ class ItemPatchConflictMappingTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `S7 replaying the same Idempotency-Key on a 409 returns the cached body and does not re-run update()`(): Unit =
+    fun `S7 retrying the same Idempotency-Key after a 409 re-runs update() because the failure is not recorded`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
             val item =
@@ -387,8 +386,7 @@ class ItemPatchConflictMappingTest {
                     repo.workItemRepository(),
                     onUpdate = { throw VersionConflictException(it.id, it.version, it.version + 1) },
                 )
-            val cache = IdempotencyCache()
-            application { configureConflictTestApp(WorkItemRepoOverrideProvider(repo, scripted), idempotencyCache = cache) }
+            application { configureConflictTestApp(WorkItemRepoOverrideProvider(repo, scripted)) }
 
             val idempotencyKey = UUID.randomUUID().toString()
             val etag = etagFor(item)
@@ -408,20 +406,13 @@ class ItemPatchConflictMappingTest {
             assertEquals(1, scripted.updateCallCount, "update() should have run exactly once on the first request")
 
             val second = makeRequest()
+            assertEquals(first.status, second.status, "the retry conflicts the same way")
+            assertEquals(firstBody, second.bodyAsText(), "the retry reports the same conflict")
+            assertEquals(null, second.headers["Idempotent-Replayed"], "the retry was not served from a record")
             assertEquals(
-                first.status,
-                second.status,
-                "A replay with the same Idempotency-Key must return the same cached status",
-            )
-            assertEquals(
-                firstBody,
-                second.bodyAsText(),
-                "A replay with the same Idempotency-Key must return the cached body verbatim",
-            )
-            assertEquals(
-                1,
+                2,
                 scripted.updateCallCount,
-                "A cached replay must NOT re-execute update() against the repository",
+                "a state failure is not recorded, so the retry re-executes update()",
             )
         }
 

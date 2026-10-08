@@ -9,11 +9,16 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkItemPlacementS
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.tools.ElementOutcome
+import io.github.jpicklyk.mcptask.current.application.tools.ElementResult
+import io.github.jpicklyk.mcptask.current.application.tools.KeyedCall
 import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.application.tools.resolveWorkItemIdString
+import io.github.jpicklyk.mcptask.current.application.tools.runElement
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import kotlinx.serialization.json.*
@@ -44,49 +49,53 @@ class UpdateItemHandler(
     suspend fun execute(
         items: JsonArray,
         sharedTraits: String?,
-        context: ToolExecutionContext
+        context: ToolExecutionContext,
+        keyed: KeyedCall? = null
     ): JsonElement {
         val repo = context.workItemRepository()
 
         val updatedItems = mutableListOf<JsonObject>()
         val failures = mutableListOf<JsonObject>()
 
-        for (element in items) {
+        for ((index, element) in items.withIndex()) {
             var itemId: String? = null
             try {
-                val itemObj =
-                    element as? JsonObject
-                        ?: throw ToolValidationException("Each update item must be a JSON object")
+                val outcome =
+                    runElement(keyed, index, element, onError = { updateFailure(null, it.message, it.code) }) {
+                        val itemObj = element as? JsonObject
+                        if (itemObj == null) {
+                            val message = "Each update item must be a JSON object"
+                            ElementResult.Invalid(updateFailure(null, message, null), message)
+                        } else {
+                            val itemIdStr =
+                                extractItemString(itemObj, "itemId")
+                                    ?: throw ToolValidationException("Update item: 'itemId' is required")
+                            itemId = itemIdStr
 
-                itemId = extractItemString(itemObj, "itemId")
-                    ?: throw ToolValidationException("Update item: 'itemId' is required")
+                            val id = resolveWorkItemIdString(itemIdStr, context, "Update item: 'itemId'")
 
-                val id = resolveWorkItemIdString(itemId, context, "Update item: 'itemId'")
+                            // Fetch existing item
+                            val existing =
+                                legacyRead({ throw IllegalStateException(it) }) { repo.getById(id) }
+                                    ?: throw ToolValidationException("Item '$itemIdStr' not found: WorkItem not found with id: $id")
 
-                // Fetch existing item
-                val existing =
-                    legacyRead({ throw IllegalStateException(it) }) { repo.getById(id) }
-                        ?: throw ToolValidationException("Item '$itemId' not found: WorkItem not found with id: $id")
-
-                val spec = parseUpdateFields(itemObj, itemId, id, existing, sharedTraits, context, repo)
-                when (val updateResult = persistWithPlacement(id, itemId, existing, spec, repo, context.unitOfWork)) {
-                    is PersistedUpdate.Written -> {
-                        updatedItems.add(
-                            buildJsonObject {
-                                put("id", JsonPrimitive(updateResult.item.id.toString()))
-                                put("modifiedAt", JsonPrimitive(updateResult.item.modifiedAt.toString()))
-                                put("requiresVerification", JsonPrimitive(updateResult.item.requiresVerification))
+                            val spec = parseUpdateFields(itemObj, itemIdStr, id, existing, sharedTraits, context, repo)
+                            when (val updateResult = persistWithPlacement(id, itemIdStr, existing, spec, repo, context.unitOfWork)) {
+                                is PersistedUpdate.Written ->
+                                    ElementResult.Done(
+                                        buildJsonObject {
+                                            put("id", JsonPrimitive(updateResult.item.id.toString()))
+                                            put("modifiedAt", JsonPrimitive(updateResult.item.modifiedAt.toString()))
+                                            put("requiresVerification", JsonPrimitive(updateResult.item.requiresVerification))
+                                        }
+                                    )
+                                is PersistedUpdate.Failed -> ElementResult.Failed(updateFailure(itemIdStr, updateResult.message, null))
                             }
-                        )
+                        }
                     }
-                    is PersistedUpdate.Failed -> {
-                        failures.add(
-                            buildJsonObject {
-                                put("id", JsonPrimitive(itemId))
-                                put("error", JsonPrimitive(updateResult.message))
-                            }
-                        )
-                    }
+                when (outcome) {
+                    is ElementOutcome.Succeeded -> updatedItems.add(outcome.fragment)
+                    is ElementOutcome.Failed -> failures.add(outcome.failure)
                 }
             } catch (e: ToolValidationException) {
                 failures.add(
@@ -118,6 +127,17 @@ class UpdateItemHandler(
 
         return ResponseUtil.createSuccessResponse(data)
     }
+
+    private fun updateFailure(
+        itemId: String?,
+        message: String,
+        code: ErrorCode?
+    ): JsonObject =
+        buildJsonObject {
+            put("id", JsonPrimitive(itemId ?: "unknown"))
+            put("error", JsonPrimitive(message))
+            if (code == ErrorCode.IDEMPOTENCY_MISMATCH) put("errorCode", JsonPrimitive(KeyedCall.IDEMPOTENCY_MISMATCH_CODE))
+        }
 
     /**
      * Extracts the per-item "traits" override, distinguishing an absent field from a

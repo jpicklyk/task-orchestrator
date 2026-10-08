@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
+import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
@@ -86,7 +86,13 @@ class SharedConfigCacheRestMcpTest {
     ) {
         configureTestApp(makeWriteAuthConfig()) {
             itemGateRoutes(provider, ctx.configResolver)
-            itemWriteRoutes(provider, DegradedModePolicy.ACCEPT_CACHED, IdempotencyCache(), ctx.advanceServiceFactory(), ctx.unitOfWork)
+            itemWriteRoutes(
+                provider,
+                DegradedModePolicy.ACCEPT_CACHED,
+                IdempotencyService(ctx.unitOfWork),
+                ctx.advanceServiceFactory(),
+                ctx.unitOfWork
+            )
         }
     }
 

@@ -983,7 +983,7 @@ advance_item(trigger="complete")    → ownership enforced at completion too
 
 `claimRef` (up to 64 chars) is echoed verbatim in every result and is useful for correlating claim results back to your agent's internal loop state without parsing `itemId` values.
 
-**Idempotency with selector mode.** A `(actor, requestId)` cache hit replays the resolved response verbatim — the same `itemId` is returned, and the selector is **not** re-evaluated against fresh queue state. Use a fresh `requestId` per claim iteration, not per retry of the same iteration.
+**Idempotency with selector mode.** A successful claim is stored per element for 24 hours and replayed verbatim on a retry with the same `requestId` — the same `itemId` is returned, and the selector is **not** re-evaluated against fresh queue state. A claim that did not succeed (`already_claimed`, `none_eligible`) is not stored, so retrying it with the same `requestId` runs it again. Use a fresh `requestId` per claim iteration, and the same one for retries of the same iteration.
 
 ### Heartbeat Pattern
 

@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
+import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -167,7 +167,6 @@ class PatchReparentCycleGuardTest {
      */
     private fun Application.configureReparentTestApp(
         repositoryProvider: RepositoryProvider,
-        idempotencyCache: IdempotencyCache = IdempotencyCache(),
         authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig(),
     ) {
         install(ContentNegotiation) { json(McpJson) }
@@ -184,7 +183,7 @@ class PatchReparentCycleGuardTest {
                 itemWriteRoutes(
                     repositoryProvider,
                     DegradedModePolicy.ACCEPT_CACHED,
-                    idempotencyCache,
+                    IdempotencyService(db.unitOfWork()),
                     ToolExecutionContext(
                         repositoryProvider,
                         NoOpNoteSchemaService,
@@ -593,7 +592,7 @@ class PatchReparentCycleGuardTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `S9 replaying the same Idempotency-Key on a 500 db_error returns the cached body and does not re-run the lookup`(): Unit =
+    fun `S9 retrying the same Idempotency-Key after a 500 db_error re-runs the lookup because the failure is not recorded`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
             val (x, b, d) =
@@ -613,8 +612,7 @@ class PatchReparentCycleGuardTest {
                     },
                     onFindDescendants = { throw IllegalStateException("must not be reached") },
                 )
-            val cache = IdempotencyCache()
-            application { configureReparentTestApp(WorkItemRepoOverrideProvider(repo, scripted), idempotencyCache = cache) }
+            application { configureReparentTestApp(WorkItemRepoOverrideProvider(repo, scripted)) }
 
             val idempotencyKey = UUID.randomUUID().toString()
             val makeRequest: suspend () -> HttpResponse = {
@@ -633,13 +631,14 @@ class PatchReparentCycleGuardTest {
             val callsAfterFirst = scripted.findAncestorChainsCallCount
 
             val second = makeRequest()
-            assertEquals(first.status, second.status, "A replay with the same Idempotency-Key must return the same cached status")
-            assertEquals(firstBody, second.bodyAsText(), "A replay with the same Idempotency-Key must return the cached body verbatim")
+            assertEquals(first.status, second.status, "the retry fails the same way")
+            assertEquals(firstBody, second.bodyAsText(), "the retry reports the same failure")
             assertEquals(
-                callsAfterFirst,
+                callsAfterFirst + 1,
                 scripted.findAncestorChainsCallCount,
-                "A cached replay must NOT re-run the ancestor-chain lookup",
+                "a state failure is not recorded, so the retry re-runs the ancestor-chain lookup",
             )
+            assertEquals(null, second.headers["Idempotent-Replayed"], "the retry was not served from a record")
             assertEquals(0, scripted.updateCallCount)
         }
 

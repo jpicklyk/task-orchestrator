@@ -106,7 +106,6 @@ class RuleRoutesTest {
             noteSchemaService = composition.noteSchemaService,
             toolContext = composition.toolContext,
             degradedModePolicy = composition.degradedModePolicy,
-            idempotencyCache = composition.idempotencyCache,
         )
     }
 
@@ -606,7 +605,6 @@ class RuleRoutesRootLookupFailureTest {
                     noteSchemaService = composition.noteSchemaService,
                     toolContext = composition.toolContext,
                     degradedModePolicy = composition.degradedModePolicy,
-                    idempotencyCache = composition.idempotencyCache,
                 )
             }
 

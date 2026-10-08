@@ -1,9 +1,14 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
+import io.github.jpicklyk.mcptask.current.application.tools.ElementOutcome
+import io.github.jpicklyk.mcptask.current.application.tools.ElementResult
+import io.github.jpicklyk.mcptask.current.application.tools.KeyedCall
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.application.tools.resolveWorkItemIdString
+import io.github.jpicklyk.mcptask.current.application.tools.runElement
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import kotlinx.serialization.json.*
 
 /**
@@ -27,7 +32,8 @@ class DeleteItemHandler {
     suspend fun execute(
         idsArray: JsonArray,
         recursive: Boolean,
-        context: ToolExecutionContext
+        context: ToolExecutionContext,
+        keyed: KeyedCall? = null
     ): JsonElement {
         val deletion = WorkItemDeletion(context.repositoryProvider, context.unitOfWork)
 
@@ -35,15 +41,10 @@ class DeleteItemHandler {
         var descendantsDeleted = 0
         val failures = mutableListOf<JsonObject>()
 
-        for (element in idsArray) {
+        for ((index, element) in idsArray.withIndex()) {
             val idStr = (element as? JsonPrimitive)?.content
             if (idStr == null) {
-                failures.add(
-                    buildJsonObject {
-                        put("id", JsonPrimitive("null"))
-                        put("error", JsonPrimitive("Each ID must be a string"))
-                    }
-                )
+                failures.add(deleteFailure("null", "Each ID must be a string"))
                 continue
             }
 
@@ -51,50 +52,40 @@ class DeleteItemHandler {
                 try {
                     resolveWorkItemIdString(idStr, context, "'id'")
                 } catch (e: ToolValidationException) {
-                    failures.add(
-                        buildJsonObject {
-                            put("id", JsonPrimitive(idStr))
-                            put("error", JsonPrimitive(e.message ?: "Invalid ID: $idStr"))
-                        }
-                    )
+                    failures.add(deleteFailure(idStr, e.message ?: "Invalid ID: $idStr"))
                     continue
                 }
 
-            when (val outcome = deletion.delete(id, recursive)) {
-                is WorkItemDeleteOutcome.Deleted -> {
-                    deletedIds.add(idStr)
-                    descendantsDeleted += outcome.descendantsDeleted
-                }
-                is WorkItemDeleteOutcome.HasChildren -> {
-                    failures.add(
-                        buildJsonObject {
-                            put("id", JsonPrimitive(idStr))
-                            put(
-                                "error",
-                                JsonPrimitive(
-                                    "Item '$idStr' has ${outcome.childCount} child item(s). " +
+            // A delete is recorded only once it committed: every failure rolls the element back and is
+            // reported unrecorded, so a retry with the same key runs the delete again.
+            val outcome =
+                runElement(keyed, index, element, onError = { deleteFailure(idStr, it.message, it.code) }) {
+                    when (val deleted = deletion.delete(id, recursive)) {
+                        is WorkItemDeleteOutcome.Deleted ->
+                            ElementResult.Done(
+                                buildJsonObject {
+                                    put("id", JsonPrimitive(idStr))
+                                    put("descendantsDeleted", JsonPrimitive(deleted.descendantsDeleted))
+                                }
+                            )
+                        is WorkItemDeleteOutcome.HasChildren ->
+                            ElementResult.Failed(
+                                deleteFailure(
+                                    idStr,
+                                    "Item '$idStr' has ${deleted.childCount} child item(s). " +
                                         "Use recursive=true to delete the item and all its descendants."
                                 )
                             )
-                        }
-                    )
+                        is WorkItemDeleteOutcome.NotFound -> ElementResult.Failed(deleteFailure(idStr, "Item '$idStr' not found"))
+                        is WorkItemDeleteOutcome.Failed -> ElementResult.Failed(deleteFailure(idStr, deleted.message))
+                    }
                 }
-                is WorkItemDeleteOutcome.NotFound -> {
-                    failures.add(
-                        buildJsonObject {
-                            put("id", JsonPrimitive(idStr))
-                            put("error", JsonPrimitive("Item '$idStr' not found"))
-                        }
-                    )
+            when (outcome) {
+                is ElementOutcome.Succeeded -> {
+                    deletedIds.add(idStr)
+                    descendantsDeleted += (outcome.fragment["descendantsDeleted"] as? JsonPrimitive)?.intOrNull ?: 0
                 }
-                is WorkItemDeleteOutcome.Failed -> {
-                    failures.add(
-                        buildJsonObject {
-                            put("id", JsonPrimitive(idStr))
-                            put("error", JsonPrimitive(outcome.message))
-                        }
-                    )
-                }
+                is ElementOutcome.Failed -> failures.add(outcome.failure)
             }
         }
 
@@ -113,4 +104,15 @@ class DeleteItemHandler {
 
         return ResponseUtil.createSuccessResponse(data)
     }
+
+    private fun deleteFailure(
+        id: String,
+        message: String,
+        code: ErrorCode? = null
+    ): JsonObject =
+        buildJsonObject {
+            put("id", JsonPrimitive(id))
+            put("error", JsonPrimitive(message))
+            if (code == ErrorCode.IDEMPOTENCY_MISMATCH) put("errorCode", JsonPrimitive(KeyedCall.IDEMPOTENCY_MISMATCH_CODE))
+        }
 }

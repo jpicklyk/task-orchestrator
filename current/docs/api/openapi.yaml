@@ -29,6 +29,19 @@ components:
         accepts requests with no Authorization header at all — loopback-only, see api-rest.md §1.
 
   parameters:
+    idempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: >-
+        Optional UUID that makes a write apply once for 24 hours, recorded in the same transaction as the
+        write. A retry with the same key and the same request replays the stored 2xx (or 400 validation_error)
+        response with the header Idempotent-Replayed true; the same key with a different request is
+        409 idempotency_mismatch. A failure that depends on state (404, 403, 409, 412, 500, 503) is not
+        recorded, so a retry runs again. Scoped to the caller; malformed key -> 400.
+      schema:
+        type: string
+        format: uuid
     itemId:
       name: id
       in: path
@@ -1477,6 +1490,14 @@ components:
             $ref: "#/components/schemas/RuleSummaryDto"
 
   responses:
+    IdempotencyMismatch:
+      description: >-
+        error="idempotency_mismatch" - the Idempotency-Key was already used with a different request
+        (method, path, If-Match or body). Nothing was executed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDto"
     Unauthorized:
       description: >-
         Missing or invalid bearer token. error is invalid_request (missing, non-Bearer or empty
@@ -1653,11 +1674,7 @@ paths:
         check applied to a non-root create); otherwise 403 scope_forbidden, and nothing is
         persisted.
       parameters:
-        - name: Idempotency-Key
-          in: header
-          schema:
-            type: string
-            format: uuid
+        - $ref: "#/components/parameters/idempotencyKey"
       requestBody:
         required: true
         content:
@@ -1681,6 +1698,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/IdempotencyMismatch"
         "413":
           description: >-
             Payload too large — body exceeds the shared 1 MiB write-body limit, enforced before
@@ -1809,11 +1828,7 @@ paths:
           schema:
             type: string
           description: Current ETag; required — missing -> 400 precondition_required
-        - name: Idempotency-Key
-          in: header
-          schema:
-            type: string
-            format: uuid
+        - $ref: "#/components/parameters/idempotencyKey"
       requestBody:
         required: true
         content:
@@ -1852,7 +1867,8 @@ paths:
             error="version_conflict" — a concurrent writer's update won the version race between
             the If-Match check and this request's own write (optimistic-lock loss). Distinct from
             412 etag_mismatch below, which is a stale-If-Match-at-read-time guard, not a
-            concurrent-write guard. Retry with a fresh If-Match ETag.
+            concurrent-write guard. Retry with a fresh If-Match ETag. error="idempotency_mismatch" —
+            the Idempotency-Key was already used with a different request; nothing was executed.
           content:
             application/json:
               schema:
@@ -1973,6 +1989,7 @@ paths:
         identity. An item with no declared resources can never produce this response.
       parameters:
         - $ref: "#/components/parameters/itemId"
+        - $ref: "#/components/parameters/idempotencyKey"
       requestBody:
         required: true
         content:
@@ -2004,7 +2021,8 @@ paths:
             GET /api/v1/resources/leases (ADMIN) to diagnose. Only reachable for items that declare
             resources: via traits. error="not_claim_holder" — a different agent holds a live claim on
             the item (not expected to occur on the REST path, which bypasses ownership enforcement,
-            but defensively mapped).
+            but defensively mapped). error="idempotency_mismatch" — the Idempotency-Key was already
+            used with a different request; nothing was executed.
           headers:
             Retry-After:
               schema:
@@ -2284,11 +2302,7 @@ paths:
           schema:
             type: string
           description: Optional on create; validated on update — mismatch -> 412
-        - name: Idempotency-Key
-          in: header
-          schema:
-            type: string
-            format: uuid
+        - $ref: "#/components/parameters/idempotencyKey"
       requestBody:
         required: true
         content:
@@ -2328,6 +2342,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorDto"
+        "409":
+          $ref: "#/components/responses/IdempotencyMismatch"
         "413":
           description: >-
             Payload too large — body exceeds the shared 1 MiB write-body limit, enforced before
@@ -2447,6 +2463,8 @@ paths:
       summary: Create a dependency edge
       operationId: createDependency
       tags: [dependencies]
+      parameters:
+        - $ref: "#/components/parameters/idempotencyKey"
       requestBody:
         required: true
         content:
@@ -2469,6 +2487,7 @@ paths:
         "409":
           description: >-
             duplicate_dependency — an edge with the same fromItemId/toItemId/type already exists.
+            idempotency_mismatch — the Idempotency-Key was already used with a different request.
           content:
             application/json:
               schema:

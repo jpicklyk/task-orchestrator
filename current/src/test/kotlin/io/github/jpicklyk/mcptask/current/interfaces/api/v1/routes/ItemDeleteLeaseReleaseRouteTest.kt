@@ -5,7 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
+import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -99,7 +99,7 @@ private fun Application.configureDeleteLeaseTestApp(
             itemWriteRoutes(
                 provider,
                 DegradedModePolicy.ACCEPT_CACHED,
-                IdempotencyCache(),
+                IdempotencyService(unitOfWork),
                 ToolExecutionContext(
                     provider,
                     NoOpNoteSchemaService,
