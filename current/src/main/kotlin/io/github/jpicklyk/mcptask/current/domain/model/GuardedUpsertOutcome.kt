@@ -3,7 +3,7 @@ package io.github.jpicklyk.mcptask.current.domain.model
 import java.time.Instant
 
 /**
- * Outcome of [io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository.upsertGuarded] —
+ * Outcome of [io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore.upsertGuarded] —
  * the compare-and-set guard evaluation and the write happen inside ONE transaction, so this is
  * always computed from the same row version that either was, or was not, written.
  *

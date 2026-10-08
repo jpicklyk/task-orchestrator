@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.domain.model.*
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import org.slf4j.LoggerFactory
 import java.util.UUID
 
@@ -279,7 +279,7 @@ class CascadeDetector {
      */
     suspend fun findUnblockedItems(
         item: WorkItem,
-        dependencyRepository: DependencyRepository,
+        dependencyRepository: DependencyStore,
         workItemRepository: WorkItemRepository
     ): List<UnblockedItem> {
         // Collect target item IDs from both blocking directions:
@@ -321,7 +321,7 @@ class CascadeDetector {
      */
     private suspend fun isFullyUnblocked(
         itemId: UUID,
-        dependencyRepository: DependencyRepository,
+        dependencyRepository: DependencyStore,
         workItemRepository: WorkItemRepository
     ): Boolean {
         // Check incoming BLOCKS deps (blocker is dep.fromItemId)

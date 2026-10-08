@@ -1,5 +1,13 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
@@ -8,14 +16,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -56,7 +56,7 @@ class AdvanceItemToolLeaseBlockedTest {
     private lateinit var context: ToolExecutionContext
     private lateinit var repoProvider: RepositoryProvider
     private lateinit var workItemRepo: WorkItemRepository
-    private lateinit var leaseRepo: ResourceLeaseRepository
+    private lateinit var leaseRepo: LeaseStore
 
     /** Schema service that maps the `needs-staging-db` trait onto one exclusive resource. */
     private class ResourceTraitSchemaService : WorkItemSchemaService {
@@ -75,9 +75,9 @@ class AdvanceItemToolLeaseBlockedTest {
         tool = AdvanceItemTool()
         workItemRepo = mockk()
         leaseRepo = mockk()
-        val depRepo = mockk<DependencyRepository>()
-        val roleTransitionRepo = mockk<RoleTransitionRepository>()
-        val noteRepo = mockk<NoteRepository>()
+        val depRepo = mockk<DependencyStore>()
+        val roleTransitionRepo = mockk<TransitionStore>()
+        val noteRepo = mockk<NoteStore>()
 
         repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo

@@ -1,13 +1,13 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import java.time.Instant
 import java.util.UUID
 
@@ -19,7 +19,7 @@ import java.util.UUID
  */
 class NextItemRecommender(
     private val workItemRepo: WorkItemRepository,
-    private val dependencyRepo: DependencyRepository,
+    private val dependencyRepo: DependencyStore,
 ) {
     /**
      * Filter criteria for [recommend].  All fields mirror the parameters of

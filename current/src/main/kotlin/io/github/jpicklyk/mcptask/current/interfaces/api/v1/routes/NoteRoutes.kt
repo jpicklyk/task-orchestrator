@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
+import io.github.jpicklyk.mcptask.current.application.port.SearchScope
 import io.github.jpicklyk.mcptask.current.application.service.search.FtsQuerySanitizer
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
-import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
-import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowedItemIdsForTagScope
@@ -182,7 +182,7 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
                     else -> SearchScope()
                 }
 
-            // Dispatched via the NoteRepository interface so this works whether noteRepo is the
+            // Dispatched via the NoteStore interface so this works whether noteRepo is the
             // concrete SQLite repo or a decorator (e.g. EventPublishingNoteRepository — always the
             // case when the REST API is enabled).
             val result =

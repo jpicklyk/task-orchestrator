@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.application.tools.notes
 
+import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -43,7 +43,7 @@ import kotlin.test.assertTrue
  * that [io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesToolTest]
  * confirms carries a zero-based `index` matching the request array's position.
  *
- * Harness: a REAL [PerRootConfigService] backed by a REAL [ProjectConfigRepository] (SQLite-backed
+ * Harness: a REAL [PerRootConfigService] backed by a REAL [ProjectConfigStore] (SQLite-backed
  * [DefaultRepositoryProvider], schema via [SqliteTestDatabase]) wrapped in a private
  * [FailableProjectConfigRepository] whose reads can be switched to `Result.Error` — the same "own
  * copy per file" harness pattern used by the sibling `AdvanceItemToolConfigUnavailableTest` /
@@ -210,14 +210,14 @@ class ManageNotesConfigUnavailableTest {
 }
 
 /**
- * Wraps a real [ProjectConfigRepository] and lets tests force [get]/[getFingerprint] to return
+ * Wraps a real [ProjectConfigStore] and lets tests force [get]/[getFingerprint] to return
  * `throw IllegalStateException("x")` on demand. Own copy for this file — see the
  * identical class in the sibling config-unavailable test files for the full rationale (no shared
  * harness file per this item's file-ownership rule).
  */
 private class FailableProjectConfigRepository(
-    private val delegate: ProjectConfigRepository
-) : ProjectConfigRepository by delegate {
+    private val delegate: ProjectConfigStore
+) : ProjectConfigStore by delegate {
     @Volatile var failFingerprint: Boolean = false
 
     @Volatile var failGet: Boolean = false

@@ -1,6 +1,13 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.UnitResult
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
@@ -20,13 +27,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean
 import org.slf4j.LoggerFactory
 
@@ -277,14 +277,14 @@ data class AdvanceResult(
  */
 class AdvanceService(
     private val workItemRepository: WorkItemRepository,
-    private val roleTransitionRepository: RoleTransitionRepository,
-    private val dependencyRepository: DependencyRepository,
-    private val noteRepository: NoteRepository,
+    private val roleTransitionRepository: TransitionStore,
+    private val dependencyRepository: DependencyStore,
+    private val noteRepository: NoteStore,
     private val statusLabelService: StatusLabelService,
     private val schemaResolver: suspend (WorkItem) -> WorkItemSchema?,
     /** The transaction boundary: every advance STEP (lease acquire, apply, lease release, each cascade apply) is one unit. */
     private val unitOfWork: UnitOfWork,
-    private val resourceLeaseRepository: ResourceLeaseRepository? = null,
+    private val resourceLeaseRepository: LeaseStore? = null,
     private val resourceRequirementsResolver: suspend (WorkItem) -> List<ResourceRequirement> = { emptyList() },
     private val resourceRegistryResolver: suspend (java.util.UUID?) -> Map<String, ResourceDefinition> = { emptyMap() },
     private val resourceLeasesEnforced: Boolean = true,
@@ -611,7 +611,7 @@ class AdvanceService(
         /**
          * Leases acquired (or none needed); [credentialRefs] is the final audit list to persist.
          *
-         * @property acquired the [ResourceLease] rows returned by [ResourceLeaseRepository.acquireAll]
+         * @property acquired the [ResourceLease] rows returned by [LeaseStore.acquireAll]
          *   for THIS call (empty when the item declares no resources). Includes rows for keys that
          *   were freshly created (`version == 0`) AND rows for keys refreshed on a pre-existing hold
          *   (`version > 0`) — the compensating-release path at the call site filters on `version`.
@@ -685,7 +685,7 @@ class AdvanceService(
             val leaseRepo = resourceLeaseRepository
             if (leaseRepo == null) {
                 logger.error(
-                    "Item {} declares {} exclusive resource(s) {} but no ResourceLeaseRepository is wired " +
+                    "Item {} declares {} exclusive resource(s) {} but no LeaseStore is wired " +
                         "into AdvanceService — the resource gate is being SKIPPED. This is a wiring bug at " +
                         "the AdvanceService construction site, not a runtime condition.",
                     item.id,
@@ -1301,7 +1301,7 @@ class AdvanceService(
      * thrown) rolls the unit back and becomes [AcquireStep.Faulted].
      */
     private suspend fun acquireInUnit(
-        leaseRepo: ResourceLeaseRepository,
+        leaseRepo: LeaseStore,
         holderItemId: java.util.UUID,
         actorId: String?,
         requests: List<Pair<String, Int>>

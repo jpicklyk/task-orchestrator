@@ -39,7 +39,7 @@ private val depLogger = LoggerFactory.getLogger("DependencyRoutes")
  * scope mismatch on a counterparty drops that row rather than failing the request: only the
  * directly-named subject item can produce a 403.
  *
- * Note: [DependencyRepository] methods are non-suspend; they are called inside [withContext]
+ * Note: [DependencyStore] methods are non-suspend; they are called inside [withContext]
  * to avoid blocking the Ktor event loop.
  */
 fun Route.dependencyRoutes(repositoryProvider: RepositoryProvider) {

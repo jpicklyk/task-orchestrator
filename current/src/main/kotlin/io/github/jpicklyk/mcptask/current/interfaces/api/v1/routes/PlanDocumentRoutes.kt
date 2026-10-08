@@ -38,7 +38,7 @@ private val planDocumentLogger = LoggerFactory.getLogger("PlanDocumentRoutes")
  *   operation calls, so both surfaces converge on identical DB state (and `contentHash`) for the
  *   same payload. Body must not exceed [PlanDocumentService.MAX_BODY_BYTES] (413); a slug already
  *   ADOPTED is rejected as 409 (adoption is a one-way transition — see
- *   [io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentStashOutcome.AdoptedConflict]).
+ *   [io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStashOutcome.AdoptedConflict]).
  * - `GET  /roots/{rootId}/plans/{slug}` — read back the stored document, including its body
  *   ([ApiCapability.READ] + scope); 404 when no document exists at that slug.
  * - `GET  /roots/{rootId}/plans` — list metadata-only summaries (no body) for every document under

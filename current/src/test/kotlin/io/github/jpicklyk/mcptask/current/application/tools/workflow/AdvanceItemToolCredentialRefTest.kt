@@ -1,15 +1,15 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -36,7 +36,7 @@ import kotlin.test.assertTrue
  *
  * Covers: bare-string coercion to a one-element list, array-of-strings acceptance, the >8-entries
  * rejection, the charset/pattern rejection, and the absent-field no-behavior-change path — plus
- * verifying the resolved list actually reaches [RoleTransitionRepository.create] via
+ * verifying the resolved list actually reaches [TransitionStore.create] via
  * [RoleTransitionHandler]/[AdvanceService].
  *
  * Mirrors the mock setup in [AdvanceItemToolTest].
@@ -46,8 +46,8 @@ class AdvanceItemToolCredentialRefTest {
     private lateinit var context: ToolExecutionContext
     private lateinit var repoProvider: RepositoryProvider
     private lateinit var workItemRepo: WorkItemRepository
-    private lateinit var depRepo: DependencyRepository
-    private lateinit var roleTransitionRepo: RoleTransitionRepository
+    private lateinit var depRepo: DependencyStore
+    private lateinit var roleTransitionRepo: TransitionStore
 
     @BeforeEach
     fun setUp() {
@@ -59,7 +59,7 @@ class AdvanceItemToolCredentialRefTest {
         repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
         every { repoProvider.dependencyRepository() } returns depRepo
-        val defaultNoteRepo = mockk<NoteRepository>()
+        val defaultNoteRepo = mockk<NoteStore>()
         coEvery { defaultNoteRepo.findByItemId(any()) } returns emptyList()
         coEvery { defaultNoteRepo.findByItemId(any(), any()) } returns emptyList()
         every { repoProvider.noteRepository() } returns defaultNoteRepo

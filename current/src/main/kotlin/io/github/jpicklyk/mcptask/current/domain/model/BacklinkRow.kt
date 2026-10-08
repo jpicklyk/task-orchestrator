@@ -5,7 +5,7 @@ import java.util.UUID
 /**
  * A reverse-direction dependency edge: another item points *at* a given item.
  *
- * Returned by [io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository.backlinks]
+ * Returned by [io.github.jpicklyk.mcptask.current.application.port.DependencyStore.backlinks]
  * to represent items that hold an outbound edge pointing at a queried item.
  *
  * @property fromItemId UUID of the item that holds the dependency edge.

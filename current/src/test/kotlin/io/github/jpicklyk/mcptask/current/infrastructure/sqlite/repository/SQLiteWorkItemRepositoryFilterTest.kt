@@ -1,0 +1,1230 @@
+package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
+
+import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
+import io.github.jpicklyk.mcptask.current.domain.model.Priority
+import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import kotlinx.coroutines.runBlocking
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.jdbc.Database
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
+import org.jetbrains.exposed.v1.jdbc.update
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
+import java.time.Instant
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
+
+class SQLiteWorkItemRepositoryFilterTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
+    private lateinit var database: Database
+    private lateinit var databaseManager: DatabaseManager
+    private lateinit var repository: SQLiteWorkItemRepository
+
+    @BeforeEach
+    fun setUp() {
+        database = sqliteDb.database
+        databaseManager = sqliteDb.databaseManager
+        repository = SQLiteWorkItemRepository(databaseManager)
+    }
+
+    // =====================================================================
+    // findByFilters tests
+    // =====================================================================
+
+    @Test
+    fun `findByFilters with no filters returns all items`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Item 1"))
+            repository.create(WorkItem(title = "Item 2"))
+            repository.create(WorkItem(title = "Item 3"))
+
+            val result = repository.findByFilters()
+            assertNotNull(result)
+            assertEquals(3, result.items.size)
+        }
+
+    @Test
+    fun `findByFilters by role`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Queue item", role = Role.QUEUE))
+            repository.create(WorkItem(title = "Work item", role = Role.WORK))
+            repository.create(WorkItem(title = "Another queue", role = Role.QUEUE))
+
+            val result = repository.findByFilters(role = Role.QUEUE)
+            assertNotNull(result)
+            assertEquals(2, result.items.size)
+            assertTrue(result.items.all { it.role == Role.QUEUE })
+        }
+
+    @Test
+    fun `findByFilters by priority`() =
+        runBlocking {
+            repository.create(WorkItem(title = "High prio", priority = Priority.HIGH))
+            repository.create(WorkItem(title = "Low prio", priority = Priority.LOW))
+            repository.create(WorkItem(title = "High prio 2", priority = Priority.HIGH))
+
+            val result = repository.findByFilters(priority = Priority.HIGH)
+            assertNotNull(result)
+            assertEquals(2, result.items.size)
+            assertTrue(result.items.all { it.priority == Priority.HIGH })
+        }
+
+    @Test
+    fun `findByFilters by parentId`() =
+        runBlocking {
+            val parent = WorkItem(title = "Parent", depth = 0)
+            repository.create(parent)
+            repository.create(WorkItem(title = "Child 1", parentId = parent.id, depth = 1))
+            repository.create(WorkItem(title = "Child 2", parentId = parent.id, depth = 1))
+            repository.create(WorkItem(title = "Orphan", depth = 0))
+
+            val result = repository.findByFilters(parentId = parent.id)
+            assertNotNull(result)
+            assertEquals(2, result.items.size)
+            assertTrue(result.items.all { it.parentId == parent.id })
+        }
+
+    @Test
+    fun `findByFilters by depth`() =
+        runBlocking {
+            val parent = WorkItem(title = "Depth 0", depth = 0)
+            repository.create(parent)
+            repository.create(WorkItem(title = "Depth 1", parentId = parent.id, depth = 1))
+
+            val result = repository.findByFilters(depth = 0)
+            assertNotNull(result)
+            assertEquals(1, result.items.size)
+            assertEquals("Depth 0", result.items[0].title)
+        }
+
+    @Test
+    fun `findByFilters by tags - single tag`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Tagged", tags = "bug"))
+            repository.create(WorkItem(title = "Not tagged"))
+
+            val result = repository.findByFilters(tags = listOf("bug"))
+            assertNotNull(result)
+            assertEquals(1, result.items.size)
+            assertEquals("Tagged", result.items[0].title)
+        }
+
+    @Test
+    fun `findByFilters by tags - multiple tags OR logic`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Bug item", tags = "bug"))
+            repository.create(WorkItem(title = "Feature item", tags = "feature"))
+            repository.create(WorkItem(title = "No tags"))
+
+            val result = repository.findByFilters(tags = listOf("bug", "feature"))
+            assertNotNull(result)
+            assertEquals(2, result.items.size)
+            val titles =
+                result.items
+                    .map { it.title }
+                    .toSet()
+            assertTrue("Bug item" in titles)
+            assertTrue("Feature item" in titles)
+        }
+
+    @Test
+    fun `findByFilters by tags - tag at start, middle, end of comma-separated string`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Start", tags = "bug,feature"))
+            repository.create(WorkItem(title = "Middle", tags = "alpha,bug,beta"))
+            repository.create(WorkItem(title = "End", tags = "alpha,bug"))
+            repository.create(WorkItem(title = "Alone", tags = "bug"))
+            repository.create(WorkItem(title = "No match", tags = "feature,alpha"))
+
+            val result = repository.findByFilters(tags = listOf("bug"))
+            assertNotNull(result)
+            assertEquals(4, result.items.size)
+            val titles =
+                result.items
+                    .map { it.title }
+                    .toSet()
+            assertTrue("Start" in titles)
+            assertTrue("Middle" in titles)
+            assertTrue("End" in titles)
+            assertTrue("Alone" in titles)
+        }
+
+    @Test
+    fun `findByFilters by tags - no false positives on tag substring`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Has bugfix", tags = "bugfix"))
+            repository.create(WorkItem(title = "Has bug", tags = "bug"))
+            repository.create(WorkItem(title = "Has debug", tags = "debug"))
+
+            val result = repository.findByFilters(tags = listOf("bug"))
+            assertNotNull(result)
+            assertEquals(1, result.items.size)
+            assertEquals("Has bug", result.items[0].title)
+        }
+
+    @Test
+    fun `findByFilters by createdAfter and createdBefore`() =
+        runBlocking {
+            val t1 = Instant.parse("2025-01-01T00:00:00Z")
+            val t2 = Instant.parse("2025-06-01T00:00:00Z")
+            val t3 = Instant.parse("2025-12-01T00:00:00Z")
+
+            repository.create(WorkItem(title = "Old", createdAt = t1, modifiedAt = t1, roleChangedAt = t1))
+            repository.create(WorkItem(title = "Mid", createdAt = t2, modifiedAt = t2, roleChangedAt = t2))
+            repository.create(WorkItem(title = "New", createdAt = t3, modifiedAt = t3, roleChangedAt = t3))
+
+            val result =
+                repository.findByFilters(
+                    createdAfter = Instant.parse("2025-03-01T00:00:00Z"),
+                    createdBefore = Instant.parse("2025-09-01T00:00:00Z")
+                )
+            assertNotNull(result)
+            assertEquals(1, result.items.size)
+            assertEquals("Mid", result.items[0].title)
+        }
+
+    @Test
+    fun `findByFilters by modifiedAfter`() =
+        runBlocking {
+            val t1 = Instant.parse("2025-01-01T00:00:00Z")
+            val t2 = Instant.parse("2025-12-01T00:00:00Z")
+
+            repository.create(WorkItem(title = "Old mod", createdAt = t1, modifiedAt = t1, roleChangedAt = t1))
+            repository.create(WorkItem(title = "New mod", createdAt = t1, modifiedAt = t2, roleChangedAt = t1))
+
+            val result = repository.findByFilters(modifiedAfter = Instant.parse("2025-06-01T00:00:00Z"))
+            assertNotNull(result)
+            assertEquals(1, result.items.size)
+            assertEquals("New mod", result.items[0].title)
+        }
+
+    // The LIKE-based `query` filter on findByFilters was removed in T4 of the
+    // FTS5 + Graph-Aware Search feature. Text search now goes through
+    // SQLiteWorkItemRepository.ftsSearch() backed by FTS5 virtual tables
+    // (SQLite-only). Integration coverage lives in T8's FTS test suite.
+
+    @Test
+    fun `findByFilters with sortBy created asc`() =
+        runBlocking {
+            val t1 = Instant.parse("2025-01-01T00:00:00Z")
+            val t2 = Instant.parse("2025-06-01T00:00:00Z")
+            val t3 = Instant.parse("2025-12-01T00:00:00Z")
+
+            repository.create(WorkItem(title = "Mid", createdAt = t2, modifiedAt = t2, roleChangedAt = t2))
+            repository.create(WorkItem(title = "Old", createdAt = t1, modifiedAt = t1, roleChangedAt = t1))
+            repository.create(WorkItem(title = "New", createdAt = t3, modifiedAt = t3, roleChangedAt = t3))
+
+            val result = repository.findByFilters(sortBy = "created", sortOrder = "asc")
+            assertNotNull(result)
+            assertEquals(3, result.items.size)
+            assertEquals("Old", result.items[0].title)
+            assertEquals("Mid", result.items[1].title)
+            assertEquals("New", result.items[2].title)
+        }
+
+    @Test
+    fun `findByFilters with sortBy modified desc`() =
+        runBlocking {
+            val t1 = Instant.parse("2025-01-01T00:00:00Z")
+            val t2 = Instant.parse("2025-06-01T00:00:00Z")
+            val t3 = Instant.parse("2025-12-01T00:00:00Z")
+
+            repository.create(WorkItem(title = "Old mod", createdAt = t1, modifiedAt = t1, roleChangedAt = t1))
+            repository.create(WorkItem(title = "New mod", createdAt = t1, modifiedAt = t3, roleChangedAt = t1))
+            repository.create(WorkItem(title = "Mid mod", createdAt = t1, modifiedAt = t2, roleChangedAt = t1))
+
+            val result = repository.findByFilters(sortBy = "modified", sortOrder = "desc")
+            assertNotNull(result)
+            assertEquals(3, result.items.size)
+            assertEquals("New mod", result.items[0].title)
+            assertEquals("Mid mod", result.items[1].title)
+            assertEquals("Old mod", result.items[2].title)
+        }
+
+    @Test
+    fun `findByFilters with limit`() =
+        runBlocking {
+            for (i in 1..10) {
+                repository.create(WorkItem(title = "Item $i"))
+            }
+
+            val result = repository.findByFilters(limit = 3)
+            assertNotNull(result)
+            assertEquals(3, result.items.size)
+        }
+
+    @Test
+    fun `findByFilters with multiple filters combined`() =
+        runBlocking {
+            val parent = WorkItem(title = "Parent", depth = 0)
+            repository.create(parent)
+
+            repository.create(
+                WorkItem(
+                    title = "Match",
+                    parentId = parent.id,
+                    depth = 1,
+                    role = Role.WORK,
+                    priority = Priority.HIGH
+                )
+            )
+            repository.create(
+                WorkItem(
+                    title = "Wrong role",
+                    parentId = parent.id,
+                    depth = 1,
+                    role = Role.QUEUE,
+                    priority = Priority.HIGH
+                )
+            )
+            repository.create(
+                WorkItem(
+                    title = "Wrong priority",
+                    parentId = parent.id,
+                    depth = 1,
+                    role = Role.WORK,
+                    priority = Priority.LOW
+                )
+            )
+            repository.create(
+                WorkItem(
+                    title = "Wrong parent",
+                    depth = 0,
+                    role = Role.WORK,
+                    priority = Priority.HIGH
+                )
+            )
+
+            val result =
+                repository.findByFilters(
+                    parentId = parent.id,
+                    role = Role.WORK,
+                    priority = Priority.HIGH
+                )
+            assertNotNull(result)
+            assertEquals(1, result.items.size)
+            assertEquals("Match", result.items[0].title)
+        }
+
+    // =====================================================================
+    // countChildrenByRole tests
+    // =====================================================================
+
+    @Test
+    fun `countChildrenByRole returns correct counts`() =
+        runBlocking {
+            val parent = WorkItem(title = "Parent", depth = 0)
+            repository.create(parent)
+
+            repository.create(WorkItem(title = "Queue 1", parentId = parent.id, depth = 1, role = Role.QUEUE))
+            repository.create(WorkItem(title = "Queue 2", parentId = parent.id, depth = 1, role = Role.QUEUE))
+            repository.create(WorkItem(title = "Work 1", parentId = parent.id, depth = 1, role = Role.WORK))
+            repository.create(WorkItem(title = "Terminal 1", parentId = parent.id, depth = 1, role = Role.TERMINAL))
+            repository.create(WorkItem(title = "Terminal 2", parentId = parent.id, depth = 1, role = Role.TERMINAL))
+            repository.create(WorkItem(title = "Terminal 3", parentId = parent.id, depth = 1, role = Role.TERMINAL))
+
+            val result = repository.countChildrenByRole(parent.id)
+            assertNotNull(result)
+            val counts = result
+            assertEquals(2, counts[Role.QUEUE])
+            assertEquals(1, counts[Role.WORK])
+            assertEquals(3, counts[Role.TERMINAL])
+            // Roles with no children should not be in the map
+            assertTrue(Role.REVIEW !in counts)
+            assertTrue(Role.BLOCKED !in counts)
+        }
+
+    @Test
+    fun `countChildrenByRole with no children returns empty map`() =
+        runBlocking {
+            val parent = WorkItem(title = "Parent", depth = 0)
+            repository.create(parent)
+
+            val result = repository.countChildrenByRole(parent.id)
+            assertNotNull(result)
+            assertTrue(result.isEmpty())
+        }
+
+    // =====================================================================
+    // findRootItems tests
+    // =====================================================================
+
+    @Test
+    fun `findRootItems returns only root items`() =
+        runBlocking {
+            val root1 = WorkItem(title = "Root 1", depth = 0)
+            val root2 = WorkItem(title = "Root 2", depth = 0)
+            repository.create(root1)
+            repository.create(root2)
+            repository.create(WorkItem(title = "Child", parentId = root1.id, depth = 1))
+
+            val result = repository.findRootItems()
+            assertNotNull(result)
+            assertEquals(2, result.items.size)
+            val titles =
+                result.items
+                    .map { it.title }
+                    .toSet()
+            assertTrue("Root 1" in titles)
+            assertTrue("Root 2" in titles)
+        }
+
+    @Test
+    fun `findRootItems with limit`() =
+        runBlocking {
+            for (i in 1..5) {
+                repository.create(WorkItem(title = "Root $i", depth = 0))
+            }
+
+            val result = repository.findRootItems(limit = 2)
+            assertNotNull(result)
+            assertEquals(2, result.items.size)
+        }
+
+    @Test
+    fun `findRootItems orders roots newest-createdAt-first`() =
+        runBlocking {
+            val t1 = Instant.parse("2025-01-01T00:00:00Z")
+            val t2 = Instant.parse("2025-06-01T00:00:00Z")
+            val t3 = Instant.parse("2025-12-01T00:00:00Z")
+
+            repository.create(WorkItem(title = "Oldest", depth = 0, createdAt = t1, modifiedAt = t1, roleChangedAt = t1))
+            repository.create(WorkItem(title = "Newest", depth = 0, createdAt = t3, modifiedAt = t3, roleChangedAt = t3))
+            repository.create(WorkItem(title = "Middle", depth = 0, createdAt = t2, modifiedAt = t2, roleChangedAt = t2))
+
+            val result = repository.findRootItems()
+            assertNotNull(result)
+            val titles = result.items.map { it.title }
+            assertEquals(listOf("Newest", "Middle", "Oldest"), titles)
+        }
+
+    @Test
+    fun `findRootItems with excludeTerminal true omits terminal roots`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Active Root", depth = 0, role = Role.QUEUE))
+            repository.create(WorkItem(title = "Done Root", depth = 0, role = Role.TERMINAL))
+
+            val result = repository.findRootItems(excludeTerminal = true)
+            assertNotNull(result)
+            assertEquals(listOf("Active Root"), result.items.map { it.title })
+        }
+
+    @Test
+    fun `findRootItems with excludeTerminal false preserves current behavior`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Active Root", depth = 0, role = Role.QUEUE))
+            repository.create(WorkItem(title = "Done Root", depth = 0, role = Role.TERMINAL))
+
+            val result = repository.findRootItems()
+            assertNotNull(result)
+            assertEquals(2, result.items.size)
+        }
+
+    @Test
+    fun `countRootItems with excludeTerminal true counts only non-terminal roots`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Active Root 1", depth = 0, role = Role.QUEUE))
+            repository.create(WorkItem(title = "Active Root 2", depth = 0, role = Role.WORK))
+            repository.create(WorkItem(title = "Done Root", depth = 0, role = Role.TERMINAL))
+
+            val filteredCount = repository.countRootItems(excludeTerminal = true)
+            assertNotNull(filteredCount)
+            assertEquals(2L, filteredCount)
+
+            val unfilteredCount = repository.countRootItems()
+            assertNotNull(unfilteredCount)
+            assertEquals(3L, unfilteredCount)
+        }
+
+    /**
+     * Directly blanks a row's title via Exposed, bypassing [WorkItem.validate]. Simulates a
+     * corrupt/legacy row that [SQLiteWorkItemRepository]'s `toWorkItemOrNull` must drop rather
+     * than fail the whole query. Same technique as
+     * [SQLiteWorkItemRepositoryAncestorCycleTest.forceSetParentId].
+     */
+    private fun forceBlankTitle(itemId: java.util.UUID) {
+        transaction(db = database) {
+            WorkItemsTable.update({ WorkItemsTable.id eq itemId }) {
+                it[WorkItemsTable.title] = ""
+            }
+        }
+    }
+
+    @Test
+    fun `findRootItems reports skipped for a row that fails domain validation`() =
+        runBlocking {
+            val good1 = repository.create(WorkItem(title = "Good root 1", depth = 0))
+            repository.create(WorkItem(title = "Good root 2", depth = 0))
+            val corrupt = repository.create(WorkItem(title = "Will be corrupted", depth = 0))
+            forceBlankTitle(corrupt.id)
+
+            val result = repository.findRootItems()
+            assertNotNull(result)
+            assertEquals(2, result.items.size)
+            assertEquals(1, result.skipped)
+            assertTrue(result.items.none { it.id == corrupt.id })
+            assertTrue(result.items.any { it.id == good1.id })
+
+            val countResult = repository.countRootItems()
+            assertNotNull(countResult)
+            assertEquals(3L, countResult, "countRootItems is unaffected by the validation drop")
+        }
+
+    @Test
+    fun `findByFilters reports skipped for a row that fails domain validation`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Good item"))
+            val corrupt = repository.create(WorkItem(title = "Will be corrupted"))
+            forceBlankTitle(corrupt.id)
+
+            val result = repository.findByFilters()
+            assertNotNull(result)
+            assertEquals(1, result.items.size)
+            assertEquals(1, result.skipped)
+
+            val countResult = repository.countByFilters()
+            assertNotNull(countResult)
+            assertEquals(2, countResult, "countByFilters is the raw SQL count, unaffected by the validation drop")
+        }
+
+    // =====================================================================
+    // roleChangedAfter / roleChangedBefore filter tests
+    // =====================================================================
+
+    @Test
+    fun `findByFilters with roleChangedAfter filters correctly`() =
+        runBlocking {
+            val t1 = Instant.parse("2025-01-01T00:00:00Z")
+            val t2 = Instant.parse("2025-06-01T00:00:00Z")
+            val t3 = Instant.parse("2025-12-01T00:00:00Z")
+
+            repository.create(WorkItem(title = "Old role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t1))
+            repository.create(WorkItem(title = "Recent role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t3))
+
+            val result = repository.findByFilters(roleChangedAfter = t2)
+            assertNotNull(result)
+            assertEquals(1, result.items.size)
+            assertEquals("Recent role change", result.items[0].title)
+        }
+
+    @Test
+    fun `findByFilters with roleChangedBefore filters correctly`() =
+        runBlocking {
+            val t1 = Instant.parse("2025-01-01T00:00:00Z")
+            val t2 = Instant.parse("2025-06-01T00:00:00Z")
+            val t3 = Instant.parse("2025-12-01T00:00:00Z")
+
+            repository.create(WorkItem(title = "Old role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t1))
+            repository.create(WorkItem(title = "Recent role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t3))
+
+            val result = repository.findByFilters(roleChangedBefore = t2)
+            assertNotNull(result)
+            assertEquals(1, result.items.size)
+            assertEquals("Old role change", result.items[0].title)
+        }
+
+    @Test
+    fun `findByFilters with roleChangedAfter and roleChangedBefore combined filters correctly`() =
+        runBlocking {
+            val t1 = Instant.parse("2025-01-01T00:00:00Z")
+            val t2 = Instant.parse("2025-03-01T00:00:00Z")
+            val t3 = Instant.parse("2025-06-01T00:00:00Z")
+            val t4 = Instant.parse("2025-09-01T00:00:00Z")
+            val t5 = Instant.parse("2025-12-01T00:00:00Z")
+
+            repository.create(WorkItem(title = "Before range", createdAt = t1, modifiedAt = t1, roleChangedAt = t1))
+            repository.create(WorkItem(title = "In range", createdAt = t1, modifiedAt = t1, roleChangedAt = t3))
+            repository.create(WorkItem(title = "After range", createdAt = t1, modifiedAt = t1, roleChangedAt = t5))
+
+            val result =
+                repository.findByFilters(
+                    roleChangedAfter = t2,
+                    roleChangedBefore = t4
+                )
+            assertNotNull(result)
+            assertEquals(1, result.items.size)
+            assertEquals("In range", result.items[0].title)
+        }
+
+    // =====================================================================
+    // type filter tests
+    // =====================================================================
+
+    @Test
+    fun `findByFilters by type returns matching items`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Feature item", type = "feature"))
+            repository.create(WorkItem(title = "Bug item", type = "bug"))
+            repository.create(WorkItem(title = "No type item"))
+
+            val result = repository.findByFilters(type = "feature")
+            assertNotNull(result)
+            assertEquals(1, result.items.size)
+            assertEquals("Feature item", result.items[0].title)
+        }
+
+    @Test
+    fun `findByFilters with null type returns all items`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Feature item", type = "feature"))
+            repository.create(WorkItem(title = "Bug item", type = "bug"))
+            repository.create(WorkItem(title = "No type item"))
+
+            val result = repository.findByFilters(type = null)
+            assertNotNull(result)
+            assertEquals(3, result.items.size)
+        }
+
+    @Test
+    fun `countByFilters by type counts only matching items`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Feature 1", type = "feature"))
+            repository.create(WorkItem(title = "Feature 2", type = "feature"))
+            repository.create(WorkItem(title = "Bug item", type = "bug"))
+
+            val result = repository.countByFilters(type = "feature")
+            assertNotNull(result)
+            assertEquals(2, result)
+        }
+
+    // =====================================================================
+    // findClaimable tests
+    // =====================================================================
+
+    @Test
+    fun `findClaimable by role filters correctly`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Queue item", role = Role.QUEUE))
+            repository.create(WorkItem(title = "Work item", role = Role.WORK))
+            repository.create(WorkItem(title = "Another queue", role = Role.QUEUE))
+
+            val result = repository.findClaimable(role = Role.QUEUE)
+            assertNotNull(result)
+            assertEquals(2, result.size)
+            assertTrue(result.all { it.role == Role.QUEUE })
+        }
+
+    @Test
+    fun `findClaimable by parentId filters correctly`() =
+        runBlocking {
+            val parent = WorkItem(title = "Parent", depth = 0)
+            repository.create(parent)
+            repository.create(WorkItem(title = "Child 1", parentId = parent.id, depth = 1, role = Role.QUEUE))
+            repository.create(WorkItem(title = "Child 2", parentId = parent.id, depth = 1, role = Role.QUEUE))
+            repository.create(WorkItem(title = "Orphan", depth = 0, role = Role.QUEUE))
+
+            val result = repository.findClaimable(role = Role.QUEUE, parentId = parent.id)
+            assertNotNull(result)
+            assertEquals(2, result.size)
+            assertTrue(result.all { it.parentId == parent.id })
+        }
+
+    @Test
+    fun `findClaimable by tags any-match filters correctly`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Bug item", tags = "bug", role = Role.QUEUE))
+            repository.create(WorkItem(title = "Feature item", tags = "feature", role = Role.QUEUE))
+            repository.create(WorkItem(title = "No tags", role = Role.QUEUE))
+
+            val result = repository.findClaimable(role = Role.QUEUE, tags = listOf("bug", "feature"))
+            assertNotNull(result)
+            assertEquals(2, result.size)
+            val titles = result.map { it.title }.toSet()
+            assertTrue("Bug item" in titles)
+            assertTrue("Feature item" in titles)
+        }
+
+    @Test
+    fun `findClaimable by priority filters correctly`() =
+        runBlocking {
+            repository.create(WorkItem(title = "High", priority = Priority.HIGH, role = Role.QUEUE))
+            repository.create(WorkItem(title = "Low", priority = Priority.LOW, role = Role.QUEUE))
+            repository.create(WorkItem(title = "Medium", priority = Priority.MEDIUM, role = Role.QUEUE))
+
+            val result = repository.findClaimable(role = Role.QUEUE, priority = Priority.HIGH)
+            assertNotNull(result)
+            assertEquals(1, result.size)
+            assertEquals("High", result[0].title)
+        }
+
+    @Test
+    fun `findClaimable by type filters correctly`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Feature task", type = "feature", role = Role.QUEUE))
+            repository.create(WorkItem(title = "Bug fix", type = "bug", role = Role.QUEUE))
+            repository.create(WorkItem(title = "No type", role = Role.QUEUE))
+
+            val result = repository.findClaimable(role = Role.QUEUE, type = "feature")
+            assertNotNull(result)
+            assertEquals(1, result.size)
+            assertEquals("Feature task", result[0].title)
+        }
+
+    @Test
+    fun `findClaimable by complexityMax filters correctly`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Simple", complexity = 2, role = Role.QUEUE))
+            repository.create(WorkItem(title = "Moderate", complexity = 5, role = Role.QUEUE))
+            repository.create(WorkItem(title = "Complex", complexity = 9, role = Role.QUEUE))
+            repository.create(WorkItem(title = "No complexity", role = Role.QUEUE))
+
+            val result = repository.findClaimable(role = Role.QUEUE, complexityMax = 5)
+            assertNotNull(result)
+            assertEquals(2, result.size)
+            val titles = result.map { it.title }.toSet()
+            assertTrue("Simple" in titles)
+            assertTrue("Moderate" in titles)
+        }
+
+    @Test
+    fun `findClaimable by createdAfter filters correctly`() =
+        runBlocking {
+            val t1 = Instant.parse("2025-01-01T00:00:00Z")
+            val t2 = Instant.parse("2025-12-01T00:00:00Z")
+
+            repository.create(WorkItem(title = "Old", createdAt = t1, modifiedAt = t1, roleChangedAt = t1, role = Role.QUEUE))
+            repository.create(WorkItem(title = "New", createdAt = t2, modifiedAt = t2, roleChangedAt = t2, role = Role.QUEUE))
+
+            val result = repository.findClaimable(role = Role.QUEUE, createdAfter = Instant.parse("2025-06-01T00:00:00Z"))
+            assertNotNull(result)
+            assertEquals(1, result.size)
+            assertEquals("New", result[0].title)
+        }
+
+    @Test
+    fun `findClaimable by createdBefore filters correctly`() =
+        runBlocking {
+            val t1 = Instant.parse("2025-01-01T00:00:00Z")
+            val t2 = Instant.parse("2025-12-01T00:00:00Z")
+
+            repository.create(WorkItem(title = "Old", createdAt = t1, modifiedAt = t1, roleChangedAt = t1, role = Role.QUEUE))
+            repository.create(WorkItem(title = "New", createdAt = t2, modifiedAt = t2, roleChangedAt = t2, role = Role.QUEUE))
+
+            val result = repository.findClaimable(role = Role.QUEUE, createdBefore = Instant.parse("2025-06-01T00:00:00Z"))
+            assertNotNull(result)
+            assertEquals(1, result.size)
+            assertEquals("Old", result[0].title)
+        }
+
+    @Test
+    fun `findClaimable by roleChangedAfter filters correctly`() =
+        runBlocking {
+            val t1 = Instant.parse("2025-01-01T00:00:00Z")
+            val t2 = Instant.parse("2025-12-01T00:00:00Z")
+
+            repository.create(WorkItem(title = "Old role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t1, role = Role.QUEUE))
+            repository.create(
+                WorkItem(title = "Recent role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t2, role = Role.QUEUE)
+            )
+
+            val result = repository.findClaimable(role = Role.QUEUE, roleChangedAfter = Instant.parse("2025-06-01T00:00:00Z"))
+            assertNotNull(result)
+            assertEquals(1, result.size)
+            assertEquals("Recent role change", result[0].title)
+        }
+
+    @Test
+    fun `findClaimable by roleChangedBefore filters correctly`() =
+        runBlocking {
+            val t1 = Instant.parse("2025-01-01T00:00:00Z")
+            val t2 = Instant.parse("2025-12-01T00:00:00Z")
+
+            repository.create(WorkItem(title = "Old role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t1, role = Role.QUEUE))
+            repository.create(
+                WorkItem(title = "Recent role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t2, role = Role.QUEUE)
+            )
+
+            val result = repository.findClaimable(role = Role.QUEUE, roleChangedBefore = Instant.parse("2025-06-01T00:00:00Z"))
+            assertNotNull(result)
+            assertEquals(1, result.size)
+            assertEquals("Old role change", result[0].title)
+        }
+
+    @Test
+    fun `findClaimable with multiple filters combined`() =
+        runBlocking {
+            val parent = WorkItem(title = "Parent", depth = 0)
+            repository.create(parent)
+
+            repository.create(
+                WorkItem(
+                    title = "Match",
+                    parentId = parent.id,
+                    depth = 1,
+                    role = Role.QUEUE,
+                    priority = Priority.HIGH,
+                    complexity = 3,
+                    tags = "feature,urgent",
+                )
+            )
+            repository.create(
+                WorkItem(
+                    title = "Wrong priority",
+                    parentId = parent.id,
+                    depth = 1,
+                    role = Role.QUEUE,
+                    priority = Priority.LOW,
+                    complexity = 3,
+                    tags = "feature",
+                )
+            )
+            repository.create(
+                WorkItem(
+                    title = "Too complex",
+                    parentId = parent.id,
+                    depth = 1,
+                    role = Role.QUEUE,
+                    priority = Priority.HIGH,
+                    complexity = 8,
+                    tags = "feature",
+                )
+            )
+            repository.create(
+                WorkItem(
+                    title = "Wrong parent",
+                    depth = 0,
+                    role = Role.QUEUE,
+                    priority = Priority.HIGH,
+                    complexity = 2,
+                    tags = "feature",
+                )
+            )
+
+            val result =
+                repository.findClaimable(
+                    role = Role.QUEUE,
+                    parentId = parent.id,
+                    priority = Priority.HIGH,
+                    complexityMax = 3,
+                    tags = listOf("feature"),
+                )
+            assertNotNull(result)
+            assertEquals(1, result.size)
+            assertEquals("Match", result[0].title)
+        }
+
+    @Test
+    fun `findClaimable with PRIORITY_THEN_COMPLEXITY orderBy sorts correctly`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Low-simple", priority = Priority.LOW, complexity = 1, role = Role.QUEUE))
+            repository.create(WorkItem(title = "High-complex", priority = Priority.HIGH, complexity = 9, role = Role.QUEUE))
+            repository.create(WorkItem(title = "High-simple", priority = Priority.HIGH, complexity = 1, role = Role.QUEUE))
+            repository.create(WorkItem(title = "Medium-simple", priority = Priority.MEDIUM, complexity = 2, role = Role.QUEUE))
+
+            val result = repository.findClaimable(role = Role.QUEUE, orderBy = NextItemOrder.PRIORITY_THEN_COMPLEXITY)
+            assertNotNull(result)
+            assertEquals(4, result.size)
+            // HIGH items first (lowest complexity first within HIGH), then MEDIUM, then LOW
+            assertEquals("High-simple", result[0].title)
+            assertEquals("High-complex", result[1].title)
+            assertEquals("Medium-simple", result[2].title)
+            assertEquals("Low-simple", result[3].title)
+        }
+
+    @Test
+    fun `findClaimable with OLDEST_FIRST orderBy sorts by createdAt ASC`() =
+        runBlocking {
+            val t1 = Instant.parse("2025-01-01T00:00:00Z")
+            val t2 = Instant.parse("2025-06-01T00:00:00Z")
+            val t3 = Instant.parse("2025-12-01T00:00:00Z")
+
+            repository.create(WorkItem(title = "Mid", createdAt = t2, modifiedAt = t2, roleChangedAt = t2, role = Role.QUEUE))
+            repository.create(WorkItem(title = "Old", createdAt = t1, modifiedAt = t1, roleChangedAt = t1, role = Role.QUEUE))
+            repository.create(WorkItem(title = "New", createdAt = t3, modifiedAt = t3, roleChangedAt = t3, role = Role.QUEUE))
+
+            val result = repository.findClaimable(role = Role.QUEUE, orderBy = NextItemOrder.OLDEST_FIRST)
+            assertNotNull(result)
+            assertEquals(3, result.size)
+            assertEquals("Old", result[0].title)
+            assertEquals("Mid", result[1].title)
+            assertEquals("New", result[2].title)
+        }
+
+    @Test
+    fun `findClaimable with NEWEST_FIRST orderBy sorts by createdAt DESC`() =
+        runBlocking {
+            val t1 = Instant.parse("2025-01-01T00:00:00Z")
+            val t2 = Instant.parse("2025-06-01T00:00:00Z")
+            val t3 = Instant.parse("2025-12-01T00:00:00Z")
+
+            repository.create(WorkItem(title = "Mid", createdAt = t2, modifiedAt = t2, roleChangedAt = t2, role = Role.QUEUE))
+            repository.create(WorkItem(title = "Old", createdAt = t1, modifiedAt = t1, roleChangedAt = t1, role = Role.QUEUE))
+            repository.create(WorkItem(title = "New", createdAt = t3, modifiedAt = t3, roleChangedAt = t3, role = Role.QUEUE))
+
+            val result = repository.findClaimable(role = Role.QUEUE, orderBy = NextItemOrder.NEWEST_FIRST)
+            assertNotNull(result)
+            assertEquals(3, result.size)
+            assertEquals("New", result[0].title)
+            assertEquals("Mid", result[1].title)
+            assertEquals("Old", result[2].title)
+        }
+
+    @Test
+    fun `findClaimable always excludes items with active claims`() =
+        runBlocking {
+            // Unclaimed item — should be included
+            repository.create(WorkItem(title = "Unclaimed", role = Role.QUEUE))
+
+            // Actively claimed item — claimExpiresAt in the future → must be excluded.
+            // Capture `now` once so claimedAt and originalClaimedAt are equal — separate
+            // Instant.now() calls drift by microseconds on Linux CI's high-resolution clock
+            // and trip WorkItem.validate()'s originalClaimedAt <= claimedAt invariant.
+            val now = Instant.now()
+            repository.create(
+                WorkItem(
+                    title = "Claimed",
+                    role = Role.QUEUE,
+                    claimedBy = "agent-x",
+                    claimedAt = now,
+                    claimExpiresAt = now.plusSeconds(900),
+                    originalClaimedAt = now,
+                )
+            )
+
+            val result = repository.findClaimable(role = Role.QUEUE)
+            assertNotNull(result)
+            assertEquals(1, result.size)
+            assertEquals("Unclaimed", result[0].title)
+        }
+
+    @Test
+    fun `findClaimable includes items with expired claims`() =
+        runBlocking {
+            // Unclaimed — included
+            repository.create(WorkItem(title = "Unclaimed", role = Role.QUEUE))
+
+            // Expired claim — claimExpiresAt in the past → should be included.
+            // Capture `now` once so claimedAt and originalClaimedAt are equal — separate
+            // Instant.now() calls drift by microseconds on Linux CI's high-resolution clock
+            // and trip WorkItem.validate()'s originalClaimedAt <= claimedAt invariant.
+            val now = Instant.now()
+            repository.create(
+                WorkItem(
+                    title = "Expired claim",
+                    role = Role.QUEUE,
+                    claimedBy = "agent-y",
+                    claimedAt = now.minusSeconds(120),
+                    claimExpiresAt = now.minusSeconds(60),
+                    originalClaimedAt = now.minusSeconds(120),
+                )
+            )
+
+            val result = repository.findClaimable(role = Role.QUEUE)
+            assertNotNull(result)
+            assertEquals(2, result.size)
+            val titles = result.map { it.title }.toSet()
+            assertTrue("Unclaimed" in titles)
+            assertTrue("Expired claim" in titles)
+        }
+
+    @Test
+    fun `findClaimable returns empty list when no matches`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Work item", role = Role.WORK))
+
+            // Query QUEUE — no items in queue
+            val result = repository.findClaimable(role = Role.QUEUE)
+            assertNotNull(result)
+            assertTrue(result.isEmpty())
+        }
+
+    // =====================================================================
+    // findClaimable ancestor-claim filter tests
+    // =====================================================================
+
+    @Test
+    fun `findClaimable root items unaffected by ancestor filter regardless of requestingAgentId`() =
+        runBlocking {
+            // Root item (no parent) — the ancestor-claim filter never applies.
+            repository.create(WorkItem(title = "Root item", role = Role.QUEUE, depth = 0))
+
+            // requestingAgentId=null (strict mode) — root item still claimable
+            val resultStrict = repository.findClaimable(role = Role.QUEUE, requestingAgentId = null)
+            assertNotNull(resultStrict)
+            assertEquals(1, resultStrict.size)
+            assertEquals("Root item", resultStrict[0].title)
+
+            // requestingAgentId="agent-x" — root item still claimable
+            val resultAgent = repository.findClaimable(role = Role.QUEUE, requestingAgentId = "agent-x")
+            assertNotNull(resultAgent)
+            assertEquals(1, resultAgent.size)
+        }
+
+    @Test
+    fun `findClaimable same-agent re-claim eligibility — child included when parent claimed by same agent`() =
+        runBlocking {
+            val now = Instant.now()
+            val parent =
+                WorkItem(
+                    title = "Parent (claimed by agent-x)",
+                    depth = 0,
+                    claimedBy = "agent-x",
+                    claimedAt = now,
+                    claimExpiresAt = now.plusSeconds(900),
+                    originalClaimedAt = now,
+                )
+            val savedParent = repository.create(parent)
+
+            val child =
+                WorkItem(
+                    title = "Child",
+                    parentId = savedParent.id,
+                    depth = 1,
+                    role = Role.QUEUE,
+                )
+            repository.create(child)
+
+            // Same agent — child should be INCLUDED
+            val result = repository.findClaimable(role = Role.QUEUE, requestingAgentId = "agent-x")
+            assertNotNull(result)
+            assertEquals(1, result.size, "Child under same-agent claimed parent should be claimable")
+            assertEquals("Child", result[0].title)
+        }
+
+    @Test
+    fun `findClaimable cross-agent exclusion — child excluded when parent claimed by different agent`() =
+        runBlocking {
+            val now = Instant.now()
+            val parent =
+                WorkItem(
+                    title = "Parent (claimed by agent-x)",
+                    depth = 0,
+                    claimedBy = "agent-x",
+                    claimedAt = now,
+                    claimExpiresAt = now.plusSeconds(900),
+                    originalClaimedAt = now,
+                )
+            val savedParent = repository.create(parent)
+
+            val child =
+                WorkItem(
+                    title = "Child",
+                    parentId = savedParent.id,
+                    depth = 1,
+                    role = Role.QUEUE,
+                )
+            repository.create(child)
+
+            // Different agent — child should be EXCLUDED
+            val result = repository.findClaimable(role = Role.QUEUE, requestingAgentId = "agent-y")
+            assertNotNull(result)
+            assertTrue(result.isEmpty(), "Child under different-agent claimed parent should be excluded")
+        }
+
+    @Test
+    fun `findClaimable null requestingAgentId strict mode — child excluded when parent claimed by anyone`() =
+        runBlocking {
+            val now = Instant.now()
+            val parent =
+                WorkItem(
+                    title = "Parent (claimed)",
+                    depth = 0,
+                    claimedBy = "any-agent",
+                    claimedAt = now,
+                    claimExpiresAt = now.plusSeconds(900),
+                    originalClaimedAt = now,
+                )
+            val savedParent = repository.create(parent)
+
+            val child =
+                WorkItem(
+                    title = "Child",
+                    parentId = savedParent.id,
+                    depth = 1,
+                    role = Role.QUEUE,
+                )
+            repository.create(child)
+
+            // Null requestingAgentId — strict mode: any live ancestor claim excludes the child
+            val result = repository.findClaimable(role = Role.QUEUE, requestingAgentId = null)
+            assertNotNull(result)
+            assertTrue(result.isEmpty(), "Strict mode: child under any claimed parent should be excluded")
+        }
+
+    @Test
+    fun `findClaimable multi-level ancestry — claim on grandparent excludes grandchild`() =
+        runBlocking {
+            val now = Instant.now()
+            val grandparent =
+                WorkItem(
+                    title = "Grandparent (claimed by agent-x)",
+                    depth = 0,
+                    claimedBy = "agent-x",
+                    claimedAt = now,
+                    claimExpiresAt = now.plusSeconds(900),
+                    originalClaimedAt = now,
+                )
+            val savedGrandparent = repository.create(grandparent)
+
+            val parent =
+                WorkItem(
+                    title = "Parent (unclaimed)",
+                    parentId = savedGrandparent.id,
+                    depth = 1,
+                    role = Role.WORK,
+                )
+            val savedParent = repository.create(parent)
+
+            val child =
+                WorkItem(
+                    title = "Grandchild",
+                    parentId = savedParent.id,
+                    depth = 2,
+                    role = Role.QUEUE,
+                )
+            repository.create(child)
+
+            // agent-y requesting — grandparent claimed by agent-x — grandchild EXCLUDED
+            val result = repository.findClaimable(role = Role.QUEUE, requestingAgentId = "agent-y")
+            assertNotNull(result)
+            assertTrue(result.isEmpty(), "Grandchild under claimed grandparent should be excluded from cross-agent perspective")
+        }
+
+    @Test
+    fun `findClaimable expired parent claim — child is included after TTL expiry`() =
+        runBlocking {
+            val now = Instant.now()
+            // Parent is in WORK role (was being orchestrated when the holding agent crashed).
+            // TTL expired without a heartbeat — recovery agent should now see the child as claimable.
+            // Parent itself is in WORK so it's filtered out by the role=QUEUE query, isolating the
+            // assertion to the ancestor-claim filter behavior on the child alone.
+            val parent =
+                WorkItem(
+                    title = "Parent (expired claim, was in WORK)",
+                    depth = 0,
+                    role = Role.WORK,
+                    claimedBy = "agent-x",
+                    claimedAt = now.minusSeconds(120),
+                    claimExpiresAt = now.minusSeconds(60), // expired
+                    originalClaimedAt = now.minusSeconds(120),
+                )
+            val savedParent = repository.create(parent)
+
+            val child =
+                WorkItem(
+                    title = "Child",
+                    parentId = savedParent.id,
+                    depth = 1,
+                    role = Role.QUEUE,
+                )
+            repository.create(child)
+
+            // Expired parent claim — TTL recovery: child becomes claimable
+            val result = repository.findClaimable(role = Role.QUEUE, requestingAgentId = "agent-y")
+            assertNotNull(result)
+            assertEquals(1, result.size, "Child should be claimable after parent's TTL expires")
+            assertEquals("Child", result[0].title)
+        }
+
+    @Test
+    fun `findClaimable mixed ancestry — grandparent claimed excludes child even if direct parent is unclaimed`() =
+        runBlocking {
+            val now = Instant.now()
+            val grandparent =
+                WorkItem(
+                    title = "Grandparent (claimed by agent-x)",
+                    depth = 0,
+                    claimedBy = "agent-x",
+                    claimedAt = now,
+                    claimExpiresAt = now.plusSeconds(900),
+                    originalClaimedAt = now,
+                )
+            val savedGrandparent = repository.create(grandparent)
+
+            val parent =
+                WorkItem(
+                    title = "Parent (unclaimed)",
+                    parentId = savedGrandparent.id,
+                    depth = 1,
+                )
+            val savedParent = repository.create(parent)
+
+            val child =
+                WorkItem(
+                    title = "Child",
+                    parentId = savedParent.id,
+                    depth = 2,
+                    role = Role.QUEUE,
+                )
+            repository.create(child)
+
+            // Mixed ancestry: grandparent claimed by agent-x, parent unclaimed, agent-y requests
+            // → child EXCLUDED because a live ancestor claim by a different agent exists
+            val result = repository.findClaimable(role = Role.QUEUE, requestingAgentId = "agent-y")
+            assertNotNull(result)
+            assertTrue(result.isEmpty(), "Child should be excluded when any ancestor has a live cross-agent claim")
+        }
+
+    @Test
+    fun `findClaimable multiple candidates — only children under cross-agent claims are excluded`() =
+        runBlocking {
+            val now = Instant.now()
+
+            // Feature A claimed by agent-x (agent-y requesting — this child should be excluded)
+            val featureA =
+                WorkItem(
+                    title = "Feature A (claimed by agent-x)",
+                    depth = 0,
+                    claimedBy = "agent-x",
+                    claimedAt = now,
+                    claimExpiresAt = now.plusSeconds(900),
+                    originalClaimedAt = now,
+                )
+            val savedFeatureA = repository.create(featureA)
+
+            val taskA =
+                WorkItem(
+                    title = "Task A (child of Feature A)",
+                    parentId = savedFeatureA.id,
+                    depth = 1,
+                    role = Role.QUEUE,
+                )
+            repository.create(taskA)
+
+            // Feature B claimed by agent-y (same agent requesting — this child should be included)
+            val featureB =
+                WorkItem(
+                    title = "Feature B (claimed by agent-y)",
+                    depth = 0,
+                    claimedBy = "agent-y",
+                    claimedAt = now,
+                    claimExpiresAt = now.plusSeconds(900),
+                    originalClaimedAt = now,
+                )
+            val savedFeatureB = repository.create(featureB)
+
+            val taskB =
+                WorkItem(
+                    title = "Task B (child of Feature B)",
+                    parentId = savedFeatureB.id,
+                    depth = 1,
+                    role = Role.QUEUE,
+                )
+            repository.create(taskB)
+
+            // Root item (no parent) — always included
+            repository.create(WorkItem(title = "Root task", depth = 0, role = Role.QUEUE))
+
+            // agent-y requesting:
+            // - Task A: excluded (Feature A claimed by agent-x, different agent)
+            // - Task B: included (Feature B claimed by agent-y, same agent)
+            // - Root task: included (no ancestor)
+            val result = repository.findClaimable(role = Role.QUEUE, requestingAgentId = "agent-y")
+            assertNotNull(result)
+            assertEquals(2, result.size, "Only Task B (same-agent) and Root task should be returned")
+            val titles = result.map { it.title }.toSet()
+            assertTrue("Task B (child of Feature B)" in titles, "Task B should be included")
+            assertTrue("Root task" in titles, "Root task should be included")
+            assertTrue("Task A (child of Feature A)" !in titles, "Task A should be excluded")
+        }
+}

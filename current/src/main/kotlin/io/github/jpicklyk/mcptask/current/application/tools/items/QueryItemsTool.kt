@@ -1,5 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
+import io.github.jpicklyk.mcptask.current.application.port.ItemSortFields
+import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
+import io.github.jpicklyk.mcptask.current.application.port.SearchScope
 import io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView
 import io.github.jpicklyk.mcptask.current.application.service.search.FtsQuerySanitizer
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
@@ -10,9 +13,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.ItemSortFields
-import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
-import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*

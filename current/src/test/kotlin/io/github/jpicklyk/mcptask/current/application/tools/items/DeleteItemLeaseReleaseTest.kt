@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
+import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -27,15 +27,15 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Wraps a real [ResourceLeaseRepository], failing [releaseAllForItem] with
+ * Wraps a real [LeaseStore], failing [releaseAllForItem] with
  * [LeaseReleaseResult.DBError] for exactly one holder id; every other member delegates to
  * [delegate] unchanged. Mirrors [DeleteItemHandlerAtomicityTest]'s `FailOnIdWorkItemRepository`
  * seam, applied to the lease repository — the seam the test-plan names for this item.
  */
 private class LeaseFailOnIdResourceLeaseRepository(
-    private val delegate: ResourceLeaseRepository,
+    private val delegate: LeaseStore,
     private val failingHolderId: UUID,
-) : ResourceLeaseRepository by delegate {
+) : LeaseStore by delegate {
     override suspend fun releaseAllForItem(holderItemId: UUID): LeaseReleaseResult =
         if (holderItemId == failingHolderId) {
             throw RuntimeException("Simulated lease release failure for $holderItemId")
@@ -58,9 +58,9 @@ private class LeaseFailOnIdResourceLeaseRepository(
  */
 private class LeaseFailOnIdRepositoryProvider(
     private val delegate: RepositoryProvider,
-    private val failingLeaseRepo: ResourceLeaseRepository,
+    private val failingLeaseRepo: LeaseStore,
 ) : RepositoryProvider by delegate {
-    override fun resourceLeaseRepository(): ResourceLeaseRepository = failingLeaseRepo
+    override fun resourceLeaseRepository(): LeaseStore = failingLeaseRepo
 }
 
 /**
@@ -112,8 +112,8 @@ private class DeleteFailOnIdRepositoryProvider(
  * Oracles (frozen in test-plan note b9109cc0 / diagnosis note ca116121, before implementation was
  * read):
  *  [V16] `resource_lease_history` migration: every interval is closed exactly once, on release.
- *  [RK] `ResourceLeaseRepository`/`ResourceLeaseInterval` KDoc + close-reason vocabulary
- *       ("released", "expired") pinned by [io.github.jpicklyk.mcptask.current.infrastructure.database.repository.SQLiteResourceLeaseRepositoryHistoryTest].
+ *  [RK] `LeaseStore`/`ResourceLeaseInterval` KDoc + close-reason vocabulary
+ *       ("released", "expired") pinned by [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteResourceLeaseRepositoryHistoryTest].
  *  [AT] `DeleteItemHandler` KDoc / [DeleteItemHandlerAtomicityTest]: recursive delete is
  *       all-or-nothing per requested root id.
  *  [DX] diagnosis: release-before-delete happens inside the same transaction as the row delete;
@@ -166,7 +166,7 @@ class DeleteItemLeaseReleaseTest {
     /**
      * Backdates the lease for (resourceKey, holderItemId) to an already-expired expires_at in
      * BOTH the live table and the open history interval — mirrors
-     * [io.github.jpicklyk.mcptask.current.infrastructure.database.repository.SQLiteResourceLeaseRepositoryHistoryTest]'s
+     * [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteResourceLeaseRepositoryHistoryTest]'s
      * `expireLease` helper (production keeps the two tables' expiry in agreement, so simulating
      * time-passage must age them together).
      */

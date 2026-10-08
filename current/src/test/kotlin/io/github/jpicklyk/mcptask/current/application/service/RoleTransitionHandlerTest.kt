@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.*
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
@@ -238,7 +238,7 @@ class RoleTransitionHandlerTest {
 
     @Nested
     inner class ValidateTransition {
-        private val depRepo: DependencyRepository = mockk()
+        private val depRepo: DependencyStore = mockk()
         private val workItemRepo: WorkItemRepository = mockk()
 
         @Test
@@ -531,7 +531,7 @@ class RoleTransitionHandlerTest {
     @Nested
     inner class ApplyTransition {
         private val workItemRepo: WorkItemRepository = mockk()
-        private val roleTransitionRepo: RoleTransitionRepository = mockk()
+        private val roleTransitionRepo: TransitionStore = mockk()
 
         @BeforeEach
         fun setUpInTransaction() {
@@ -742,7 +742,7 @@ class RoleTransitionHandlerTest {
     @Nested
     inner class TransitionIntegrityRegressions {
         private val workItemRepo: WorkItemRepository = mockk()
-        private val roleTransitionRepo: RoleTransitionRepository = mockk()
+        private val roleTransitionRepo: TransitionStore = mockk()
 
         @BeforeEach
         fun setUp() {
@@ -940,9 +940,9 @@ class RoleTransitionHandlerTest {
 
     @Nested
     inner class EntryPoints {
-        private val depRepo: DependencyRepository = mockk()
+        private val depRepo: DependencyStore = mockk()
         private val workItemRepo: WorkItemRepository = mockk()
-        private val roleTransitionRepo: RoleTransitionRepository = mockk()
+        private val roleTransitionRepo: TransitionStore = mockk()
 
         @BeforeEach
         fun setUp() {

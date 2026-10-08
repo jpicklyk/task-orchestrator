@@ -29,7 +29,7 @@ import org.junit.jupiter.api.extension.RegisterExtension
  * unchanged success path (S8) and confirm the fix is orthogonal to subscriber count (S9).
  *
  * S4, S5, S8 are EXISTING-SURFACE: [EventPublishingRepositoryProvider]'s public surface,
- * [WorkItemRepository.inTransaction][io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository],
+ * [WorkItemRepository.inTransaction][io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository],
  * `create`/`update`/`delete`/`upsert` all predate this fix. A plain revert of the fix (routing
  * every publish site back through immediate `eventBus.publish(eventBus.buildEvent(...), roots)`)
  * yields genuine behavioral red on S4/S5 (rolled-back events would leak) without touching

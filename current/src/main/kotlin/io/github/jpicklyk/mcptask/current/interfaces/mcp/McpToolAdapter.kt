@@ -11,8 +11,8 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
-import io.github.jpicklyk.mcptask.current.infrastructure.database.PersistenceFaults
 import io.github.jpicklyk.mcptask.current.infrastructure.logging.MdcValues
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.PersistenceFaults
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.LoggingLevel

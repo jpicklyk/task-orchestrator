@@ -1,0 +1,220 @@
+package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
+
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
+import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.RoleTransitionsTable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.Json
+import org.jetbrains.exposed.v1.core.ResultRow
+import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greaterEq
+import org.jetbrains.exposed.v1.core.lessEq
+import org.jetbrains.exposed.v1.core.or
+import org.jetbrains.exposed.v1.jdbc.andWhere
+import org.jetbrains.exposed.v1.jdbc.deleteWhere
+import org.jetbrains.exposed.v1.jdbc.insert
+import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.slf4j.LoggerFactory
+import java.time.Instant
+import java.util.UUID
+
+/**
+ * SQLite implementation of TransitionStore.
+ */
+class SQLiteRoleTransitionRepository(
+    private val databaseManager: DatabaseManager
+) : TransitionStore {
+    override suspend fun create(transition: RoleTransition): RoleTransition =
+        databaseManager.writeTx("TransitionStore.create") {
+            RoleTransitionsTable.insert {
+                it[id] = transition.id
+                it[itemId] = transition.itemId
+                it[fromRole] = transition.fromRole
+                it[toRole] = transition.toRole
+                it[fromStatusLabel] = transition.fromStatusLabel
+                it[toStatusLabel] = transition.toStatusLabel
+                it[trigger] = transition.trigger
+                it[summary] = transition.summary
+                it[transitionedAt] = transition.transitionedAt
+                it[RoleTransitionsTable.actorId] = transition.actorClaim?.id
+                it[RoleTransitionsTable.actorKind] = transition.actorClaim?.kind?.toJsonString()
+                it[RoleTransitionsTable.actorParent] = transition.actorClaim?.parent
+                // Actor proofs (JWTs) are no longer persisted — only forensic evidence (hash +
+                // verified claims) is. See migration V17__Store_Actor_Proof_Evidence.sql.
+                it[RoleTransitionsTable.actorProof] = null
+                it[RoleTransitionsTable.actorProofSha256] = transition.verification?.proofSha256
+                it[RoleTransitionsTable.actorProofClaims] = transition.verification?.proofClaims?.toJsonStringOrNull()
+                it[RoleTransitionsTable.verificationStatus] = transition.verification?.status?.toJsonString()
+                it[RoleTransitionsTable.verificationVerifier] = transition.verification?.verifier
+                it[RoleTransitionsTable.verificationReason] = transition.verification?.reason
+                it[RoleTransitionsTable.consumedCredentials] =
+                    transition.consumedCredentials.takeIf { creds -> creds.isNotEmpty() }?.let { creds ->
+                        Json.encodeToString(ListSerializer(String.serializer()), creds)
+                    }
+            }
+            transition
+        }
+
+    override suspend fun findByItemId(
+        itemId: UUID,
+        limit: Int,
+        offset: Int
+    ): List<RoleTransition> =
+        databaseManager.readTx {
+            val transitions =
+                RoleTransitionsTable
+                    .selectAll()
+                    .where { RoleTransitionsTable.itemId eq itemId }
+                    .orderBy(
+                        RoleTransitionsTable.transitionedAt to SortOrder.DESC,
+                        RoleTransitionsTable.id to SortOrder.DESC
+                    ).limit(limit)
+                    .offset(offset.coerceAtLeast(0).toLong())
+                    .map { mapRowToRoleTransition(it) }
+            transitions
+        }
+
+    override suspend fun findByTimeRange(
+        startTime: Instant,
+        endTime: Instant,
+        role: String?,
+        limit: Int
+    ): List<RoleTransition> =
+        databaseManager.readTx {
+            var query =
+                RoleTransitionsTable.selectAll().where {
+                    (RoleTransitionsTable.transitionedAt greaterEq startTime) and
+                        (RoleTransitionsTable.transitionedAt lessEq endTime)
+                }
+
+            if (role != null) {
+                query =
+                    query.andWhere {
+                        (RoleTransitionsTable.fromRole eq role) or (RoleTransitionsTable.toRole eq role)
+                    }
+            }
+
+            val transitions =
+                query
+                    .orderBy(RoleTransitionsTable.transitionedAt, SortOrder.DESC)
+                    .limit(limit)
+                    .map { mapRowToRoleTransition(it) }
+            transitions
+        }
+
+    override suspend fun findSince(
+        since: Instant,
+        limit: Int
+    ): List<RoleTransition> =
+        databaseManager.readTx {
+            val results =
+                RoleTransitionsTable
+                    .selectAll()
+                    .where { RoleTransitionsTable.transitionedAt greaterEq since }
+                    .orderBy(
+                        RoleTransitionsTable.transitionedAt to SortOrder.DESC,
+                        RoleTransitionsTable.id to SortOrder.DESC
+                    ).limit(limit)
+                    .map { mapRowToRoleTransition(it) }
+            results
+        }
+
+    override suspend fun deleteByItemId(itemId: UUID): Int =
+        databaseManager.writeTx("TransitionStore.deleteByItemId") {
+            val deletedCount = RoleTransitionsTable.deleteWhere { RoleTransitionsTable.itemId eq itemId }
+            deletedCount
+        }
+
+    private fun mapRowToRoleTransition(row: ResultRow): RoleTransition {
+        val transitionId = row[RoleTransitionsTable.id].value
+        val actorClaim =
+            row[RoleTransitionsTable.actorId]?.let { actorId ->
+                val kindStr = row[RoleTransitionsTable.actorKind]
+                if (kindStr == null) {
+                    logger.warn(
+                        "RoleTransition {}: actorId present but actorKind is null; skipping actor",
+                        transitionId
+                    )
+                    return@let null
+                }
+                try {
+                    ActorClaim(
+                        id = actorId,
+                        kind = ActorKind.fromString(kindStr),
+                        parent = row[RoleTransitionsTable.actorParent],
+                        // Never surface a legacy/unscrubbed raw proof — defense in depth alongside
+                        // the V17 scrub. actor_proof is written NULL on every insert path.
+                        proof = null
+                    )
+                } catch (e: IllegalArgumentException) {
+                    logger.warn("RoleTransition {}: invalid actorKind '{}'; skipping actor", transitionId, kindStr)
+                    null
+                }
+            }
+        val verification =
+            row[RoleTransitionsTable.verificationStatus]?.let { status ->
+                try {
+                    VerificationResult(
+                        status = VerificationStatus.fromString(status),
+                        verifier = row[RoleTransitionsTable.verificationVerifier],
+                        reason = row[RoleTransitionsTable.verificationReason],
+                        proofSha256 = row[RoleTransitionsTable.actorProofSha256],
+                        proofClaims =
+                            parseProofClaimsOrNull(
+                                row[RoleTransitionsTable.actorProofClaims],
+                                logger,
+                                "RoleTransition $transitionId"
+                            )
+                    )
+                } catch (e: IllegalArgumentException) {
+                    logger.warn(
+                        "RoleTransition {}: invalid verificationStatus '{}'; skipping verification",
+                        transitionId,
+                        status
+                    )
+                    null
+                }
+            }
+        val consumedCredentials: List<String> =
+            row[RoleTransitionsTable.consumedCredentials]?.let { raw ->
+                try {
+                    Json.decodeFromString(ListSerializer(String.serializer()), raw)
+                } catch (e: Exception) {
+                    e.rethrowIfCancellation()
+                    logger.warn(
+                        "RoleTransition {}: invalid consumedCredentials JSON '{}'; defaulting to empty list",
+                        transitionId,
+                        raw
+                    )
+                    emptyList<String>()
+                }
+            } ?: emptyList()
+        return RoleTransition(
+            id = transitionId,
+            itemId = row[RoleTransitionsTable.itemId],
+            fromRole = row[RoleTransitionsTable.fromRole],
+            toRole = row[RoleTransitionsTable.toRole],
+            fromStatusLabel = row[RoleTransitionsTable.fromStatusLabel],
+            toStatusLabel = row[RoleTransitionsTable.toStatusLabel],
+            trigger = row[RoleTransitionsTable.trigger],
+            summary = row[RoleTransitionsTable.summary],
+            transitionedAt = row[RoleTransitionsTable.transitionedAt],
+            actorClaim = actorClaim,
+            verification = verification,
+            consumedCredentials = consumedCredentials
+        )
+    }
+
+    companion object {
+        private val logger = LoggerFactory.getLogger(SQLiteRoleTransitionRepository::class.java)
+    }
+}

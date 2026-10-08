@@ -1,6 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.UnitResult
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
@@ -9,9 +12,6 @@ import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.application.tools.ActorAware
 import io.github.jpicklyk.mcptask.current.application.tools.PolicyResolution
 import io.github.jpicklyk.mcptask.current.domain.model.*
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.UUID
@@ -243,8 +243,8 @@ class RoleTransitionHandler {
         statusLabel: String?,
         hasReviewPhase: Boolean,
         workItemRepository: WorkItemRepository,
-        roleTransitionRepository: RoleTransitionRepository,
-        dependencyRepository: DependencyRepository,
+        roleTransitionRepository: TransitionStore,
+        dependencyRepository: DependencyStore,
         unitOfWork: UnitOfWork,
         actorClaim: ActorClaim? = null,
         verification: VerificationResult? = null,
@@ -347,7 +347,7 @@ class RoleTransitionHandler {
         targetRole: Role,
         reason: String,
         workItemRepository: WorkItemRepository,
-        roleTransitionRepository: RoleTransitionRepository,
+        roleTransitionRepository: TransitionStore,
         unitOfWork: UnitOfWork,
         statusLabel: String? = null
     ): EntryPointTransitionResult {
@@ -549,7 +549,7 @@ class RoleTransitionHandler {
     suspend fun validateTransition(
         item: WorkItem,
         targetRole: Role,
-        dependencyRepository: DependencyRepository,
+        dependencyRepository: DependencyStore,
         workItemRepository: WorkItemRepository
     ): TransitionValidation {
         // Blocking transitions always pass (no dependency gate)
@@ -707,7 +707,7 @@ class RoleTransitionHandler {
         summary: String?,
         statusLabel: String?,
         workItemRepository: WorkItemRepository,
-        roleTransitionRepository: RoleTransitionRepository,
+        roleTransitionRepository: TransitionStore,
         unitOfWork: UnitOfWork,
         actorClaim: ActorClaim? = null,
         verification: VerificationResult? = null,

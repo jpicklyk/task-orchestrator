@@ -5,11 +5,11 @@ import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteDependencyRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteNoteRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLitePlanDocumentRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.service.SQLiteWorkTreeService
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteDependencyRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteNoteRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLitePlanDocumentRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.service.SQLiteWorkTreeService
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database

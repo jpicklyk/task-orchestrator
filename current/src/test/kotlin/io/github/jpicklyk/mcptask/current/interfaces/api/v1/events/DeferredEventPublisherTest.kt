@@ -25,7 +25,7 @@ import java.util.UUID
  *     atomically" (supplied verbatim in this item's DECLARATIONS block).
  *
  * These tests exercise [DeferredEventPublisher] directly against a real Exposed/SQLite transaction
- * obtained via [io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository.inTransaction]
+ * obtained via [io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository.inTransaction]
  * (the transaction seam named in the DECLARATIONS block) — no [EventPublishingRepositoryProvider]
  * involved here; the decorator's own routing is covered separately by
  * [EventPublishingTransactionRollbackTest].

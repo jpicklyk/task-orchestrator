@@ -14,7 +14,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -45,7 +45,7 @@ import kotlin.test.assertTrue
  *
  * Harness: note() builds Note fixtures directly (in-memory, no DB) for scenarios that only need
  * actorClaim/verification/createdAt values the test itself controls. S4 additionally seeds and
- * reads back through the REAL NoteRepository (SQLite, via DefaultRepositoryProvider -- the same
+ * reads back through the REAL NoteStore (SQLite, via DefaultRepositoryProvider -- the same
  * production repository SQLiteNoteRepository wires) because the addendum requires S4's identity
  * read "from the DB, never from an in-memory object" -- proofClaims is the field the addendum
  * cites as DB-persisted (SQLiteNoteRepository.kt:110), unlike VerificationResult.verifiedSubject

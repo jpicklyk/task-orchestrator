@@ -34,9 +34,9 @@ interface UnitOfWork {
     suspend fun <T> read(block: suspend ReadScope.() -> T): T
 }
 
-/** What a read unit can see. [repositories] is renamed `stores` in P6. */
+/** What a read unit can see. The stores a scope exposes. */
 interface ReadScope {
-    val repositories: RepositoryProvider
+    val stores: RepositoryProvider
 
     /** Read once per unit attempt (re-read when a BUSY retry starts a fresh attempt). */
     val now: Instant

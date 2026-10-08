@@ -36,7 +36,7 @@ data class WorkTreeInput(
     val deps: List<TreeDepSpec>,
     val notes: List<Note>,
     /**
-     * When set, [io.github.jpicklyk.mcptask.current.infrastructure.service.SQLiteWorkTreeService]
+     * When set, [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.service.SQLiteWorkTreeService]
      * marks the referenced plan document ADOPTED as the LAST step of the same transaction that
      * inserts [items]/[deps]/[notes] — see [DocRefSpec]. Note bodies sliced from the document are
      * expected to already be present in [notes] by the time this reaches the executor (slicing

@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.SearchResult
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.SearchResult
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -17,13 +17,13 @@ import org.junit.jupiter.api.Test
  * was enabled.
  *
  * Root cause: `ftsSearch()` lived only on the concrete `SQLiteWorkItemRepository` /
- * `SQLiteNoteRepository` classes, not on the `WorkItemRepository` / `NoteRepository` interfaces.
+ * `SQLiteNoteRepository` classes, not on the `WorkItemRepository` / `NoteStore` interfaces.
  * Callers gated dispatch behind an `is SQLite*Repository` check. When the REST API is enabled,
  * `ServerComposition` wraps repositories in `EventPublishing*Repository` decorators (`... by
  * inner`), which are NOT instances of the concrete SQLite types — so the `is` check always failed
  * and FTS never ran, even though the underlying database and FTS5 index were healthy.
  *
- * The fix promotes `ftsSearch` onto the `WorkItemRepository`/`NoteRepository` interfaces; the
+ * The fix promotes `ftsSearch` onto the `WorkItemRepository`/`NoteStore` interfaces; the
  * `by inner` decorators then auto-forward the call to the wrapped repository with no code change
  * needed in [EventPublishingRepositoryProvider] itself. These tests pin that forwarding contract
  * using fake inner repositories that return a distinctive sentinel [SearchResult] — proving the
@@ -66,7 +66,7 @@ class EventPublishingRepositoryProviderFtsForwardingTest {
     fun `EventPublishingNoteRepository forwards ftsSearch to the inner repository`(): Unit =
         runBlocking {
             val sentinel = SearchResult(hits = emptyList(), totalHits = 7, nextOffset = null)
-            val innerNoteRepo = mockk<NoteRepository>()
+            val innerNoteRepo = mockk<NoteStore>()
             coEvery {
                 innerNoteRepo.ftsSearch(
                     sanitizedFtsQuery = "needle",
@@ -86,7 +86,7 @@ class EventPublishingRepositoryProviderFtsForwardingTest {
             assertSame(
                 sentinel,
                 result,
-                "Decorator must forward ftsSearch to the inner NoteRepository unchanged",
+                "Decorator must forward ftsSearch to the inner NoteStore unchanged",
             )
         }
 }

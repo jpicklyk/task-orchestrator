@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -8,9 +10,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -93,8 +93,8 @@ class SharedConfigCacheRestMcpTest {
     private fun gateParams(itemId: UUID): JsonObject = JsonObject(mapOf("itemId" to JsonPrimitive(itemId.toString())))
 
     private class FailableProjectConfigRepository(
-        private val delegate: ProjectConfigRepository
-    ) : ProjectConfigRepository by delegate {
+        private val delegate: ProjectConfigStore
+    ) : ProjectConfigStore by delegate {
         @Volatile var failFingerprint: Boolean = false
 
         @Volatile var failGet: Boolean = false
@@ -109,14 +109,14 @@ class SharedConfigCacheRestMcpTest {
         private val delegate: RepositoryProvider,
         private val failable: FailableProjectConfigRepository
     ) : RepositoryProvider by delegate {
-        override fun projectConfigRepository(): ProjectConfigRepository = failable
+        override fun projectConfigRepository(): ProjectConfigStore = failable
     }
 
     private class SpyRepositoryProvider(
         private val delegate: RepositoryProvider,
-        private val spyConfigRepo: ProjectConfigRepository
+        private val spyConfigRepo: ProjectConfigStore
     ) : RepositoryProvider by delegate {
-        override fun projectConfigRepository(): ProjectConfigRepository = spyConfigRepo
+        override fun projectConfigRepository(): ProjectConfigStore = spyConfigRepo
     }
 
     // ──────────────────────────────────────────────

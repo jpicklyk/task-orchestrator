@@ -3,18 +3,18 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.*
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.TestStatusLabelService
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -34,8 +34,8 @@ class AdvanceItemToolTest {
     private lateinit var context: ToolExecutionContext
     private lateinit var repoProvider: RepositoryProvider
     private lateinit var workItemRepo: WorkItemRepository
-    private lateinit var depRepo: DependencyRepository
-    private lateinit var roleTransitionRepo: RoleTransitionRepository
+    private lateinit var depRepo: DependencyStore
+    private lateinit var roleTransitionRepo: TransitionStore
 
     @BeforeEach
     fun setUp() {
@@ -47,7 +47,7 @@ class AdvanceItemToolTest {
         repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
         every { repoProvider.dependencyRepository() } returns depRepo
-        val defaultNoteRepo = mockk<NoteRepository>()
+        val defaultNoteRepo = mockk<NoteStore>()
         coEvery { defaultNoteRepo.findByItemId(any()) } returns emptyList()
         coEvery { defaultNoteRepo.findByItemId(any(), any()) } returns emptyList()
         every { repoProvider.noteRepository() } returns defaultNoteRepo
@@ -1167,7 +1167,7 @@ class AdvanceItemToolTest {
      * Helper to create a ToolExecutionContext with a custom NoteSchemaService.
      */
     private fun contextWithSchema(
-        noteRepo: NoteRepository,
+        noteRepo: NoteStore,
         noteSchemaService: NoteSchemaService
     ): ToolExecutionContext {
         val repoProvider = mockk<RepositoryProvider>()
@@ -1226,7 +1226,7 @@ class AdvanceItemToolTest {
                 )
             val noteSchemaService = schemaServiceWith(schemaEntries)
 
-            val noteRepo = mockk<NoteRepository>()
+            val noteRepo = mockk<NoteStore>()
             // No notes exist for this item
             coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
             coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
@@ -1266,7 +1266,7 @@ class AdvanceItemToolTest {
                 )
             val noteSchemaService = schemaServiceWith(schemaEntries)
 
-            val noteRepo = mockk<NoteRepository>()
+            val noteRepo = mockk<NoteStore>()
             // The required note exists and has content
             val existingNote =
                 Note(
@@ -1313,7 +1313,7 @@ class AdvanceItemToolTest {
                 )
             val noteSchemaService = schemaServiceWith(schemaEntries)
 
-            val noteRepo = mockk<NoteRepository>()
+            val noteRepo = mockk<NoteStore>()
             // No notes exist yet
             coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
             coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
@@ -1358,7 +1358,7 @@ class AdvanceItemToolTest {
                 )
             val noteSchemaService = schemaServiceWith(schemaEntries)
 
-            val noteRepo = mockk<NoteRepository>()
+            val noteRepo = mockk<NoteStore>()
             val existingNote =
                 Note(
                     itemId = itemId,
@@ -1415,7 +1415,7 @@ class AdvanceItemToolTest {
                 )
             val noteSchemaService = schemaServiceWith(schemaEntries)
 
-            val noteRepo = mockk<NoteRepository>()
+            val noteRepo = mockk<NoteStore>()
             // No notes exist yet
             coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
             coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
@@ -1469,7 +1469,7 @@ class AdvanceItemToolTest {
                 )
             val noteSchemaService = schemaServiceWith(schemaEntries)
 
-            val noteRepo = mockk<NoteRepository>()
+            val noteRepo = mockk<NoteStore>()
             coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
             coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
 
@@ -1521,7 +1521,7 @@ class AdvanceItemToolTest {
                 )
             val noteSchemaService = schemaServiceWith(schemaEntries)
 
-            val noteRepo = mockk<NoteRepository>()
+            val noteRepo = mockk<NoteStore>()
             // The queue-phase note is filled, but the work-phase note is not
             val filledNote =
                 Note(
@@ -1677,7 +1677,7 @@ class AdvanceItemToolTest {
                 )
             val noteSchemaService = schemaServiceWith(schemaEntries)
 
-            val noteRepo = mockk<NoteRepository>()
+            val noteRepo = mockk<NoteStore>()
             // Queue note filled so gate passes; no work notes filled
             val queueNote =
                 Note(
@@ -1759,7 +1759,7 @@ class AdvanceItemToolTest {
                 )
             val noteSchemaService = schemaServiceWith(schemaEntries)
 
-            val noteRepo = mockk<NoteRepository>()
+            val noteRepo = mockk<NoteStore>()
             // Queue note and first work note filled
             val queueNote =
                 Note(
@@ -1827,7 +1827,7 @@ class AdvanceItemToolTest {
                 )
             val noteSchemaService = schemaServiceWith(schemaEntries)
 
-            val noteRepo = mockk<NoteRepository>()
+            val noteRepo = mockk<NoteStore>()
             val queueNote =
                 Note(
                     itemId = itemId,
@@ -1912,7 +1912,7 @@ class AdvanceItemToolTest {
                 )
             val noteSchemaService = schemaServiceWith(schemaEntries)
 
-            val noteRepo = mockk<NoteRepository>()
+            val noteRepo = mockk<NoteStore>()
             coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
             coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
 
@@ -1971,7 +1971,7 @@ class AdvanceItemToolTest {
                 )
             val noteSchemaService = schemaServiceWith(schemaEntries)
 
-            val noteRepo = mockk<NoteRepository>()
+            val noteRepo = mockk<NoteStore>()
             val queueNote = Note(itemId = itemId, key = "acceptance-criteria", role = "queue", body = "Done")
             coEvery { noteRepo.findByItemId(itemId) } returns listOf(queueNote)
             coEvery { noteRepo.findByItemId(itemId, any()) } returns listOf(queueNote)
@@ -2022,7 +2022,7 @@ class AdvanceItemToolTest {
                 )
             val noteSchemaService = schemaServiceWith(schemaEntries)
 
-            val noteRepo = mockk<NoteRepository>()
+            val noteRepo = mockk<NoteStore>()
             val queueNote = Note(itemId = itemId, key = "acceptance-criteria", role = "queue", body = "Done")
             coEvery { noteRepo.findByItemId(itemId) } returns listOf(queueNote)
             coEvery { noteRepo.findByItemId(itemId, any()) } returns listOf(queueNote)
@@ -3654,7 +3654,7 @@ class AdvanceItemToolTest {
                         if (tags.isNotEmpty()) schemaEntries else null
                 }
 
-            val noteRepo = mockk<NoteRepository>()
+            val noteRepo = mockk<NoteStore>()
             // Parent has no notes filled — gate would block if trigger were "complete"
             coEvery { noteRepo.findByItemId(parentId) } returns emptyList()
             coEvery { noteRepo.findByItemId(parentId, any()) } returns emptyList()
@@ -3730,7 +3730,7 @@ class AdvanceItemToolTest {
                         if (tags.isNotEmpty()) schemaEntries else null
                 }
 
-            val noteRepo = mockk<NoteRepository>()
+            val noteRepo = mockk<NoteStore>()
             coEvery { noteRepo.findByItemId(any()) } returns emptyList()
             coEvery { noteRepo.findByItemId(any(), any()) } returns emptyList()
 

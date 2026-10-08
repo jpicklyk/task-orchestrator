@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.*
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -20,7 +20,7 @@ private fun schemaWithLifecycle(lifecycleMode: LifecycleMode) = WorkItemSchema(t
 class CascadeDetectorTest {
     private lateinit var detector: CascadeDetector
     private lateinit var workItemRepository: WorkItemRepository
-    private lateinit var dependencyRepository: DependencyRepository
+    private lateinit var dependencyRepository: DependencyStore
 
     @BeforeEach
     fun setUp() {

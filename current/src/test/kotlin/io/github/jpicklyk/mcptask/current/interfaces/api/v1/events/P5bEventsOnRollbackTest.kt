@@ -6,11 +6,11 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.database.OutsideUnitPolicy
-import io.github.jpicklyk.mcptask.current.infrastructure.database.OutsideUnitWriteException
-import io.github.jpicklyk.mcptask.current.infrastructure.database.SqliteUnitOfWork
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.OutsideUnitPolicy
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.OutsideUnitWriteException
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SqliteUnitOfWork
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterEach
@@ -80,7 +80,7 @@ class P5bEventsOnRollbackTest {
 
             val result =
                 unitOver(provider).write<Unit>("S10.err") {
-                    repositories.workItemRepository().create(WorkItem(title = "S10 rolled back", depth = 0))
+                    stores.workItemRepository().create(WorkItem(title = "S10 rolled back", depth = 0))
                     Outcome.Err(DomainError(ErrorCode.INTERNAL, "domain failure after the create"))
                 }
 
@@ -101,8 +101,8 @@ class P5bEventsOnRollbackTest {
 
             val result =
                 unitOver(provider).write<Unit>("S10.fault") {
-                    repositories.workItemRepository().create(WorkItem(title = "S10 first", depth = 0))
-                    repositories.workItemRepository().create(WorkItem(title = "S10 boom", depth = 0))
+                    stores.workItemRepository().create(WorkItem(title = "S10 first", depth = 0))
+                    stores.workItemRepository().create(WorkItem(title = "S10 boom", depth = 0))
                     Outcome.Ok(Unit)
                 }
 
@@ -121,7 +121,7 @@ class P5bEventsOnRollbackTest {
 
             val result =
                 unitOver(provider).write("S10.ok") {
-                    val created = repositories.workItemRepository().create(WorkItem(title = "S10 committed", depth = 0))
+                    val created = stores.workItemRepository().create(WorkItem(title = "S10 committed", depth = 0))
                     Outcome.Ok(created.id)
                 }
 
@@ -165,7 +165,7 @@ class P5bEventsOnRollbackTest {
             val baseline = bus.ringBufferSnapshot().size
 
             SqliteUnitOfWork(failing, provider, Clock { Instant.now() }).write("P1.control") {
-                repositories.workItemRepository().create(WorkItem(title = "P1 inside", depth = 0))
+                stores.workItemRepository().create(WorkItem(title = "P1 inside", depth = 0))
                 Outcome.Ok(Unit)
             }
 

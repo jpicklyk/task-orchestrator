@@ -6,13 +6,13 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.ServiceBackedGlobalLookup
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
@@ -45,9 +45,9 @@ import kotlin.test.assertIs
  */
 class AdvanceServiceFactoryTest {
     private lateinit var workItemRepo: WorkItemRepository
-    private lateinit var roleTransitionRepo: RoleTransitionRepository
-    private lateinit var depRepo: DependencyRepository
-    private lateinit var noteRepo: NoteRepository
+    private lateinit var roleTransitionRepo: TransitionStore
+    private lateinit var depRepo: DependencyStore
+    private lateinit var noteRepo: NoteStore
 
     @BeforeEach
     fun setUp() {

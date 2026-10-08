@@ -53,7 +53,8 @@ The project uses Exposed ORM with SQLite. Key patterns to be aware of:
 
 ## Repository Interface Contracts
 
-Repository interfaces live in `domain/repository/` and their SQLite implementations
-in `infrastructure/repository/`. Adding a method to a repository interface requires
+Storage ports (`*Store`, plus `WorkItemRepository` until P7 splits it) live in `application/port/` and their SQLite
+implementations in `infrastructure/sqlite/repository/`. SQLite and Exposed code (`org.sqlite`, `org.jetbrains.exposed`,
+dialect SQL tokens in string literals) stays under `infrastructure/sqlite/` (`DialectNeutralityTest`). Adding a method to a port requires
 updating the implementation, and any mocks in test files that use that repository.
 Search for `mockk<RepositoryName>` across test files to find affected mocks.

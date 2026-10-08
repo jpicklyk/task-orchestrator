@@ -52,15 +52,15 @@ class P5bWriteUnitGuardsTest {
                 "readResult" to Regex("""\breadResult\b"""),
                 "writeResult" to Regex("""\bwriteResult\b"""),
                 "RepositoryError import" to
-                    Regex("""import\s+io\.github\.jpicklyk\.mcptask\.current\.domain\.repository\.RepositoryError\b"""),
+                    Regex("""import\s+io\.github\.jpicklyk\.mcptask\.current\.(domain\.repository|application\.port)\.RepositoryError\b"""),
                 "DBError" to Regex("""\bDBError\b"""),
                 "PassthroughUnitOfWork" to Regex("""\bPassthroughUnitOfWork\b"""),
-                "domain.repository.Result import" to
-                    Regex("""import\s+io\.github\.jpicklyk\.mcptask\.current\.domain\.repository\.Result\b""")
+                "application.port.Result import" to
+                    Regex("""import\s+io\.github\.jpicklyk\.mcptask\.current\.(domain\.repository|application\.port)\.Result\b""")
             )
         val offenders = retired.mapValues { (_, token) -> occurrences(sources, token) }.filterValues { it.isNotEmpty() }
         assertEquals(emptyMap(), offenders, "retired P5b constructs still referenced by production code")
-        val deletedFiles = sources.map { it.path }.filter { it == "domain/repository/Result.kt" }
+        val deletedFiles = sources.map { it.path }.filter { it == "domain/repository/Result.kt" || it == "application/port/Result.kt" }
         assertEquals(emptyList(), deletedFiles, "task-scope D1: Result.kt (with RepositoryError) is deleted")
     }
 
@@ -79,8 +79,8 @@ class P5bWriteUnitGuardsTest {
         val actual = GuardSupport.countByFile(GuardSupport.productionSources()) { CancellationSafetyTest.violations(it.text) }
         val burned =
             listOf(
-                "infrastructure/repository/SQLiteWorkItemRepository.kt",
-                "infrastructure/repository/SQLiteResourceLeaseRepository.kt",
+                "infrastructure/sqlite/repository/SQLiteWorkItemRepository.kt",
+                "infrastructure/sqlite/repository/SQLiteResourceLeaseRepository.kt",
                 "interfaces/api/v1/routes/ItemWriteRoutes.kt",
                 "interfaces/api/v1/routes/ItemRoutes.kt",
                 "application/tools/workflow/ClaimItemTool.kt",
@@ -120,15 +120,15 @@ class P5bWriteUnitGuardsTest {
             infrastructure/config/YamlActorAuthenticationConfigService.kt 1
             infrastructure/config/YamlConfigDocumentParser.kt 1
             infrastructure/config/YamlStatusLabelService.kt 1
-            infrastructure/database/DatabaseManager.kt 5
-            infrastructure/database/StartupCompaction.kt 1
-            infrastructure/database/StartupIntegrity.kt 1
-            infrastructure/database/schema/management/FlywayDatabaseSchemaManager.kt 4
-            infrastructure/repository/ProofClaimsSerialization.kt 1
-            infrastructure/repository/SQLiteNoteRepository.kt 1
-            infrastructure/repository/SQLiteResourceLeaseRepository.kt 6
-            infrastructure/repository/SQLiteRoleTransitionRepository.kt 1
-            infrastructure/repository/SQLiteWorkItemRepository.kt 10
+            infrastructure/sqlite/DatabaseManager.kt 5
+            infrastructure/sqlite/StartupCompaction.kt 1
+            infrastructure/sqlite/StartupIntegrity.kt 1
+            infrastructure/sqlite/schema/management/FlywayDatabaseSchemaManager.kt 4
+            infrastructure/sqlite/repository/ProofClaimsSerialization.kt 1
+            infrastructure/sqlite/repository/SQLiteNoteRepository.kt 1
+            infrastructure/sqlite/repository/SQLiteResourceLeaseRepository.kt 6
+            infrastructure/sqlite/repository/SQLiteRoleTransitionRepository.kt 1
+            infrastructure/sqlite/repository/SQLiteWorkItemRepository.kt 10
             infrastructure/shutdown/ShutdownCoordinator.kt 1
             interfaces/api/v1/auth/BearerTokenStore.kt 2
             interfaces/api/v1/auth/JwksApiVerifier.kt 6

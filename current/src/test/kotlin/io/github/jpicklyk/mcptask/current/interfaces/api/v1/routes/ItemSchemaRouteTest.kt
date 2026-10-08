@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -8,10 +10,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
@@ -60,7 +60,7 @@ import kotlin.test.assertTrue
  * 400/404/403 legs of S11b build the FULL real composition (global file layer, real per-root push via
  * `projectConfigRepository().upsert`, real `PerRootConfigService`) and compute the `expected` body from
  * the SAME `composition.toolContext` the route uses. The 503 leg needs a per-root config READ to fail
- * cold, which requires substituting a failing `ProjectConfigRepository`; `ServerComposition`'s public
+ * cold, which requires substituting a failing `ProjectConfigStore`; `ServerComposition`'s public
  * constructor takes only a `DatabaseManager` with no seam to inject a custom `RepositoryProvider`
  * (confirmed from this item's supplied declarations -- `ServerComposition(appConfig, databaseManager,
  * shutdownCoordinator, logger)`), so that leg instead builds a `ToolExecutionContext` directly over the
@@ -421,8 +421,8 @@ private object ItemSchemaRouteNoGlobalSchemaService : WorkItemSchemaService {
 
 /** Mirrors [ConfigUnavailableRoutesTest]'s `FailableProjectConfigRepository`, named for this file's own scope. */
 private class SchemaRouteFailableProjectConfigRepository(
-    private val delegate: ProjectConfigRepository,
-) : ProjectConfigRepository by delegate {
+    private val delegate: ProjectConfigStore,
+) : ProjectConfigStore by delegate {
     @Volatile var failGet: Boolean = false
 
     override suspend fun get(rootItemId: UUID) = if (failGet) throw IllegalStateException("x") else delegate.get(rootItemId)
@@ -432,5 +432,5 @@ private class SchemaRouteFailableRepositoryProvider(
     private val delegate: RepositoryProvider,
     private val failable: SchemaRouteFailableProjectConfigRepository,
 ) : RepositoryProvider by delegate {
-    override fun projectConfigRepository(): ProjectConfigRepository = failable
+    override fun projectConfigRepository(): ProjectConfigStore = failable
 }

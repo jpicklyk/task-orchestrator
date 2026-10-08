@@ -28,7 +28,7 @@ import java.util.UUID
  *
  * Pipeline, in order: size cap -> root exists -> root is depth-0 -> [SafeConstructor]
  * parse-validate -> embedded-rootId guard (skipped when `force: true`) ->
- * [io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository.upsertGuarded]
+ * [io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore.upsertGuarded]
  * (fast-forward + optional [expectedFingerprint] compare-and-set guard, evaluated in the SAME
  * transaction as the write — see that method's KDoc). The pipeline stops at the first failing
  * step; nothing is written on failure.
@@ -52,7 +52,7 @@ class ProjectConfigPushService(
      *
      * The fast-forward (known-old) guard and, when [expectedFingerprint] is supplied, the
      * compare-and-set guard both run inside
-     * [io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository.upsertGuarded]'s
+     * [io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore.upsertGuarded]'s
      * single transaction, alongside the write itself — this closes the separate-guard-read-then-
      * separate-write race the previous two-step implementation had. A fingerprint that is
      * [FingerprintRelation.SUPERSEDED] (known-old: present in history but not current) is rejected

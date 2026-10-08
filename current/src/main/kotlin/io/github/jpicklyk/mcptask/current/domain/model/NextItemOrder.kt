@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.domain.model
 
 /**
- * Ordering strategy for [io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository.findClaimable].
+ * Ordering strategy for [io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository.findClaimable].
  *
  * - [PRIORITY_THEN_COMPLEXITY] — existing get_next_item ranking (default): HIGH > MEDIUM > LOW,
  *   then complexity ascending (quick wins first).

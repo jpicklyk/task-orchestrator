@@ -34,7 +34,7 @@ class NoteRoutesTest {
     val db = SqliteTestDatabase.perMethod()
 
     private fun makeItemAndNote(
-        repo: io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider,
+        repo: io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider,
         noteKey: String = "spec",
         actorClaim: ActorClaim? = null,
     ): Pair<WorkItem, Note> =

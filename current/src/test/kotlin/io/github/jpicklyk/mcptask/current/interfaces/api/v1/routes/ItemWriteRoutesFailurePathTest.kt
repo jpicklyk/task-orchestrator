@@ -1,5 +1,12 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.port.ChildPlacement
+import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
@@ -16,15 +23,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.ChildPlacement
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
@@ -83,7 +83,7 @@ import kotlin.test.assertTrue
  *   `create()` only for a chosen item id — this is how the apply step (`workItemRepository.update`
  *   then `roleTransitionRepository.create` inside one transaction) is forced to fail for S1/S4 and
  *   their replay probe, per the dispatch declarations' "Behavioral seams" note.
- * - [SimpleLeaseFakeRepository] is an in-memory [ResourceLeaseRepository] fake (mirrors the
+ * - [SimpleLeaseFakeRepository] is an in-memory [LeaseStore] fake (mirrors the
  *   established pattern in `AdvanceRouteResourceLeaseTest.LeaseGateFakeRepository`, reimplemented
  *   here per the test-author "own file" rule), used for S1/S4 (uncontended acquire + release-on-
  *   apply-failure) and S8 (forced contention).
@@ -111,11 +111,11 @@ class ItemWriteRoutesFailurePathTest {
     // Test-only seams
     // ─────────────────────────────────────────────────────────────────────────
 
-    /** Wraps a real [RoleTransitionRepository]; fails `create()` only for [failFor]'s transitions. */
+    /** Wraps a real [TransitionStore]; fails `create()` only for [failFor]'s transitions. */
     private class FailingRoleTransitionRepository(
-        private val delegate: RoleTransitionRepository,
+        private val delegate: TransitionStore,
         private val failFor: UUID
-    ) : RoleTransitionRepository by delegate {
+    ) : TransitionStore by delegate {
         override suspend fun create(transition: RoleTransition): RoleTransition =
             if (transition.itemId == failFor) {
                 throw IllegalStateException("simulated apply failure for $failFor")
@@ -126,9 +126,9 @@ class ItemWriteRoutesFailurePathTest {
 
     private class RoleTransitionOverrideProvider(
         private val delegate: RepositoryProvider,
-        private val roleTransitionRepo: RoleTransitionRepository
+        private val roleTransitionRepo: TransitionStore
     ) : RepositoryProvider by delegate {
-        override fun roleTransitionRepository(): RoleTransitionRepository = roleTransitionRepo
+        override fun roleTransitionRepository(): TransitionStore = roleTransitionRepo
     }
 
     /** Wraps a real [WorkItemRepository]; fails `update()` only for [failFor]'s writes. */
@@ -176,8 +176,8 @@ class ItemWriteRoutesFailurePathTest {
         override fun workItemRepository(): WorkItemRepository = workItemRepo
     }
 
-    /** In-memory [ResourceLeaseRepository] fake; own-file reimplementation per test-author rule 8. */
-    private class SimpleLeaseFakeRepository : ResourceLeaseRepository {
+    /** In-memory [LeaseStore] fake; own-file reimplementation per test-author rule 8. */
+    private class SimpleLeaseFakeRepository : LeaseStore {
         val leases = mutableListOf<ResourceLease>()
 
         /** When non-null, every acquire is forced to report these keys contended. */
@@ -241,9 +241,9 @@ class ItemWriteRoutesFailurePathTest {
 
     private class LeaseOverrideProvider(
         private val delegate: RepositoryProvider,
-        private val leaseRepo: ResourceLeaseRepository
+        private val leaseRepo: LeaseStore
     ) : RepositoryProvider by delegate {
-        override fun resourceLeaseRepository(): ResourceLeaseRepository = leaseRepo
+        override fun resourceLeaseRepository(): LeaseStore = leaseRepo
     }
 
     /** Maps `needs-staging-db` onto one exclusive resource with a 600s TTL. */

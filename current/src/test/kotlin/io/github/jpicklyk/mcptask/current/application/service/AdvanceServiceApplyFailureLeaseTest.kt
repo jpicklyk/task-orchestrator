@@ -1,5 +1,12 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
@@ -8,13 +15,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
 import io.mockk.Called
 import io.mockk.coEvery
@@ -38,7 +38,7 @@ import kotlin.test.assertTrue
  * cascade fails; add `error` to [AdvanceCascadeEvent]).
  *
  * Oracles: `diagnosis` Fix 1-3 [R], `current/docs/workflow-guide.md` §11 :1117-1121 (a lease is
- * held only while in WORK) [L], `ResourceLease.kt`/`ResourceLeaseRepository.kt` KDoc — `version ==
+ * held only while in WORK) [L], `ResourceLease.kt`/`LeaseStore.kt` KDoc — `version ==
  * 0` means "created by this call" [F], and this item's own `error` field contract [C]. Scenario
  * ids (S1-S3, S4, S7-S12 + probes) match the frozen `test-plan` note; do not renumber. S5 needs no
  * lease machinery so it is folded into this file too. S6 (DTO mapping) lives in
@@ -46,17 +46,17 @@ import kotlin.test.assertTrue
  *
  * Per the test-author blindness rule this file was written against the declarations supplied in
  * the dispatch prompt (AdvanceService's constructor and `advance()` signature, `AdvanceCascadeEvent`,
- * `ResourceLease`/`ResourceLeaseRepository`, `LeaseAcquireResult`/`LeaseReleaseResult`,
+ * `ResourceLease`/`LeaseStore`, `LeaseAcquireResult`/`LeaseReleaseResult`,
  * `AdvanceFailure.ApplyFailed`) plus the existing `AdvanceServiceLeaseGateTest` and
  * `AdvanceServiceTest` harnesses (fakes, mock wiring conventions) — never the implementer's changed
  * function bodies, never a diff.
  */
 class AdvanceServiceApplyFailureLeaseTest {
     private lateinit var workItemRepo: WorkItemRepository
-    private lateinit var depRepo: DependencyRepository
-    private lateinit var roleTransitionRepo: RoleTransitionRepository
-    private lateinit var noteRepo: NoteRepository
-    private lateinit var leaseRepo: ResourceLeaseRepository
+    private lateinit var depRepo: DependencyStore
+    private lateinit var roleTransitionRepo: TransitionStore
+    private lateinit var noteRepo: NoteStore
+    private lateinit var leaseRepo: LeaseStore
 
     @BeforeEach
     fun setUp() {
@@ -99,7 +99,7 @@ class AdvanceServiceApplyFailureLeaseTest {
         requirements: List<ResourceRequirement> = emptyList(),
         schema: WorkItemSchema? = null,
         schemaResolver: (suspend (WorkItem) -> WorkItemSchema?)? = null,
-        leaseRepository: ResourceLeaseRepository? = leaseRepo,
+        leaseRepository: LeaseStore? = leaseRepo,
         resourceLeasesEnforced: Boolean = true,
         requirementsByItem: Map<UUID, List<ResourceRequirement>>? = null,
     ): AdvanceService =

@@ -10,10 +10,10 @@ infrastructure/config/JwksKeySetProvider.kt 5
 infrastructure/config/YamlActorAuthenticationConfigService.kt 1
 infrastructure/config/YamlConfigDocumentParser.kt 1
 infrastructure/config/YamlStatusLabelService.kt 1
-infrastructure/database/StartupCompaction.kt 1
-infrastructure/database/StartupIntegrity.kt 1
-infrastructure/database/schema/management/FlywayDatabaseSchemaManager.kt 4
-infrastructure/repository/ProofClaimsSerialization.kt 1
+infrastructure/sqlite/StartupCompaction.kt 1
+infrastructure/sqlite/StartupIntegrity.kt 1
+infrastructure/sqlite/schema/management/FlywayDatabaseSchemaManager.kt 4
+infrastructure/sqlite/repository/ProofClaimsSerialization.kt 1
 infrastructure/shutdown/ShutdownCoordinator.kt 1
 interfaces/api/v1/auth/BearerTokenStore.kt 2
 interfaces/api/v1/auth/JwksApiVerifier.kt 6

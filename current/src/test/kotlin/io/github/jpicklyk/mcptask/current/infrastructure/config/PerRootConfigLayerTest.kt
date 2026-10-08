@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
+import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
@@ -24,7 +24,7 @@ import kotlin.test.assertNull
  * S11). Exercises [PerRootConfigService]'s new [PerRootConfigService.layer] port method — the
  * DB-backed harness style mirrors [PerRootConfigServiceTest]'s existing database setup. S11's
  * cold-read-error / warm-LKG cases reuse the `FailableProjectConfigRepository` wrapper technique
- * from `AdvanceItemToolConfigUnavailableTest` (a `ProjectConfigRepository` delegate whose
+ * from `AdvanceItemToolConfigUnavailableTest` (a `ProjectConfigStore` delegate whose
  * `getFingerprint` can be switched to fail), authored fresh here since that fixture is file-private
  * there and not a shared/importable fake.
  */
@@ -162,8 +162,8 @@ class PerRootConfigLayerTest {
 }
 
 private class FailableProjectConfigRepository(
-    private val delegate: ProjectConfigRepository,
-) : ProjectConfigRepository by delegate {
+    private val delegate: ProjectConfigStore,
+) : ProjectConfigStore by delegate {
     @Volatile var failFingerprint: Boolean = false
 
     override suspend fun getFingerprint(rootItemId: UUID) =

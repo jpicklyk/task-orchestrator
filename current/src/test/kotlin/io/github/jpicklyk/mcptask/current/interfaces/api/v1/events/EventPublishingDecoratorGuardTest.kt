@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import com.lemonappdev.konsist.api.Konsist
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -151,7 +151,7 @@ class EventPublishingDecoratorGuardTest {
     }
 
     @Test
-    fun `NoteRepository method surface is fully classified as EVENTED or read-only allow-listed`() {
+    fun `NoteStore method surface is fully classified as EVENTED or read-only allow-listed`() {
         val expectedNames =
             setOf(
                 "getById",
@@ -164,23 +164,23 @@ class EventPublishingDecoratorGuardTest {
                 "ftsSearch",
             )
 
-        val actualNames = declaredInterfaceMethodNames(NoteRepository::class.java)
-        assertEquals(expectedNames, actualNames, "NoteRepository's declared method-name surface has changed")
+        val actualNames = declaredInterfaceMethodNames(NoteStore::class.java)
+        assertEquals(expectedNames, actualNames, "NoteStore's declared method-name surface has changed")
 
         val evented = overriddenFunctionNames("EventPublishingNoteRepository")
         assertTrue(evented.isNotEmpty(), "EventPublishingNoteRepository must override at least one method")
         val staleOrTypoed = evented - actualNames
         assertTrue(
             staleOrTypoed.isEmpty(),
-            "EventPublishingNoteRepository overrides name(s) not on NoteRepository: $staleOrTypoed",
+            "EventPublishingNoteRepository overrides name(s) not on NoteStore: $staleOrTypoed",
         )
 
         val unclassified = actualNames.filterNot { it in evented || isReadOnlyAllowListed(it) }
-        assertTrue(unclassified.isEmpty(), "Unclassified NoteRepository methods: $unclassified")
+        assertTrue(unclassified.isEmpty(), "Unclassified NoteStore methods: $unclassified")
     }
 
     @Test
-    fun `DependencyRepository method surface is fully classified as EVENTED or read-only allow-listed`() {
+    fun `DependencyStore method surface is fully classified as EVENTED or read-only allow-listed`() {
         val expectedNames =
             setOf(
                 "create",
@@ -196,19 +196,19 @@ class EventPublishingDecoratorGuardTest {
                 "backlinks",
             )
 
-        val actualNames = declaredInterfaceMethodNames(DependencyRepository::class.java)
-        assertEquals(expectedNames, actualNames, "DependencyRepository's declared method-name surface has changed")
+        val actualNames = declaredInterfaceMethodNames(DependencyStore::class.java)
+        assertEquals(expectedNames, actualNames, "DependencyStore's declared method-name surface has changed")
 
         val evented = overriddenFunctionNames("EventPublishingDependencyRepository")
         assertTrue(evented.isNotEmpty(), "EventPublishingDependencyRepository must override at least one method")
         val staleOrTypoed = evented - actualNames
         assertTrue(
             staleOrTypoed.isEmpty(),
-            "EventPublishingDependencyRepository overrides name(s) not on DependencyRepository: $staleOrTypoed",
+            "EventPublishingDependencyRepository overrides name(s) not on DependencyStore: $staleOrTypoed",
         )
 
         val unclassified = actualNames.filterNot { it in evented || isReadOnlyAllowListed(it) }
-        assertTrue(unclassified.isEmpty(), "Unclassified DependencyRepository methods: $unclassified")
+        assertTrue(unclassified.isEmpty(), "Unclassified DependencyStore methods: $unclassified")
     }
 
     @Test

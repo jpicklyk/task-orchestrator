@@ -1,19 +1,19 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocument
-import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import java.time.Instant
 import java.util.UUID
 
 /**
  * Transport-agnostic read pipeline for git-tracked rule text, stored as `rule/<key>` plan
- * documents (see [PlanDocumentRepository]) -- the same table `manage_plan_documents`/`PlanDocumentService`
+ * documents (see [PlanDocumentStore]) -- the same table `manage_plan_documents`/`PlanDocumentService`
  * already write to, so `query_rules` and the `rules` REST routes are pure READ surfaces over that
  * store with no new table and no migration.
  *
- * Depends only on domain repositories ([PlanDocumentRepository], [WorkItemRepository]) -- no
+ * Depends only on domain repositories ([PlanDocumentStore], [WorkItemRepository]) -- no
  * infrastructure import -- so both the MCP `query_rules` tool and the REST `rules` routes can share
  * one instance without violating the `domain -> application -> infrastructure -> interfaces`
  * layering rule ([io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext] hands
@@ -26,7 +26,7 @@ import java.util.UUID
  * depend on) and pass the resolved rule key straight to [get].
  */
 class RuleService(
-    private val planDocumentRepository: PlanDocumentRepository,
+    private val planDocumentRepository: PlanDocumentStore,
     private val workItemRepository: WorkItemRepository,
 ) {
     /**

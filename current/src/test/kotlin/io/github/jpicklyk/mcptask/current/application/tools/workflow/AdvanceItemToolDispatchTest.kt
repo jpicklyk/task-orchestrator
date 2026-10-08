@@ -1,5 +1,10 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
@@ -8,11 +13,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -49,8 +49,8 @@ import kotlin.test.assertTrue
 class AdvanceItemToolDispatchTest {
     private lateinit var tool: AdvanceItemTool
     private lateinit var workItemRepo: WorkItemRepository
-    private lateinit var depRepo: DependencyRepository
-    private lateinit var roleTransitionRepo: RoleTransitionRepository
+    private lateinit var depRepo: DependencyStore
+    private lateinit var roleTransitionRepo: TransitionStore
     private lateinit var context: ToolExecutionContext
 
     @BeforeEach
@@ -63,7 +63,7 @@ class AdvanceItemToolDispatchTest {
         val repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
         every { repoProvider.dependencyRepository() } returns depRepo
-        val defaultNoteRepo = mockk<NoteRepository>()
+        val defaultNoteRepo = mockk<NoteStore>()
         coEvery { defaultNoteRepo.findByItemId(any()) } returns emptyList()
         coEvery { defaultNoteRepo.findByItemId(any(), any()) } returns emptyList()
         every { repoProvider.noteRepository() } returns defaultNoteRepo
@@ -76,7 +76,7 @@ class AdvanceItemToolDispatchTest {
 
     /** Build a custom context wiring a schema-aware NoteSchemaService, reusing the mocked repos. */
     private fun contextWithSchema(
-        noteRepo: NoteRepository,
+        noteRepo: NoteStore,
         noteSchemaService: NoteSchemaService
     ): ToolExecutionContext {
         val provider = mockk<RepositoryProvider>()
@@ -143,7 +143,7 @@ class AdvanceItemToolDispatchTest {
                     mapOf("delegated" to mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer")))
                 )
 
-            val noteRepo = mockk<NoteRepository>()
+            val noteRepo = mockk<NoteStore>()
             coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
             coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
 
@@ -191,7 +191,7 @@ class AdvanceItemToolDispatchTest {
                     )
                 )
 
-            val noteRepo = mockk<NoteRepository>()
+            val noteRepo = mockk<NoteStore>()
             val workNote = Note(itemId = itemId, key = "implementation-notes", role = "work", body = "Done")
             coEvery { noteRepo.findByItemId(itemId) } returns listOf(workNote)
             coEvery { noteRepo.findByItemId(itemId, any()) } returns listOf(workNote)
@@ -240,7 +240,7 @@ class AdvanceItemToolDispatchTest {
                     )
                 )
 
-            val noteRepo = mockk<NoteRepository>()
+            val noteRepo = mockk<NoteStore>()
             coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
             coEvery { noteRepo.findByItemId(itemId, any()) } returns emptyList()
 

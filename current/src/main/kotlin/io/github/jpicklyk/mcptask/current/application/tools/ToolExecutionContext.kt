@@ -7,8 +7,13 @@ import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
 import io.github.jpicklyk.mcptask.current.application.config.ServiceBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.port.Clock
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
@@ -29,11 +34,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import java.time.Instant
 import java.util.UUID
 
@@ -96,13 +96,13 @@ class ToolExecutionContext(
     fun workItemRepository(): WorkItemRepository = repositoryProvider.workItemRepository()
 
     /** Access to Note upsert, query, and delete operations. */
-    fun noteRepository(): NoteRepository = repositoryProvider.noteRepository()
+    fun noteRepository(): NoteStore = repositoryProvider.noteRepository()
 
     /** Access to Dependency graph operations (synchronous, non-suspend). */
-    fun dependencyRepository(): DependencyRepository = repositoryProvider.dependencyRepository()
+    fun dependencyRepository(): DependencyStore = repositoryProvider.dependencyRepository()
 
     /** Access to RoleTransition audit trail operations. */
-    fun roleTransitionRepository(): RoleTransitionRepository = repositoryProvider.roleTransitionRepository()
+    fun roleTransitionRepository(): TransitionStore = repositoryProvider.roleTransitionRepository()
 
     /** Access to Note schema configuration service. */
     fun noteSchemaService(): NoteSchemaService = noteSchemaService
@@ -117,7 +117,7 @@ class ToolExecutionContext(
     fun workTreeExecutor(): WorkTreeExecutor = repositoryProvider.workTreeExecutor()
 
     /** Access to per-root config (raw YAML document) CRUD operations. */
-    fun projectConfigRepository(): ProjectConfigRepository = repositoryProvider.projectConfigRepository()
+    fun projectConfigRepository(): ProjectConfigStore = repositoryProvider.projectConfigRepository()
 
     /**
      * Resolves the effective [WorkItemSchema] for a [WorkItem], including trait note merging.

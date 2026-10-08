@@ -1,5 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
@@ -13,12 +17,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
-import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -57,7 +57,7 @@ import kotlin.test.assertTrue
  * tests use, and what is under test here is the route's enforcement/serialization behavior, not
  * lease storage semantics.
  */
-private class LeaseGateFakeRepository : ResourceLeaseRepository {
+private class LeaseGateFakeRepository : LeaseStore {
     val leases = mutableListOf<ResourceLease>()
     val intervals = mutableListOf<ResourceLeaseInterval>()
 
@@ -186,9 +186,9 @@ private class LeaseGateFakeRepository : ResourceLeaseRepository {
 /** SQLite-backed provider with only [resourceLeaseRepository] swapped for the in-memory fake. */
 private class LeaseOverridingProvider(
     private val delegate: RepositoryProvider,
-    private val fake: ResourceLeaseRepository,
+    private val fake: LeaseStore,
 ) : RepositoryProvider by delegate {
-    override fun resourceLeaseRepository(): ResourceLeaseRepository = fake
+    override fun resourceLeaseRepository(): LeaseStore = fake
 }
 
 /** Maps the `needs-staging-db` trait onto one exclusive resource with a 600s TTL. */

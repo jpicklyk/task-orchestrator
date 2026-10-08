@@ -1,5 +1,13 @@
 package io.github.jpicklyk.mcptask.current.test
 
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
+import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
@@ -8,14 +16,6 @@ import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.mockk.*
 import java.time.Instant
 
@@ -25,12 +25,12 @@ import java.time.Instant
  */
 class MockRepositoryProvider {
     val workItemRepo: WorkItemRepository = mockk()
-    val noteRepo: NoteRepository = mockk()
-    val depRepo: DependencyRepository = mockk()
-    val roleTransitionRepo: RoleTransitionRepository = mockk()
-    val projectConfigRepo: ProjectConfigRepository = mockk()
-    val planDocumentRepo: PlanDocumentRepository = mockk()
-    val resourceLeaseRepo: ResourceLeaseRepository = mockk()
+    val noteRepo: NoteStore = mockk()
+    val depRepo: DependencyStore = mockk()
+    val roleTransitionRepo: TransitionStore = mockk()
+    val projectConfigRepo: ProjectConfigStore = mockk()
+    val planDocumentRepo: PlanDocumentStore = mockk()
+    val resourceLeaseRepo: LeaseStore = mockk()
     val workTreeExecutor: WorkTreeExecutor = mockk()
     val provider: RepositoryProvider = mockk()
 

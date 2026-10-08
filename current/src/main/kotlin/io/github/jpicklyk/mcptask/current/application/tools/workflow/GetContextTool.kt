@@ -539,7 +539,7 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
         val workItems: List<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>
         val reviewItems: List<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>
         val blockedItems: List<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>
-        val claimCounts: io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts?
+        val claimCounts: io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts?
         coroutineScope {
             val workDeferred =
                 async {

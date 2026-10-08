@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.application.tools.dependency
 
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.BacklinkRow
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
@@ -24,7 +24,7 @@ class QueryDependenciesTool : BaseToolDefinition() {
         /**
          * Hard cap on distinct nodes visited during BFS graph traversal ([buildGraphJson]).
          * Public with the same visibility convention as
-         * [io.github.jpicklyk.mcptask.current.domain.repository.MAX_TRAVERSAL_DEPTH] so a
+         * [io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH] so a
          * boundary test can import it. On hit, traversal stops early and the response sets
          * `graph.truncated = true` instead of failing — this is a read-only query tool, not a
          * cascade/subtree-mutation path, so a soft truncation signal is used instead of the
@@ -413,12 +413,12 @@ a backlink row means another item has an edge with toItemId = your itemId. E.g. 
      * expanding further and `truncated` is set true in the returned JSON — a soft signal (like
      * `AncestorChain.truncated`), not a thrown error, since this is a read-only query tool.
      *
-     * `suspend` because [DependencyRepository.findByItemIds] becomes suspend under 33e96efd
+     * `suspend` because [DependencyStore.findByItemIds] becomes suspend under 33e96efd
      * (this stream only marks the caller; the callee's own suspend modifier is that stream's edit).
      */
     private suspend fun buildGraphJson(
         startItemId: UUID,
-        depRepo: DependencyRepository
+        depRepo: DependencyStore
     ): JsonObject {
         val visited = mutableSetOf<UUID>()
         val edges = mutableListOf<Pair<UUID, UUID>>()

@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.compound
 
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
+import io.github.jpicklyk.mcptask.current.application.port.ChildPlacement
 import io.github.jpicklyk.mcptask.current.application.service.DocRefSpec
 import io.github.jpicklyk.mcptask.current.application.service.MarkdownSectionSplitter
 import io.github.jpicklyk.mcptask.current.application.service.RuleService
@@ -15,7 +16,6 @@ import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellat
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.*
-import io.github.jpicklyk.mcptask.current.domain.repository.ChildPlacement
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.runBlocking

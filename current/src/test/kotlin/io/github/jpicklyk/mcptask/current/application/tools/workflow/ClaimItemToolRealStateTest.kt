@@ -1,12 +1,12 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
-import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -48,7 +48,7 @@ import kotlin.test.assertTrue
  * Uses a real SQLite repository (via [SqliteTestDatabase]) because the claim SQL
  * relies on SQLite-specific `datetime('now', ...)` semantics that a mock cannot exercise
  * faithfully — matching the idiom already proven out in
- * [io.github.jpicklyk.mcptask.current.infrastructure.database.repository.SQLiteWorkItemRepositoryClaimTest]
+ * [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepositoryClaimTest]
  * and [ClaimItemToolSelectorOutcomeTest].
  */
 class ClaimItemToolRealStateTest {

@@ -1,13 +1,13 @@
 package io.github.jpicklyk.mcptask.current.application.tools.notes
 
+import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
+import io.github.jpicklyk.mcptask.current.application.port.SearchResult
+import io.github.jpicklyk.mcptask.current.application.port.SearchScope
 import io.github.jpicklyk.mcptask.current.application.service.search.FtsQuerySanitizer
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.*
-import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
-import io.github.jpicklyk.mcptask.current.domain.repository.SearchResult
-import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
@@ -383,7 +383,7 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
     /**
      * Full-text search over note bodies via FTS5.
      *
-     * Sanitizes the user query, delegates to [NoteRepository.ftsSearch], and
+     * Sanitizes the user query, delegates to [NoteStore.ftsSearch], and
      * serializes the [SearchResult] into the response shape defined in plan §7:
      * `{ hits: [...], totalHits, nextOffset, truncated }`.
      *
@@ -466,7 +466,7 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                 return errorResponse(e.message ?: "Invalid search query", ErrorCodes.VALIDATION_ERROR)
             }
 
-        // Delegate to repository — dispatched via the NoteRepository interface so this works
+        // Delegate to repository — dispatched via the NoteStore interface so this works
         // whether the tool context holds the concrete SQLite repo or a decorator (e.g.
         // EventPublishingNoteRepository, when the REST API is enabled).
         val repo = context.noteRepository()
