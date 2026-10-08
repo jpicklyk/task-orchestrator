@@ -2,10 +2,15 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.EventSink
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.application.port.IdempotencyStore
+import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentAdoptOutcome
+import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStashOutcome
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.ReleaseResult
@@ -15,165 +20,73 @@ import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
-import io.github.jpicklyk.mcptask.current.application.service.currentEventActor
-import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
-import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.application.service.eventRootOf
+import io.github.jpicklyk.mcptask.current.domain.event.ClaimReleaseReason
+import io.github.jpicklyk.mcptask.current.domain.event.DeleteCause
+import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
+import io.github.jpicklyk.mcptask.current.domain.event.ReparentSide
+import io.github.jpicklyk.mcptask.current.domain.event.TransitionOrigin
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
+import io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.Note
-import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.ProjectConfig
+import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import org.slf4j.LoggerFactory
-import java.time.Instant
+import java.time.Duration
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 
 /**
- * A transparent [RepositoryProvider] decorator that publishes [ApiEvent]s to [eventBus]
- * AFTER each successful write.
+ * A transparent [RepositoryProvider] decorator that records a typed [DomainEvent] row for every mutating store
+ * call, through [recorder], in the caller's own unit of work (plan section 3.7). The rows commit or roll back
+ * with the change; the SSE stream is a projection of them (see [ApiEventBus]).
  *
- * ## Additive / Default-Off design (non-negotiable)
+ * ## Installed always
  *
- * When the API is disabled, [CurrentMcpServer] returns the UNDECORATED [RepositoryProvider] —
- * this decorator is never constructed. MCP-only deployments get zero behavior change and
- * zero overhead. When the API is enabled, the server wraps the provider here.
+ * The server wraps its provider here whether or not the REST API is enabled: the event log is the audit record,
+ * not an API feature. Only the SSE projection (the recorder's commit listener) depends on the API.
  *
- * The decorator MUST NOT change any return value or signature — it only adds a post-write side
- * effect after the delegate returns success.
+ * The decorator never changes a return value or signature. It records after the delegate returns; a store write
+ * that throws records nothing (and rolls its unit back).
  *
- * ## Root-ancestor caching
+ * ## Coverage
  *
- * To fan out events to the correct root-topic subscribers without a per-event DB query, this
- * decorator maintains an in-memory `itemId → Set<UUID>` ancestor cache. The cache is populated
- * lazily on first access via [resolveRoots] and is invalidated on parentId change (reparent).
+ * Every mutating method of the work-item, note, dependency, transition, lease, project-config and plan-document
+ * stores, plus the work-tree executor, is overridden (guarded by `EventPublishingDecoratorGuardTest`). The
+ * [IdempotencyStore] is an explicit pass-through: its rows are request bookkeeping, and replays belong to the
+ * per-call log (P10). The [EventStore] is never decorated.
  *
- * When a reparent is detected (old parentId ≠ new parentId), `scope.left` events are emitted
- * to old-root subscribers and `scope.entered` events are emitted to new-root subscribers.
+ * ## Roots
+ *
+ * Every row carries a root: the item's denormalized `rootId`, else its ancestor chain's root, else its own id
+ * ([eventRootOf]). A reparent writes two `item.reparented` rows (side `left` under the old root, `entered` under
+ * the new one), so `root_id` stays single-valued. A role change made through [WorkItemRepository.update] records
+ * nothing: the transition row written in the same unit ([TransitionStore.create]) is authoritative.
+ *
+ * ## Deletes
+ *
+ * An item delete pre-reads the item's notes and dependency edges and records one `note.deleted` /
+ * `dependency.removed` row (cause `cascade`) per row the foreign-key cascade removes, before the `item.deleted`
+ * row. Edges shared by two deleted items are recorded once.
  */
 class EventPublishingRepositoryProvider(
     private val delegate: RepositoryProvider,
-    private val eventBus: ApiEventBus,
+    private val recorder: EventSink,
 ) : RepositoryProvider {
-    private val logger = LoggerFactory.getLogger(EventPublishingRepositoryProvider::class.java)
+    private val hierarchy by lazy { delegate.workItemRepository() }
 
-    /**
-     * Routes every publish in this decorator so that events raised inside an open transaction are
-     * held until it commits, and discarded if it rolls back. See [DeferredEventPublisher].
-     */
-    private val deferredPublisher = DeferredEventPublisher(eventBus)
-
-    // -------------------------------------------------------------------------
-    // Root-ancestor cache
-    // -------------------------------------------------------------------------
-
-    /** Cache: item UUID → its root UUID set (the root items in its ancestor chain). */
-    private val rootCache = ConcurrentHashMap<UUID, Set<UUID>>()
-
-    /**
-     * Resolve the root UUIDs for [itemId] — the set of IDs with depth=0 in the ancestor chain.
-     * For root items (depth=0) this is {itemId} itself.
-     *
-     * Uses the cache; falls back to a live [WorkItemRepository.findAncestorChains] query.
-     * On query failure, returns an empty set — which [publishScoped] marks UNRESOLVED, so the
-     * event reaches only unrestricted subscribers rather than being broadcast to every one.
-     */
-    private suspend fun resolveRoots(itemId: UUID): Set<UUID> {
-        // Performance guard: when no SSE clients are connected, skip the ancestor-chain DB query.
-        // Returning emptySet() marks the event UNRESOLVED in publishScoped — with zero subscribers
-        // there is nothing to fan out to anyway, and the event is still added to the ring buffer
-        // for a future client's Last-Event-ID replay, where the unresolved flag keeps it out of a
-        // root-scoped resume. This keeps MCP-tool writes cheap when the API is enabled but no
-        // dashboard is watching (e.g. stdio mode, or http with no live connections).
-        if (eventBus.subscriberCount() == 0) return emptySet()
-
-        rootCache[itemId]?.let { return it }
-
-        return try {
-            val chains = delegate.workItemRepository().findAncestorChains(setOf(itemId))
-            val chain = chains[itemId] ?: emptyList()
-            // Ancestor chain is ordered root-first. The root is the first item (depth=0),
-            // or the item itself if it has no ancestors (is itself a root).
-            val roots =
-                if (chain.isEmpty()) {
-                    setOf(itemId) // it IS the root
-                } else {
-                    setOf(chain.first().id)
-                }
-            rootCache[itemId] = roots
-            roots
-        } catch (e: Exception) {
-            e.rethrowIfCancellation()
-            logger.warn("Failed to resolve roots for item {}: {}", itemId, e.message)
-            emptySet()
-        }
+    private suspend fun record(events: List<DomainEvent>) {
+        if (events.isNotEmpty()) recorder.record(events)
     }
 
-    /**
-     * Enqueue an event of [eventType] with [roots] as its affected-root set, marking it UNRESOLVED
-     * when [roots] is empty.
-     *
-     * Every publish site in this decorator goes through here. No site in this class ever intends a
-     * bus-level broadcast — an empty [roots] here always means "we could not work out which roots
-     * this event belongs to", which is precisely the case [ApiEventBus.publish]'s `rootsResolved`
-     * flag exists to distinguish. Two producers of an empty set feed this:
-     *
-     * 1. [resolveRoots]'s no-subscriber performance guard (the high-volume one: every write made
-     *    while nobody is connected is buffered for a future `Last-Event-ID` replay), and
-     * 2. [resolveRoots]'s ancestor-chain query failure.
-     *
-     * A cold root cache is no longer among them: every publish site here resolves roots through
-     * the suspend [resolveRoots], which falls back to an ancestor-chain query on a cache miss.
-     *
-     * Marking these unresolved keeps them out of root-scoped subscribers' streams and replays.
-     * Unrestricted subscribers still receive them.
-     *
-     * ## Why a descriptor rather than a built event
-     *
-     * Delivery is routed through [DeferredEventPublisher]: with no transaction open the event is
-     * built and published synchronously here (unchanged behaviour for every standalone write),
-     * and inside an open transaction it is held until that transaction COMMITS — so a rolled-back
-     * unit of work publishes nothing. Root resolution stays here, at enqueue time, while
-     * the pre-update ancestor chain is still visible; only the build and the publish move. The id
-     * is therefore stamped at flush time, in commit order, which is what keeps the `Last-Event-ID`
-     * replay contract intact. See [PendingApiEvent].
-     */
-    private suspend fun publishScoped(
-        eventType: String,
-        itemId: UUID,
-        modifiedAt: Instant?,
-        roots: Set<UUID>,
-        newRole: String? = null,
-        entityActor: ActorClaim? = null,
-    ) {
-        // Actor resolution: the entity's own claim (Note.actorClaim), then the EventActor context
-        // element installed by the write site, then none. Captured HERE because the post-commit
-        // flush runs in a StatementInterceptor with no coroutine context.
-        val actor = entityActor ?: currentEventActor()
-        deferredPublisher.publishOnCommit(
-            PendingApiEvent(
-                eventType = eventType,
-                itemId = itemId,
-                modifiedAt = modifiedAt,
-                newRole = newRole,
-                affectedRoots = roots,
-                actor = actor,
-                rootId = roots.singleOrNull(),
-            ),
-        )
+    private suspend fun record(event: DomainEvent) = record(listOf(event))
+
+    /** The root of the item with [itemId] as it is NOW (pre-read before a delete, post-read after a write). */
+    private suspend fun rootOfItem(itemId: UUID): UUID {
+        val item = hierarchy.getById(itemId) ?: return eventRootOf(itemId, hierarchy)
+        return eventRootOf(item, hierarchy)
     }
 
-    /** Invalidate the cache for [itemId] and all its known descendants (on delete or reparent). */
-    private fun invalidateCache(itemId: UUID) {
-        rootCache.remove(itemId)
-        // Invalidate any item that had this item in its ancestor chain (all descendants).
-        // Simple approach: remove any entries where itemId appears in their chain.
-        // Since we can't easily enumerate descendants here, we take the conservative approach
-        // of clearing the entire cache on structural changes (reparent/delete).
-        // This is safe because the cache is just a performance optimisation; it gets repopulated lazily.
-    }
-
-    private fun clearCache() {
-        rootCache.clear()
-    }
+    private suspend fun rootOf(item: WorkItem): UUID = eventRootOf(item, hierarchy)
 
     // -------------------------------------------------------------------------
     // WorkItem repository decorator
@@ -184,112 +97,50 @@ class EventPublishingRepositoryProvider(
     ) : WorkItemRepository by inner {
         override suspend fun create(item: WorkItem): WorkItem {
             val result = inner.create(item)
-            val roots = resolveRoots(result.id)
-            publishScoped(
-                ApiEventType.ITEM_CREATED,
-                itemId = result.id,
-                modifiedAt = result.createdAt,
-                roots = roots,
-            )
+            record(DomainEvent.ItemCreated(result.id, rootOf(result), result.parentId))
             return result
         }
 
         override suspend fun update(item: WorkItem): WorkItem? {
-            // Performance guard: only read the pre-update row (for reparent detection) when an SSE
-            // client is connected. With no subscribers this extra getById is pure overhead — we
-            // still buffer a plain item.updated event below (roots resolve to emptySet()).
-            val hasSubscribers = eventBus.subscriberCount() > 0
-            val oldItem = if (hasSubscribers) inner.getById(item.id) else null
-            // Capture the OLD root set BEFORE the update — while the DB still reflects the old parent
-            // chain. After inner.update(), resolveRoots(item.id) returns the NEW roots for this same
-            // itemId, so scope.left must use this pre-update snapshot (else it fires to the new root
-            // and the old-root subscriber never gets scope.left). Reparent path only; cheap otherwise.
-            val oldRoots = if (hasSubscribers && oldItem != null) resolveRoots(item.id) else emptySet()
-            val result = inner.update(item)
-            if (result != null) {
-                val updated = result
-                val oldParentId = oldItem?.parentId
-                val newParentId = updated.parentId
-
-                // Classify the update for the event model (all require the pre-update row, so only
-                // when subscribers are present):
-                //   - role change   → item.advanced (semantic phase transition; carries newRole)
-                //   - parent change  → scope.left / scope.entered (reparent across roots)
-                //   - otherwise      → item.updated
-                if (hasSubscribers && oldItem != null && oldItem.role != updated.role) {
-                    // Advance — distinct from item.updated; carries the new role for dashboards.
-                    // Captures BOTH the MCP path (AdvanceItemTool → update) and the REST /advance route.
-                    publishAdvance(updated.id, updated.role, updated.modifiedAt)
-                } else if (hasSubscribers && oldItem != null && oldParentId != newParentId) {
-                    // Reparent — emit scope.left for the OLD roots (pre-update snapshot), rebuild, then enter.
-                    for (oldRoot in oldRoots) {
-                        publishScoped(
-                            ApiEventType.SCOPE_LEFT,
-                            itemId = updated.id,
-                            modifiedAt = updated.modifiedAt,
-                            roots = setOf(oldRoot),
-                        )
-                    }
-                    // Invalidate and recompute — reparent changes the whole subtree ancestry
-                    clearCache()
-                    val newRoots = resolveRoots(updated.id)
-                    for (newRoot in newRoots) {
-                        publishScoped(
-                            ApiEventType.SCOPE_ENTERED,
-                            itemId = updated.id,
-                            modifiedAt = updated.modifiedAt,
-                            roots = setOf(newRoot),
-                        )
-                    }
-                } else {
-                    // Normal update — roots unchanged. Resolve from current state so the buffered
-                    // item.updated event is correctly scoped even when no subscriber is connected.
-                    publishScoped(
-                        ApiEventType.ITEM_UPDATED,
-                        itemId = updated.id,
-                        modifiedAt = updated.modifiedAt,
-                        roots = resolveRoots(updated.id),
+            val old = inner.getById(item.id)
+            val oldRoot = old?.let { rootOf(it) }
+            val result = inner.update(item) ?: return null
+            if (old == null) {
+                record(DomainEvent.ItemUpdated(result.id, rootOf(result), changedFields(null, result)))
+                return result
+            }
+            when {
+                // The transition row (TransitionStore.create, same unit) is authoritative for a role change.
+                old.role != result.role -> Unit
+                old.parentId != result.parentId ->
+                    record(
+                        listOf(
+                            DomainEvent.ItemReparented(result.id, oldRoot ?: result.id, ReparentSide.LEFT, old.parentId, result.parentId),
+                            DomainEvent.ItemReparented(result.id, rootOf(result), ReparentSide.ENTERED, old.parentId, result.parentId),
+                        ),
                     )
+                else -> {
+                    val changed = changedFields(old, result)
+                    if (changed.isNotEmpty()) record(DomainEvent.ItemUpdated(result.id, rootOf(result), changed))
                 }
             }
             return result
         }
 
         override suspend fun delete(id: UUID): Boolean {
-            val roots = resolveRoots(id)
+            val item = inner.getById(id)
+            val pending = if (item != null) cascadeRows(listOf(item)) else emptyList()
             val result = inner.delete(id)
-            if (result) {
-                invalidateCache(id)
-                publishScoped(
-                    ApiEventType.ITEM_DELETED,
-                    itemId = id,
-                    modifiedAt = Instant.now(),
-                    roots = roots,
-                )
-            }
+            if (result && item != null) record(pending)
             return result
         }
 
         override suspend fun deleteAll(ids: Set<UUID>): Int {
-            // Unconditional pre-read (to learn which ids actually exist, and their pre-delete
-            // roots) — replay needs the event even when no SSE client is connected right now: a
-            // later Last-Event-ID resume must still see these deletes (as UNRESOLVED entries, via
-            // resolveRoots' own no-subscriber guard), matching item delete()/note deleteByItemId's
-            // existing behaviour. The 4 guarded delete paths in this file are now uniform.
-            val preDeleteItems = inner.findByIds(ids)
-            val rootsByItemId = preDeleteItems.associate { it.id to resolveRoots(it.id) }
+            if (ids.isEmpty()) return inner.deleteAll(ids)
+            val items = inner.findByIds(ids)
+            val pending = cascadeRows(items)
             val result = inner.deleteAll(ids)
-            if (result > 0) {
-                clearCache()
-                for (item in preDeleteItems) {
-                    publishScoped(
-                        ApiEventType.ITEM_DELETED,
-                        itemId = item.id,
-                        modifiedAt = Instant.now(),
-                        roots = rootsByItemId[item.id] ?: emptySet(),
-                    )
-                }
-            }
+            if (result > 0) record(pending)
             return result
         }
 
@@ -299,23 +150,18 @@ class EventPublishingRepositoryProvider(
             ttlSeconds: Int,
         ): ClaimResult {
             val result = inner.claim(itemId, agentId, ttlSeconds)
-            if (result is ClaimResult.Success) {
-                publishScoped(
-                    ApiEventType.ITEM_UPDATED,
-                    itemId = result.item.id,
-                    modifiedAt = result.item.modifiedAt,
-                    roots = resolveRoots(result.item.id),
-                )
-                // Every OTHER item this agent held was auto-released as part of this claim
-                // (step 2 of the atomic claim SQL) — each one is a data change dashboards must see.
-                for (releasedId in result.releasedItemIds) {
-                    publishScoped(
-                        ApiEventType.ITEM_UPDATED,
-                        itemId = releasedId,
-                        modifiedAt = Instant.now(),
-                        roots = resolveRoots(releasedId),
-                    )
+            when (result) {
+                is ClaimResult.Success -> {
+                    val events =
+                        mutableListOf<DomainEvent>(DomainEvent.ClaimAcquired(result.item.id, rootOf(result.item), agentId, ttlSeconds))
+                    // Every OTHER item this agent held was auto-released as part of this claim.
+                    for (releasedId in result.releasedItemIds) {
+                        events += DomainEvent.ClaimReleased(releasedId, rootOfItem(releasedId), ClaimReleaseReason.SUPERSEDED)
+                    }
+                    record(events)
                 }
+                is ClaimResult.AlreadyClaimed -> record(DomainEvent.ClaimRejected(itemId, rootOfItem(itemId), result.retryAfterMs))
+                else -> Unit
             }
             return result
         }
@@ -326,15 +172,43 @@ class EventPublishingRepositoryProvider(
         ): ReleaseResult {
             val result = inner.release(itemId, agentId)
             if (result is ReleaseResult.Success) {
-                publishScoped(
-                    ApiEventType.ITEM_UPDATED,
-                    itemId = result.item.id,
-                    modifiedAt = result.item.modifiedAt,
-                    roots = resolveRoots(result.item.id),
-                )
+                record(DomainEvent.ClaimReleased(result.item.id, rootOf(result.item), ClaimReleaseReason.RELEASED))
             }
             return result
         }
+
+        override suspend fun clear(itemId: UUID): Boolean {
+            val result = inner.clear(itemId)
+            if (result) record(DomainEvent.ClaimReleased(itemId, rootOfItem(itemId), ClaimReleaseReason.CLEARED))
+            return result
+        }
+    }
+
+    /**
+     * The rows deleting [items] produces, built BEFORE the delete (the rows they describe are about to vanish):
+     * one `note.deleted` and one `dependency.removed` (cause `cascade`) per row the foreign-key cascade removes,
+     * then one `item.deleted` per item. All carry the item's pre-delete root; an edge is recorded once, under the
+     * first deleted item that references it.
+     */
+    private suspend fun cascadeRows(items: List<WorkItem>): List<DomainEvent> {
+        if (items.isEmpty()) return emptyList()
+        val ids = items.map { it.id }.toSet()
+        val roots = items.associate { it.id to rootOf(it) }
+        val notesByItem = delegate.noteRepository().findByItemIds(ids)
+        val edgesByItem = delegate.dependencyRepository().findByItemIds(ids)
+        val seenEdges = HashSet<UUID>()
+        val events = mutableListOf<DomainEvent>()
+        for (item in items) {
+            val root = roots.getValue(item.id)
+            for (note in notesByItem[item.id].orEmpty()) {
+                events += DomainEvent.NoteDeleted(note.id, root, note.itemId, note.key, note.role, DeleteCause.CASCADE)
+            }
+            for (edge in edgesByItem[item.id].orEmpty()) {
+                if (seenEdges.add(edge.id)) events += dependencyRemoved(edge, root, DeleteCause.CASCADE)
+            }
+        }
+        for (item in items) events += DomainEvent.ItemDeleted(item.id, roots.getValue(item.id))
+        return events
     }
 
     // -------------------------------------------------------------------------
@@ -346,51 +220,44 @@ class EventPublishingRepositoryProvider(
     ) : NoteStore by inner {
         override suspend fun upsert(note: Note): Note {
             val result = inner.upsert(note)
-            val roots = resolveRoots(note.itemId)
-            publishScoped(
-                ApiEventType.NOTE_UPSERTED,
-                itemId = note.itemId,
-                modifiedAt = result.modifiedAt,
-                roots = roots,
-                entityActor = note.actorClaim,
-            )
+            record(noteUpserted(result, rootOfItem(result.itemId)))
             return result
         }
 
         override suspend fun delete(id: UUID): Boolean {
-            // Unconditional pre-read of the note (to learn its itemId for the event payload) —
-            // replay needs the event even at 0 subscribers; see deleteAll()'s comment above.
             val note = inner.getById(id)
             val result = inner.delete(id)
             if (result && note != null) {
-                val roots = resolveRoots(note.itemId)
-                publishScoped(
-                    ApiEventType.NOTE_DELETED,
-                    itemId = note.itemId,
-                    modifiedAt = Instant.now(),
-                    roots = roots,
-                )
+                record(DomainEvent.NoteDeleted(note.id, rootOfItem(note.itemId), note.itemId, note.key, note.role, DeleteCause.EXPLICIT))
             }
             return result
         }
 
         override suspend fun deleteByItemId(itemId: UUID): Int {
-            val result = inner.deleteByItemId(itemId)
-            // The itemId is already known from the parameter (unlike single-note delete(id), no
-            // pre-read is needed to learn it) — one note.deleted event when at least one note was
-            // removed. N identical events (one per deleted note) would add nothing since the
-            // payload carries no noteId.
-            if (result > 0) {
-                publishScoped(
-                    ApiEventType.NOTE_DELETED,
-                    itemId = itemId,
-                    modifiedAt = Instant.now(),
-                    roots = resolveRoots(itemId),
-                )
+            val notes = inner.findByItemId(itemId)
+            val count = inner.deleteByItemId(itemId)
+            if (count > 0 && notes.isNotEmpty()) {
+                val root = rootOfItem(itemId)
+                record(notes.map { DomainEvent.NoteDeleted(it.id, root, it.itemId, it.key, it.role, DeleteCause.EXPLICIT) })
             }
-            return result
+            return count
         }
     }
+
+    private fun noteUpserted(
+        note: Note,
+        root: UUID,
+    ): DomainEvent =
+        DomainEvent.NoteUpserted(
+            entityId = note.id,
+            rootId = root,
+            itemId = note.itemId,
+            key = note.key,
+            role = note.role,
+            bodyLength = note.body.length,
+            actor = note.actorClaim,
+            verification = note.verification,
+        )
 
     // -------------------------------------------------------------------------
     // Dependency repository decorator
@@ -401,76 +268,213 @@ class EventPublishingRepositoryProvider(
     ) : DependencyStore by inner {
         override suspend fun create(dependency: Dependency): Dependency {
             val result = inner.create(dependency)
-            // Resolve the from-item's roots through the suspend resolver, which falls back to an
-            // ancestor-chain query when the cache misses. A dependency written against an item
-            // this server session has never otherwise touched therefore still reaches its
-            // root-scoped subscribers, instead of being withheld as UNRESOLVED.
-            val roots = resolveRoots(dependency.fromItemId)
-            publishScoped(
-                ApiEventType.DEPENDENCY_ADDED,
-                itemId = dependency.fromItemId,
-                modifiedAt = dependency.createdAt,
-                roots = roots,
-            )
+            record(dependencyAdded(result, rootOfItem(result.fromItemId)))
             return result
         }
 
         override suspend fun delete(id: UUID): Boolean {
-            // Unconditional pre-read of the dependency (for the event payload) — replay needs the
-            // event even at 0 subscribers; see WorkItemRepository.deleteAll()'s comment above.
             val dep = inner.findById(id)
             val result = inner.delete(id)
-            if (result && dep != null) {
-                // Same resolution as create(): DB-backed, so a cold cache no longer withholds
-                // dependency.removed from root-scoped subscribers.
-                val roots = resolveRoots(dep.fromItemId)
-                publishScoped(
-                    ApiEventType.DEPENDENCY_REMOVED,
-                    itemId = dep.fromItemId,
-                    modifiedAt = Instant.now(),
-                    roots = roots,
-                )
-            }
+            if (result && dep != null) record(dependencyRemoved(dep, rootOfItem(dep.fromItemId), DeleteCause.EXPLICIT))
             return result
         }
 
         override suspend fun createBatch(dependencies: List<Dependency>): List<Dependency> {
             val result = inner.createBatch(dependencies)
-            // Per RETURNED dep only — createBatch throws on an in-batch validation failure (e.g. a
-            // duplicate), so a thrown exception here means this loop never runs and zero events
-            // are published for the failed call.
-            for (dep in result) {
-                val roots = resolveRoots(dep.fromItemId)
-                publishScoped(
-                    ApiEventType.DEPENDENCY_ADDED,
-                    itemId = dep.fromItemId,
-                    modifiedAt = dep.createdAt,
-                    roots = roots,
-                )
-            }
+            record(result.map { dependencyAdded(it, rootOfItem(it.fromItemId)) })
             return result
         }
 
         override suspend fun deleteByItemId(itemId: UUID): Int {
-            // Unconditional pre-read of the edges (for their itemIds/fromItemId payload) — replay
-            // needs the event even at 0 subscribers; see WorkItemRepository.deleteAll()'s comment
-            // above.
-            val existingEdges = inner.findByItemId(itemId)
+            val edges = inner.findByItemId(itemId)
             val count = inner.deleteByItemId(itemId)
-            if (count > 0) {
-                // Per pre-read edge (both directions — findByItemId matches fromItemId OR
-                // toItemId), itemId = the edge's fromItemId, matching create()'s convention.
-                for (edge in existingEdges) {
-                    val roots = resolveRoots(edge.fromItemId)
-                    publishScoped(
-                        ApiEventType.DEPENDENCY_REMOVED,
-                        itemId = edge.fromItemId,
-                        modifiedAt = Instant.now(),
-                        roots = roots,
-                    )
+            if (count > 0) record(edges.map { dependencyRemoved(it, rootOfItem(it.fromItemId), DeleteCause.EXPLICIT) })
+            return count
+        }
+    }
+
+    private fun dependencyAdded(
+        dep: Dependency,
+        root: UUID,
+    ): DomainEvent = DomainEvent.DependencyAdded(dep.id, root, dep.fromItemId, dep.toItemId, dep.type.name.lowercase(), dep.unblockAt)
+
+    private fun dependencyRemoved(
+        dep: Dependency,
+        root: UUID,
+        cause: DeleteCause,
+    ): DomainEvent =
+        DomainEvent.DependencyRemoved(dep.id, root, dep.fromItemId, dep.toItemId, dep.type.name.lowercase(), dep.unblockAt, cause)
+
+    // -------------------------------------------------------------------------
+    // Transition store decorator
+    // -------------------------------------------------------------------------
+
+    private inner class EventPublishingTransitionStore(
+        private val inner: TransitionStore,
+    ) : TransitionStore by inner {
+        override suspend fun create(transition: RoleTransition): RoleTransition {
+            val result = inner.create(transition)
+            record(
+                DomainEvent.ItemTransitioned(
+                    entityId = result.itemId,
+                    rootId = rootOfItem(result.itemId),
+                    trigger = result.trigger,
+                    fromRole = result.fromRole,
+                    toRole = result.toRole,
+                    fromStatusLabel = result.fromStatusLabel,
+                    toStatusLabel = result.toStatusLabel,
+                    origin = if (result.trigger == "cascade") TransitionOrigin.CASCADE else TransitionOrigin.USER,
+                    actor = result.actorClaim,
+                    verification = result.verification,
+                ),
+            )
+            return result
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Lease store decorator (entity = the holder item)
+    // -------------------------------------------------------------------------
+
+    private inner class EventPublishingLeaseStore(
+        private val inner: LeaseStore,
+    ) : LeaseStore by inner {
+        override suspend fun acquireAll(
+            holderItemId: UUID,
+            actorId: String?,
+            requirements: List<Pair<String, Int>>,
+        ): LeaseAcquireResult {
+            val result = inner.acquireAll(holderItemId, actorId, requirements)
+            when (result) {
+                is LeaseAcquireResult.Success ->
+                    if (result.leases.isNotEmpty()) {
+                        val root = rootOfItem(holderItemId)
+                        record(
+                            result.leases.map {
+                                DomainEvent.LeaseAcquired(
+                                    holderItemId,
+                                    root,
+                                    it.resourceKey,
+                                    Duration.between(it.acquiredAt, it.expiresAt).seconds
+                                )
+                            },
+                        )
+                    }
+                is LeaseAcquireResult.Contended ->
+                    record(DomainEvent.LeaseRejected(holderItemId, rootOfItem(holderItemId), result.contendedKeys, result.retryAfterMs))
+            }
+            return result
+        }
+
+        override suspend fun releaseAllForItem(holderItemId: UUID): LeaseReleaseResult {
+            val active = inner.findActiveForItem(holderItemId)
+            val result = inner.releaseAllForItem(holderItemId)
+            recordReleases(holderItemId, active.map { it.resourceKey }, result)
+            return result
+        }
+
+        // Overridden explicitly: delegation would route the interface default to the inner store's own
+        // releaseAllForItem, bypassing the override above.
+        override suspend fun releaseAllForItems(holderItemIds: Set<UUID>): LeaseReleaseResult {
+            var total = 0
+            for (holderItemId in holderItemIds) {
+                when (val result = releaseAllForItem(holderItemId)) {
+                    is LeaseReleaseResult.Success -> total += result.releasedCount
                 }
             }
-            return count
+            return LeaseReleaseResult.Success(total)
+        }
+
+        override suspend fun forceReleaseByKey(
+            resourceKey: String,
+            actorId: String?,
+        ): LeaseReleaseResult {
+            val holders = inner.findActiveByKeys(listOf(resourceKey)).map { it.holderItemId }.distinct()
+            val result = inner.forceReleaseByKey(resourceKey, actorId)
+            val released = (result as? LeaseReleaseResult.Success)?.releasedCount ?: 0
+            if (released > 0 && holders.isNotEmpty()) {
+                record(holders.map { DomainEvent.LeaseReleased(it, rootOfItem(it), resourceKey, 1, forced = true) })
+            }
+            return result
+        }
+
+        private suspend fun recordReleases(
+            holderItemId: UUID,
+            keys: List<String>,
+            result: LeaseReleaseResult,
+        ) {
+            val released = (result as? LeaseReleaseResult.Success)?.releasedCount ?: 0
+            if (released <= 0) return
+            val root = rootOfItem(holderItemId)
+            if (keys.isEmpty()) {
+                record(DomainEvent.LeaseReleased(holderItemId, root, null, released, forced = false))
+            } else {
+                record(keys.map { DomainEvent.LeaseReleased(holderItemId, root, it, 1, forced = false) })
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Project-config and plan-document decorators (root = the project root item)
+    // -------------------------------------------------------------------------
+
+    private inner class EventPublishingProjectConfigStore(
+        private val inner: ProjectConfigStore,
+    ) : ProjectConfigStore by inner {
+        override suspend fun upsert(
+            rootItemId: UUID,
+            configYaml: String,
+        ): ProjectConfig {
+            val result = inner.upsert(rootItemId, configYaml)
+            record(DomainEvent.ProjectConfigUpserted(rootItemId, result.fingerprint))
+            return result
+        }
+
+        override suspend fun upsertGuarded(
+            rootItemId: UUID,
+            configYaml: String,
+            expectedFingerprint: String?,
+            rejectSuperseded: Boolean,
+        ): GuardedUpsertOutcome {
+            val result = inner.upsertGuarded(rootItemId, configYaml, expectedFingerprint, rejectSuperseded)
+            if (result is GuardedUpsertOutcome.Applied) {
+                record(DomainEvent.ProjectConfigUpserted(rootItemId, result.config.fingerprint))
+            }
+            return result
+        }
+
+        override suspend fun delete(rootItemId: UUID): Boolean {
+            val result = inner.delete(rootItemId)
+            if (result) record(DomainEvent.ProjectConfigDeleted(rootItemId))
+            return result
+        }
+    }
+
+    private inner class EventPublishingPlanDocumentStore(
+        private val inner: PlanDocumentStore,
+    ) : PlanDocumentStore by inner {
+        override suspend fun stash(
+            rootItemId: UUID,
+            slug: String,
+            body: String,
+        ): PlanDocumentStashOutcome {
+            val result = inner.stash(rootItemId, slug, body)
+            if (result is PlanDocumentStashOutcome.Stored) {
+                record(DomainEvent.PlanDocumentStashed(result.document.id, rootItemId, slug))
+            }
+            return result
+        }
+
+        override suspend fun markAdopted(
+            rootItemId: UUID,
+            slug: String,
+            adoptedByItemId: UUID,
+        ): PlanDocumentAdoptOutcome {
+            val result = inner.markAdopted(rootItemId, slug, adoptedByItemId)
+            if (result is PlanDocumentAdoptOutcome.Adopted) {
+                record(DomainEvent.PlanDocumentAdopted(result.document.id, rootItemId, slug, adoptedByItemId))
+            }
+            return result
         }
     }
 
@@ -479,71 +483,42 @@ class EventPublishingRepositoryProvider(
     // -------------------------------------------------------------------------
 
     /**
-     * Post-commit publish from the returned [WorkTreeResult] — see the class KDoc's
-     * "WorkTreeExecutor decision" note. [SQLiteWorkTreeService] takes concrete SQLite types and
-     * calls `internal` row-insert helpers directly, so decorating its constituent repositories is
-     * not possible; instead this wraps the executor itself and publishes from what it returns.
-     *
-     * `CreateWorkTreeTool` calls `execute` inside its write unit (`context.unitOfWork.write`), so this runs inside that
-     * same open transaction — every [publishScoped] call here is buffered by [deferredPublisher]
-     * until the OUTER transaction commits, and discarded if it rolls back (including a rollback
-     * triggered by [inner]'s own `execute` throwing, in which case this loop never runs at all).
+     * Records from the returned [WorkTreeResult]: the SQLite work-tree service inserts through internal row
+     * helpers, so its constituent stores cannot be decorated. `create_work_tree` runs `execute` inside its write
+     * unit, so these rows join that unit. A docRef adoption is recorded from the document as stored afterwards.
      */
     private inner class EventPublishingWorkTreeExecutor(
         private val inner: WorkTreeExecutor,
     ) : WorkTreeExecutor {
         override suspend fun execute(input: WorkTreeInput): WorkTreeResult {
             val result = inner.execute(input)
-
-            // Items are root-first (WorkTreeInput's contract) and exclude the attach-mode
-            // pre-existing root (SQLiteWorkTreeService only appends newly-inserted items to
-            // createdItems) — so no spurious item.created for an item this call merely attached to.
-            for (item in result.items) {
-                publishScoped(
-                    ApiEventType.ITEM_CREATED,
-                    itemId = item.id,
-                    modifiedAt = item.createdAt,
-                    roots = resolveRoots(item.id),
-                )
+            val events = mutableListOf<DomainEvent>()
+            // Items are root-first and exclude an attach-mode pre-existing root, so no spurious item.created.
+            for (item in result.items) events += DomainEvent.ItemCreated(item.id, rootOf(item), item.parentId)
+            for (dep in result.deps) events += dependencyAdded(dep, rootOfItem(dep.fromItemId))
+            for (note in result.notes) events += noteUpserted(note, rootOfItem(note.itemId))
+            val docRef = input.docRef
+            if (docRef != null) {
+                val doc = delegate.planDocumentRepository().get(docRef.rootItemId, docRef.slug)
+                if (doc != null) events += DomainEvent.PlanDocumentAdopted(doc.id, docRef.rootItemId, docRef.slug, doc.adoptedByItemId)
             }
-            for (dep in result.deps) {
-                publishScoped(
-                    ApiEventType.DEPENDENCY_ADDED,
-                    itemId = dep.fromItemId,
-                    modifiedAt = dep.createdAt,
-                    roots = resolveRoots(dep.fromItemId),
-                )
-            }
-            for (note in result.notes) {
-                publishScoped(
-                    ApiEventType.NOTE_UPSERTED,
-                    itemId = note.itemId,
-                    modifiedAt = note.modifiedAt,
-                    roots = resolveRoots(note.itemId),
-                    entityActor = note.actorClaim,
-                )
-            }
-
+            record(events)
             return result
         }
     }
 
     // -------------------------------------------------------------------------
-    // RepositoryProvider interface — delegate everything, wrap the three repos
+    // RepositoryProvider interface
     // -------------------------------------------------------------------------
 
-    private val wrappedWorkItemRepo by lazy {
-        EventPublishingWorkItemRepository(delegate.workItemRepository())
-    }
-    private val wrappedNoteRepo by lazy {
-        EventPublishingNoteRepository(delegate.noteRepository())
-    }
-    private val wrappedDependencyRepo by lazy {
-        EventPublishingDependencyRepository(delegate.dependencyRepository())
-    }
-    private val wrappedWorkTreeExecutor by lazy {
-        EventPublishingWorkTreeExecutor(delegate.workTreeExecutor())
-    }
+    private val wrappedWorkItemRepo by lazy { EventPublishingWorkItemRepository(delegate.workItemRepository()) }
+    private val wrappedNoteRepo by lazy { EventPublishingNoteRepository(delegate.noteRepository()) }
+    private val wrappedDependencyRepo by lazy { EventPublishingDependencyRepository(delegate.dependencyRepository()) }
+    private val wrappedTransitionStore by lazy { EventPublishingTransitionStore(delegate.roleTransitionRepository()) }
+    private val wrappedLeaseStore by lazy { EventPublishingLeaseStore(delegate.resourceLeaseRepository()) }
+    private val wrappedProjectConfigStore by lazy { EventPublishingProjectConfigStore(delegate.projectConfigRepository()) }
+    private val wrappedPlanDocumentStore by lazy { EventPublishingPlanDocumentStore(delegate.planDocumentRepository()) }
+    private val wrappedWorkTreeExecutor by lazy { EventPublishingWorkTreeExecutor(delegate.workTreeExecutor()) }
 
     override fun workItemRepository(): WorkItemRepository = wrappedWorkItemRepo
 
@@ -551,48 +526,47 @@ class EventPublishingRepositoryProvider(
 
     override fun dependencyRepository(): DependencyStore = wrappedDependencyRepo
 
-    override fun roleTransitionRepository(): TransitionStore = delegate.roleTransitionRepository()
+    override fun roleTransitionRepository(): TransitionStore = wrappedTransitionStore
 
-    override fun projectConfigRepository(): ProjectConfigStore = delegate.projectConfigRepository()
+    override fun projectConfigRepository(): ProjectConfigStore = wrappedProjectConfigStore
 
-    override fun planDocumentRepository(): PlanDocumentStore = delegate.planDocumentRepository()
+    override fun planDocumentRepository(): PlanDocumentStore = wrappedPlanDocumentStore
 
-    // No event publishing for resource leases — pure pass-through decorator.
-    override fun resourceLeaseRepository(): LeaseStore = delegate.resourceLeaseRepository()
+    override fun resourceLeaseRepository(): LeaseStore = wrappedLeaseStore
 
     override fun workTreeExecutor(): WorkTreeExecutor = wrappedWorkTreeExecutor
 
+    /** Explicit pass-through: request bookkeeping, not a domain change (replays belong to the P10 call log). */
     override fun idempotencyStore(): IdempotencyStore = delegate.idempotencyStore()
 
+    /** Never decorated: its appends are what this decorator records. */
     override fun eventStore(): EventStore = delegate.eventStore()
 
-    // -------------------------------------------------------------------------
-    // Role-transition hook (called by RoleTransitionHandler.applyTransition callers)
-    // -------------------------------------------------------------------------
-
-    /**
-     * Called by code that wraps [RoleTransitionHandler.applyTransition] to emit [ApiEventType.ITEM_ADVANCED].
-     *
-     * The REST [TransitionRoutes] and any future callers should invoke this after a successful
-     * transition. The [AdvanceItemTool] (MCP path) uses [workItemRepository.update] which is
-     * already decorated — but `item.advanced` is distinct from `item.updated` because it carries
-     * the [newRole] payload and semantically means "phase advanced", not "data patched".
-     *
-     * It is safe to call this even if no SSE subscribers are connected — [ApiEventBus.publish]
-     * is a no-op when the subscriber map is empty.
-     */
-    suspend fun publishAdvance(
-        itemId: UUID,
-        newRole: Role,
-        modifiedAt: Instant = Instant.now(),
-    ) {
-        val roots = resolveRoots(itemId)
-        publishScoped(
-            ApiEventType.ITEM_ADVANCED,
-            itemId = itemId,
-            modifiedAt = modifiedAt,
-            roots = roots,
-            newRole = newRole.name.lowercase(),
-        )
+    companion object {
+        /** The item fields whose change an `item.updated` row reports (bookkeeping fields excluded). */
+        internal fun changedFields(
+            old: WorkItem?,
+            new: WorkItem,
+        ): List<String> {
+            if (old == null) return listOf("*")
+            return buildList {
+                if (old.title != new.title) add("title")
+                if (old.description != new.description) add("description")
+                if (old.summary != new.summary) add("summary")
+                if (old.statusLabel != new.statusLabel) add("statusLabel")
+                if (old.previousRole != new.previousRole) add("previousRole")
+                if (old.priority != new.priority) add("priority")
+                if (old.complexity != new.complexity) add("complexity")
+                if (old.requiresVerification != new.requiresVerification) add("requiresVerification")
+                if (old.rootId != new.rootId) add("rootId")
+                if (old.depth != new.depth) add("depth")
+                if (old.metadata != new.metadata) add("metadata")
+                if (old.tags != new.tags) add("tags")
+                if (old.type != new.type) add("type")
+                if (old.properties != new.properties) add("properties")
+                if (old.claimedBy != new.claimedBy) add("claimedBy")
+                if (old.claimExpiresAt != new.claimExpiresAt) add("claimExpiresAt")
+            }
+        }
     }
 }

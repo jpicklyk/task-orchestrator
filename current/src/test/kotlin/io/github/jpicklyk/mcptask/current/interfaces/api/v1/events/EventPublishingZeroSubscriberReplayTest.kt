@@ -25,7 +25,7 @@ import java.util.UUID
  * Harness (per the item's frozen `test-plan`): all setup writes happen with NO subscriber
  * connected — every write in this file, setup or under-test, sees `subscriberCount() == 0` at the
  * moment [EventPublishingRepositoryProvider.resolveRoots] is consulted, so every buffered entry is
- * UNRESOLVED. Capture `w = bus.ringBufferSnapshot().last().id` right before the write under test,
+ * UNRESOLVED. Capture `w = bus.projectedEvents().last().id` right before the write under test,
  * perform it (asserting `subscriberCount() == 0` first), then `subscribe(id, emptySet(), lastEventId
  * = w)` (an UNRESTRICTED subscriber — entitled to unresolved entries) and [drainDelivered] the
  * replay.
@@ -34,7 +34,7 @@ class EventPublishingZeroSubscriberReplayTest {
     @RegisterExtension
     val db = SqliteTestDatabase.perMethod()
 
-    private fun lastBufferedId(bus: ApiEventBus): Long = bus.ringBufferSnapshot().last().id
+    private suspend fun lastBufferedId(bus: ApiEventBus): Long = bus.projectedEvents().last().id
 
     // -------------------------------------------------------------------------
     // S1 — note delete(id) at 0 subscribers
@@ -216,7 +216,7 @@ class EventPublishingZeroSubscriberReplayTest {
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
             run {
-                val w = bus.ringBufferSnapshot().lastOrNull()?.id
+                val w = bus.projectedEvents().lastOrNull()?.id
                 assertEquals(0, bus.subscriberCount())
 
                 provider.noteRepository().delete(UUID.randomUUID())
@@ -227,7 +227,7 @@ class EventPublishingZeroSubscriberReplayTest {
             }
 
             run {
-                val w = bus.ringBufferSnapshot().lastOrNull()?.id
+                val w = bus.projectedEvents().lastOrNull()?.id
                 assertEquals(0, bus.subscriberCount())
 
                 provider.dependencyRepository().delete(UUID.randomUUID())
@@ -290,7 +290,7 @@ class EventPublishingZeroSubscriberReplayTest {
      * IS that root. [K]
      */
     @Test
-    fun `S8 a root-scoped resume never receives an unresolved zero-subscriber delete event`(): Unit =
+    fun `S8 a root-scoped resume receives a zero-subscriber delete event only under its own root`(): Unit =
         runBlocking {
             val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
@@ -307,13 +307,19 @@ class EventPublishingZeroSubscriberReplayTest {
 
             provider.noteRepository().delete(note.id)
 
+            // P8 expected-value change: zero-subscriber writes are no longer unresolved -- every row carries its
+            // root -- so the fail-closed rule is now "never under another root", and the row's own root receives it.
+            val otherFlow = bus.subscribe("zsr-s8-other", setOf(UUID.randomUUID()), lastEventId = w)
+            val otherEvents = bus.drainDelivered("zsr-s8-other", otherFlow)
+            assertTrue(
+                otherEvents.none { it.event == ApiEventType.NOTE_DELETED },
+                "a subscriber scoped to another root must not receive the delete event, got: $otherEvents",
+            )
+            assertTrue(otherEvents.none { it.event == ApiEventType.SYNC_LOST }, "no sync.lost expected, got: $otherEvents")
+
             val flow = bus.subscribe("zsr-s8", setOf(x.id), lastEventId = w)
             val events = bus.drainDelivered("zsr-s8", flow)
-
-            assertTrue(
-                events.none { it.event == ApiEventType.NOTE_DELETED },
-                "a root-scoped subscriber must not receive an unresolved delete event, got: $events",
-            )
+            assertEquals(1, events.count { it.event == ApiEventType.NOTE_DELETED }, "its own root must replay the delete, got: $events")
             assertTrue(events.none { it.event == ApiEventType.SYNC_LOST }, "no sync.lost expected, got: $events")
         }
 }

@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
  * - R1: import or fully-qualify anything from `org.sqlite.` or `org.jetbrains.exposed.`, or
  * - R2: carry a SQLite-dialect token (or an `org.sqlite.` / `org.jetbrains.exposed.` reflection name) inside a string literal
  * Comments and KDoc are excluded. Violations are counted per file against the two-way ratcheted baseline
- * `dialect-neutrality-baseline.txt` (`<path> <count>`), which holds only `DeferredEventPublisher.kt` until P15 deletes it.
+ * `dialect-neutrality-baseline.txt` (`<path> <count>`), which is empty since P8 repointed `DeferredEventPublisher.kt`.
  */
 class DialectNeutralityTest {
     /** Source text split into code (comments removed, literal contents blanked) and the contents of each string literal. */

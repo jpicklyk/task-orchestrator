@@ -290,45 +290,6 @@ class SQLiteRoleTransitionRepositoryTest {
             assertTrue(result.isEmpty())
         }
 
-    // --- deleteByItemId ---
-
-    @Test
-    fun `deleteByItemId removes all transitions for item`() =
-        runBlocking {
-            transitionRepository.create(
-                RoleTransition(
-                    itemId = testItemId,
-                    fromRole = "queue",
-                    toRole = "work",
-                    trigger = "start"
-                )
-            )
-            transitionRepository.create(
-                RoleTransition(
-                    itemId = testItemId,
-                    fromRole = "work",
-                    toRole = "review",
-                    trigger = "complete"
-                )
-            )
-
-            val result = transitionRepository.deleteByItemId(testItemId)
-            assertNotNull(result)
-            assertEquals(2, result)
-
-            val findResult = transitionRepository.findByItemId(testItemId)
-            assertNotNull(findResult)
-            assertTrue(findResult.isEmpty())
-        }
-
-    @Test
-    fun `deleteByItemId returns 0 for item with no transitions`() =
-        runBlocking {
-            val result = transitionRepository.deleteByItemId(UUID.randomUUID())
-            assertNotNull(result)
-            assertEquals(0, result)
-        }
-
     // --- Actor attribution ---
 
     @Test

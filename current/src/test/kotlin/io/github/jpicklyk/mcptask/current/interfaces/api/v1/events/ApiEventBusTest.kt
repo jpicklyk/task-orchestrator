@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
+import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.take
@@ -33,7 +34,7 @@ class ApiEventBusTest {
     @Test
     fun `subscriber receives event matching its root set`(): Unit =
         runBlocking {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = InMemoryEventStore())
             val root = UUID.randomUUID()
             val itemId = UUID.randomUUID()
 
@@ -47,8 +48,7 @@ class ApiEventBusTest {
                 }
 
             delay(50)
-            val event = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemId, modifiedAt = Instant.now())
-            bus.publish(event, affectedRoots = setOf(root))
+            val event = bus.emit(ApiEventType.ITEM_CREATED, itemId = itemId, rootId = root)
 
             val events = collected.await()
             assertEquals(1, events.size)
@@ -60,7 +60,7 @@ class ApiEventBusTest {
     @Test
     fun `subscriber does NOT receive event for a different root`(): Unit =
         runBlocking {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = InMemoryEventStore())
             val root1 = UUID.randomUUID()
             val root2 = UUID.randomUUID()
             val itemId = UUID.randomUUID()
@@ -76,8 +76,7 @@ class ApiEventBusTest {
                 }
 
             delay(50)
-            val event = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemId, modifiedAt = Instant.now())
-            bus.publish(event, affectedRoots = setOf(root1)) // only root1
+            val event = bus.emit(ApiEventType.ITEM_CREATED, itemId = itemId, rootId = root1)
 
             val result = received.await()
             assertNull(result, "Subscriber for root2 should NOT receive root1 events (expected no event)")
@@ -87,7 +86,7 @@ class ApiEventBusTest {
     @Test
     fun `unrestricted subscriber (empty rootIds) receives all events`(): Unit =
         runBlocking {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = InMemoryEventStore())
             val root1 = UUID.randomUUID()
             val root2 = UUID.randomUUID()
             val itemId = UUID.randomUUID()
@@ -102,8 +101,8 @@ class ApiEventBusTest {
                 }
 
             delay(50)
-            bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemId, modifiedAt = Instant.now()), setOf(root1))
-            bus.publish(bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = itemId, modifiedAt = Instant.now()), setOf(root2))
+            bus.emit(ApiEventType.ITEM_CREATED, itemId = itemId, rootId = root1)
+            bus.emit(ApiEventType.ITEM_UPDATED, itemId = itemId, rootId = root2)
 
             val events = collected.await()
             assertEquals(2, events.size)
@@ -119,7 +118,7 @@ class ApiEventBusTest {
     @Test
     fun `event IDs are monotonically increasing and independent namespace`(): Unit =
         runBlocking {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = InMemoryEventStore())
             val root = UUID.randomUUID()
             val flow = bus.subscribe("sub-id", setOf(root), lastEventId = null)
 
@@ -131,7 +130,7 @@ class ApiEventBusTest {
                 }
 
             delay(50)
-            repeat(3) { bus.publish(bus.buildEvent(ApiEventType.ITEM_CREATED), setOf(root)) }
+            repeat(3) { bus.emit(ApiEventType.ITEM_CREATED, rootId = root) }
 
             val events = collected.await()
             assertEquals(3, events.size)
@@ -150,20 +149,14 @@ class ApiEventBusTest {
     @Test
     fun `Last-Event-ID replay - events after the given id are replayed from ring buffer`(): Unit =
         runBlocking {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = InMemoryEventStore())
             val root = UUID.randomUUID()
 
             // Publish 5 events WITHOUT a subscriber
             val published = mutableListOf<ApiEvent>()
             repeat(5) { i ->
-                val e =
-                    bus.buildEvent(
-                        ApiEventType.ITEM_CREATED,
-                        itemId = UUID.randomUUID(),
-                        modifiedAt = Instant.now(),
-                    )
+                val e = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), rootId = root)
                 published.add(e)
-                bus.publish(e, setOf(root))
             }
 
             // Subscribe with lastEventId = id of the 3rd event (index 2)
@@ -193,7 +186,7 @@ class ApiEventBusTest {
     fun `backpressure - slow consumer receives sync_lost event on queue overflow`(): Unit =
         runBlocking {
             // Very small queue to trigger overflow easily
-            val bus = ApiEventBus(bufferSize = 1000, connectionQueueSize = 4)
+            val bus = ApiEventBus(bufferSize = 1000, connectionQueueSize = 4, source = InMemoryEventStore())
             val root = UUID.randomUUID()
 
             // Subscribe but do NOT collect (simulates a slow consumer)
@@ -201,10 +194,7 @@ class ApiEventBusTest {
 
             // Publish more events than the queue capacity
             repeat(10) { i ->
-                bus.publish(
-                    bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID()),
-                    setOf(root),
-                )
+                bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), rootId = root)
             }
 
             // Now collect — we should see at least one sync.lost event among the received events
@@ -225,7 +215,7 @@ class ApiEventBusTest {
     @Test
     fun `bus-level events with empty affectedRoots are delivered to all subscribers`(): Unit =
         runBlocking {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = InMemoryEventStore())
             val root1 = UUID.randomUUID()
             val root2 = UUID.randomUUID()
 
@@ -236,8 +226,8 @@ class ApiEventBusTest {
             val c2 = async { withTimeout(3.seconds) { flow2.take(1).toList() } }
 
             delay(50)
-            val evt = bus.buildEvent(ApiEventType.AUTH_EXPIRED, modifiedAt = Instant.now())
-            bus.publish(evt, affectedRoots = emptySet()) // broadcast
+            val evt = bus.buildEvent(ApiEventType.AUTH_EXPIRED)
+            bus.publish(evt, emptySet())
 
             val events1 = c1.await()
             val events2 = c2.await()
@@ -257,7 +247,7 @@ class ApiEventBusTest {
 
     @Test
     fun `buildEvent populates all fields correctly`() {
-        val bus = ApiEventBus()
+        val bus = ApiEventBus(source = InMemoryEventStore())
         val itemId = UUID.randomUUID()
         val now = Instant.now()
 
@@ -272,7 +262,7 @@ class ApiEventBusTest {
 
     @Test
     fun `buildEvent with no itemId or modifiedAt produces null fields`() {
-        val bus = ApiEventBus()
+        val bus = ApiEventBus(source = InMemoryEventStore())
         val event = bus.buildEvent(ApiEventType.SYNC_LOST)
 
         assertNull(event.itemId)
@@ -287,19 +277,18 @@ class ApiEventBusTest {
     @Test
     fun `Last-Event-ID replay does not leak out-of-scope root events to root-scoped subscriber`(): Unit =
         runBlocking {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = InMemoryEventStore())
             val rootA = UUID.randomUUID()
             val rootB = UUID.randomUUID()
 
             // Publish 3 events for rootA without any subscriber (buffered in ring buffer)
             repeat(3) {
-                val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
-                bus.publish(e, affectedRoots = setOf(rootA))
+                bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), rootId = rootA)
             }
 
-            // Subscribe with rootIds={rootB} and replay from id=0
+            // Subscribe with rootIds={rootB} and replay from the start of the log
             // A token scoped to rootB must NOT receive the rootA-only buffered events
-            val flow = bus.subscribe("sub-rootB-only", setOf(rootB), lastEventId = 0L)
+            val flow = bus.subscribe("sub-rootB-only", setOf(rootB), lastEventId = FROM_START.toLong())
             val received =
                 async {
                     withTimeoutOrNull(500) { flow.take(1).toList() }
@@ -313,20 +302,18 @@ class ApiEventBusTest {
     @Test
     fun `Last-Event-ID replay delivers only in-scope events to root-scoped subscriber`(): Unit =
         runBlocking {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = InMemoryEventStore())
             val rootA = UUID.randomUUID()
             val rootB = UUID.randomUUID()
             val itemA = UUID.randomUUID()
             val itemB = UUID.randomUUID()
 
             // Publish events for rootA and rootB without any subscriber (buffered)
-            val evtA = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemA, modifiedAt = Instant.now())
-            bus.publish(evtA, affectedRoots = setOf(rootA))
-            val evtB = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemB, modifiedAt = Instant.now())
-            bus.publish(evtB, affectedRoots = setOf(rootB))
+            val evtA = bus.emit(ApiEventType.ITEM_CREATED, itemId = itemA, rootId = rootA)
+            val evtB = bus.emit(ApiEventType.ITEM_CREATED, itemId = itemB, rootId = rootB)
 
             // Subscribe scoped to rootB — should only replay the rootB event
-            val flow = bus.subscribe("sub-rootB-replay", setOf(rootB), lastEventId = 0L)
+            val flow = bus.subscribe("sub-rootB-replay", setOf(rootB), lastEventId = FROM_START.toLong())
 
             val collected =
                 async {
@@ -345,19 +332,18 @@ class ApiEventBusTest {
     @Test
     fun `Last-Event-ID replay delivers all events to unrestricted subscriber`(): Unit =
         runBlocking {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = InMemoryEventStore())
             val rootA = UUID.randomUUID()
             val rootB = UUID.randomUUID()
 
             // Publish 2 events for different roots (no subscriber yet)
             repeat(2) { i ->
                 val root = if (i == 0) rootA else rootB
-                val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
-                bus.publish(e, affectedRoots = setOf(root))
+                bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), rootId = root)
             }
 
             // Unrestricted subscriber (emptySet) should receive ALL buffered events
-            val flow = bus.subscribe("sub-unrestricted", emptySet(), lastEventId = 0L)
+            val flow = bus.subscribe("sub-unrestricted", emptySet(), lastEventId = FROM_START.toLong())
 
             val collected =
                 async {
@@ -371,32 +357,6 @@ class ApiEventBusTest {
             bus.unsubscribe("sub-unrestricted")
         }
 
-    @Test
-    fun `Last-Event-ID replay delivers bus-level events (emptySet roots) to all root-scoped subscribers`(): Unit =
-        runBlocking {
-            val bus = ApiEventBus()
-            val rootA = UUID.randomUUID()
-
-            // Publish a bus-level event (sync.lost / auth.expired use emptySet as affectedRoots)
-            val busEvt = bus.buildEvent(ApiEventType.AUTH_EXPIRED)
-            bus.publish(busEvt, affectedRoots = emptySet())
-
-            // Root-scoped subscriber MUST receive the bus-level event on replay
-            val flow = bus.subscribe("sub-rootA-replay", setOf(rootA), lastEventId = 0L)
-
-            val collected =
-                async {
-                    withTimeout(3.seconds) {
-                        flow.take(1).toList()
-                    }
-                }
-
-            val events = collected.await()
-            assertEquals(1, events.size, "Bus-level events (emptySet affectedRoots) must replay to all subscribers")
-            assertEquals(ApiEventType.AUTH_EXPIRED, events[0].event)
-            bus.unsubscribe("sub-rootA-replay")
-        }
-
     // -------------------------------------------------------------------------
     // Subscriber count and cleanup
     // -------------------------------------------------------------------------
@@ -404,7 +364,7 @@ class ApiEventBusTest {
     @Test
     fun `unsubscribe removes the subscriber and closes its channel`(): Unit =
         runBlocking {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = InMemoryEventStore())
             val root = UUID.randomUUID()
             bus.subscribe("sub-cleanup", setOf(root), null)
             assertEquals(1, bus.subscriberCount())
@@ -414,7 +374,7 @@ class ApiEventBusTest {
 
     @Test
     fun `unsubscribe is idempotent`() {
-        val bus = ApiEventBus()
+        val bus = ApiEventBus(source = InMemoryEventStore())
         bus.unsubscribe("non-existent")
         // should not throw
     }
@@ -428,7 +388,7 @@ class ApiEventBusTest {
 
     @Test
     fun `buildEvent maps actor to a dto with lowercase kind and carries rootId as a string`() {
-        val bus = ApiEventBus()
+        val bus = ApiEventBus(source = InMemoryEventStore())
         val rootId = UUID.randomUUID()
         val claim = ActorClaim(id = "agent-a", kind = ActorKind.SUBAGENT, parent = "orch-1", proof = "SECRET")
 
@@ -440,7 +400,7 @@ class ApiEventBusTest {
 
     @Test
     fun `buildEvent without actor or rootId leaves both null`() {
-        val event = ApiEventBus().buildEvent(ApiEventType.ITEM_UPDATED, itemId = UUID.randomUUID())
+        val event = ApiEventBus(source = InMemoryEventStore()).buildEvent(ApiEventType.ITEM_UPDATED, itemId = UUID.randomUUID())
 
         assertNull(event.actor)
         assertNull(event.rootId)
@@ -448,7 +408,7 @@ class ApiEventBusTest {
 
     @Test
     fun `an ApiEvent with null actor and rootId serializes without those keys and never emits proof`() {
-        val bus = ApiEventBus()
+        val bus = ApiEventBus(source = InMemoryEventStore())
         val json = Json { explicitNulls = false }
         val bare = json.encodeToString(ApiEvent.serializer(), bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = UUID.randomUUID()))
         assertTrue(!bare.contains("actor") && !bare.contains("rootId"), "null fields must be absent, got: $bare")
@@ -466,18 +426,17 @@ class ApiEventBusTest {
     @Test
     fun `the ring buffer keeps actor and rootId and replay delivers them to an unrestricted subscriber`(): Unit =
         runBlocking {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = InMemoryEventStore())
             val rootId = UUID.randomUUID()
             val claim = ActorClaim(id = "agent-a", kind = ActorKind.EXTERNAL, parent = "orch-1")
-            val published = bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = UUID.randomUUID(), actor = claim, rootId = rootId)
-            bus.publish(published, setOf(rootId))
+            val published = bus.emit(ApiEventType.ITEM_UPDATED, itemId = UUID.randomUUID(), rootId = rootId, actor = claim)
 
-            val snapshot = bus.ringBufferSnapshot()
+            val snapshot = bus.projectedEvents()
             assertEquals(1, snapshot.size)
             assertEquals(ActorClaimDto(id = "agent-a", kind = "external", parent = "orch-1"), snapshot[0].actor)
             assertEquals(rootId.toString(), snapshot[0].rootId)
 
-            val flow = bus.subscribe("sub-actor-replay", emptySet(), lastEventId = 0L)
+            val flow = bus.subscribe("sub-actor-replay", emptySet(), lastEventId = FROM_START.toLong())
             val replayed = withTimeout(3.seconds) { flow.take(1).toList() }
             assertEquals(published.id, replayed[0].id)
             assertEquals(snapshot[0].actor, replayed[0].actor)
@@ -488,14 +447,12 @@ class ApiEventBusTest {
     @Test
     fun `the replay-gap sync_lost sentinel carries neither actor nor rootId even when evicted events had both`(): Unit =
         runBlocking {
-            val bus = ApiEventBus(bufferSize = 3)
+            val bus = ApiEventBus(bufferSize = 3, source = InMemoryEventStore())
             val rootId = UUID.randomUUID()
             val claim = ActorClaim(id = "agent-a", kind = ActorKind.SUBAGENT)
             val published =
                 (1..5).map {
-                    bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = UUID.randomUUID(), actor = claim, rootId = rootId).also { e ->
-                        bus.publish(e, setOf(rootId))
-                    }
+                    bus.emit(ApiEventType.ITEM_UPDATED, itemId = UUID.randomUUID(), rootId = rootId, actor = claim)
                 }
 
             val flow = bus.subscribe("sub-gap", emptySet(), lastEventId = published[0].id)

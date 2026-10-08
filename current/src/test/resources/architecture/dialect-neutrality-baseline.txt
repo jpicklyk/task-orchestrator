@@ -1,1 +1,1 @@
-interfaces/api/v1/events/DeferredEventPublisher.kt 4
+# Empty since P8 (ea2b9b63): DeferredEventPublisher no longer touches Exposed. A new line here is a new violation.

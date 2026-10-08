@@ -44,7 +44,6 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
-import java.time.Instant
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 import io.ktor.client.plugins.sse.SSE as ClientSSE
@@ -144,16 +143,16 @@ class SseRootScopeFailClosedTest {
     }
 
     // -------------------------------------------------------------------------------------------
-    // S1 / S2 -- NEW-SURFACE: rootsResolved=false fails closed to root-scoped subscribers, but not
-    // to unrestricted ones. Narrowest revert: keep the `rootsResolved` parameter and the
-    // RingBufferEntry field, revert only the two fan-out/replay predicates to the pre-fix two-clause
-    // form (ApiEventBus.kt fan-out ~:114-119).
+    // S1 / S2 -- root-scoped fan-out fails closed. P8 (ea2b9b63) removed the unresolved-roots case:
+    // every events row carries a root, so the fail-closed rule is now "a row of another root never
+    // reaches a root-scoped subscriber", while an unrestricted subscriber still receives it.
     // -------------------------------------------------------------------------------------------
 
     @Test
-    fun `S1 - an unresolved-roots publish delivers nothing to a root-scoped subscriber`(): Unit =
+    fun `S1 - a row of another root delivers nothing to a root-scoped subscriber`(): Unit =
         runBlocking {
-            val bus = ApiEventBus()
+            val feed = EventFeed(db.repositoryProvider().eventStore())
+            val bus = feed.bus
             val root = UUID.randomUUID()
             val itemId = UUID.randomUUID()
 
@@ -161,70 +160,65 @@ class SseRootScopeFailClosedTest {
             val received = async { withTimeoutOrNull(800) { flow.take(1).toList() } }
 
             delay(50)
-            val event = bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = itemId, modifiedAt = Instant.now())
-            bus.publish(event, affectedRoots = emptySet(), rootsResolved = false)
+            feed.emit(ApiEventType.ITEM_UPDATED, itemId = itemId, rootId = UUID.randomUUID())
 
             val result = received.await()
             assertNull(
                 result,
-                "S1: an unresolved-roots publish must fail closed -- a root-scoped subscriber must receive " +
-                    "nothing (rootsResolved=false reaches only subscribers with an empty rootIds filter, per O1/O2)",
+                "S1: a row of another root must fail closed -- a root-scoped subscriber must receive nothing (O1/O2)",
             )
             bus.unsubscribe("s1-root-scoped")
         }
 
     @Test
-    fun `S2 - the same unresolved-roots publish IS delivered to an unrestricted subscriber`(): Unit =
+    fun `S2 - the same row IS delivered to an unrestricted subscriber`(): Unit =
         runBlocking {
-            val bus = ApiEventBus()
+            val feed = EventFeed(db.repositoryProvider().eventStore())
+            val bus = feed.bus
             val itemId = UUID.randomUUID()
 
             val flow = bus.subscribe("s2-unrestricted", emptySet(), lastEventId = null)
             val collected = async { withTimeout(5.seconds) { flow.take(1).toList() } }
 
             delay(50)
-            val event = bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = itemId, modifiedAt = Instant.now())
-            bus.publish(event, affectedRoots = emptySet(), rootsResolved = false)
+            feed.emit(ApiEventType.ITEM_UPDATED, itemId = itemId, rootId = UUID.randomUUID())
 
             val events = collected.await()
             assertEquals(
                 1,
                 events.size,
-                "S2: an unrestricted subscriber is entitled to everything -- an unresolved event must still arrive"
+                "S2: an unrestricted subscriber is entitled to everything -- the row must still arrive"
             )
             assertEquals(itemId.toString(), events[0].itemId)
             bus.unsubscribe("s2-unrestricted")
         }
 
     // -------------------------------------------------------------------------------------------
-    // S3 -- NEW-SURFACE: the replay (Last-Event-ID) path applies the identical rootsResolved rule.
-    // Narrowest revert: same as S1/S2, on the replay predicate (~:215-224).
+    // S3 -- the replay (Last-Event-ID) path applies the identical root rule.
     // -------------------------------------------------------------------------------------------
 
     @Test
-    fun `S3 - replay skips an unresolved entry for a root-scoped resume, delivers it unrestricted, idempotently`(): Unit =
+    fun `S3 - replay skips another root's row for a root-scoped resume, delivers it unrestricted, idempotently`(): Unit =
         runBlocking {
-            val bus = ApiEventBus()
+            val feed = EventFeed(db.repositoryProvider().eventStore())
+            val bus = feed.bus
             val root = UUID.randomUUID()
             val itemId = UUID.randomUUID()
+            val cursor = feed.store.maxSeq()
 
-            // Buffer the unresolved event BEFORE any subscriber connects.
-            bus.publish(
-                bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = itemId, modifiedAt = Instant.now()),
-                affectedRoots = emptySet(),
-                rootsResolved = false,
-            )
+            // Record the row BEFORE any subscriber connects.
+            feed.emit(ApiEventType.ITEM_UPDATED, itemId = itemId, rootId = UUID.randomUUID())
 
-            val rootScopedFlow = bus.subscribe("s3-root-scoped", setOf(root), lastEventId = 0L)
+            val rootScopedFlow = bus.subscribe("s3-root-scoped", setOf(root), lastEventId = cursor)
             val rootScopedResult = withTimeoutOrNull(800) { rootScopedFlow.take(1).toList() }
             assertNull(
                 rootScopedResult,
-                "S3: replay of an unresolved entry must not reach a root-scoped resume (fail closed, same as live)"
+                "S3: replay of another root's row must not reach a root-scoped resume (fail closed, same as live)"
             )
             bus.unsubscribe("s3-root-scoped")
 
             suspend fun unrestrictedReplay(): List<ApiEvent> {
-                val flow = bus.subscribe("s3-unrestricted", emptySet(), lastEventId = 0L)
+                val flow = bus.subscribe("s3-unrestricted", emptySet(), lastEventId = cursor)
                 val result = withTimeout(5.seconds) { flow.take(1).toList() }
                 bus.unsubscribe("s3-unrestricted")
                 return result
@@ -233,7 +227,7 @@ class SseRootScopeFailClosedTest {
             val first = unrestrictedReplay()
             val second = unrestrictedReplay()
 
-            assertEquals(1, first.size, "S3: an unrestricted resume must replay the unresolved entry")
+            assertEquals(1, first.size, "S3: an unrestricted resume must replay the row")
             assertEquals(itemId.toString(), first[0].itemId)
             assertEquals(
                 first.map { it.id },
@@ -250,7 +244,7 @@ class SseRootScopeFailClosedTest {
     @Test
     fun `S4 - a default bus-level publish (emptySet roots, rootsResolved default true) still reaches a root-scoped subscriber`(): Unit =
         runBlocking {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val root = UUID.randomUUID()
 
             val flow = bus.subscribe("s4-root-scoped", setOf(root), lastEventId = null)
@@ -269,7 +263,7 @@ class SseRootScopeFailClosedTest {
     @Test
     fun `S5 - a publish scoped to one root reaches only that root's subscriber (regression)`(): Unit =
         runBlocking {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val root1 = UUID.randomUUID()
             val root2 = UUID.randomUUID()
             val itemId = UUID.randomUUID()
@@ -280,8 +274,7 @@ class SseRootScopeFailClosedTest {
             val received2 = async { withTimeoutOrNull(800) { flow2.take(1).toList() } }
 
             delay(50)
-            val event = bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = itemId, modifiedAt = Instant.now())
-            bus.publish(event, affectedRoots = setOf(root1))
+            val event = bus.emit(ApiEventType.ITEM_UPDATED, itemId = itemId, rootId = root1)
 
             val events1 = received1.await()
             val events2 = received2.await()
@@ -311,7 +304,7 @@ class SseRootScopeFailClosedTest {
             delegate.workItemRepository().create(WorkItem(id = uncachedFromId, title = "S11 cold from", depth = 0))
             delegate.workItemRepository().create(WorkItem(id = uncachedToId, title = "S11 cold to", depth = 0))
 
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
             val rootScopedFlow = bus.subscribe("s11-root-scoped", setOf(UUID.randomUUID()), lastEventId = null)
@@ -346,7 +339,7 @@ class SseRootScopeFailClosedTest {
     @Test
     fun `S6 - a root-scoped principal requesting a root outside its scope is rejected with 403 before any stream opens`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val r1 = UUID.randomUUID()
             val r2 = UUID.randomUUID()
             application { wireEventsRoute(bus, tokenEntries(TOKEN, rootIds = setOf(r1))) }
@@ -379,7 +372,7 @@ class SseRootScopeFailClosedTest {
     @Test
     fun `S7 - a two-root principal requesting one of its own roots is narrowed to exactly that root, never widened back to both`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val r1 = UUID.randomUUID()
             val r2 = UUID.randomUUID()
             application { wireEventsRoute(bus, tokenEntries(TOKEN, rootIds = setOf(r1, r2))) }
@@ -392,15 +385,15 @@ class SseRootScopeFailClosedTest {
                 coroutineScope {
                     launch {
                         delay(SETTLE_DELAY_MS)
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = idInR1, modifiedAt = Instant.now()), setOf(r1))
+                        bus.emit(ApiEventType.ITEM_UPDATED, itemId = idInR1, rootId = r1)
                         delay(60L)
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = idInR2, modifiedAt = Instant.now()), setOf(r2))
+                        bus.emit(ApiEventType.ITEM_UPDATED, itemId = idInR2, rootId = r2)
                     }
                     sseClient.sse(
                         urlString = "/events?root=$r2",
                         request = {
                             header(HttpHeaders.Authorization, "Bearer $TOKEN")
-                            header("Last-Event-ID", "0")
+                            header("Last-Event-ID", FROM_START)
                         },
                     ) {
                         collected.addAll(collectWithin(incoming))
@@ -414,7 +407,7 @@ class SseRootScopeFailClosedTest {
     @Test
     fun `S8 - an unrestricted principal requesting one root via query param is narrowed to that root (unchanged behavior)`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val r1 = UUID.randomUUID()
             val r2 = UUID.randomUUID()
             application { wireEventsRoute(bus, tokenEntries(TOKEN, rootIds = null)) }
@@ -427,15 +420,15 @@ class SseRootScopeFailClosedTest {
                 coroutineScope {
                     launch {
                         delay(SETTLE_DELAY_MS)
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = idInR1, modifiedAt = Instant.now()), setOf(r1))
+                        bus.emit(ApiEventType.ITEM_UPDATED, itemId = idInR1, rootId = r1)
                         delay(60L)
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = idInR2, modifiedAt = Instant.now()), setOf(r2))
+                        bus.emit(ApiEventType.ITEM_UPDATED, itemId = idInR2, rootId = r2)
                     }
                     sseClient.sse(
                         urlString = "/events?root=$r2",
                         request = {
                             header(HttpHeaders.Authorization, "Bearer $TOKEN")
-                            header("Last-Event-ID", "0")
+                            header("Last-Event-ID", FROM_START)
                         },
                     ) {
                         collected.addAll(collectWithin(incoming))
@@ -458,7 +451,7 @@ class SseRootScopeFailClosedTest {
     @Test
     fun `S9a - a root query parameter that is not a valid UUID is rejected with 400 before any stream opens`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { wireEventsRoute(bus, tokenEntries(TOKEN, rootIds = null)) }
 
             val response = client.get("/events?root=not-a-uuid") { header(HttpHeaders.Authorization, "Bearer $TOKEN") }
@@ -476,7 +469,7 @@ class SseRootScopeFailClosedTest {
     @Test
     fun `S9b - a present but empty root query parameter is also rejected with 400`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             application { wireEventsRoute(bus, tokenEntries(TOKEN, rootIds = null)) }
 
             val response = client.get("/events?root=") { header(HttpHeaders.Authorization, "Bearer $TOKEN") }
@@ -499,7 +492,7 @@ class SseRootScopeFailClosedTest {
     @Test
     fun `S10 - a root-scoped principal with no root query param at all still streams its own root (guards S6 against over-firing)`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val r1 = UUID.randomUUID()
             val r2 = UUID.randomUUID()
             application { wireEventsRoute(bus, tokenEntries(TOKEN, rootIds = setOf(r1))) }
@@ -512,15 +505,15 @@ class SseRootScopeFailClosedTest {
                 coroutineScope {
                     launch {
                         delay(SETTLE_DELAY_MS)
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = idInR2, modifiedAt = Instant.now()), setOf(r2))
+                        bus.emit(ApiEventType.ITEM_UPDATED, itemId = idInR2, rootId = r2)
                         delay(60L)
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = idInR1, modifiedAt = Instant.now()), setOf(r1))
+                        bus.emit(ApiEventType.ITEM_UPDATED, itemId = idInR1, rootId = r1)
                     }
                     sseClient.sse(
                         urlString = "/events",
                         request = {
                             header(HttpHeaders.Authorization, "Bearer $TOKEN")
-                            header("Last-Event-ID", "0")
+                            header("Last-Event-ID", FROM_START)
                         },
                     ) {
                         collected.addAll(collectWithin(incoming))
@@ -539,14 +532,13 @@ class SseRootScopeFailClosedTest {
     @Test
     fun `S12 - a root-scoped resume past a buffer eviction gets sync_lost first, bypassing a types filter (wave-3)`(): Unit =
         testApplication {
-            val bus = ApiEventBus(bufferSize = 3)
+            val bus = ApiEventBus(bufferSize = 3, source = db.repositoryProvider().eventStore())
             val rootA = UUID.randomUUID()
             val rootB = UUID.randomUUID()
             val published = mutableListOf<ApiEvent>()
             repeat(5) {
-                val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
+                val e = bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), rootId = rootB)
                 published.add(e)
-                bus.publish(e, setOf(rootB)) // every buffered event belongs to rootB only -- irrelevant to rootA
             }
             application { wireEventsRoute(bus, tokenEntries(TOKEN, rootIds = setOf(rootA))) }
             val sseClient = createClient { install(ClientSSE) }
@@ -557,7 +549,7 @@ class SseRootScopeFailClosedTest {
                 coroutineScope {
                     launch {
                         delay(SETTLE_DELAY_MS)
-                        bus.publish(bus.buildEvent(ApiEventType.NOTE_UPSERTED, itemId = liveId, modifiedAt = Instant.now()), setOf(rootA))
+                        bus.emit(ApiEventType.NOTE_UPSERTED, itemId = liveId, rootId = rootA)
                     }
                     sseClient.sse(
                         urlString = "/events?types=${ApiEventType.NOTE_UPSERTED}",
@@ -588,7 +580,7 @@ class SseRootScopeFailClosedTest {
     @Test
     fun `probe - a duplicate root query parameter narrows to the single deduplicated root, not rejected nor widened`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val r1 = UUID.randomUUID()
             val r2 = UUID.randomUUID()
             application { wireEventsRoute(bus, tokenEntries(TOKEN, rootIds = setOf(r1, r2))) }
@@ -601,15 +593,15 @@ class SseRootScopeFailClosedTest {
                 coroutineScope {
                     launch {
                         delay(SETTLE_DELAY_MS)
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = idInR2, modifiedAt = Instant.now()), setOf(r2))
+                        bus.emit(ApiEventType.ITEM_UPDATED, itemId = idInR2, rootId = r2)
                         delay(60L)
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = idInR1, modifiedAt = Instant.now()), setOf(r1))
+                        bus.emit(ApiEventType.ITEM_UPDATED, itemId = idInR1, rootId = r1)
                     }
                     sseClient.sse(
                         urlString = "/events?root=$r1&root=$r1",
                         request = {
                             header(HttpHeaders.Authorization, "Bearer $TOKEN")
-                            header("Last-Event-ID", "0")
+                            header("Last-Event-ID", FROM_START)
                         },
                     ) {
                         collected.addAll(collectWithin(incoming))
@@ -623,7 +615,7 @@ class SseRootScopeFailClosedTest {
     @Test
     fun `probe - a mixed-case UUID in the root query parameter is still accepted and narrows correctly`(): Unit =
         testApplication {
-            val bus = ApiEventBus()
+            val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val r1 = UUID.randomUUID()
             application { wireEventsRoute(bus, tokenEntries(TOKEN, rootIds = setOf(r1))) }
             val sseClient = createClient { install(ClientSSE) }
@@ -634,13 +626,13 @@ class SseRootScopeFailClosedTest {
                 coroutineScope {
                     launch {
                         delay(SETTLE_DELAY_MS)
-                        bus.publish(bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = idInR1, modifiedAt = Instant.now()), setOf(r1))
+                        bus.emit(ApiEventType.ITEM_UPDATED, itemId = idInR1, rootId = r1)
                     }
                     sseClient.sse(
                         urlString = "/events?root=${r1.toString().uppercase()}",
                         request = {
                             header(HttpHeaders.Authorization, "Bearer $TOKEN")
-                            header("Last-Event-ID", "0")
+                            header("Last-Event-ID", FROM_START)
                         },
                     ) {
                         collected.addAll(collectWithin(incoming))
@@ -656,34 +648,28 @@ class SseRootScopeFailClosedTest {
         }
 
     @Test
-    fun `probe - interleaved unresolved and resolved publishes to the same root are each filtered independently`(): Unit =
+    fun `probe - interleaved other-root and in-root rows to a root-scoped subscriber are each filtered independently`(): Unit =
         runBlocking {
-            val bus = ApiEventBus()
+            val feed = EventFeed(db.repositoryProvider().eventStore())
+            val bus = feed.bus
             val root = UUID.randomUUID()
-            val resolvedId = UUID.randomUUID()
-            val unresolvedId = UUID.randomUUID()
+            val inRootId = UUID.randomUUID()
+            val otherRootId = UUID.randomUUID()
 
             val flow = bus.subscribe("probe-interleave-root", setOf(root), lastEventId = null)
             val collected = async { withTimeout(3.seconds) { flow.take(1).toList() } }
 
             delay(50)
-            // Unresolved first -- must be silently dropped for this root-scoped subscriber.
-            bus.publish(
-                bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = unresolvedId, modifiedAt = Instant.now()),
-                affectedRoots = emptySet(),
-                rootsResolved = false,
-            )
+            // Another root's row first -- must be silently dropped for this root-scoped subscriber.
+            feed.emit(ApiEventType.ITEM_UPDATED, itemId = otherRootId, rootId = UUID.randomUUID())
             delay(60L)
-            // Resolved second, for the same root -- must arrive, proving the subscriber is still
-            // live and the drop above was a real filter, not a dead/broken connection.
-            bus.publish(
-                bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = resolvedId, modifiedAt = Instant.now()),
-                affectedRoots = setOf(root),
-            )
+            // In-root row second -- must arrive, proving the subscriber is still live and the drop above
+            // was a real filter, not a dead/broken connection.
+            feed.emit(ApiEventType.ITEM_UPDATED, itemId = inRootId, rootId = root)
 
             val events = collected.await()
-            assertEquals(1, events.size, "probe: exactly the resolved, in-root event should arrive. Got: $events")
-            assertEquals(resolvedId.toString(), events[0].itemId, "probe: the unresolved event must never leak through")
+            assertEquals(1, events.size, "probe: exactly the in-root event should arrive. Got: $events")
+            assertEquals(inRootId.toString(), events[0].itemId, "probe: the other root's event must never leak through")
             bus.unsubscribe("probe-interleave-root")
         }
 }
