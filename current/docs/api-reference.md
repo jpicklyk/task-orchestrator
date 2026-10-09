@@ -2144,9 +2144,11 @@ repository error is NOT the same as "no per-root config" — `PerRootConfigServi
 to the global config on a read error. It instead serves that root's last cached parse (last-known-good)
 without evicting it, and logs a WARN naming the root and the error. Last-known-good has no TTL: the
 next successful read refreshes it via the normal fingerprint-comparison hot-reload path, and it is
-held per service instance (MCP and each REST route construct their own `PerRootConfigService`, so a
-last-known-good entry is not shared across them). When there is no cached entry to serve — a cold
-cache, e.g. this instance's first read for the root — the read fails closed with a transient
+shared by MCP and REST (one `EffectiveConfigResolver`, built once in `ServerComposition`). A read made
+inside a write's unit of work never serves last-known-good — a fault there fails closed as below even
+with a warm cache; `manage_notes` upsert and REST note `PUT` read
+the config this way (`create_work_tree` reads it before its write, so the fallback still applies there). When there is no cached entry to serve — a cold
+cache, e.g. the first read for the root — the read fails closed with a transient
 `config_unavailable` error (see [Error Envelope](#error-envelope)) rather than silently resolving
 against the global config. This is distinct from an explicit absence (no config row, or malformed
 stored YAML), which is unchanged: evict any cached entry, fall through to the global config.
