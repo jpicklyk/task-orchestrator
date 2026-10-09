@@ -607,6 +607,8 @@ function envelopeSchema(outputId, extra = {}, opts = {}) {
     properties: {
       status: { enum: ['done', 'stopped', 'deferred'] },
       reason: { type: 'string' },
+      interruptedAttempt: { type: 'boolean' },
+      wipRef: { type: 'string' },
       entry: {
         type: 'object',
         properties: {
@@ -1043,6 +1045,17 @@ function promptRerunAndEntry(plan, item, stage, actor) {
         `and look for a commit subject containing "[${item.short}]" with trailer "Seat: ${stage.seat}". If found, your ` +
         `own notes are already filled under actor ${actor.id} (verify via query_notes with includeBody:false) — stop, ` +
         'do not redo the work.'
+    )
+    lines.push(
+      'INTERRUPTED-ATTEMPT CHECK: if your own commit is absent but the worktree has uncommitted changes in files you may own, ' +
+        'an earlier attempt of this seat was interrupted. FIRST snapshot those changes without touching the index or the tree: ' +
+        'use a temporary GIT_INDEX_FILE (read-tree HEAD, add -A for the owned paths, write-tree, commit-tree -p HEAD) and ' +
+        `update-ref refs/wip/${item.short}-${stage.seat} to the new commit. THEN review the changes against the item's notes and continue from them: ` +
+        'keep what is correct, finish what is missing, fix what is wrong. Never discard them wholesale (no checkout -- ., reset --hard, clean, stash). ' +
+        (plan.worktreeMode === 'shared'
+          ? 'This is a shared worktree: only uncommitted changes in files you own (your locked or declared files) count; never touch a foreign uncommitted file, report it instead of adopting it. '
+          : 'This is a per-item worktree: uncommitted changes belong to you once earlier writing seats of this item have committed. ') +
+        'Report interruptedAttempt: true and the snapshot ref in wipRef in the envelope.'
     )
   }
   if (stage.enters) {
