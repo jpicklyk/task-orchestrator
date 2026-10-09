@@ -4,6 +4,9 @@ import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator
+import io.github.jpicklyk.mcptask.current.domain.graph.BlockingEdge
+import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -146,39 +149,22 @@ Call when work appears stalled or someone asks why an item cannot start.
         val blockedItemsList = mutableListOf<Pair<WorkItem, JsonObject>>()
 
         for ((_, item) in candidateMap) {
-            // Get all deps where this item is the target (BLOCKS deps pointing at this item)
-            val incomingDeps = depRepo.findByToItemId(item.id)
-            // Get all deps where this item is the source with IS_BLOCKED_BY type
-            val outgoingDeps = depRepo.findByFromItemId(item.id)
-
-            // Collect all blocking dependencies:
-            // 1. BLOCKS deps where dep.toItemId == item.id -> blocker is dep.fromItemId
-            // 2. IS_BLOCKED_BY deps where dep.fromItemId == item.id -> blocker is dep.toItemId
-            val blockerInfos = mutableListOf<BlockerInfo>()
-
-            for (dep in incomingDeps) {
-                if (dep.type == DependencyType.BLOCKS) {
-                    blockerInfos.add(
+            // Blocking dependencies of this item, normalized so the blocked side is always the item:
+            // blocker -> item for every BLOCKS row that points at it.
+            val blockerInfos =
+                depRepo
+                    .findByItemId(item.id)
+                    .map { it.normalized() }
+                    .filter { it.type == DependencyType.BLOCKS && it.toItemId == item.id }
+                    .mapNotNull { dep ->
+                        val edge = DependencyEdges.toBlockingEdge(dep) ?: return@mapNotNull null
                         BlockerInfo(
                             blockerItemId = dep.fromItemId,
                             unblockAt = dep.unblockAt,
-                            effectiveUnblockRole = dep.effectiveUnblockRole()
+                            effectiveUnblockRole = dep.effectiveUnblockRole(),
+                            edge = edge
                         )
-                    )
-                }
-            }
-
-            for (dep in outgoingDeps) {
-                if (dep.type == DependencyType.IS_BLOCKED_BY) {
-                    blockerInfos.add(
-                        BlockerInfo(
-                            blockerItemId = dep.toItemId,
-                            unblockAt = dep.unblockAt,
-                            effectiveUnblockRole = dep.effectiveUnblockRole()
-                        )
-                    )
-                }
-            }
+                    }
 
             // For items explicitly in BLOCKED role, always include them
             if (item.role == Role.BLOCKED) {
@@ -266,14 +252,13 @@ Call when work appears stalled or someone asks why an item cannot start.
             blockerInfos.map { info ->
                 val blockerItem =
                     legacyReadOrNull { workItemRepo.getById(info.blockerItemId) }
-                val blockerRole = blockerItem?.role ?: Role.QUEUE
-                val thresholdRole = info.effectiveUnblockRole?.let { Role.fromString(it) } ?: Role.TERMINAL
-                val satisfied = Role.isAtOrBeyond(blockerRole, thresholdRole)
+                // An unreadable blocker is fail-closed: unsatisfied, with role "unknown".
+                val satisfied = BlockerEvaluator.isSatisfied(info.edge, blockerItem?.role)
 
                 buildJsonObject {
                     put("itemId", JsonPrimitive(info.blockerItemId.toString()))
                     put("title", JsonPrimitive(blockerItem?.title ?: "Unknown"))
-                    put("role", JsonPrimitive(blockerRole.toJsonString()))
+                    put("role", JsonPrimitive(blockerItem?.role?.toJsonString() ?: "unknown"))
                     info.unblockAt?.let { put("unblockAt", JsonPrimitive(it)) }
                     info.effectiveUnblockRole?.let { put("effectiveUnblockRole", JsonPrimitive(it)) }
                     put("satisfied", JsonPrimitive(satisfied))
@@ -322,6 +307,7 @@ Call when work appears stalled or someone asks why an item cannot start.
     private data class BlockerInfo(
         val blockerItemId: UUID,
         val unblockAt: String?,
-        val effectiveUnblockRole: String?
+        val effectiveUnblockRole: String?,
+        val edge: BlockingEdge
     )
 }

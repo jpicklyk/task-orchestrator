@@ -166,7 +166,10 @@ class ManageDependenciesToolTest {
             val data = result["data"] as JsonObject
             assertEquals(1, data["created"]!!.jsonPrimitive.int)
             val dep = data["dependencies"]!!.jsonArray[0] as JsonObject
-            assertEquals("IS_BLOCKED_BY", dep["type"]!!.jsonPrimitive.content)
+            // IS_BLOCKED_BY is an input alias: A IS_BLOCKED_BY B is stored (and returned) as B BLOCKS A.
+            assertEquals("BLOCKS", dep["type"]!!.jsonPrimitive.content)
+            assertEquals(itemB.toString(), dep["fromItemId"]!!.jsonPrimitive.content)
+            assertEquals(itemA.toString(), dep["toItemId"]!!.jsonPrimitive.content)
             assertEquals("work", dep["unblockAt"]!!.jsonPrimitive.content)
         }
 
@@ -382,7 +385,7 @@ class ManageDependenciesToolTest {
             assertTrue(result["success"]!!.jsonPrimitive.boolean)
             val deps = (result["data"] as JsonObject)["dependencies"]!!.jsonArray
             for (dep in deps) {
-                assertEquals("IS_BLOCKED_BY", (dep as JsonObject)["type"]!!.jsonPrimitive.content)
+                assertEquals("BLOCKS", (dep as JsonObject)["type"]!!.jsonPrimitive.content)
             }
         }
 

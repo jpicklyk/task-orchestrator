@@ -20,7 +20,6 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -176,124 +175,6 @@ class WorkTreeServiceIntegrationTest {
             fetchedRoot == null,
             "Root item should NOT be present in DB (transaction was rolled back); got: $fetchedRoot"
         )
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // Test 3b: Two-node circular dependency — service throws, all inserts rolled back
-    // ──────────────────────────────────────────────────────────────────────────
-
-    @Test
-    fun `two-node circular dependency is rejected before insertion`() {
-        val itemX =
-            WorkItem(
-                id = UUID.randomUUID(),
-                title = "Item X",
-                role = Role.QUEUE,
-                depth = 0,
-                parentId = null,
-                priority = Priority.MEDIUM
-            )
-        val itemY =
-            WorkItem(
-                id = UUID.randomUUID(),
-                title = "Item Y",
-                role = Role.QUEUE,
-                depth = 1,
-                parentId = itemX.id,
-                priority = Priority.MEDIUM
-            )
-
-        val input =
-            WorkTreeInput(
-                items = listOf(itemX, itemY),
-                refToItem = mapOf("x" to itemX, "y" to itemY),
-                deps =
-                    listOf(
-                        TreeDepSpec(fromRef = "x", toRef = "y", type = DependencyType.BLOCKS, unblockAt = null),
-                        TreeDepSpec(fromRef = "y", toRef = "x", type = DependencyType.BLOCKS, unblockAt = null)
-                    ),
-                notes = emptyList()
-            )
-
-        val ex =
-            assertThrows(IllegalStateException::class.java) {
-                runBlocking { service.execute(input) }
-            }
-        assertTrue(
-            ex.message?.contains("Circular") == true ||
-                ex.message?.contains("cycle") == true ||
-                ex.message?.contains("circular") == true,
-            "Expected cycle error message but got: ${ex.message}"
-        )
-
-        // Both items must have been rolled back
-        val fetchedX = runBlocking { workItemRepository.getById(itemX.id) }
-        assertNull(fetchedX, "Item X should not be in DB after rollback; got: $fetchedX")
-        val fetchedY = runBlocking { workItemRepository.getById(itemY.id) }
-        assertNull(fetchedY, "Item Y should not be in DB after rollback; got: $fetchedY")
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // Test 3c: Three-node circular dependency — service throws, all inserts rolled back
-    // ──────────────────────────────────────────────────────────────────────────
-
-    @Test
-    fun `three-node circular dependency is rejected before insertion`() {
-        val itemA =
-            WorkItem(
-                id = UUID.randomUUID(),
-                title = "Item A",
-                role = Role.QUEUE,
-                depth = 0,
-                parentId = null,
-                priority = Priority.MEDIUM
-            )
-        val itemB =
-            WorkItem(
-                id = UUID.randomUUID(),
-                title = "Item B",
-                role = Role.QUEUE,
-                depth = 1,
-                parentId = itemA.id,
-                priority = Priority.MEDIUM
-            )
-        val itemC =
-            WorkItem(
-                id = UUID.randomUUID(),
-                title = "Item C",
-                role = Role.QUEUE,
-                depth = 1,
-                parentId = itemA.id,
-                priority = Priority.MEDIUM
-            )
-
-        val input =
-            WorkTreeInput(
-                items = listOf(itemA, itemB, itemC),
-                refToItem = mapOf("a" to itemA, "b" to itemB, "c" to itemC),
-                deps =
-                    listOf(
-                        TreeDepSpec(fromRef = "a", toRef = "b", type = DependencyType.BLOCKS, unblockAt = null),
-                        TreeDepSpec(fromRef = "b", toRef = "c", type = DependencyType.BLOCKS, unblockAt = null),
-                        TreeDepSpec(fromRef = "c", toRef = "a", type = DependencyType.BLOCKS, unblockAt = null)
-                    ),
-                notes = emptyList()
-            )
-
-        val ex =
-            assertThrows(IllegalStateException::class.java) {
-                runBlocking { service.execute(input) }
-            }
-        assertTrue(
-            ex.message?.contains("Circular") == true ||
-                ex.message?.contains("cycle") == true ||
-                ex.message?.contains("circular") == true,
-            "Expected cycle error message but got: ${ex.message}"
-        )
-
-        // All items must have been rolled back
-        val fetchedA = runBlocking { workItemRepository.getById(itemA.id) }
-        assertNull(fetchedA, "Item A should not be in DB after rollback; got: $fetchedA")
     }
 
     // ──────────────────────────────────────────────────────────────────────────

@@ -3,7 +3,8 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
-import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
+import io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator
+import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
 import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -222,50 +223,25 @@ class NextItemRecommender(
     /**
      * Returns true if [item] is dependency-blocked by any unsatisfied dependency.
      *
-     * Checks two dependency directions:
-     * - Incoming BLOCKS deps (`dep.toItemId == item.id`): the blocker is `dep.fromItemId`.
-     * - Outgoing IS_BLOCKED_BY deps (`dep.fromItemId == item.id`): the blocker is `dep.toItemId`.
-     *
-     * RELATES_TO dependencies carry no blocking semantics and are ignored.
-     * If a blocker item cannot be fetched (e.g. deleted), the dependency is skipped conservatively.
+     * Reads every dependency that names [item], normalizes them ([DependencyEdges.normalize]) and keeps the
+     * blocking edges whose blocked side is [item]; [BlockerEvaluator] decides satisfaction. RELATES_TO
+     * dependencies carry no blocking semantics and are ignored. Fail-closed: a blocker that cannot be read
+     * (e.g. deleted) counts as blocking.
      *
      * Visibility: `internal` so [GetNextItemTool]'s includeClaimed=true path can reuse this
      * method directly instead of duplicating the dependency-walk logic.
      */
     internal suspend fun isBlocked(item: WorkItem): Boolean {
-        // Check BLOCKS deps where this item is the target (dep.toItemId = item.id)
-        val incomingDeps = dependencyRepo.findByToItemId(item.id)
-        for (dep in incomingDeps) {
-            if (dep.type == DependencyType.BLOCKS) {
-                val threshold = dep.effectiveUnblockRole() ?: continue
-                val thresholdRole = Role.fromString(threshold) ?: continue
-                // Blocker is dep.fromItemId
-                val blockerResult = legacyReadOrNull { workItemRepo.getById(dep.fromItemId) }
-                val blocker =
-                    blockerResult ?: continue // Skip — can't determine blocker state
-                if (!Role.isAtOrBeyond(blocker.role, thresholdRole)) {
-                    return true // Unsatisfied dependency
-                }
-            }
-        }
+        val deps = dependencyRepo.findByToItemId(item.id) + dependencyRepo.findByFromItemId(item.id)
+        val edges = DependencyEdges.normalize(deps.distinctBy { it.id }).blocking.filter { it.blocked == item.id }
+        if (edges.isEmpty()) return false
 
-        // Check IS_BLOCKED_BY deps where this item is the source (dep.fromItemId = item.id)
-        val outgoingDeps = dependencyRepo.findByFromItemId(item.id)
-        for (dep in outgoingDeps) {
-            if (dep.type == DependencyType.IS_BLOCKED_BY) {
-                val threshold = dep.effectiveUnblockRole() ?: continue
-                val thresholdRole = Role.fromString(threshold) ?: continue
-                // Blocker is dep.toItemId
-                val blockerResult = legacyReadOrNull { workItemRepo.getById(dep.toItemId) }
-                val blocker =
-                    blockerResult ?: continue // Skip — can't determine blocker state
-                if (!Role.isAtOrBeyond(blocker.role, thresholdRole)) {
-                    return true // Unsatisfied dependency
-                }
-            }
+        val roles = HashMap<UUID, Role>()
+        for (edge in edges) {
+            if (edge.blocker in roles) continue
+            legacyReadOrNull { workItemRepo.getById(edge.blocker) }?.let { roles[edge.blocker] = it.role }
         }
-
-        return false
+        return BlockerEvaluator.unsatisfied(listOf(item.id), edges, roles).getValue(item.id).isNotEmpty()
     }
 
     companion object {

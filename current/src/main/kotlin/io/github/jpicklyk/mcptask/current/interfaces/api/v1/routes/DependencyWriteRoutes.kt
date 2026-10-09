@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.service.DependencyCommandService
 import io.github.jpicklyk.mcptask.current.application.service.EventActor
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
@@ -74,10 +75,10 @@ private val JSON_WRITE_CONTENT_TYPES = setOf("application/json", "*/*")
  * - `fromItemId` != `toItemId`
  * - `type` one of "blocks" | "relates_to"
  * - `unblockAt` absent or null for RELATES_TO
- * - Cycle detection via [DependencyStore.hasCyclicDependency] → 400 `cycle_detected`
- * - Duplicate edge (same `fromItemId`/`toItemId`/`type`) → 409 `duplicate_dependency`, caught from
- *   [io.github.jpicklyk.mcptask.current.domain.validation.DuplicateDependencyException] thrown by
- *   the repository's insert path
+ * - Cycle detection over normalized blocking edges via [DependencyCommandService] → 400 `cycle_detected`
+ * - Duplicate edge (same normalized `fromItemId`/`toItemId`/`type`) → 409 `duplicate_dependency`, from
+ *   [DependencyCommandService]; a [io.github.jpicklyk.mcptask.current.domain.validation.DuplicateDependencyException]
+ *   from a lost race at the repository's insert path maps the same way
  *
  * Note: [DependencyStore]'s read/write methods are suspend but still JDBC-blocking under
  * the hood; all calls are wrapped in [withContext(IO)] to keep the Ktor event loop free.
@@ -87,6 +88,7 @@ fun Route.dependencyWriteRoutes(
     degradedModePolicy: DegradedModePolicy,
     idempotency: IdempotencyService,
     unitOfWork: UnitOfWork,
+    dependencyCommandService: DependencyCommandService = DependencyCommandService(repositoryProvider, unitOfWork),
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
     val depRepo = repositoryProvider.dependencyRepository()
@@ -191,21 +193,15 @@ fun Route.dependencyWriteRoutes(
                         return payloadRejection(e.message ?: "Validation failed")
                     }
 
-                val created: Dependency? =
+                val created: Dependency =
                     try {
+                        // ONE unit: duplicate and cycle checks and the insert stay atomic against a concurrent writer.
                         val outcome =
                             withContext(Dispatchers.IO + EventActor(ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey]))) {
-                                // ONE unit: the repo methods below join it, so the cycle check and the insert
-                                // stay atomic against a concurrent writer.
-                                unitOfWork.write("dependency.create") {
-                                    // RELATES_TO has no blocking edge, so it skips the cycle pre-check.
-                                    val edge = dep.blockingEdge()
-                                    val hasCycle = edge != null && depRepo.hasCyclicDependency(edge.first, edge.second)
-                                    Outcome.Ok(if (hasCycle) null else depRepo.create(dep))
-                                }
+                                dependencyCommandService.create(listOf(dep))
                             }
                         when (outcome) {
-                            is Outcome.Ok -> outcome.value
+                            is Outcome.Ok -> outcome.value.single()
                             is Outcome.Err -> {
                                 val error = outcome.error
                                 return when (error.code) {
@@ -214,6 +210,12 @@ fun Route.dependencyWriteRoutes(
                                             HttpStatusCode.Conflict,
                                             "duplicate_dependency",
                                             "A dependency of this type already exists between these items",
+                                        )
+                                    ErrorCode.CYCLE_DETECTED ->
+                                        depErrorCaptured(
+                                            HttpStatusCode.BadRequest,
+                                            "cycle_detected",
+                                            "Adding this dependency would create a cycle"
                                         )
                                     ErrorCode.UNAVAILABLE ->
                                         depErrorCaptured(
@@ -232,10 +234,6 @@ fun Route.dependencyWriteRoutes(
                             e.message ?: "A dependency of this type already exists between these items",
                         )
                     }
-
-                if (created == null) {
-                    return depErrorCaptured(HttpStatusCode.BadRequest, "cycle_detected", "Adding this dependency would create a cycle")
-                }
 
                 return CachedHttpResponse(
                     statusCode = HttpStatusCode.Created.value,

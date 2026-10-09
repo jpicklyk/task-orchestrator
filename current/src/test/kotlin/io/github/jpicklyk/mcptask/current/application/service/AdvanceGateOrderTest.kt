@@ -1,8 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.domain.model.Dependency
-import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
@@ -323,26 +321,6 @@ class AdvanceGateOrderTest {
             assertEquals(false, r.flag("applied"), "an unreadable blocker is unsatisfied (fail closed): $r")
             assertEquals("dependency_blocked", r.text("errorCode"), "$r")
             assertEquals("unknown", r.arr("blockers")[0].jsonObject.text("currentRole"), "$r")
-        }
-
-    @Test
-    fun `S8 probe a BLOCKS edge and its IS_BLOCKED_BY twin count as one blocker`(
-        @TempDir dir: Path,
-    ): Unit =
-        runBlocking {
-            val d = driver(dir)
-            val target = d.item("target", Role.QUEUE)
-            val blocker = d.item("blocker", Role.QUEUE)
-            d.blocks(blocker, target)
-            d.raw.dependencyRepository().create(
-                Dependency(fromItemId = target.id, toItemId = blocker.id, type = DependencyType.IS_BLOCKED_BY)
-            )
-
-            val r = d.advance(target, "start")
-
-            assertEquals("dependency_blocked", r.text("errorCode"), "$r")
-            assertEquals(1, r.arr("blockers").size, "the twin pair is one logical blocker: $r")
-            assertTrue(r.text("error")!!.contains("1 blocking dependency(ies) not yet satisfied"), "$r")
         }
 
     // ---------------------------------------------------------------------------------------------

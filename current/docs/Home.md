@@ -13,7 +13,7 @@ MCP Task Orchestrator is an open-source MCP server that gives AI agents persiste
 - Role-based workflow: `queue` -> `work` -> `review` -> `terminal` with named triggers (`start`, `complete`, `block`, `hold`, `resume`)
 - Note schemas — per-tag documentation requirements that gate phase transitions before an item can advance
 - Composable traits — orchestration signals that layer note requirements, guidance, and skill routing onto base schemas
-- Dependency patterns: `linear`, `fan-out`, `fan-in` with `BLOCKS`, `IS_BLOCKED_BY`, and `RELATES_TO` edge types
+- Dependency patterns: `linear`, `fan-out`, `fan-in` with `BLOCKS` and `RELATES_TO` edge types (`IS_BLOCKED_BY` is accepted as an input alias and stored as `BLOCKS`)
 - `create_work_tree` for atomic hierarchy creation; `complete_tree` for batch topological completion
 - Multi-agent claim mechanism (`claim_item`) with TTL-based ownership, selector mode for atomic find-and-claim, and ancestor-claim sub-tree protection — see [Fleet Deployment](fleet-deployment.md) for topology patterns
 

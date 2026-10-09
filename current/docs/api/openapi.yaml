@@ -329,7 +329,7 @@ components:
           format: uuid
         type:
           type: string
-          enum: [blocks, is_blocked_by, relates_to]
+          enum: [blocks, relates_to]
         unblockAt:
           type: string
           nullable: true
@@ -349,7 +349,7 @@ components:
           type: string
         type:
           type: string
-          enum: [blocks, is_blocked_by, relates_to]
+          enum: [blocks, relates_to]
 
     ErrorDto:
       type: object
@@ -491,7 +491,7 @@ components:
           format: uuid
         type:
           type: string
-          enum: [blocks, is_blocked_by, relates_to]
+          enum: [blocks, relates_to]
         unblockAt:
           type: string
           nullable: true

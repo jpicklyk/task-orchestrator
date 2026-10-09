@@ -178,7 +178,7 @@ class DependencyDirectionTreeToolsTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S3 create_work_tree accepts BLOCKS plus a restating IS_BLOCKED_BY between the same pair`(): Unit =
+    fun `S3 create_work_tree rejects BLOCKS plus a restating IS_BLOCKED_BY between the same pair`(): Unit =
         runBlocking {
             val params =
                 buildJsonObject {
@@ -200,9 +200,13 @@ class DependencyDirectionTreeToolsTest {
                 }
 
             val result = createWorkTreeTool.execute(params, context) as JsonObject
-            assertTrue(result["success"]!!.jsonPrimitive.boolean, "Restated non-cyclic edge must succeed: $result")
-            val data = result["data"] as JsonObject
-            assertEquals(2, data["dependencies"]!!.jsonArray.size)
+            assertFalse(result["success"]!!.jsonPrimitive.boolean, "A restated edge must be rejected as a duplicate: $result")
+            val message = result["error"]!!.jsonObject["message"]!!.jsonPrimitive.content
+            assertTrue(message.contains("Duplicate dependency", ignoreCase = true), "Expected the duplicate text, got: $message")
+            assertFalse(message.contains("Circular", ignoreCase = true), "A restatement is never a cycle: $message")
+
+            val persisted = workItemRepository.findByRole(Role.QUEUE, limit = 50)
+            assertTrue(persisted.none { it.title in setOf("Root", "X", "Y") }, "Nothing may be persisted once a duplicate is detected")
         }
 
     @Test

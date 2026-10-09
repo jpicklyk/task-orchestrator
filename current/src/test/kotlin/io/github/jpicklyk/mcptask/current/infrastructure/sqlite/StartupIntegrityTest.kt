@@ -242,38 +242,6 @@ class StartupIntegrityTest {
     }
 
     @Test
-    fun `S16 reportMutualBlocks normalises IS_BLOCKED_BY so A BLOCKS B plus A IS_BLOCKED_BY B is mutual`() {
-        // (A, B, IS_BLOCKED_BY) means B blocks A; together with (A, B, BLOCKS) the pair blocks each other.
-        val url = migrated(dir)
-        val a = UUID.randomUUID()
-        val b = UUID.randomUUID()
-        insertItem(url, a, title = "A")
-        insertItem(url, b, title = "B")
-        insertDependency(url, a, b, "BLOCKS")
-        insertDependency(url, a, b, "IS_BLOCKED_BY")
-        val warns = warnsOf { onConn(url) { StartupIntegrity.reportMutualBlocks(it) } }
-        assertTrue(warns.isNotEmpty(), "normalised mutual block must be reported")
-    }
-
-    @Test
-    fun `S16 reportMutualBlocks is silent for a one-way chain and for redundant same-direction edges`() {
-        val url = migrated(dir)
-        val a = UUID.randomUUID()
-        val b = UUID.randomUUID()
-        val c = UUID.randomUUID()
-        insertItem(url, a, title = "A")
-        insertItem(url, b, title = "B")
-        insertItem(url, c, title = "C")
-        insertDependency(url, a, b, "BLOCKS")
-        insertDependency(url, b, c, "BLOCKS")
-        // (B, A, IS_BLOCKED_BY) also means A blocks B: the same direction, not a cycle.
-        insertDependency(url, b, a, "IS_BLOCKED_BY")
-        insertDependency(url, a, c, "RELATES_TO")
-        val warns = warnsOf { onConn(url) { StartupIntegrity.reportMutualBlocks(it) } }
-        assertEquals(emptyList(), warns, "no mutual block exists, so no WARN")
-    }
-
-    @Test
     fun `S16 run on a drifted but complete database does not throw and leaves every row`() {
         val url = migrated(dir)
         val a = UUID.randomUUID()

@@ -229,7 +229,15 @@ object BaselineDataset {
             "created_at" to TS
         )
         dep("blocks", "task1", "task2", "BLOCKS", "terminal")
-        dep("blocked-by", "task3", "task2", "IS_BLOCKED_BY")
+        // V22 tightened the type CHECK to BLOCKS|RELATES_TO. While the schema still allows IS_BLOCKED_BY (earlier
+        // steps) the baseline keeps the alias row; otherwise it seeds the same edge, normalized, under the same id.
+        val allowsBlockedBy =
+            conn.createStatement().use { st ->
+                st.executeQuery("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'dependencies'").use { rs ->
+                    rs.next() && rs.getString(1).contains("IS_BLOCKED_BY")
+                }
+            }
+        if (allowsBlockedBy) dep("blocked-by", "task3", "task2", "IS_BLOCKED_BY") else dep("blocked-by", "task2", "task3", "BLOCKS")
         dep("relates", "task1", "task3", "RELATES_TO")
         dep("mutual-a", "task5", "task6", "BLOCKS")
         dep("mutual-b", "task6", "task5", "BLOCKS")

@@ -19,6 +19,10 @@ import java.util.UUID
  * tracked as a follow-up.
  */
 interface DependencyStore {
+    /**
+     * Stores [dependency] in its normalized form (see [Dependency.normalized]) and returns the stored row. The
+     * store enforces the unique key only; cycle detection lives in `DependencyCommandService`.
+     */
     suspend fun create(dependency: Dependency): Dependency
 
     suspend fun findById(id: UUID): Dependency?
@@ -33,18 +37,8 @@ interface DependencyStore {
 
     suspend fun deleteByItemId(itemId: UUID): Int
 
+    /** Stores every dependency of [dependencies] in normalized form, returning the stored rows in request order. */
     suspend fun createBatch(dependencies: List<Dependency>): List<Dependency>
-
-    /**
-     * Checks whether a proposed blocking edge ([blockerId] would block [blockedId]) would create a
-     * cycle in the blocker->blocked dependency graph. For a [Dependency], pass its
-     * [Dependency.blockingEdge], not its raw fromItemId/toItemId (swapped for IS_BLOCKED_BY).
-     * RELATES_TO has no blocking edge, so callers skip the check for it.
-     */
-    suspend fun hasCyclicDependency(
-        blockerId: UUID,
-        blockedId: UUID
-    ): Boolean
 
     /**
      * Batch-fetch dependencies for multiple items in a single query.

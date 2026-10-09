@@ -3,6 +3,8 @@ package io.github.jpicklyk.mcptask.current.application.tools.dependency
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
+import io.github.jpicklyk.mcptask.current.domain.graph.TopoOrder
 import io.github.jpicklyk.mcptask.current.domain.model.BacklinkRow
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
@@ -10,7 +12,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
-import java.util.LinkedList
 import java.util.UUID
 
 /**
@@ -103,7 +104,12 @@ a backlink row means another item has an edge with toItemId = your itemId. E.g. 
                         "type",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Filter by dependency type: BLOCKS, IS_BLOCKED_BY, RELATES_TO"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Filter: BLOCKS, IS_BLOCKED_BY (BLOCKS rows into itemId), RELATES_TO"
+                                )
+                            )
                             put("enum", JsonArray(listOf("BLOCKS", "IS_BLOCKED_BY", "RELATES_TO").map { JsonPrimitive(it) }))
                         }
                     )
@@ -179,6 +185,12 @@ a backlink row means another item has an edge with toItemId = your itemId. E.g. 
             if (direction != null && direction !in listOf("incoming", "outgoing", "all")) {
                 throw ToolValidationException("Invalid direction: $direction. Must be one of: incoming, outgoing, all")
             }
+            if (direction == "outgoing" && type != null && DependencyType.fromString(type) == DependencyType.IS_BLOCKED_BY) {
+                throw ToolValidationException(
+                    "type IS_BLOCKED_BY lists the dependencies blocking the item (incoming); " +
+                        "direction=outgoing cannot be combined with it. Use direction=incoming or all."
+                )
+            }
 
             val limitVal = optionalInt(params, "limit")
             if (limitVal != null && limitVal < 1) {
@@ -211,7 +223,11 @@ a backlink row means another item has an edge with toItemId = your itemId. E.g. 
         if (idError != null) return idError
         val itemId = resolvedItemId!!
 
-        val typeFilter = optionalString(params, "type")?.let { DependencyType.fromString(it) }
+        // IS_BLOCKED_BY is an input alias: stored rows are BLOCKS, so its backlinks are the BLOCKS backlinks.
+        val typeFilter =
+            optionalString(params, "type")?.let { DependencyType.fromString(it) }?.let {
+                if (it == DependencyType.IS_BLOCKED_BY) DependencyType.BLOCKS else it
+            }
         val depRepo = context.dependencyRepository()
 
         val rows: List<BacklinkRow> = depRepo.backlinks(itemId, typeFilter)
@@ -261,12 +277,20 @@ a backlink row means another item has an edge with toItemId = your itemId. E.g. 
                 else -> return errorResponse("Invalid direction: $direction", ErrorCodes.VALIDATION_ERROR)
             }
 
-        // Apply type filter
+        // Apply type filter. IS_BLOCKED_BY is the blocked-side view: the BLOCKS rows whose toItemId is itemId.
+        if (typeFilter == DependencyType.IS_BLOCKED_BY && direction == "outgoing") {
+            return errorResponse(
+                "type IS_BLOCKED_BY lists the dependencies blocking the item (incoming); " +
+                    "direction=outgoing cannot be combined with it. Use direction=incoming or all.",
+                ErrorCodes.VALIDATION_ERROR
+            )
+        }
         val filteredDeps =
-            if (typeFilter != null) {
-                allDeps.filter { it.type == typeFilter }
-            } else {
-                allDeps
+            when (typeFilter) {
+                null -> allDeps
+                DependencyType.IS_BLOCKED_BY ->
+                    allDeps.map { it.normalized() }.filter { it.type == DependencyType.BLOCKS && it.toItemId == itemId }
+                else -> allDeps.filter { it.type == typeFilter }
             }
 
         // Apply limit/offset paging. Opt-in: when neither param is supplied, `pagedDeps` is
@@ -420,8 +444,8 @@ a backlink row means another item has an edge with toItemId = your itemId. E.g. 
         startItemId: UUID,
         depRepo: DependencyStore
     ): JsonObject {
-        val visited = mutableSetOf<UUID>()
-        val edges = mutableListOf<Pair<UUID, UUID>>()
+        val visited = linkedSetOf<UUID>()
+        val blockingRows = mutableListOf<Dependency>()
         var truncated = false
 
         visited.add(startItemId)
@@ -435,13 +459,7 @@ a backlink row means another item has an edge with toItemId = your itemId. E.g. 
                 val deps = depsByItem[current] ?: emptyList()
                 for (dep in deps) {
                     if (dep.type == DependencyType.RELATES_TO) continue
-                    val (from, to) =
-                        when (dep.type) {
-                            DependencyType.BLOCKS -> dep.fromItemId to dep.toItemId
-                            DependencyType.IS_BLOCKED_BY -> dep.toItemId to dep.fromItemId
-                            DependencyType.RELATES_TO -> continue
-                        }
-                    edges.add(from to to)
+                    blockingRows.add(dep)
                     val neighbor = if (current == dep.fromItemId) dep.toItemId else dep.fromItemId
                     if (neighbor !in visited) {
                         if (visited.size >= MAX_DEPENDENCY_GRAPH_NODES) {
@@ -457,83 +475,16 @@ a backlink row means another item has an edge with toItemId = your itemId. E.g. 
             frontier = nextFrontier
         }
 
-        val chain = topologicalSort(visited, edges)
-        val depth = computeMaxDepth(chain, edges)
+        // Blockers before what they block, via the shared normalization and topological order.
+        val blockingEdges = DependencyEdges.normalize(blockingRows).blocking
+        val sorted = TopoOrder.order(visited.toList(), blockingEdges)
+        val chain = sorted.ordered + sorted.cyclic
+        val depth = computeMaxDepth(chain, blockingEdges.map { it.blocker to it.blocked })
         return buildJsonObject {
             put("chain", JsonArray(chain.map { JsonPrimitive(it.toString()) }))
             put("depth", JsonPrimitive(depth))
             put("truncated", JsonPrimitive(truncated))
         }
-    }
-
-    /**
-     * Kahn's algorithm for topological sort.
-     * Falls back to insertion order if the graph has issues.
-     */
-    private fun topologicalSort(
-        nodes: Set<UUID>,
-        edges: List<Pair<UUID, UUID>>
-    ): List<UUID> {
-        val inDegree = mutableMapOf<UUID, Int>()
-        val adjacency = mutableMapOf<UUID, MutableList<UUID>>()
-
-        for (node in nodes) {
-            inDegree[node] = 0
-            adjacency[node] = mutableListOf()
-        }
-
-        for ((from, to) in edges) {
-            if (from in nodes && to in nodes) {
-                adjacency.getOrPut(from) { mutableListOf() }.add(to)
-                inDegree[to] = (inDegree[to] ?: 0) + 1
-            }
-        }
-
-        // Deduplicate edges in adjacency lists
-        for ((key, list) in adjacency) {
-            adjacency[key] = list.distinct().toMutableList()
-        }
-
-        // Recompute in-degree after deduplication
-        for (node in nodes) {
-            inDegree[node] = 0
-        }
-        for ((_, targets) in adjacency) {
-            for (target in targets) {
-                inDegree[target] = (inDegree[target] ?: 0) + 1
-            }
-        }
-
-        val queue: LinkedList<UUID> = LinkedList()
-        for (node in nodes) {
-            if ((inDegree[node] ?: 0) == 0) {
-                queue.add(node)
-            }
-        }
-
-        val result = mutableListOf<UUID>()
-        while (queue.isNotEmpty()) {
-            val node = queue.poll()
-            result.add(node)
-            for (neighbor in adjacency[node] ?: emptyList()) {
-                val newDegree = (inDegree[neighbor] ?: 1) - 1
-                inDegree[neighbor] = newDegree
-                if (newDegree == 0) {
-                    queue.add(neighbor)
-                }
-            }
-        }
-
-        // If not all nodes were sorted (cycle), append remaining
-        if (result.size < nodes.size) {
-            for (node in nodes) {
-                if (node !in result) {
-                    result.add(node)
-                }
-            }
-        }
-
-        return result
     }
 
     /**

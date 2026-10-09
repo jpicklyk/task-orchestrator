@@ -2,17 +2,17 @@ package io.github.jpicklyk.mcptask.current.application.tools.dependency
 
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
@@ -27,7 +27,7 @@ import kotlin.test.assertTrue
  * [Db]/[Dg] diagnosis decisions (b) restatement-as-separate-row and (g) unchanged error texts.
  *
  * SQLite + [DefaultRepositoryProvider], exercised through [ManageDependenciesTool] (always the
- * `createBatch` path per its documented behavior) plus one direct-repository scenario (S11).
+ * `createBatch` path per its documented behavior) plus one direct-service scenario (S11).
  */
 class DependencyDirectionCycleTest {
     @RegisterExtension
@@ -107,19 +107,24 @@ class DependencyDirectionCycleTest {
         }
 
     @Test
-    fun `S2 restating a stored BLOCKS edge as IS_BLOCKED_BY keeps both rows`(): Unit =
+    fun `S2 restating a stored BLOCKS edge as IS_BLOCKED_BY is rejected as a duplicate`(): Unit =
         runBlocking {
             // B BLOCKS A stored
             val r1 = dataOf(tool.execute(createParams(Triple(itemB, itemA, "BLOCKS")), context))
             assertEquals(1, r1["created"]!!.jsonPrimitive.int)
 
-            // A IS_BLOCKED_BY B restates the same blocker/blocked pair (B blocks A) as a
-            // separate row — not a cycle, not a duplicate (different type).
+            // A IS_BLOCKED_BY B normalizes to B BLOCKS A: the same stored key, so a duplicate (not a cycle).
             val r2 = dataOf(tool.execute(createParams(Triple(itemA, itemB, "IS_BLOCKED_BY")), context))
-            assertEquals(1, r2["created"]!!.jsonPrimitive.int, "Restatement must not be rejected: $r2")
+            assertEquals(0, r2["created"]!!.jsonPrimitive.int, "Restatement must be rejected: $r2")
+            val error =
+                r2["failures"]!!
+                    .jsonArray[0]
+                    .jsonObject["error"]!!
+                    .jsonPrimitive.content
+            assertTrue(error.contains("already exists"), "Expected the duplicate text, got: $error")
 
             val stored = context.dependencyRepository().findByItemId(itemA)
-            assertEquals(2, stored.size, "Both the BLOCKS and the restating IS_BLOCKED_BY row must be kept")
+            assertEquals(1, stored.size, "Only the original BLOCKS row is kept")
         }
 
     // ──────────────────────────────────────────────
@@ -202,18 +207,16 @@ class DependencyDirectionCycleTest {
         }
 
     @Test
-    fun `S11 repository create rejects an IS_BLOCKED_BY mutual cycle directly`(): Unit =
+    fun `S11 service create rejects an IS_BLOCKED_BY mutual cycle directly`(): Unit =
         runBlocking {
-            val depRepository = context.dependencyRepository()
-            depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB, type = DependencyType.IS_BLOCKED_BY))
+            val service = context.dependencyCommandService
+            val first = service.create(listOf(Dependency(fromItemId = itemA, toItemId = itemB, type = DependencyType.IS_BLOCKED_BY)))
+            assertTrue(first is Outcome.Ok, "The first edge is accepted: $first")
 
-            val ex =
-                assertThrows<ValidationException> {
-                    depRepository.create(
-                        Dependency(fromItemId = itemB, toItemId = itemA, type = DependencyType.IS_BLOCKED_BY)
-                    )
-                }
-            assertTrue(ex.message!!.contains("circular dependency", ignoreCase = true))
+            val second = service.create(listOf(Dependency(fromItemId = itemB, toItemId = itemA, type = DependencyType.IS_BLOCKED_BY)))
+            assertTrue(second is Outcome.Err, "The reverse edge closes a cycle: $second")
+            assertEquals(ErrorCode.CYCLE_DETECTED, (second as Outcome.Err).error.code)
+            assertTrue(second.error.message.contains("circular dependency", ignoreCase = true))
         }
 
     // ──────────────────────────────────────────────
@@ -277,7 +280,7 @@ class DependencyDirectionCycleTest {
             val created = dataOf(tool.execute(createParams(Triple(itemA, itemB, "is_blocked_by")), context))
             assertEquals(1, created["created"]!!.jsonPrimitive.int)
             assertEquals(
-                "IS_BLOCKED_BY",
+                "BLOCKS",
                 created["dependencies"]!!
                     .jsonArray[0]
                     .jsonObject["type"]!!

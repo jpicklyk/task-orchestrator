@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
@@ -118,7 +119,9 @@ with `deleteAll=true` for every dependency on that item.
                             put("type", JsonPrimitive("string"))
                             put(
                                 "description",
-                                JsonPrimitive("Shared default dependency type: BLOCKS, IS_BLOCKED_BY, RELATES_TO (default: BLOCKS)")
+                                JsonPrimitive(
+                                    "Shared default type: BLOCKS (default), IS_BLOCKED_BY (alias, stored as reversed BLOCKS), RELATES_TO"
+                                )
                             )
                         }
                     )
@@ -444,14 +447,21 @@ with `deleteAll=true` for every dependency on that item.
                 }
             }
 
-        val repo = context.dependencyRepository()
-
         return try {
-            // ONE write unit for the whole batch: the cross-edge cycle/duplicate checks need it (F7).
+            // ONE write unit for the whole batch (the service owns it): the cross-edge duplicate and cycle checks need it.
+            // The service normalizes, so the stored rows (and this response) never carry IS_BLOCKED_BY.
             val created =
-                when (val unit = context.unitOfWork.write("ManageDependenciesTool.create") { Outcome.Ok(repo.createBatch(dependencies)) }) {
-                    is Outcome.Ok -> unit.value
-                    is Outcome.Err -> return errorResponse(LegacyFaults.message(unit.error), ErrorCodes.INTERNAL_ERROR)
+                when (val outcome = context.dependencyCommandService.create(dependencies)) {
+                    is Outcome.Ok -> outcome.value
+                    is Outcome.Err ->
+                        return when (outcome.error.code) {
+                            // Batch-level rejection (duplicate / cycle across the whole batch) - a single failure.
+                            ErrorCode.DUPLICATE, ErrorCode.CYCLE_DETECTED ->
+                                successResponse(
+                                    buildValidationFailureResponse(listOf(DependencyFailure(0, outcome.error.message)))
+                                )
+                            else -> errorResponse(LegacyFaults.message(outcome.error), ErrorCodes.INTERNAL_ERROR)
+                        }
                 }
             val data =
                 buildJsonObject {
@@ -707,24 +717,16 @@ with `deleteAll=true` for every dependency on that item.
                             ErrorCodes.VALIDATION_ERROR
                         )
                     }
-                    // The lookup and every delete share ONE write unit.
-                    val unit =
-                        context.unitOfWork.write("ManageDependenciesTool.deleteRelationship") {
-                            val deps =
-                                repo.findByFromItemId(fromItemId).filter { dep ->
-                                    dep.toItemId == toItemId &&
-                                        (typeFilter == null || dep.type == DependencyType.fromString(typeFilter))
-                                }
-                            var deleted = 0
-                            for (dep in deps) {
-                                if (repo.delete(dep.id)) {
-                                    deleted++
-                                }
-                            }
-                            Outcome.Ok(deleted)
-                        }
+                    // The lookup and every delete share ONE write unit (the service owns it).
                     val deletedCount =
-                        when (unit) {
+                        when (
+                            val unit =
+                                context.dependencyCommandService.deleteByRelationship(
+                                    fromItemId,
+                                    toItemId,
+                                    typeFilter?.let { DependencyType.fromString(it) }
+                                )
+                        ) {
                             is Outcome.Ok -> unit.value
                             is Outcome.Err -> return errorResponse(LegacyFaults.message(unit.error), ErrorCodes.INTERNAL_ERROR)
                         }

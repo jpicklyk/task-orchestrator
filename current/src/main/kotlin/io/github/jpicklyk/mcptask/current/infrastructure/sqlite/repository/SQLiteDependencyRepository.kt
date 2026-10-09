@@ -36,20 +36,17 @@ class SQLiteDependencyRepository(
         }
 
     private fun insertDependencyInTransaction(dependency: Dependency): Dependency {
-        // Only check cycles for blocking dependency types — RELATES_TO has no blocking edge.
-        val edge = dependency.blockingEdge()
-        if (edge != null && checkCyclicDependencyInternal(edge.first, edge.second)) {
-            throw ValidationException("Creating this dependency would result in a circular dependency")
-        }
+        // Backstop: IS_BLOCKED_BY is an input alias and is never stored.
+        val dep = dependency.normalized()
 
         // Check for duplicate dependencies
         val existing =
             DependenciesTable
                 .selectAll()
                 .where {
-                    (DependenciesTable.fromItemId eq dependency.fromItemId) and
-                        (DependenciesTable.toItemId eq dependency.toItemId) and
-                        (DependenciesTable.type eq dependency.type.name)
+                    (DependenciesTable.fromItemId eq dep.fromItemId) and
+                        (DependenciesTable.toItemId eq dep.toItemId) and
+                        (DependenciesTable.type eq dep.type.name)
                 }.singleOrNull()
 
         if (existing != null) {
@@ -57,14 +54,14 @@ class SQLiteDependencyRepository(
         }
 
         DependenciesTable.insert {
-            it[id] = dependency.id
-            it[fromItemId] = dependency.fromItemId
-            it[toItemId] = dependency.toItemId
-            it[type] = dependency.type.name
-            it[unblockAt] = dependency.unblockAt
-            it[createdAt] = dependency.createdAt
+            it[id] = dep.id
+            it[fromItemId] = dep.fromItemId
+            it[toItemId] = dep.toItemId
+            it[type] = dep.type.name
+            it[unblockAt] = dep.unblockAt
+            it[createdAt] = dep.createdAt
         }
-        return dependency
+        return dep
     }
 
     override suspend fun findById(id: UUID): Dependency? =
@@ -117,10 +114,12 @@ class SQLiteDependencyRepository(
             if (dependencies.isEmpty()) {
                 return@writeTx emptyList()
             }
+            // Backstop: IS_BLOCKED_BY is an input alias and is never stored.
+            val normalized = dependencies.map { it.normalized() }
 
             // Phase 1: Check for duplicates within the batch itself
             val seen = mutableSetOf<Triple<UUID, UUID, DependencyType>>()
-            for (dep in dependencies) {
+            for (dep in normalized) {
                 val key = Triple(dep.fromItemId, dep.toItemId, dep.type)
                 if (!seen.add(key)) {
                     throw ValidationException(
@@ -130,7 +129,7 @@ class SQLiteDependencyRepository(
             }
 
             // Phase 2: Check for duplicates against existing dependencies
-            for (dep in dependencies) {
+            for (dep in normalized) {
                 val existing =
                     DependenciesTable
                         .selectAll()
@@ -147,18 +146,8 @@ class SQLiteDependencyRepository(
                 }
             }
 
-            // Phase 3: Incremental cycle detection - check and insert each dependency sequentially.
-            // Each dependency is inserted before checking the next, so subsequent checks see earlier
-            // batch members in the graph. Transaction rollback handles atomicity on failure.
-            // RELATES_TO deps are informational and cannot create blocking cycles — skip check.
-            for (dep in dependencies) {
-                val edge = dep.blockingEdge()
-                if (edge != null && checkCyclicDependencyInternal(edge.first, edge.second)) {
-                    throw ValidationException(
-                        "Creating these dependencies would result in a circular dependency chain"
-                    )
-                }
-
+            // Phase 3: insert. Cycle detection is not the store's job (DependencyCommandService owns it).
+            for (dep in normalized) {
                 DependenciesTable.insert {
                     it[id] = dep.id
                     it[fromItemId] = dep.fromItemId
@@ -169,75 +158,8 @@ class SQLiteDependencyRepository(
                 }
             }
 
-            dependencies
+            normalized
         }
-
-    override suspend fun hasCyclicDependency(
-        blockerId: UUID,
-        blockedId: UUID
-    ): Boolean =
-        databaseManager.readTx {
-            checkCyclicDependencyInternal(blockerId, blockedId)
-        }
-
-    /**
-     * Internal cyclic dependency check that must be called within an existing transaction.
-     * Uses DFS to check if adding a blocking edge from [blockerId] to [blockedId] (i.e.
-     * [blockerId] would block [blockedId]) would create a cycle in the blocker->blocked graph.
-     * A cycle exists if there's already a path from blockedId back to blockerId.
-     * Callers pass a proposed [Dependency]'s [Dependency.blockingEdge], never its raw
-     * (fromItemId, toItemId), which are swapped for IS_BLOCKED_BY.
-     */
-    private fun checkCyclicDependencyInternal(
-        blockerId: UUID,
-        blockedId: UUID
-    ): Boolean {
-        if (blockerId == blockedId) return true
-
-        val visited = mutableSetOf<UUID>()
-        val visiting = mutableSetOf<UUID>()
-
-        fun hasCycle(currentItemId: UUID): Boolean {
-            if (currentItemId in visited) return false
-            if (currentItemId in visiting) return true
-
-            visiting.add(currentItemId)
-
-            // Follow outgoing BLOCKS edges only (RELATES_TO is informational, not blocking)
-            val outgoing =
-                DependenciesTable
-                    .selectAll()
-                    .where { DependenciesTable.fromItemId eq currentItemId }
-                    .map { mapRowToDependency(it) }
-
-            for (dep in outgoing) {
-                if (dep.type == DependencyType.BLOCKS) {
-                    if (dep.toItemId == blockerId) return true
-                    if (hasCycle(dep.toItemId)) return true
-                }
-            }
-
-            // Follow incoming IS_BLOCKED_BY edges (reverse direction)
-            val incoming =
-                DependenciesTable
-                    .selectAll()
-                    .where { DependenciesTable.toItemId eq currentItemId }
-                    .map { mapRowToDependency(it) }
-
-            for (dep in incoming) {
-                if (dep.type == DependencyType.IS_BLOCKED_BY) {
-                    if (dep.fromItemId == blockerId) return true
-                    if (hasCycle(dep.fromItemId)) return true
-                }
-            }
-
-            visiting.remove(currentItemId)
-            visited.add(currentItemId)
-            return false
-        }
-
-        return hasCycle(blockedId)
-    }
 
     override suspend fun findByItemIds(itemIds: Set<UUID>): Map<UUID, List<Dependency>> {
         if (itemIds.isEmpty()) return emptyMap()

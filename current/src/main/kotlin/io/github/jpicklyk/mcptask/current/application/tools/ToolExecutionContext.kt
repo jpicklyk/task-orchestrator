@@ -16,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
+import io.github.jpicklyk.mcptask.current.application.service.DependencyCommandService
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
@@ -104,6 +105,13 @@ class ToolExecutionContext(
      * `create_work_tree`. Lazy for the same reason as [advanceServiceFactoryLazy].
      */
     val noteCommandService: NoteCommandService by lazy { NoteCommandService(repositoryProvider, configResolver, unitOfWork) }
+
+    /**
+     * The single owner of the dependency write policy (normalization, duplicate and cycle rules), shared by
+     * `manage_dependencies`, the REST dependency routes and `create_work_tree`. Lazy for the same reason as
+     * [advanceServiceFactoryLazy].
+     */
+    val dependencyCommandService: DependencyCommandService by lazy { DependencyCommandService(repositoryProvider, unitOfWork) }
 
     /** Access to WorkItem CRUD and query operations. */
     fun workItemRepository(): WorkItemRepository = repositoryProvider.workItemRepository()

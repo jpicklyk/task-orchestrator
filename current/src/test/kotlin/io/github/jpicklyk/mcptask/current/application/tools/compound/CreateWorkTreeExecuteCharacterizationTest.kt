@@ -184,7 +184,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
         }
 
     @Test
-    fun `probe S4 hyphenated dependency type is-blocked-by normalizes and is accepted`() =
+    fun `probe S4 hyphenated dependency type is-blocked-by normalizes and is stored as swapped BLOCKS`() =
         runBlocking {
             val params =
                 buildJsonObject {
@@ -203,7 +203,9 @@ class CreateWorkTreeExecuteCharacterizationTest {
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val depsArr = (result["data"] as JsonObject)["dependencies"] as JsonArray
             assertEquals(1, depsArr.size)
-            assertEquals("IS_BLOCKED_BY", depsArr[0].jsonObject["type"]!!.jsonPrimitive.content)
+            assertEquals("BLOCKS", depsArr[0].jsonObject["type"]!!.jsonPrimitive.content)
+            assertEquals("c2", depsArr[0].jsonObject["fromRef"]!!.jsonPrimitive.content, "the ends are swapped: c2 blocks c1")
+            assertEquals("c1", depsArr[0].jsonObject["toRef"]!!.jsonPrimitive.content)
 
             val c1Id =
                 UUID.fromString(
@@ -211,7 +213,8 @@ class CreateWorkTreeExecuteCharacterizationTest {
                 )
             val persisted = repositoryProvider.dependencyRepository().findByItemId(c1Id)
             assertEquals(1, persisted.size)
-            assertEquals(DependencyType.IS_BLOCKED_BY, persisted[0].type)
+            assertEquals(DependencyType.BLOCKS, persisted[0].type)
+            assertEquals(c1Id, persisted[0].toItemId)
         }
 
     // ─────────────────────────────────────────────────────────────────────
