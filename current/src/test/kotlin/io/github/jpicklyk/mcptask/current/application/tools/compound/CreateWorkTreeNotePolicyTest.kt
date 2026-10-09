@@ -451,6 +451,7 @@ class CreateWorkTreeNotePolicyTest {
                     )
                 )
             assertFalse(over["success"]!!.jsonPrimitive.boolean, "65537 bytes: $over")
+            assertEquals("VALIDATION_ERROR", over.error()["code"]!!.jsonPrimitive.content, "65537 bytes: $over")
             assertTrue(titlesInDb().none { it.startsWith("S15b ") })
         }
 

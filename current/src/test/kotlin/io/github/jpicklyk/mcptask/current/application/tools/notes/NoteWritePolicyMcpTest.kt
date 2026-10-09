@@ -285,6 +285,13 @@ class NoteWritePolicyMcpTest {
                 val result = run(ctx, upsertParams(noteObj(itemId, "bad$i", bad, "b")))
                 assertEquals(0, result.data()["upserted"]!!.jsonPrimitive.int, "role '$bad': $result")
                 assertEquals(1, result.data()["failed"]!!.jsonPrimitive.int, "role '$bad'")
+                val message =
+                    result
+                        .data()["failures"]!!
+                        .jsonArray[0]
+                        .jsonObject["error"]!!
+                        .jsonPrimitive.content
+                assertTrue("role" in message.lowercase(), "role '$bad' is rejected as an invalid role: $message")
                 assertNull(stored(itemId, "bad$i"), "role '$bad' must not be stored")
             }
         }

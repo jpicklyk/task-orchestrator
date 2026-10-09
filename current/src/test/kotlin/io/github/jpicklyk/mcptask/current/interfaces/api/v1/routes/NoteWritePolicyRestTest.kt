@@ -275,6 +275,7 @@ class NoteWritePolicyRestTest {
             val response = putNote(target.id, "lim", "work", "x".repeat(11))
 
             assertEquals(HttpStatusCode.UnprocessableEntity, response.status, response.bodyAsText())
+            assertTrue(response.bodyAsText().contains("note_body_too_long"), response.bodyAsText())
             assertNull(stored(target.id, "lim"))
         }
 
@@ -369,6 +370,7 @@ class NoteWritePolicyRestTest {
             val response = putNote(target.id, "k", "work", "a".repeat(65537))
 
             assertEquals(HttpStatusCode.PayloadTooLarge, response.status, response.bodyAsText())
+            assertTrue(response.bodyAsText().contains("payload_too_large"), response.bodyAsText())
             assertEquals("old", stored(target.id, "k")?.body)
         }
 
@@ -527,6 +529,7 @@ class NoteWritePolicyRestTest {
 
             val (rejected, rejectedRows) = rig.written { putNote(host.id, "lim", "work", "x".repeat(11)) }
             assertEquals(HttpStatusCode.UnprocessableEntity, rejected.status, rejected.bodyAsText())
+            assertTrue(rejected.bodyAsText().contains("note_body_too_long"), rejected.bodyAsText())
             assertTrue(rejectedRows.none { it.type == "note.upserted" }, "a rejected write must leave no note.upserted row: $rejectedRows")
             assertNull(stored(host.id, "lim"))
 
