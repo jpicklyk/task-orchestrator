@@ -30,5 +30,13 @@ class InMemoryEventStore : EventStore {
             rows.filter { it.seq > afterSeq && (rootIds == null || it.rootId in rootIds) }.take(limit)
         }
 
+    override suspend fun latestOfType(
+        type: String,
+        entityIds: Set<UUID>
+    ): Map<UUID, EventRecord> =
+        synchronized(rows) {
+            rows.filter { it.type == type && it.entityId in entityIds }.groupBy { it.entityId }.mapValues { (_, v) -> v.maxBy { it.seq } }
+        }
+
     override suspend fun maxSeq(): Long = synchronized(rows) { rows.lastOrNull()?.seq ?: EventStore.SEQ_FLOOR }
 }

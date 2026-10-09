@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.ReleaseResult
+import io.github.jpicklyk.mcptask.current.application.service.ClaimService
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -31,13 +32,14 @@ class EventPublishingClaimEventsTest {
     fun `S5 successful claim emits item updated for the claimed item`(): Unit =
         runBlocking {
             val bus = ApiEventBus()
-            val provider = EventPublishingRepositoryProvider(repositoryProvider, bus)
+            val (provider, unit) = eventWiredUnit(db.databaseManager, repositoryProvider, bus)
+            val claims = ClaimService(provider, unit)
 
             val y = provider.workItemRepository().create(WorkItem(title = "Y5", depth = 0))!!
 
             val flow = bus.subscribe("s5", emptySet(), lastEventId = null)
 
-            val result = provider.workItemRepository().claim(y.id, "agent1", ttlSeconds = 900)
+            val result = claims.claim(y.id, "agent1", 900).getOrNull()!!
 
             assertTrue(result is ClaimResult.Success, "expected ClaimResult.Success, got: $result")
             val events = bus.drainDelivered("s5", flow)
@@ -58,7 +60,8 @@ class EventPublishingClaimEventsTest {
     fun `S6 claiming a new item while holding another emits item updated for both and reports the released id`(): Unit =
         runBlocking {
             val bus = ApiEventBus()
-            val provider = EventPublishingRepositoryProvider(repositoryProvider, bus)
+            val (provider, unit) = eventWiredUnit(db.databaseManager, repositoryProvider, bus)
+            val claims = ClaimService(provider, unit)
 
             val x = provider.workItemRepository().create(WorkItem(title = "X6", depth = 0))!!
             val y = provider.workItemRepository().create(WorkItem(title = "Y6", depth = 0))!!
@@ -67,7 +70,7 @@ class EventPublishingClaimEventsTest {
 
             val flow = bus.subscribe("s6", emptySet(), lastEventId = null)
 
-            val result = provider.workItemRepository().claim(y.id, "agent1", ttlSeconds = 900)
+            val result = claims.claim(y.id, "agent1", 900).getOrNull()!!
 
             assertTrue(result is ClaimResult.Success, "expected ClaimResult.Success, got: $result")
             assertEquals(listOf(x.id), (result as ClaimResult.Success).releasedItemIds)
@@ -83,7 +86,8 @@ class EventPublishingClaimEventsTest {
     fun `S7 successful release emits item updated for the released item`(): Unit =
         runBlocking {
             val bus = ApiEventBus()
-            val provider = EventPublishingRepositoryProvider(repositoryProvider, bus)
+            val (provider, unit) = eventWiredUnit(db.databaseManager, repositoryProvider, bus)
+            val claims = ClaimService(provider, unit)
 
             val y = provider.workItemRepository().create(WorkItem(title = "Y7", depth = 0))!!
             val claim = provider.workItemRepository().claim(y.id, "agent1", ttlSeconds = 900)
@@ -91,7 +95,7 @@ class EventPublishingClaimEventsTest {
 
             val flow = bus.subscribe("s7", emptySet(), lastEventId = null)
 
-            val result = provider.workItemRepository().release(y.id, "agent1")
+            val result = claims.release(y.id, "agent1").getOrNull()!!
 
             assertTrue(result is ReleaseResult.Success, "expected ReleaseResult.Success, got: $result")
             val events = bus.drainDelivered("s7", flow)
@@ -108,7 +112,8 @@ class EventPublishingClaimEventsTest {
     fun `S10 claim attempt on an item held by another agent emits no events`(): Unit =
         runBlocking {
             val bus = ApiEventBus()
-            val provider = EventPublishingRepositoryProvider(repositoryProvider, bus)
+            val (provider, unit) = eventWiredUnit(db.databaseManager, repositoryProvider, bus)
+            val claims = ClaimService(provider, unit)
 
             val x = provider.workItemRepository().create(WorkItem(title = "X10", depth = 0))!!
             val y = provider.workItemRepository().create(WorkItem(title = "Y10", depth = 0))!!
@@ -119,7 +124,7 @@ class EventPublishingClaimEventsTest {
 
             val flow = bus.subscribe("s10", emptySet(), lastEventId = null)
 
-            val result = provider.workItemRepository().claim(y.id, "agent1", ttlSeconds = 900)
+            val result = claims.claim(y.id, "agent1", 900).getOrNull()!!
 
             assertTrue(result is ClaimResult.AlreadyClaimed, "expected AlreadyClaimed, got: $result")
             val events = bus.drainDelivered("s10", flow)
@@ -131,7 +136,8 @@ class EventPublishingClaimEventsTest {
     fun `S13 release attempt by a non-holder emits no events`(): Unit =
         runBlocking {
             val bus = ApiEventBus()
-            val provider = EventPublishingRepositoryProvider(repositoryProvider, bus)
+            val (provider, unit) = eventWiredUnit(db.databaseManager, repositoryProvider, bus)
+            val claims = ClaimService(provider, unit)
 
             val y = provider.workItemRepository().create(WorkItem(title = "Y13", depth = 0))!!
             val claim = provider.workItemRepository().claim(y.id, "holder", ttlSeconds = 900)
@@ -139,7 +145,7 @@ class EventPublishingClaimEventsTest {
 
             val flow = bus.subscribe("s13", emptySet(), lastEventId = null)
 
-            val result = provider.workItemRepository().release(y.id, "impostor")
+            val result = claims.release(y.id, "impostor").getOrNull()!!
 
             assertTrue(result is ReleaseResult.NotClaimedByYou, "expected NotClaimedByYou, got: $result")
             val events = bus.drainDelivered("s13", flow)
@@ -158,7 +164,8 @@ class EventPublishingClaimEventsTest {
     fun `S16 claim refresh by the same holder emits item updated for that item only with no released ids`(): Unit =
         runBlocking {
             val bus = ApiEventBus()
-            val provider = EventPublishingRepositoryProvider(repositoryProvider, bus)
+            val (provider, unit) = eventWiredUnit(db.databaseManager, repositoryProvider, bus)
+            val claims = ClaimService(provider, unit)
 
             val y = provider.workItemRepository().create(WorkItem(title = "Y16", depth = 0))!!
             val firstClaim = provider.workItemRepository().claim(y.id, "agent1", ttlSeconds = 900)
@@ -166,7 +173,7 @@ class EventPublishingClaimEventsTest {
 
             val flow = bus.subscribe("s16", emptySet(), lastEventId = null)
 
-            val result = provider.workItemRepository().claim(y.id, "agent1", ttlSeconds = 900)
+            val result = claims.claim(y.id, "agent1", 900).getOrNull()!!
 
             assertTrue(result is ClaimResult.Success, "expected ClaimResult.Success, got: $result")
             assertEquals(emptyList<java.util.UUID>(), (result as ClaimResult.Success).releasedItemIds)

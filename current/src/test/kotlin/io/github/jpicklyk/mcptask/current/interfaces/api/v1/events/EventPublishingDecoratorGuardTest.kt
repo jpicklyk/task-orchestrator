@@ -92,7 +92,6 @@ class EventPublishingDecoratorGuardTest {
 
     private val readOnlyAllowListExact =
         setOf(
-            // P8: `clear` is no longer allow-listed; it records claim.released (reason cleared).
             "ping",
             "descendantIds",
             "search",
@@ -116,9 +115,30 @@ class EventPublishingDecoratorGuardTest {
     private val passThroughSurfaces =
         mapOf(
             IdempotencyStore::class.java to setOf("find", "upsert", "insertIfAbsent", "deleteExpired"),
-            EventStore::class.java to setOf("append", "readAfter", "maxSeq"),
+            EventStore::class.java to setOf("append", "readAfter", "maxSeq", "latestOfType"),
             TransitionStore::class.java to setOf("create", "findByItemId", "findByTimeRange", "findSince"),
+            // P14: ClaimService records lease.acquired / released / rejected / expired itself, in its own unit.
+            LeaseStore::class.java to
+                setOf(
+                    "acquireAll",
+                    "releaseAllForItem",
+                    "releaseAllForItems",
+                    "forceReleaseByKey",
+                    "findLapsed",
+                    "deleteLapsed",
+                    "findActiveByKeys",
+                    "findActiveForItem",
+                    "findAllActive",
+                    "findHoldersAt",
+                    "findRecentIntervals",
+                ),
         )
+
+    /**
+     * The claim writes of the work-item store. The decorator no longer overrides them: ClaimService records their
+     * `claim.*` rows (including `claim.expired`) in its own unit, so a bare store call records nothing.
+     */
+    private val claimServiceRecorded = setOf("claim", "release", "clear")
 
     /** Shared classification: every declared method of [port] is overridden by [decoratorClass] or allow-listed. */
     private fun assertClassified(
@@ -137,24 +157,6 @@ class EventPublishingDecoratorGuardTest {
         val unclassified = actualNames.filterNot { it in evented || isReadOnlyAllowListed(it) }
         assertTrue(unclassified.isEmpty(), "Unclassified ${port.simpleName} methods: $unclassified")
     }
-
-    @Test
-    fun `LeaseStore method surface is fully classified as EVENTED or read-only allow-listed`() =
-        assertClassified(
-            LeaseStore::class.java,
-            setOf(
-                "acquireAll",
-                "releaseAllForItem",
-                "releaseAllForItems",
-                "forceReleaseByKey",
-                "findActiveByKeys",
-                "findActiveForItem",
-                "findAllActive",
-                "findHoldersAt",
-                "findRecentIntervals",
-            ),
-            "EventPublishingLeaseStore",
-        )
 
     @Test
     fun `ProjectConfigStore method surface is fully classified as EVENTED or read-only allow-listed`() =
@@ -220,6 +222,8 @@ class EventPublishingDecoratorGuardTest {
                 "deleteAll",
                 "claim",
                 "release",
+                "findHeldBy",
+                "findLapsedClaims",
                 "findByIdPrefix",
                 "findAncestorChains",
                 "findAncestorChainsDetailed",
@@ -254,7 +258,11 @@ class EventPublishingDecoratorGuardTest {
             "EventPublishingWorkItemRepository overrides name(s) not on WorkItemRepository: $staleOrTypoed",
         )
 
-        val unclassified = actualNames.filterNot { it in evented || isReadOnlyAllowListed(it) }
+        assertTrue(
+            evented.intersect(claimServiceRecorded).isEmpty(),
+            "claim, release and clear are recorded by ClaimService; the decorator must not also record them",
+        )
+        val unclassified = actualNames.filterNot { it in evented || it in claimServiceRecorded || isReadOnlyAllowListed(it) }
         assertTrue(unclassified.isEmpty(), "Unclassified WorkItemRepository methods: $unclassified")
     }
 
@@ -357,7 +365,10 @@ class EventPublishingDecoratorGuardTest {
             "EventPublishingRepositoryProvider.workTreeExecutor() must return a wrapping decorator " +
                 "instance distinct from the delegate's raw executor",
         )
-        assertTrue(provider.resourceLeaseRepository() !== delegate.resourceLeaseRepository(), "the lease store must be wrapped")
+        assertTrue(
+            provider.resourceLeaseRepository() === delegate.resourceLeaseRepository(),
+            "the lease store passes through (ClaimService records the lease rows)",
+        )
         assertTrue(provider.projectConfigRepository() !== delegate.projectConfigRepository(), "the config store must be wrapped")
         assertTrue(provider.planDocumentRepository() !== delegate.planDocumentRepository(), "the plan-document store must be wrapped")
     }

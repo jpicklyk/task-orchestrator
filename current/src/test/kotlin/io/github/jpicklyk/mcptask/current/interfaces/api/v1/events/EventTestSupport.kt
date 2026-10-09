@@ -187,5 +187,10 @@ internal class LazyEventStore(
         limit: Int,
     ): List<EventRecord> = store.readAfter(afterSeq, rootIds, limit)
 
+    override suspend fun latestOfType(
+        type: String,
+        entityIds: Set<UUID>,
+    ): Map<UUID, EventRecord> = store.latestOfType(type, entityIds)
+
     override suspend fun maxSeq(): Long = store.maxSeq()
 }

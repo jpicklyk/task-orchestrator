@@ -32,6 +32,8 @@ class AdvanceServiceFactory(
     private val resourceLeasesEnforced: () -> Boolean = { AdvanceService.resourceLeasesEnforcedFromEnv() },
     /** The one time source every built [AdvanceService] reads (the ambient unit instant wins inside a unit). */
     private val clock: Clock = Clock.SYSTEM,
+    /** Where every built [AdvanceService] routes its claim and lease writes (and their events). */
+    private val claimService: ClaimService? = null,
 ) {
     private val previewLazy by lazy {
         TransitionPreview(
@@ -75,7 +77,8 @@ class AdvanceServiceFactory(
             resourceRegistryResolver = { configResolver.resolveResourceRegistry(it) },
             resourceLeasesEnforced = resourceLeasesEnforced(),
             independencePolicyResolver = { workItem: WorkItem -> configResolver.resolveIndependencePolicy(workItem.rootId) },
-            clock = clock
+            clock = clock,
+            claimService = claimService
         )
     }
 

@@ -154,11 +154,11 @@ class KeyedRejectionRowsTest {
             ClaimItemTool().execute(claim(item.id, key), ctx)
             assertEquals(2, rows(DomainEvent.CLAIM_REJECTED).size, "the retry with the same key re-executes and records one more")
 
-            // claim_item always keys its elements, so the committing path is driven at the store: a unit that COMMITS
+            // claim_item always keys its elements, so the committing path is driven at ClaimService: a unit that COMMITS
             // after the rejection keeps its own row and the rollback fallback never fires (no duplicate).
             val committed =
                 ctx.unitOfWork.write("test.claim") {
-                    Outcome.Ok(stores.workItemRepository().claim(item.id, "agent-3", 900))
+                    Outcome.Ok(ctx.claimService.claim(item.id, "agent-3", 900).getOrNull()!!)
                 }
             assertTrue(
                 committed is Outcome.Ok && committed.value is ClaimResult.AlreadyClaimed,

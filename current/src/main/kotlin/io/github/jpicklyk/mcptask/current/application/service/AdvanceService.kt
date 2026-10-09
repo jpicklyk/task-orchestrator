@@ -2,9 +2,14 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.EventRecord
+import io.github.jpicklyk.mcptask.current.application.port.EventStore
+import io.github.jpicklyk.mcptask.current.application.port.IdempotencyStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
+import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
+import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.ReadScope
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
@@ -315,8 +320,17 @@ class AdvanceService(
     private val resourceLeasesEnforced: Boolean = true,
     private val independencePolicyResolver: suspend (WorkItem) -> IndependencePolicy = { IndependencePolicy.DEFAULT },
     private val clock: Clock = Clock.SYSTEM,
-    private val policy: TransitionPolicy = TransitionPolicy()
+    private val policy: TransitionPolicy = TransitionPolicy(),
+    /**
+     * The owner of claim and lease writes and their events. Production (via [AdvanceServiceFactory]) always passes the
+     * shared instance. When null, one is built over the given stores, for callers that wire individual stores only.
+     */
+    claimService: ClaimService? = null
 ) {
+    private val claims: ClaimService by lazy {
+        claimService ?: ClaimService(StoresProvider(workItemRepository, resourceLeaseRepository), unitOfWork)
+    }
+
     private val loader =
         TransitionSnapshotLoader(
             workItemRepository,
@@ -445,6 +459,13 @@ class AdvanceService(
         val credentialRefs: List<String>
     )
 
+    /** The value of a claim-service call; a fault aborts the advance (the unit rolls back, `apply_failed`). */
+    private fun <T> Outcome<T>.orAbort(): T =
+        when (this) {
+            is Outcome.Ok -> value
+            is Outcome.Err -> throw ApplyAbort(applyFaultMessage(error))
+        }
+
     /** An apply step aborted by a missing row: rolls the unit back and becomes [AdvanceFailure.ApplyFailed]. */
     private class ApplyAbort(
         message: String
@@ -521,6 +542,10 @@ class AdvanceService(
                 ?: return AdvanceOutcome.Failure(
                     AdvanceFailure.ApplyFailed("Failed to update item: WorkItem not found with id: ${request.itemId}")
                 )
+
+        // An advance that evaluates a lapsed claim reports it (deduped); a rejected advance rolls the row back and
+        // the hourly sweep backstops it.
+        if (item.claimedBy != null) claims.detectExpiry(item).orAbort()
 
         val loaded = loader.loadDetailed(view, item, trigger, request.ownership, LeaseInput(request.leaseGateActive))
         val snapshot = loaded.snapshot
@@ -841,7 +866,7 @@ class AdvanceService(
                     .distinctBy { it.key }
                     .map { it.key to resolveTtlSeconds(it, resolvedRegistry) }
             // Actor id is audit metadata only: exclusivity is keyed on the holder ITEM.
-            when (val acquired = leaseRepo.acquireAll(item.id, actorClaim?.id, requests)) {
+            when (val acquired = claims.acquireLeases(item.id, actorClaim?.id, requests).orAbort()) {
                 is LeaseAcquireResult.Success -> {}
                 is LeaseAcquireResult.Contended -> return ApplyResult.Contended(acquired.contendedKeys, acquired.retryAfterMs)
             }
@@ -891,7 +916,7 @@ class AdvanceService(
             workItemRepository.update(updatedItem)
                 ?: throw ApplyAbort("Failed to update item: WorkItem not found with id: ${item.id}")
         // update() never writes the claim columns: release the claim explicitly, in this unit.
-        if (clearsClaim) workItemRepository.clear(item.id)
+        if (clearsClaim) claims.clearClaim(item.id).orAbort()
 
         val transition =
             RoleTransition(
@@ -925,7 +950,7 @@ class AdvanceService(
         // Release on EVERY exit from WORK, in this unit, regardless of the kill switch (a lease acquired
         // while enforcement was on must still be released after it is turned off). A fault fails the advance.
         if (previousRole == Role.WORK && targetRole != Role.WORK && leaseRepo != null) {
-            leaseRepo.releaseAllForItem(item.id)
+            claims.releaseLeases(setOf(item.id)).orAbort()
         }
         return ApplyResult.Applied(updated)
     }
@@ -1137,4 +1162,53 @@ sealed class AdvanceOutcome {
     data class Failure(
         val failure: AdvanceFailure
     ) : AdvanceOutcome()
+}
+
+/**
+ * A [RepositoryProvider] over the individual stores an [AdvanceService] was built with, so its default
+ * [ClaimService] can reach them. Only the item and lease stores exist; there is no event log to deduplicate against,
+ * so expiry rows are never suppressed here (production passes the shared [ClaimService] instead).
+ */
+private class StoresProvider(
+    private val items: WorkItemRepository,
+    private val leases: LeaseStore?
+) : RepositoryProvider {
+    override fun workItemRepository(): WorkItemRepository = items
+
+    override fun resourceLeaseRepository(): LeaseStore = leases ?: error("No lease store was supplied")
+
+    override fun eventStore(): EventStore = NoEventLog
+
+    override fun noteRepository(): NoteStore = unsupported()
+
+    override fun dependencyRepository(): DependencyStore = unsupported()
+
+    override fun roleTransitionRepository(): TransitionStore = unsupported()
+
+    override fun projectConfigRepository(): ProjectConfigStore = unsupported()
+
+    override fun planDocumentRepository(): PlanDocumentStore = unsupported()
+
+    override fun workTreeExecutor(): WorkTreeExecutor = unsupported()
+
+    override fun idempotencyStore(): IdempotencyStore = unsupported()
+
+    private fun unsupported(): Nothing = error("Not available to the default ClaimService")
+
+    private object NoEventLog : EventStore {
+        override suspend fun append(records: List<EventRecord>): List<EventRecord> = error("No event log")
+
+        override suspend fun readAfter(
+            afterSeq: Long,
+            rootIds: Set<UUID>?,
+            limit: Int
+        ): List<EventRecord> = emptyList()
+
+        override suspend fun latestOfType(
+            type: String,
+            entityIds: Set<UUID>
+        ): Map<UUID, EventRecord> = emptyMap()
+
+        override suspend fun maxSeq(): Long = EventStore.SEQ_FLOOR
+    }
 }

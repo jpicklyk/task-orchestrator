@@ -34,6 +34,7 @@ class AdvanceMockStores(
 
     init {
         coEvery { workItemRepo.getById(any()) } answers { seeded[firstArg()] }
+        stubClaimServiceReads(workItemRepo, leaseRepo)
         coEvery { workItemRepo.findByIds(any()) } coAnswers {
             firstArg<Set<UUID>>().mapNotNull { id -> runCatching { workItemRepo.getById(id) }.getOrNull() }
         }
@@ -57,8 +58,29 @@ class AdvanceMockStores(
             depRepo: DependencyStore
         ) {
             stubDependencyUnion(depRepo)
+            stubClaimServiceReads(workItemRepo, null)
             coEvery { workItemRepo.findByIds(any()) } coAnswers {
                 firstArg<Set<UUID>>().mapNotNull { id -> runCatching { workItemRepo.getById(id) }.getOrNull() }
+            }
+        }
+
+        /**
+         * The reads `ClaimService` makes around a claim or lease write (P14): the agent's other claims, the lapsed
+         * claims, the ancestor chains behind an event row's root and, when [leaseRepo] is given, the lapsed and active
+         * lease rows. Defaults: nothing held, nothing lapsed, every item is its own root.
+         */
+        fun stubClaimServiceReads(
+            workItemRepo: WorkItemRepository,
+            leaseRepo: LeaseStore?
+        ) {
+            coEvery { workItemRepo.findHeldBy(any()) } returns emptyList()
+            coEvery { workItemRepo.findLapsedClaims() } returns emptyList()
+            coEvery { workItemRepo.findAncestorChains(any()) } returns emptyMap()
+            if (leaseRepo != null) {
+                coEvery { leaseRepo.findLapsed(any(), any()) } returns emptyList()
+                coEvery { leaseRepo.deleteLapsed(any()) } returns 0
+                coEvery { leaseRepo.findActiveForItem(any()) } returns emptyList()
+                coEvery { leaseRepo.findAllActive() } returns emptyList()
             }
         }
 

@@ -5,11 +5,9 @@ import io.github.jpicklyk.mcptask.current.application.port.ReleaseResult
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
-import io.github.jpicklyk.mcptask.current.application.support.UnitResult
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
-import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.application.tools.ActorAware
 import io.github.jpicklyk.mcptask.current.application.tools.ActorParseResult
 import io.github.jpicklyk.mcptask.current.application.tools.BaseToolDefinition
@@ -23,6 +21,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -672,14 +671,12 @@ Call only in claim-mode deployments, to take ownership before working an item.
         agentId: String,
         ttlSeconds: Int
     ): ClaimResult? =
-        context.unitOfWork.writeUnit<ClaimResult?>(
-            "ClaimItemTool.claim",
-            onFault = {
-                logger.warn("claim_item: claim of {} failed: {}", itemId, LegacyFaults.message(it))
+        when (val outcome = context.claimService.claim(itemId, agentId, ttlSeconds)) {
+            is Outcome.Ok -> outcome.value
+            is Outcome.Err -> {
+                logger.warn("claim_item: claim of {} failed: {}", itemId, LegacyFaults.message(outcome.error))
                 null
             }
-        ) {
-            UnitResult.Commit(context.workItemRepository().claim(itemId, agentId, ttlSeconds))
         }
 
     /** Logs when a caller-supplied `agentId` differs from the verified trusted identity. */
@@ -808,14 +805,12 @@ Call only in claim-mode deployments, to take ownership before working an item.
 
         // One release as ONE write unit; a store fault rolls it back and maps to the db_error outcome (null).
         val released =
-            context.unitOfWork.writeUnit<ReleaseResult?>(
-                "ClaimItemTool.release",
-                onFault = {
-                    logger.warn("claim_item: release of {} failed: {}", itemId, LegacyFaults.message(it))
+            when (val outcome = context.claimService.release(itemId!!, trustedAgentId)) {
+                is Outcome.Ok -> outcome.value
+                is Outcome.Err -> {
+                    logger.warn("claim_item: release of {} failed: {}", itemId, LegacyFaults.message(outcome.error))
                     null
                 }
-            ) {
-                UnitResult.Commit(context.workItemRepository().release(itemId!!, trustedAgentId))
             }
         return when (val result = released) {
             is ReleaseResult.Success ->

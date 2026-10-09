@@ -126,6 +126,18 @@ interface ClaimStore {
     suspend fun clear(itemId: UUID): Boolean
 
     /**
+     * Every item whose claim is held by [agentId], active or lapsed, in no particular order. Read inside the claim
+     * unit by `ClaimService` to tell which of the agent's other claims a new claim will auto-release were already lapsed.
+     */
+    suspend fun findHeldBy(agentId: String): List<WorkItem>
+
+    /**
+     * Every item whose claim has lapsed at the bound instant: `claimed_by` set and `claim_expires_at <= now`. A claim
+     * with no usable expiry is not returned (there is no instant to report). The columns are not touched.
+     */
+    suspend fun findLapsedClaims(): List<WorkItem>
+
+    /**
      * Find work items for the "get next" recommendation query, supporting optional claim filtering.
      *
      * Returns items in the specified [role] that are not in TERMINAL. When [excludeActiveClaims]
