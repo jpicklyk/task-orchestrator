@@ -351,6 +351,73 @@ object BaselineDataset {
             "data" to "{\"origin\":\"baseline\"}"
         )
 
+        // V21: two call_log rows, every column non-default and pairwise distinct (replayed 1 vs 0, attempts 2 vs 3, ...).
+        val callTarget = uuid("task1")
+        insert(
+            conn,
+            "call_log",
+            "req_id" to "bl0req01",
+            "at" to "2026-03-03 12:17:32.789",
+            "principal_id" to "actor-one",
+            "principal_kind" to "subagent",
+            "proof_status" to "verified",
+            "host" to "host-call-1",
+            "session_id" to "session-call-1",
+            "run_id" to id("run:call-1"),
+            "seat" to "implementer",
+            "surface" to "mcp",
+            "tool" to "advance_item",
+            "operation" to "start",
+            "target_ids" to "[\"$callTarget\"]",
+            "target_versions" to "{\"$callTarget\":3}",
+            "request_shape" to "{\"includeAncestors\":true}",
+            "outcome" to "ok",
+            "error_code" to null,
+            "attempts" to 2,
+            "latency_ms" to 41,
+            "request_bytes" to 310,
+            "response_bytes" to 1290,
+            "response_tokens_est" to 323,
+            "token_method" to "bytes/4",
+            "replayed" to 1,
+            "batch_size" to 5,
+            "failed_count" to 1,
+            "result_count" to 4,
+            "eligible_count" to 9
+        )
+        insert(
+            conn,
+            "call_log",
+            "req_id" to "bl0req02",
+            "at" to "2026-03-03 12:17:33.790",
+            "principal_id" to "api:token-two",
+            "principal_kind" to "external",
+            "proof_status" to "unverified",
+            "host" to "host-call-2",
+            "session_id" to "session-call-2",
+            "run_id" to id("run:call-2"),
+            "seat" to "reviewer",
+            "surface" to "rest",
+            "tool" to "GET /api/v1/items/{id}",
+            "operation" to "get",
+            "target_ids" to "[\"$callTarget\"]",
+            "target_versions" to "{\"$callTarget\":4}",
+            "request_shape" to "{\"includeChildren\":false}",
+            "outcome" to "error",
+            "error_code" to "not_found",
+            "attempts" to 3,
+            "latency_ms" to 87,
+            "request_bytes" to 205,
+            "response_bytes" to 768,
+            "response_tokens_est" to 192,
+            "token_method" to "bytes/4",
+            "replayed" to 0,
+            "batch_size" to 6,
+            "failed_count" to 2,
+            "result_count" to 8,
+            "eligible_count" to 11
+        )
+
         insert(
             conn,
             "project_config",
