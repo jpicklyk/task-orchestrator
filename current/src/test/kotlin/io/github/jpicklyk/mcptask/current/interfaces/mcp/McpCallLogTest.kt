@@ -733,4 +733,38 @@ class McpCallLogTest {
                 )
             }
         }
+
+    // ------------------------------------------------------------------ F1
+
+    @Test
+    fun `F1 client-supplied operation and flag names are bounded in the stored row`() =
+        runBlocking {
+            val long = "z".repeat(5000)
+            val junkOp = call("manage_items", "operation" to jstr(long))
+            val badOp = call("manage_items", "operation" to jstr("Not Valid!"))
+            val noOp = call("p10_echo", "m" to jstr("x"))
+            val goodOp = call("query_items", "operation" to jstr("overview"))
+            val flags =
+                call(
+                    "p10_echo",
+                    *(0 until 30).map { "flag" + it.toString().padStart(2, '0') to (JsonPrimitive(true) as JsonElement) }.toTypedArray(),
+                    "bad key" to JsonPrimitive(true),
+                    long to JsonPrimitive(true)
+                )
+            flush()
+            assertEquals("invalid", rowOf(reqIdOf(junkOp))["operation"], "5000-char operation")
+            assertEquals("invalid", rowOf(reqIdOf(badOp))["operation"], "non-conforming operation")
+            assertNull(rowOf(reqIdOf(noOp))["operation"], "absent stays null")
+            assertEquals("overview", rowOf(reqIdOf(goodOp))["operation"])
+            val shape = Json.parseToJsonElement(rowOf(reqIdOf(flags))["request_shape"] as String).jsonObject
+            assertEquals(16, shape.size, "30 conforming flags are capped at 16: ${shape.keys}")
+            assertEquals(shape.keys.sorted(), shape.keys.toList())
+            assertTrue(shape.keys.all { Regex("^[A-Za-z0-9_.-]{1,64}$").matches(it) }, "${shape.keys}")
+            for (row in CallLogRows.read(db.jdbcUrl)) {
+                for (column in listOf("tool", "operation", "error_code", "principal_id", "principal_kind", "session_id")) {
+                    val value = row[column] as String?
+                    assertTrue(value == null || value.length <= 64, "$column is ${value?.length} chars")
+                }
+            }
+        }
 }

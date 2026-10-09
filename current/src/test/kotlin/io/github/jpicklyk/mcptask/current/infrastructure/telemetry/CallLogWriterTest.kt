@@ -294,6 +294,34 @@ class CallLogWriterTest {
         }
 
     @Test
+    fun `F7 a CHECK-violating row counts as failed and warns, a duplicate counts as a duplicate, the rest is written`() =
+        runBlocking {
+            val writer =
+                CallLogWriter(
+                    sqlite.unitOfWork(),
+                    SqliteCallLogStore(sqlite.databaseManager),
+                    capacity = 100,
+                    batchSize = 100,
+                    flushInterval = 1.hours
+                )
+            val capture = LogCapture().attach()
+            try {
+                writer.submit(sampleCallLogRecord("f7w00001"))
+                writer.submit(sampleCallLogRecord("f7w00001", tool = "dup"))
+                writer.submit(sampleCallLogRecord("f7w00002").copy(latencyMs = -1))
+                writer.submit(sampleCallLogRecord("f7w00003"))
+                writer.flushNow()
+                assertEquals(2, CallLogRows.count(sqlite.jdbcUrl))
+                assertEquals(2L, writer.written)
+                assertEquals(1L, writer.duplicates, "only the primary-key conflict is a duplicate")
+                assertEquals(1L, writer.failed, "the CHECK-violating row is failed")
+                assertTrue(capture.events.any { it.level == Level.WARN }, "a rejected row is logged at WARN")
+            } finally {
+                capture.detach()
+            }
+        }
+
+    @Test
     fun `flushNow on an empty queue writes nothing and does not throw`() =
         runBlocking {
             val store = RecordingCallLogStore()
@@ -301,5 +329,118 @@ class CallLogWriterTest {
             writer.flushNow()
             assertEquals(0, store.batches.size, "no append for an empty queue")
             assertEquals(0L, writer.written)
+        }
+
+    // ------------------------------------------------------------------ F5
+
+    private fun warnMessages(capture: LogCapture): List<String> = capture.events.filter { it.level == Level.WARN }.map { it.message }
+
+    /** The drop count a notice carries: the first integer in the message. */
+    private fun noticedCount(message: String): Long = Regex("\\d+").find(message)?.value?.toLong() ?: 0L
+
+    @Test
+    fun `F5 the notices after a burst together report every dropped row and stop emits the pending remainder`() =
+        runBlocking {
+            val store = RecordingCallLogStore()
+            // Not started: 25 submits into a queue of 10 drop exactly 15 with nothing draining.
+            val writer = CallLogWriter(sqlite.unitOfWork(), store, capacity = 10, batchSize = 1000, flushInterval = 1.hours)
+            val capture = LogCapture().attach()
+            try {
+                repeat(25) { writer.submit(sampleCallLogRecord(testReqId(it))) }
+                assertEquals(15L, writer.dropped)
+                writer.start()
+                withTimeout(30_000) { writer.stop() }
+                val notices = warnMessages(capture)
+                assertTrue(notices.isNotEmpty(), "a final notice is emitted when drops are pending at stop()")
+                assertEquals(
+                    15L,
+                    notices.sumOf { noticedCount(it) },
+                    "the notices together report all 15 dropped rows, not just the first: $notices"
+                )
+                assertEquals(15L, writer.dropped, "cumulative dropped is unchanged by reporting")
+            } finally {
+                capture.detach()
+            }
+        }
+
+    @Test
+    fun `F5 a burst of 20 drops while the store is stuck is reported in full once the loop runs again`() =
+        runBlocking {
+            val gate = CompletableDeferred<Unit>()
+            val store = RecordingCallLogStore(gate)
+            val interval = 500.milliseconds
+            val writer =
+                CallLogWriter(
+                    sqlite.unitOfWork(),
+                    store,
+                    capacity = 10,
+                    batchSize = 5,
+                    flushInterval = interval,
+                    drainTimeout = 5.seconds
+                )
+            val capture = LogCapture().attach()
+            try {
+                writer.start()
+                repeat(5) { writer.submit(sampleCallLogRecord(testReqId(it))) }
+                waitUntil(5_000) { store.entered.get() >= 1 }
+                repeat(30) { writer.submit(sampleCallLogRecord(testReqId(100 + it))) }
+                assertEquals(20L, writer.dropped)
+                gate.complete(Unit)
+                // Several intervals for the loop to publish the pending count; at most one notice per interval.
+                delay(interval * 6)
+                withTimeout(30_000) { writer.stop() }
+                val notices = warnMessages(capture)
+                assertEquals(20L, notices.sumOf { noticedCount(it) }, "notices together report N=20: $notices")
+                assertEquals(20L, writer.dropped)
+            } finally {
+                capture.detach()
+                gate.complete(Unit)
+            }
+        }
+
+    // ------------------------------------------------------------------ F6
+
+    @Test
+    fun `F6 stop with a store that never returns comes back within the drain timeout and counts the abandoned rows as dropped`() =
+        runBlocking {
+            val inFlight =
+                java.util.concurrent.atomic
+                    .AtomicBoolean(false)
+            val entered =
+                java.util.concurrent.atomic
+                    .AtomicInteger(0)
+            val hangingStore =
+                object : io.github.jpicklyk.mcptask.current.application.port.CallLogStore {
+                    override suspend fun append(records: List<io.github.jpicklyk.mcptask.current.application.port.CallLogRecord>): Int {
+                        entered.incrementAndGet()
+                        inFlight.set(true)
+                        try {
+                            kotlinx.coroutines.awaitCancellation()
+                        } finally {
+                            inFlight.set(false)
+                        }
+                    }
+                }
+            val drainTimeout = 500.milliseconds
+            val writer =
+                CallLogWriter(
+                    sqlite.unitOfWork(),
+                    hangingStore,
+                    capacity = 100,
+                    batchSize = 100,
+                    flushInterval = 1.hours,
+                    drainTimeout = drainTimeout
+                )
+            writer.start()
+            repeat(10) { writer.submit(sampleCallLogRecord(testReqId(it))) }
+            val mark =
+                kotlin.time.TimeSource.Monotonic
+                    .markNow()
+            withTimeout(30_000) { writer.stop() }
+            val elapsed = mark.elapsedNow()
+            assertTrue(elapsed < drainTimeout + 3.seconds, "stop() gives up after the drain timeout (plus slack), took $elapsed")
+            assertTrue(!inFlight.get(), "stop() does not return while a batch write is still in flight")
+            assertEquals(0L, writer.written)
+            assertEquals(10L, writer.dropped, "the 10 rows abandoned by the timeout count as dropped")
         }
 }

@@ -86,6 +86,61 @@ class CallLogFieldsTest {
         assertNull(CallLogFields.operation(buildJsonObject { put("title", "x") }), "operation key absent")
     }
 
+    @Test
+    fun `F1 an operation that does not match the lowercase-underscore pattern is stored as invalid`() {
+        val conforming = listOf("create", "get_next", "a", "a".repeat(64))
+        for (op in conforming) assertEquals(op, CallLogFields.operation(buildJsonObject { put("operation", op) }), "conforming: $op")
+        val rejected = listOf("a".repeat(65), "a".repeat(5000), "Create", "has space", "dash-ed", "digit1", "x;DROP", "\u00e9", "")
+        for (op in rejected) {
+            assertEquals(
+                "invalid",
+                CallLogFields.operation(buildJsonObject { put("operation", op) }),
+                "supplied but non-conforming operation (length ${op.length}) is stored as invalid"
+            )
+        }
+        assertNull(CallLogFields.operation(JsonObject(emptyMap())), "absent stays null, it is not invalid")
+        assertNull(CallLogFields.operation(null), "no arguments stays null")
+    }
+
+    @Test
+    fun `F1 request shape keeps at most 16 conforming keys, sorted, and drops the non-conforming ones`() {
+        val many =
+            buildJsonObject {
+                for (i in 19 downTo 0) put("flag" + i.toString().padStart(2, '0'), i % 2 == 0)
+                put("bad key", true)
+                put("x".repeat(65), true)
+                put("caf\u00e9", true)
+            }
+        val parsed = Json.parseToJsonElement(CallLogFields.requestShapeJson(many)!!).jsonObject
+        assertEquals(16, parsed.size, "20 conforming keys are capped at 16: ${parsed.keys}")
+        assertEquals(parsed.keys.sorted(), parsed.keys.toList(), "sorted")
+        assertTrue(parsed.keys.all { Regex("^[A-Za-z0-9_.-]{1,64}$").matches(it) }, "only conforming keys: ${parsed.keys}")
+        assertTrue(parsed.keys.all { it.startsWith("flag") })
+        assertEquals(
+            parsed.keys.toList(),
+            Json
+                .parseToJsonElement(CallLogFields.requestShapeJson(many)!!)
+                .jsonObject.keys
+                .toList(),
+            "deterministic"
+        )
+
+        val onlyBad =
+            buildJsonObject {
+                put("bad key", true)
+                put("x".repeat(65), false)
+            }
+        assertNull(CallLogFields.requestShapeJson(onlyBad), "nothing conforming leaves nothing to store")
+        val boundary = buildJsonObject { put("k".repeat(64), true) }
+        assertEquals(
+            listOf("k".repeat(64)),
+            Json
+                .parseToJsonElement(CallLogFields.requestShapeJson(boundary)!!)
+                .jsonObject.keys
+                .toList()
+        )
+    }
+
     // ------------------------------------------------------------------ target ids
 
     @Test

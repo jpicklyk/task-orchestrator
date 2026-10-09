@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.CallLogAppendResult
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.BaselineDataset
@@ -209,5 +210,52 @@ class SqliteCallLogStoreTest {
         }
         assertEquals(0, CallLogRows.count(sqlite.jdbcUrl), "the row written inside the failed unit must not be committed")
         assertEquals(1, append(listOf(sampleCallLogRecord("rb000001"))), "and the key is free afterwards")
+    }
+
+    // ------------------------------------------------------------------ F7
+
+    private fun appendCounted(records: List<CallLogRecord>): CallLogAppendResult =
+        runBlocking {
+            when (val outcome = uow.write("test.callLogAppendCounted") { Outcome.Ok(store.appendCounted(records)) }) {
+                is Outcome.Ok -> outcome.value
+                is Outcome.Err -> error("unit failed: ${outcome.error.message}")
+            }
+        }
+
+    @Test
+    fun `F7 a duplicate req_id is not rejected, only the fresh rows are inserted`() {
+        assertEquals(CallLogAppendResult(inserted = 1, rejected = 0), appendCounted(listOf(sampleCallLogRecord("f7dup001"))))
+        val result = appendCounted(listOf(sampleCallLogRecord("f7dup001", tool = "again"), sampleCallLogRecord("f7dup002")))
+        assertEquals(1, result.inserted, "only the fresh row is inserted")
+        assertEquals(0, result.rejected, "a primary-key conflict is a duplicate, not a rejection")
+        assertEquals(2, rows().size)
+        assertEquals(CallLogAppendResult(inserted = 0, rejected = 0), appendCounted(listOf(sampleCallLogRecord("f7dup001"))))
+    }
+
+    @Test
+    fun `F7 rows that violate a CHECK are rejected and counted apart from duplicates, and valid rows still land`() {
+        val good = sampleCallLogRecord("f7good01")
+        val negativeLatency = sampleCallLogRecord("f7neg001").copy(latencyMs = -1)
+        val zeroAttempts = sampleCallLogRecord("f7att001").copy(attempts = 0)
+        val shortId = sampleCallLogRecord("f7short") // 7 characters violates CHECK (length(req_id) = 8)
+        val result = appendCounted(listOf(good, negativeLatency, zeroAttempts, shortId))
+        assertEquals(1, result.inserted)
+        assertEquals(3, result.rejected, "three CHECK violations are counted as rejected")
+        assertEquals(listOf("f7good01"), rows().map { it["req_id"] })
+    }
+
+    @Test
+    fun `F7 duplicates and CHECK violations in one batch are told apart`() {
+        append(listOf(sampleCallLogRecord("f7mix001")))
+        val result =
+            appendCounted(
+                listOf(
+                    sampleCallLogRecord("f7mix001", tool = "dup"),
+                    sampleCallLogRecord("f7mix002").copy(latencyMs = -5),
+                    sampleCallLogRecord("f7mix003")
+                )
+            )
+        assertEquals(CallLogAppendResult(inserted = 1, rejected = 1), result, "the duplicate is neither inserted nor rejected")
+        assertEquals(setOf<Any?>("f7mix001", "f7mix003"), rows().map { it["req_id"] }.toSet())
     }
 }

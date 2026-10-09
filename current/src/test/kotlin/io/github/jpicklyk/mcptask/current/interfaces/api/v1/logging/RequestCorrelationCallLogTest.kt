@@ -60,6 +60,7 @@ class RequestCorrelationCallLogTest {
                     call.respondText(call.response.headers[REQ_ID_HEADER] ?: "header-missing")
                 }
                 get("/probe/{id}") { call.respondText("ok") }
+                get("/items/{id}") { call.respondText("ok") }
                 post("/echo") { call.respondText(call.receiveText()) }
                 get("/status/{code}") {
                     val code = call.parameters["code"]!!.toInt()
@@ -129,12 +130,12 @@ class RequestCorrelationCallLogTest {
                 installRequestCorrelation(callLog = sink, clock = Clock { fixed })
                 probeRoutes()
             }
-            val response = client.get("/api/v1/probe/$id?limit=7&flag=true&name=x&count=3")
+            val response = client.get("/api/v1/items/$id?limit=7&flag=true&name=x&count=3")
             assertEquals(HttpStatusCode.OK, response.status)
             val record = sink.records.single()
             assertEquals(response.headers[REQ_ID_HEADER], record.reqId)
             assertEquals(CallLogRecord.SURFACE_REST, record.surface)
-            assertEquals("GET /api/v1/probe/{id}", record.tool, "UUID segments become {id}; the query string is not part of the tool")
+            assertEquals("GET /api/v1/items/{id}", record.tool, "UUID segments become {id}; the query string is not part of the tool")
             assertEquals(listOf(id.toString()), Json.parseToJsonElement(record.targetIds!!).jsonArray.map { it.jsonPrimitive.content })
             val shape = Json.parseToJsonElement(record.requestShape!!).jsonObject
             assertEquals(listOf("flag", "limit"), shape.keys.toList(), "boolean query params and limit, sorted: ${record.requestShape}")
@@ -183,16 +184,21 @@ class RequestCorrelationCallLogTest {
                 probeRoutes()
             }
             for (code in listOf(200, 204, 304, 399, 400, 401, 404, 422, 503)) client.get("/api/v1/status/$code")
-            val byTool = sink.records.associateBy { it.tool }
-
-            fun outcomeOf(code: Int) = byTool.getValue("GET /api/v1/status/$code").outcome
-            for (code in listOf(200, 204, 304, 399)) assertEquals(CallLogRecord.OUTCOME_OK, outcomeOf(code), "status $code is not an error")
+            // /status is outside the REST vocabulary (F1), so every row is "GET unmatched"; requests are sequential, so
+            // the records are in request order.
+            val codes = listOf(200, 204, 304, 399, 400, 401, 404, 422, 503)
+            assertEquals(codes.size, sink.records.size)
+            assertTrue(sink.records.all { it.tool == "GET unmatched" }, "F1: ${sink.records.map { it.tool }}")
+            val byCode = codes.zip(sink.records).toMap()
+            for (code in listOf(200, 204, 304, 399)) {
+                assertEquals(CallLogRecord.OUTCOME_OK, byCode.getValue(code).outcome, "status $code is not an error")
+            }
             for (code in listOf(400, 401, 404, 422, 503)) {
-                val record = byTool.getValue("GET /api/v1/status/$code")
+                val record = byCode.getValue(code)
                 assertEquals(CallLogRecord.OUTCOME_ERROR, record.outcome, "status $code is an error")
                 assertEquals("http_$code", record.errorCode, "no typed ErrorDto, so the code is http_<status>")
             }
-            assertTrue(byTool.getValue("GET /api/v1/status/399").errorCode == null)
+            assertNull(byCode.getValue(399).errorCode)
         }
     }
 
@@ -210,7 +216,7 @@ class RequestCorrelationCallLogTest {
             val record = sink.records.single()
             assertEquals("http_404", record.errorCode)
             assertEquals(CallLogRecord.OUTCOME_ERROR, record.outcome)
-            assertEquals("GET /api/v1/no-such-route", record.tool)
+            assertEquals("GET unmatched", record.tool, "F1: the raw path is never stored; no-such-route is outside the vocabulary")
         }
     }
 

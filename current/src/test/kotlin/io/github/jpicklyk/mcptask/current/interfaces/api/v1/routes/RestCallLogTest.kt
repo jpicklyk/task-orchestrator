@@ -212,7 +212,7 @@ class RestCallLogTest {
                 ids(typedRow["target_ids"]),
                 "a UUID path segment is a target even when the item does not exist"
             )
-            val unknownRow = byTool.getValue("GET /api/v1/definitely-not-a-route")
+            val unknownRow = byTool.getValue("GET unmatched")
             assertEquals("error", unknownRow["outcome"])
             assertEquals("http_404", unknownRow["error_code"], "no typed body: http_<status>")
             assertEquals(unknown.headers["X-Req-Id"], unknownRow["req_id"])
@@ -233,10 +233,12 @@ class RestCallLogTest {
 
             writer.flushNow()
             val byTool = callLogRows().associateBy { it["tool"] }
-            val two = byTool.getValue("GET /api/v1/items/{id}/zzz/{id}")
+            // F1: no route resolved, so the tool is path-derived: UUID -> {id}, any non-vocabulary segment -> {param}.
+            val two = byTool.getValue("GET /api/v1/items/{id}/{param}/{id}")
             assertEquals(listOf(a.toString(), b.toString()), ids(two["target_ids"]))
-            val keyed = byTool.getValue("GET /api/v1/items/{id}/notes/my-key")
-            assertEquals(listOf(a.toString()), ids(keyed["target_ids"]), "a non-UUID segment stays raw and is not a target")
+            val keyed = callLogRows().single { (it["tool"] as String).startsWith("GET /api/v1/items/{id}/notes/") }
+            assertTrue(!(keyed["tool"] as String).contains("my-key"), "the raw key is never stored: ${keyed["tool"]}")
+            assertEquals(listOf(a.toString()), ids(keyed["target_ids"]), "a non-UUID segment is not a target")
             val listing = byTool.getValue("GET /api/v1/items")
             val shape = Json.parseToJsonElement(listing["request_shape"] as String).jsonObject
             assertEquals(listOf("includeChildren", "limit"), shape.keys.toList())
@@ -267,6 +269,52 @@ class RestCallLogTest {
             val parsed = runCatching { Json.parseToJsonElement(response.bodyAsText()) }.getOrNull() as? JsonObject
             val typed = parsed?.get("error")?.jsonPrimitive?.content
             assertEquals(typed ?: "http_401", row["error_code"], "ErrorDto.error when the 401 body is a typed ErrorDto, else http_401")
+        }
+
+    // ------------------------------------------------------------------ F1
+
+    @Test
+    fun `F1 a 401 on a long junk path never stores client text and no client-derived string exceeds 64 characters`() =
+        testApplication {
+            val rig = EventLogRig.build(db.db, dir)
+            val writer = newWriter(rig.composition)
+            application { configureApp(rig.composition, writer) }
+
+            val junk = "j".repeat(4000)
+            val manyFlags = (0 until 40).joinToString("&") { "flag${it.toString().padStart(2, '0')}=true" }
+            // Unauthenticated: the auth plugin answers 401 before any route resolves.
+            val outside = client.getWith("/$junk?$junk=true&$manyFlags&bad key=true", token = null)
+            assertEquals(HttpStatusCode.Unauthorized, outside.status)
+            val inside = client.getWith("/items/$junk", token = null)
+            assertEquals(HttpStatusCode.Unauthorized, inside.status)
+
+            writer.flushNow()
+            val rows = callLogRows()
+            assertEquals(2, rows.size)
+            for (row in rows) {
+                row.forEach { (column, value) ->
+                    if (value is String) {
+                        assertTrue(!value.contains("jjjjjjjj"), "$column stores client text: ${value.take(80)}")
+                        if (column !in setOf("tool", "request_shape", "target_ids", "target_versions")) {
+                            assertTrue(value.length <= 64, "$column is ${value.length} chars")
+                        }
+                    }
+                }
+                assertTrue((row["tool"] as String).length <= 128, "the tool is a bounded template: ${row["tool"]}")
+                val shape = row["request_shape"]?.let { Json.parseToJsonElement(it as String).jsonObject }
+                if (shape != null) {
+                    assertTrue(shape.size <= 16, "at most 16 request_shape keys: ${shape.keys}")
+                    assertEquals(shape.keys.sorted(), shape.keys.toList(), "sorted")
+                    assertTrue(shape.keys.all { Regex("^[A-Za-z0-9_.-]{1,64}$").matches(it) }, "conforming keys: ${shape.keys}")
+                }
+            }
+            val byReq = rows.associateBy { it["req_id"] }
+            assertEquals("GET unmatched", byReq.getValue(outside.headers["X-Req-Id"])["tool"], "unknown first segment")
+            assertEquals(
+                "GET /api/v1/items/{param}",
+                byReq.getValue(inside.headers["X-Req-Id"])["tool"],
+                "vocabulary first segment, then a non-UUID segment becomes {param}"
+            )
         }
 
     // ------------------------------------------------------------------ S16
