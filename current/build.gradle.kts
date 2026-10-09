@@ -157,6 +157,14 @@ tasks.test {
     // headroom; production runtime heap is unaffected (this is test-only).
     maxHeapSize = "2g"
 
+    // On CI (GitHub runners: 4 vCPU, 16 GB) split the suite across two test JVMs; each fork keeps
+    // its own 2 GB heap and its own static/system-property state, so isolation between test
+    // classes is unchanged. Local runs stay single-fork: agents often run several Gradle builds
+    // concurrently on one machine, and extra forks there would multiply heap use.
+    if (providers.environmentVariable("CI").isPresent) {
+        maxParallelForks = 2
+    }
+
     // TierClassificationConsistencyTest reads the fragment + its consumers at runtime. Declare them
     // as task inputs so a markdown-only edit (with no Kotlin change) invalidates the cached test
     // result instead of reporting UP-TO-DATE — otherwise Gradle's incremental cache (and CI's

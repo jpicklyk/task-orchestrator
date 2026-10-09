@@ -1,11 +1,21 @@
 name: Run Tests
 
+# Push runs only on long-lived branches; feature branches are covered by their pull_request run.
+# (Pushing to every branch AND running pull_request double-ran the whole suite for every PR
+# commit.) Use workflow_dispatch to run CI on a branch that has no PR yet.
 on:
   push:
-    branches: ['**']
+    branches: [main, 'release/**']
   pull_request:
-    branches: [ main ]
+    branches: [main, 'release/**']
   workflow_call:
+  workflow_dispatch:
+
+# A new commit on a PR supersedes the in-flight run for that PR. Pushes to main/release are
+# never cancelled, so every merged commit keeps a complete result (and seeds the caches).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -23,17 +33,48 @@ jobs:
         java-version: '21'
         distribution: 'temurin'
 
+    # v3 (v3.5.0, 2024) used the retired legacy cache service: every restore failed with HTTP 400
+    # and every run started from an empty Gradle User Home. Only main and release branches write
+    # the cache; PR runs read the cache of their base branch.
     - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v3
+      uses: gradle/actions/setup-gradle@v6
+      with:
+        cache-read-only: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/release/') }}
 
     - name: Make gradlew executable
       run: chmod +x gradlew
 
+    # No --no-daemon: the daemon started by the lint step is reused by the test step instead of
+    # forking a second single-use daemon; setup-gradle stops it in its post-job step.
     - name: Lint check
-      run: ./gradlew :current:ktlintCheck --no-daemon
+      run: ./gradlew :current:ktlintCheck
 
     - name: Run tests
-      run: ./gradlew :current:test --no-daemon
+      run: ./gradlew :current:test
+
+    - name: Publish Test Report
+      uses: mikepenz/action-junit-report@v4
+      if: always()
+      with:
+        report_paths: '**/build/test-results/test/TEST-*.xml'
+        check_name: 'Test Results'
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results
+        path: |
+          **/build/test-results/test/TEST-*.xml
+          **/build/reports/tests/test/**
+
+  # Node and Python suites need no JVM, so they run alongside the Gradle job instead of after it.
+  plugin-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
     - name: Set up Node
       uses: actions/setup-node@v4
@@ -52,6 +93,7 @@ jobs:
         echo "Ran $test_count plugin hook tests."
 
     - name: Run plugin script tests
+      if: ${{ !cancelled() }}
       run: |
         set -o pipefail
         node --test "claude-plugins/task-orchestrator/scripts/tests/*.test.mjs" | tee /tmp/script-test-output.txt
@@ -63,6 +105,7 @@ jobs:
         echo "Ran $test_count plugin script tests."
 
     - name: Run project skill helper tests
+      if: ${{ !cancelled() }}
       run: |
         set -o pipefail
         python3 -m unittest discover -s .claude/skills/implement/references -p "test_*.py" -v 2>&1 | tee /tmp/skill-helper-test-output.txt
@@ -73,25 +116,15 @@ jobs:
         fi
         echo "Ran $test_count project skill helper tests."
 
-    - name: Publish Test Report
-      uses: mikepenz/action-junit-report@v4
-      if: always()
-      with:
-        report_paths: '**/build/test-results/test/TEST-*.xml'
-        check_name: 'Test Results'
-
-    - name: Upload test results
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: test-results
-        path: |
-          **/build/test-results/test/TEST-*.xml
-          **/build/reports/tests/test/**
-
+  # Runs in parallel with the test jobs (no `needs:`), so the image build no longer adds its
+  # ~4 minutes after the Gradle suite. Skipped for the release workflow_call: docker-publish.yml's
+  # build job runs the same smoke test and Trivy gate on the release image itself.
   image-smoke:
-    needs: test
-    if: github.event_name == 'pull_request'
+    if: >-
+      github.event_name == 'pull_request' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' &&
+       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')))
     runs-on: ubuntu-latest
 
     steps:
@@ -101,6 +134,9 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
+    # GHA cache entries are branch-scoped: a PR can read its own and its base branch's entries.
+    # Pushes to main/release write the cache (mode=max, so the builder stage's dependency layer is
+    # kept) for PRs to read; PR runs only read, which skips a ~85s export no later run could use.
     - name: Build runtime-current image (amd64, local load only)
       uses: docker/build-push-action@v5
       with:
@@ -111,7 +147,7 @@ jobs:
         platforms: linux/amd64
         tags: task-orchestrator:ci
         cache-from: type=gha
-        cache-to: type=gha,mode=max
+        cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max' || '' }}
 
     - name: Smoke-test the built image
       run: scripts/ci/smoke-test-image.sh task-orchestrator:ci
