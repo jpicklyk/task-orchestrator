@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.service
 
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentAdoptOutcome
-import io.github.jpicklyk.mcptask.current.application.service.TreeDepSpec
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
@@ -48,12 +47,8 @@ class SQLiteWorkTreeService(
                 if (ref != null) refToId[ref] = item.id
             }
 
-            // 2. Insert dependencies using DependenciesTable directly
-            // Cycle check before insertion — new items CAN form cycles among themselves
-            val cycleError = detectInMemoryCycle(input.deps)
-            if (cycleError != null) {
-                throw IllegalStateException(cycleError)
-            }
+            // 2. Insert dependencies using DependenciesTable directly. The specs arrive normalized and
+            // cycle-checked (DependencyCommandService.validateTreeEdges); this executor keeps no direction logic.
             val createdDeps = mutableListOf<Dependency>()
             for (spec in input.deps) {
                 val fromId =
@@ -114,39 +109,4 @@ class SQLiteWorkTreeService(
                 notes = createdNotes
             )
         }
-
-    /**
-     * Performs an in-memory DFS cycle detection on the given dependency specs.
-     * Returns an error message string if a cycle is found, or null if no cycle exists.
-     * RELATES_TO edges are excluded from cycle detection (they are bidirectional by nature).
-     */
-    private fun detectInMemoryCycle(deps: List<TreeDepSpec>): String? {
-        // Build adjacency map oriented blocker -> blocked; RELATES_TO has no blocking edge.
-        val adj = mutableMapOf<String, MutableList<String>>()
-        for (dep in deps) {
-            val (blockerRef, blockedRef) = dep.type.orientBlocking(dep.fromRef, dep.toRef) ?: continue
-            adj.getOrPut(blockerRef) { mutableListOf() }.add(blockedRef)
-        }
-
-        val visited = mutableSetOf<String>()
-        val inStack = mutableSetOf<String>()
-
-        fun dfs(node: String): String? {
-            if (node in inStack) return node // cycle found
-            if (node in visited) return null // already fully explored
-            visited.add(node)
-            inStack.add(node)
-            for (neighbor in adj[node] ?: emptyList()) {
-                dfs(neighbor)?.let { return it }
-            }
-            inStack.remove(node)
-            return null
-        }
-
-        // Check every node as a potential cycle start
-        for (ref in adj.keys) {
-            dfs(ref)?.let { return "Circular dependency detected involving ref '$it'" }
-        }
-        return null
-    }
 }

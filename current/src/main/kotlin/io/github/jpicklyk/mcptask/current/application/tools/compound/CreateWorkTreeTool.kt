@@ -18,8 +18,10 @@ import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellat
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.*
+import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
@@ -622,7 +624,9 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
 
         val (depSpecsResult, depsError) = buildDependencySpecs(paramsObj, refToItem)
         if (depsError != null) return depsError
-        val depSpecs = depSpecsResult!!
+        val (depSpecs, normalizeError) = normalizeDependencySpecs(depSpecsResult!!, refToItem, context)
+        if (normalizeError != null) return normalizeError
+        depSpecs!!
 
         val treeBuildContext =
             TreeBuildContext(
@@ -989,6 +993,60 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         }
 
         return depSpecs to null
+    }
+
+    /**
+     * Runs the dependency write policy over [specs] before anything is written: IS_BLOCKED_BY specs come back
+     * as BLOCKS with their refs swapped, a restated pair is rejected as a duplicate, and a cycle is rejected
+     * ("Circular dependency detected involving ref '<ref>'"). The returned specs keep the request order, so
+     * they line up with the stored `deps` rows in the response.
+     */
+    private fun normalizeDependencySpecs(
+        specs: List<TreeDepSpec>,
+        refToItem: Map<String, WorkItem>,
+        context: ToolExecutionContext
+    ): Pair<List<TreeDepSpec>?, JsonElement?> {
+        if (specs.isEmpty()) return specs to null
+        val deps =
+            try {
+                specs.map { spec ->
+                    Dependency(
+                        fromItemId = refToItem.getValue(spec.fromRef).id,
+                        toItemId = refToItem.getValue(spec.toRef).id,
+                        type = spec.type,
+                        unblockAt = spec.unblockAt
+                    )
+                }
+            } catch (e: ValidationException) {
+                // An invalid spec (self-edge, RELATES_TO with unblockAt, bad threshold) is rejected up front with the
+                // domain message, before any write, so valid specs never reach the V22 CHECK un-normalized.
+                return null to errorResponse(e.message ?: "Invalid dependency", ErrorCodes.VALIDATION_ERROR)
+            }
+        val idToRef = refToItem.entries.associate { (ref, item) -> item.id to ref }
+
+        fun withRefs(message: String): String = idToRef.entries.fold(message) { text, (id, ref) -> text.replace(id.toString(), "'$ref'") }
+
+        return when (val checked = context.dependencyCommandService.validateTreeEdges(deps)) {
+            is Outcome.Ok ->
+                checked.value.map { dep ->
+                    TreeDepSpec(
+                        fromRef = idToRef.getValue(dep.fromItemId),
+                        toRef = idToRef.getValue(dep.toItemId),
+                        type = dep.type,
+                        unblockAt = dep.unblockAt
+                    )
+                } to null
+            is Outcome.Err -> {
+                val error = checked.error
+                val message =
+                    when (val detail = error.detail) {
+                        is ErrorDetail.CycleDetected ->
+                            "Circular dependency detected involving ref '${idToRef[detail.path.first()] ?: "unknown"}'"
+                        else -> withRefs(error.message)
+                    }
+                null to errorResponse(message, ErrorCodes.VALIDATION_ERROR)
+            }
+        }
     }
 
     /**

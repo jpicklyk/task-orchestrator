@@ -12,6 +12,8 @@ import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
+import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
+import io.github.jpicklyk.mcptask.current.domain.graph.TopoOrder
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -354,55 +356,23 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
         val targetIds = targetItems.map { it.id }.toSet()
         val itemById = targetItems.associateBy { it.id }
 
-        // in-degree: count of dependencies from other target items blocking this item
-        val inDegree = mutableMapOf<UUID, Int>()
-        // adjacency: blockerId -> list of blockedIds it blocks (within target set)
+        // Every dependency that names a target item, normalized to blocker -> blocked edges. Reading by
+        // toItemId sees each intra-set BLOCKS edge once, from its blocked side; RELATES_TO is skipped.
+        val storedDeps = targetItems.flatMap { context.dependencyRepository().findByToItemId(it.id) }.distinctBy { it.id }
+        val inSetEdges =
+            DependencyEdges
+                .normalize(storedDeps)
+                .blocking
+                .filter { it.blocker in targetIds && it.blocked in targetIds }
+
+        // adjacency: blockerId -> list of blockedIds it blocks (within target set), used to propagate skips
         val adjacency = mutableMapOf<UUID, MutableList<UUID>>()
+        for (item in targetItems) adjacency.getOrPut(item.id) { mutableListOf() }
+        for (edge in inSetEdges) adjacency.getValue(edge.blocker).add(edge.blocked)
 
-        for (item in targetItems) {
-            inDegree.getOrPut(item.id) { 0 }
-            adjacency.getOrPut(item.id) { mutableListOf() }
-        }
-
-        for (item in targetItems) {
-            // findByToItemId(item.id) also picks up IS_BLOCKED_BY rows where item.id is actually
-            // the BLOCKER (toItemId holds the blocker for that type) — orient every edge via the
-            // blocker/blocked accessors rather than assuming fromItemId is always the blocker.
-            // Each intra-set edge is still seen exactly once, from whichever target item's query
-            // matches its stored toItemId. RELATES_TO has no blocker/blocked and is skipped.
-            val incomingDeps = context.dependencyRepository().findByToItemId(item.id)
-            for (dep in incomingDeps) {
-                val (blockerId, blockedId) = dep.blockingEdge() ?: continue
-                if (blockerId in targetIds && blockedId in targetIds) {
-                    // blockerId blocks blockedId within the target set
-                    inDegree[blockedId] = (inDegree[blockedId] ?: 0) + 1
-                    adjacency.getOrPut(blockerId) { mutableListOf() }.add(blockedId)
-                }
-            }
-        }
-
-        // Step 3: Kahn's algorithm topological sort (descendants only)
-        val sortedOrder = mutableListOf<UUID>()
-        val queue = ArrayDeque<UUID>()
-
-        for ((id, degree) in inDegree) {
-            if (degree == 0) queue.add(id)
-        }
-
-        while (queue.isNotEmpty()) {
-            val current = queue.removeFirst()
-            sortedOrder.add(current)
-            val neighbors = adjacency[current] ?: emptyList()
-            for (neighbor in neighbors) {
-                val newDegree = (inDegree[neighbor] ?: 1) - 1
-                inDegree[neighbor] = newDegree
-                if (newDegree == 0) queue.add(neighbor)
-            }
-        }
-
-        // If there are items not in sortedOrder (cycle), append them at the end
-        val remaining = targetIds - sortedOrder.toSet()
-        sortedOrder.addAll(remaining)
+        // Step 3: topological sort (descendants only), blockers first; cyclic nodes are appended at the end
+        val topo = TopoOrder.order(targetItems.map { it.id }, inSetEdges)
+        val sortedOrder = (topo.ordered + topo.cyclic).toMutableList()
 
         // Step 4: Process items in topological order
         val resultsList = mutableListOf<JsonObject>()

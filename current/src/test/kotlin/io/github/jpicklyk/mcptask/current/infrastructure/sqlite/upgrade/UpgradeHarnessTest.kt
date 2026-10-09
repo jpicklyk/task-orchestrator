@@ -74,8 +74,8 @@ class UpgradeHarnessTest {
     }
 
     @Test
-    fun `S11 a migration that deletes IS_BLOCKED_BY rows fails the harness`() {
-        val failures = applyScratchMigration("deletes-edges", "DELETE FROM dependencies WHERE type = 'IS_BLOCKED_BY';")
+    fun `S11 a migration that deletes dependency edges fails the harness`() {
+        val failures = applyScratchMigration("deletes-edges", "DELETE FROM dependencies WHERE type = 'BLOCKS';")
         assertTrue(failures.any { it.startsWith("dependencies row") && "was lost" in it }, "lost edge not reported: $failures")
     }
 
@@ -122,8 +122,8 @@ class UpgradeHarnessTest {
 
     @Test
     fun `S12 a migration of version 18 or later without a seed fails coverage`() {
-        val problems = MigrationSeed.coverageProblems((1..22).toList(), seeds)
-        assertTrue(problems.any { "V22" in it && "no MigrationSeed" in it }, "missing SeedV22 not reported: $problems")
+        val problems = MigrationSeed.coverageProblems((1..23).toList(), seeds)
+        assertTrue(problems.any { "V23" in it && "no MigrationSeed" in it }, "missing SeedV23 not reported: $problems")
         assertEquals(
             emptyList(),
             MigrationSeed.coverageProblems(UpgradeHarness.migrationVersions(dir), seeds),

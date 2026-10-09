@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.managemen
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.tableExists
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.userTableCount
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.withConn
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.UpgradeHarness
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.junit.jupiter.api.AfterEach
@@ -95,19 +96,26 @@ class FlywayOnlyMigrationTest {
         exec(url, "DROP TABLE call_log")
         exec(url, "DROP TABLE events")
         exec(url, "DROP TABLE idempotency_records")
+        // V22 recreated and re-checked `dependencies`: restore its exact V17 DDL (table and indexes) from a V17 reference copy.
+        val reference = UpgradeHarness.copyAt(17, dir.resolve("reference-v17.db").toFile())
+        val v17Dependencies =
+            query(reference, "SELECT sql FROM sqlite_master WHERE tbl_name = 'dependencies' AND sql IS NOT NULL ORDER BY type DESC") {
+                it.getString(1)
+            }
+        exec(url, "DROP TABLE dependencies", *v17Dependencies.toTypedArray())
         exec(url, "DROP TABLE flyway_schema_history")
         assertFalse(tableExists(url, "flyway_schema_history"), "fixture: history must be gone")
 
         assertTrue(manager(url).updateSchema(), "an exact V17 shape must be baselined, not refused")
 
         val rows = historyRows(url)
-        // Baselined at 17, then the pending V18 (data-only timestamp normalization), V19 (idempotency records), V20 (events) and V21 (call log) are applied on top.
+        // Baselined at 17, then the pending V18 (data-only timestamp normalization), V19 (idempotency records), V20 (events), V21 (call log) and V22 (dependency direction) are applied on top.
         assertEquals(
-            listOf("17" to "BASELINE", "18" to "SQL", "19" to "SQL", "20" to "SQL", "21" to "SQL"),
+            listOf("17" to "BASELINE", "18" to "SQL", "19" to "SQL", "20" to "SQL", "21" to "SQL", "22" to "SQL"),
             rows.map {
                 it.first to it.second
             },
-            "history must be baseline@17 then V18, V19, V20, V21, got $rows"
+            "history must be baseline@17 then V18, V19, V20, V21, V22, got $rows"
         )
         assertTrue(rows.all { it.third })
         assertEquals(before, query(url, "SELECT title FROM work_items ORDER BY title") { it.getString(1) })

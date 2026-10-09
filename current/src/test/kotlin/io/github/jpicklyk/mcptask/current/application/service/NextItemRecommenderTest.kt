@@ -415,12 +415,11 @@ class NextItemRecommenderTest {
         }
 
     @Test
-    fun `blocker item that cannot be fetched (deleted or repo error) is skipped conservatively`(): Unit =
+    fun `blocker item that cannot be fetched (deleted or repo error) blocks the item (fail-closed)`(): Unit =
         runBlocking {
-            // The recommender's isBlocked walk has a "skip conservatively" branch when
-            // workItemRepo.getById(blockerId) returns Result.Error (e.g., the blocker was
-            // deleted, or a transient repo failure). The dep is treated as not-blocking
-            // rather than blocking, so the candidate item remains eligible.
+            // The recommender is fail-closed (BlockerEvaluator): when workItemRepo.getById(blockerId)
+            // cannot read the blocker (e.g., it was deleted, or a transient repo failure), the
+            // dependency counts as unsatisfied, so the candidate item is not recommended.
             val missingBlockerId = UUID.randomUUID()
             val item = workItem(title = "Item with phantom blocker")
 
@@ -434,11 +433,10 @@ class NextItemRecommenderTest {
 
             assertNotNull(result)
             assertEquals(
-                1,
+                0,
                 result.size,
-                "Item must remain eligible when its blocker cannot be fetched — the dep is skipped conservatively"
+                "Item must be treated as blocked when its blocker cannot be fetched — the evaluator is fail-closed"
             )
-            assertEquals(item.id, result[0].id)
         }
 
     // -----------------------------------------------------------------------

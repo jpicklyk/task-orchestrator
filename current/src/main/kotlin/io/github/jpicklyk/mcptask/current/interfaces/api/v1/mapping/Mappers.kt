@@ -181,7 +181,7 @@ fun Dependency.toDto(): DependencyEdgeDto =
  *
  * Categorises each dependency:
  * - `blocks`: edges where this item is the FROM side and type is BLOCKS
- * - `blockedBy`: edges where this item is the TO side and type is BLOCKS (or IS_BLOCKED_BY)
+ * - `blockedBy`: edges where this item is the TO side and type is BLOCKS
  * - `related`: edges of type RELATES_TO (regardless of direction)
  */
 fun buildDependenciesDto(
@@ -192,22 +192,15 @@ fun buildDependenciesDto(
     val blockedBy = mutableListOf<DependencyEdgeDto>()
     val related = mutableListOf<DependencyEdgeDto>()
 
-    for (dep in deps) {
+    // Normalized first: every blocking edge reads BLOCKS from the blocker to the blocked item.
+    for (dep in deps.map { it.normalized() }) {
         when (dep.type) {
             DependencyType.RELATES_TO -> related.add(dep.toDto())
-            DependencyType.BLOCKS -> {
+            else -> {
                 if (dep.fromItemId.toString() == itemId) {
                     blocks.add(dep.toDto())
                 } else {
                     blockedBy.add(dep.toDto())
-                }
-            }
-            DependencyType.IS_BLOCKED_BY -> {
-                // IS_BLOCKED_BY is a logical alias: fromItem is blocked by toItem
-                if (dep.fromItemId.toString() == itemId) {
-                    blockedBy.add(dep.toDto())
-                } else {
-                    blocks.add(dep.toDto())
                 }
             }
         }

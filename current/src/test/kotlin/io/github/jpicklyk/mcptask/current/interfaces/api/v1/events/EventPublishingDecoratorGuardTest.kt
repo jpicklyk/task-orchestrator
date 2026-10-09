@@ -96,7 +96,6 @@ class EventPublishingDecoratorGuardTest {
             "descendantIds",
             "search",
             "ftsSearch",
-            "hasCyclicDependency",
             "backlinks",
             "resolveChildPlacement",
             "list",
@@ -312,7 +311,6 @@ class EventPublishingDecoratorGuardTest {
                 "delete",
                 "deleteByItemId",
                 "createBatch",
-                "hasCyclicDependency",
                 "findByItemIds",
                 "backlinks",
             )

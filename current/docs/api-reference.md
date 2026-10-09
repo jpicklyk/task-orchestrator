@@ -501,7 +501,7 @@ under it at `existing.depth + 1`. Providing both `root.id` and `parentId` is rej
 | `root` | object | Yes | Create mode: `{ title (required), priority?, tags?, type?, traits?, summary?, description?, requiresVerification?, noteAnchors? }`. Attach mode: `{ id? (UUID or hex prefix of existing item), title? (optional when id provided), priority?, tags?, type?, traits?, summary?, description?, requiresVerification?, noteAnchors? }`. When `id` is present, `title` is optional and ignored. `noteAnchors` is documented below alongside `docRef`. |
 | `parentId` | string (UUID) | No | Existing parent; root depth = parent.depth + 1. Cannot be combined with `root.id`. |
 | `children` | array | No | Child item specs: `[{ ref, title, parentRef?, priority?, tags?, type?, traits?, summary?, description?, requiresVerification?, noteAnchors? }]`. `ref` is a local name used to wire `deps`, `notes`, and other children's `parentRef`. `parentRef` (another child's `ref` or `"root"`, default `"root"`) sets the child's parent — nesting is expressed via `parentRef` only; a nested `children` key inside a child spec is rejected. |
-| `deps` | array | No | Dependency specs: `[{ from: ref, to: ref, type?: BLOCKS\|IS_BLOCKED_BY\|RELATES_TO, unblockAt?: queue\|work\|review\|terminal }]`. Use `"root"` to reference the root item. |
+| `deps` | array | No | Dependency specs: `[{ from: ref, to: ref, type?: BLOCKS\|IS_BLOCKED_BY\|RELATES_TO, unblockAt?: queue\|work\|review\|terminal }]`. Use `"root"` to reference the root item. `IS_BLOCKED_BY` is an input alias: it is stored as `BLOCKS` with the refs swapped, and the response `dependencies` carry that stored form. A restated pair (for example `x BLOCKS y` plus `y IS_BLOCKED_BY x`) is rejected as a duplicate and a cycle as `Circular dependency detected involving ref ...`; nothing is written. |
 | `createNotes` | boolean | No | Auto-create blank notes for each item from its resolved schema (looked up by `type` first, then by `tags`). Default: false. |
 | `notes` | array | No | Notes to create with bodies: `[{ itemRef (required, "root" or child ref), key (required), role (required: queue\|work\|review), body? (defaults to empty string) }]`. Explicit notes win over `noteAnchors` AND `createNotes=true` blanks per `(itemRef, key)`. **Strict role enforcement:** when an explicit note's `key` is declared in the resolved schema for the target item, the note's `role` must equal the schema role; mismatch returns `VALIDATION_ERROR`. Off-schema keys and items without a schema are unconstrained. |
 | `docRef` | object | No | Materialize-from-document source: `{ rootId? (defaults to the created/attached root's own rootId — `rootItem.rootId ?: rootItem.id`; validated for consistency if given, UUID or hex prefix), slug (required; a slug starting with `rule/` is rejected — rule documents are served by [`query_rules`](#query_rules) and adopting one would freeze it) }`. References a document stashed via `manage_plan_documents`/`PUT /roots/{rootId}/plans/{slug}`. Required whenever any item spec's `noteAnchors` is used; valid (adopts with zero sourced notes) even with none. |
@@ -627,9 +627,9 @@ on the way out.) If required notes are missing
 dependents within the set are skipped.
 
 **Ordering is blocker-first, direction-aware.** For an in-set `BLOCKS` edge (`A BLOCKS B`), `A` is
-ordered before `B`. For an in-set `IS_BLOCKED_BY` edge (`A IS_BLOCKED_BY B`), `B` is the blocker, so
-`B` is ordered before `A` — the same blocker-first rule, not a raw `fromItemId`-before-`toItemId`
-sort. `RELATES_TO` edges carry no blocking semantics: they impose no ordering constraint and never
+ordered before `B`. Stored dependencies are always `BLOCKS` from the blocker to the blocked item
+(`IS_BLOCKED_BY` is an input alias, normalized on write), so this is the single blocker-first rule.
+Among items with no ordering constraint between them, the order of the target set is kept. `RELATES_TO` edges carry no blocking semantics: they impose no ordering constraint and never
 cause a dependent to be skipped. A blocker item **outside** the target set is not part of this
 in-set graph at all — it produces no ordering here; the in-set item that depends on it instead fails
 `AdvanceService`'s dependency-validation check (see "Dependency-validation-failure fields" below),
@@ -991,7 +991,7 @@ the same as `query_items.search`.
 | `operation` | string | Yes | One of: `create`, `delete` |
 | `dependencies` | array | Cond. (create) | Explicit deps: `[{ fromItemId, toItemId, type?, unblockAt? }]`. Mutually exclusive with `pattern`. |
 | `pattern` | string | Cond. (create) | Shortcut: `linear`, `fan-out`, or `fan-in`. Mutually exclusive with `dependencies`. |
-| `type` | string | No | Create: shared default type — `BLOCKS` (default), `IS_BLOCKED_BY`, `RELATES_TO`. Delete-by-relationship: optional filter — delete only edges of this type. |
+| `type` | string | No | Create: shared default type — `BLOCKS` (default), `IS_BLOCKED_BY`, `RELATES_TO`. `IS_BLOCKED_BY` is an input alias: `a IS_BLOCKED_BY b` is stored as `b BLOCKS a`, and the response carries the stored row. Delete-by-relationship: optional filter — delete only edges of this type; `IS_BLOCKED_BY` deletes the stored `BLOCKS` row from `toItemId` to `fromItemId`, and with no `type` only stored rows from `fromItemId` to `toItemId` are matched. |
 | `unblockAt` | string | No | Shared default threshold: `queue`, `work`, `review`, `terminal` (default: terminal) |
 | `itemIds` | array | Yes (linear) | Ordered UUIDs: A→B, B→C, C→D |
 | `fromItemId` | string (UUID) | Yes (fan-out); Cond. (delete) | Fan-out: single source item. Delete-by-relationship: source side. |
@@ -1063,7 +1063,7 @@ Note: atomicity is preserved — either all dependencies are created or none. On
 
 **Constraint: `RELATES_TO` and `unblockAt`.** Specifying `unblockAt` on a `RELATES_TO` dependency is a validation error. `RELATES_TO` dependencies have no blocking semantics and do not support an unblock threshold; providing one will return a validation failure response.
 
-**Cycle detection is direction-aware.** Cycle checking walks the blocker→blocked graph, not raw `fromItemId`→`toItemId`: for `BLOCKS`, `fromItemId` is the blocker; for `IS_BLOCKED_BY`, `toItemId` is the blocker (the relationship is stated in reverse). A batch that would close a cycle in that blocker→blocked graph — whether every edge in it is `BLOCKS`, every edge is `IS_BLOCKED_BY`, or the batch mixes both types — is rejected. Restating an existing edge with the other type (e.g. `B BLOCKS A` already exists, then `A IS_BLOCKED_BY B` is added) is **not** a cycle — it describes the same blocking relationship from the other item's perspective — and is accepted as a second row; an exact `(fromItemId, toItemId, type)` duplicate is still rejected, but as a duplicate, not a cycle. `RELATES_TO` edges are never part of cycle detection.
+**Direction is normalized on write.** `IS_BLOCKED_BY` is an input alias only: `a IS_BLOCKED_BY b` is stored as `b BLOCKS a` (same `unblockAt`), and the create response lists the stored rows, so no `IS_BLOCKED_BY` row is ever stored or returned. The write policy runs in this order: normalize, duplicates within the batch, duplicates against stored rows, then cycles over the blocker→blocked graph. Two edges are duplicates when they share the same normalized `(fromItemId, toItemId, type)`, whatever their `unblockAt`; a restatement (`B BLOCKS A` already exists, then `A IS_BLOCKED_BY B` is added, or both in one batch, in either order) is therefore rejected as a duplicate, never as a cycle. A batch that would close a cycle — whether every edge is `BLOCKS`, every edge is `IS_BLOCKED_BY`, or the batch mixes both types — is rejected. A rejection stores nothing. `RELATES_TO` edges are never part of cycle detection. For an `IS_BLOCKED_BY` input, the duplicate and cycle messages name the normalized (swapped) ids and type `BLOCKS`, not the ids and type as given.
 
 **Response (delete by relationship).**
 
@@ -1104,7 +1104,7 @@ detail enrichment, BFS graph traversal, and reverse-edge backlink lookup.
 | `operation` | string | Yes | `"get"` |
 | `itemId` | string (UUID or 4+ char prefix) | Yes | WorkItem to query dependencies for |
 | `direction` | string | No | `incoming`, `outgoing`, or `all` (default: `all`). Incoming = things that block this item; outgoing = things this item blocks. |
-| `type` | string | No | Filter: `BLOCKS`, `IS_BLOCKED_BY`, `RELATES_TO` |
+| `type` | string | No | Filter: `BLOCKS`, `IS_BLOCKED_BY`, `RELATES_TO`. `IS_BLOCKED_BY` is the blocked-side view: the `BLOCKS` rows whose `toItemId` is `itemId` (rows read back as `BLOCKS`); with `direction=outgoing` it is a validation error. Paging and `total` apply after the filter. |
 | `includeItemInfo` | boolean | No | Include title, role, priority for related items (default: false) |
 | `neighborsOnly` | boolean | No | When false, perform BFS graph traversal returning a topologically-ordered chain and max depth (default: true) |
 | `limit` | integer | No | Max dependency edges to return, applied after type filtering (default: unbounded — all matching edges returned). Must be >= 1. |
@@ -1116,7 +1116,7 @@ detail enrichment, BFS graph traversal, and reverse-edge backlink lookup.
 |---|---|---|---|
 | `operation` | string | Yes | `"backlinks"` |
 | `itemId` | string (UUID or 4+ char prefix) | Yes | The item whose incoming edges you want to find — i.e., other items that point AT this item |
-| `type` | string | No | Narrow to one dependency type: `BLOCKS`, `IS_BLOCKED_BY`, or `RELATES_TO` |
+| `type` | string | No | Narrow to one dependency type: `BLOCKS`, `IS_BLOCKED_BY`, or `RELATES_TO`. `IS_BLOCKED_BY` returns the same rows as `BLOCKS` (stored dependencies are always `BLOCKS` from the blocker). |
 
 **Examples.**
 

@@ -184,7 +184,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
         }
 
     @Test
-    fun `probe S4 hyphenated dependency type is-blocked-by normalizes and is accepted`() =
+    fun `probe S4 hyphenated dependency type is-blocked-by normalizes and is stored as swapped BLOCKS`() =
         runBlocking {
             val params =
                 buildJsonObject {
@@ -203,7 +203,9 @@ class CreateWorkTreeExecuteCharacterizationTest {
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val depsArr = (result["data"] as JsonObject)["dependencies"] as JsonArray
             assertEquals(1, depsArr.size)
-            assertEquals("IS_BLOCKED_BY", depsArr[0].jsonObject["type"]!!.jsonPrimitive.content)
+            assertEquals("BLOCKS", depsArr[0].jsonObject["type"]!!.jsonPrimitive.content)
+            assertEquals("c2", depsArr[0].jsonObject["fromRef"]!!.jsonPrimitive.content, "the ends are swapped: c2 blocks c1")
+            assertEquals("c1", depsArr[0].jsonObject["toRef"]!!.jsonPrimitive.content)
 
             val c1Id =
                 UUID.fromString(
@@ -211,7 +213,8 @@ class CreateWorkTreeExecuteCharacterizationTest {
                 )
             val persisted = repositoryProvider.dependencyRepository().findByItemId(c1Id)
             assertEquals(1, persisted.size)
-            assertEquals(DependencyType.IS_BLOCKED_BY, persisted[0].type)
+            assertEquals(DependencyType.BLOCKS, persisted[0].type)
+            assertEquals(c1Id, persisted[0].toItemId)
         }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -282,11 +285,11 @@ class CreateWorkTreeExecuteCharacterizationTest {
         }
 
     // ─────────────────────────────────────────────────────────────────────
-    // S7 — in-transaction rollback: RELATES_TO + unblockAt violates the domain invariant
+    // S7 — RELATES_TO + unblockAt violates the domain invariant: rejected as a validation error before any write
     // ─────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `S7 RELATES_TO with unblockAt fails atomically inside the write transaction`() =
+    fun `S7 RELATES_TO with unblockAt fails as a validation error before any write`() =
         runBlocking {
             val params =
                 buildJsonObject {
@@ -307,9 +310,8 @@ class CreateWorkTreeExecuteCharacterizationTest {
             val result = db.assertNoOutsideUnitWrites { tool.execute(params, context) } as JsonObject
             assertFalse(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val error = errorOf(result)
-            assertEquals("INTERNAL_ERROR", error["code"]!!.jsonPrimitive.content)
+            assertEquals("VALIDATION_ERROR", error["code"]!!.jsonPrimitive.content)
             val msg = error["message"]!!.jsonPrimitive.content
-            assertTrue(msg.startsWith("Work tree creation failed: "), "actual: $msg")
             assertTrue(
                 msg.contains("RELATES_TO dependencies cannot have an unblockAt threshold (no blocking semantics)"),
                 "actual: $msg"

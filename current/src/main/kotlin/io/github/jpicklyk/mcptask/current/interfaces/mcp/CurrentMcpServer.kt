@@ -730,7 +730,13 @@ internal fun Application.installRestApiRoutes(
                 toolContext.unitOfWork,
                 toolContext.noteCommandService
             )
-            dependencyWriteRoutes(effectiveProvider, degradedModePolicy, toolContext.idempotency, toolContext.unitOfWork)
+            dependencyWriteRoutes(
+                effectiveProvider,
+                degradedModePolicy,
+                toolContext.idempotency,
+                toolContext.unitOfWork,
+                toolContext.dependencyCommandService
+            )
             // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete —
             // converges on the same ProjectConfigPushService the manage_project_config MCP tool uses.
             projectConfigRoutes(effectiveProvider, toolContext.unitOfWork)

@@ -553,17 +553,18 @@ the field's purpose is external verifiability, so it is deliberately not redacte
   "id": "<uuid>",
   "fromItemId": "<uuid>",
   "toItemId": "<uuid>",
-  "type": "blocks|is_blocked_by|relates_to",
+  "type": "blocks|relates_to",
   "unblockAt": "queue|work|review|terminal|null",
   "createdAt": "ISO-8601"
 }
 ```
 
-`type` includes `is_blocked_by` on reads (a row created via MCP `manage_dependencies` can be stored
-with that type; REST create only accepts `blocks`/`relates_to` — see POST /dependencies below).
-`unblockAt` is the effective unblock-role threshold: `null` only for `relates_to` (no blocking
-semantics); for `blocks` and `is_blocked_by` it is the stored value, defaulting to `"terminal"` when
-unset — never a raw possibly-null passthrough.
+`type` is `blocks` or `relates_to`: blocking dependencies are stored in one orientation (`fromItemId`
+blocks `toItemId`), and `IS_BLOCKED_BY`, accepted as an input type by MCP `manage_dependencies`, is
+normalized to `blocks` with the ends swapped before it is stored. REST create only accepts
+`blocks`/`relates_to` — see POST /dependencies below. `unblockAt` is the effective unblock-role
+threshold: `null` only for `relates_to` (no blocking semantics); for `blocks` it is the stored value,
+defaulting to `"terminal"` when unset — never a raw possibly-null passthrough.
 
 ### BacklinkDto
 
@@ -1531,8 +1532,8 @@ Validation:
 - `unblockAt` must be absent or null for `relates_to` edges — `400 validation_error`
 - Both items must exist — `400 not_found`
 - Both items must be in scope — `403 scope_forbidden`
-- Cycle detection — `400 cycle_detected`. Runs only for `blocks` (the item that would block, `fromItemId`); `relates_to` has no blocking semantics and skips the check entirely. `is_blocked_by` is not an accepted create type over REST (see `type` above), so its reverse-direction cycle check is not exercised here — only via MCP `manage_dependencies`.
-- Duplicate edge — `409 duplicate_dependency` when an edge with the same `fromItemId`/`toItemId`/`type` already exists.
+- Cycle detection — `400 cycle_detected`. Runs only for `blocks` (the item that would block, `fromItemId`), over the normalized blocker-to-blocked graph (including edges created through MCP `manage_dependencies` with `IS_BLOCKED_BY`); `relates_to` has no blocking semantics and skips the check entirely.
+- Duplicate edge — `409 duplicate_dependency` when an edge with the same `fromItemId`/`toItemId`/`type` already exists. A `blocks` edge that restates a stored one the other way round (a former `IS_BLOCKED_BY` input) is the same stored edge and is rejected the same way.
 
 **Responses:**
 - `201 Created` → `DependencyEdgeDto`

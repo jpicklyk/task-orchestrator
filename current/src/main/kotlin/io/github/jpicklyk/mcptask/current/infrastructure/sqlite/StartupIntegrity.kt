@@ -136,18 +136,16 @@ object StartupIntegrity {
         )
     }
 
-    /** WARN-only: pairs of items that block each other (BLOCKS and IS_BLOCKED_BY normalized to blocker-to-blocked). */
+    /** WARN-only: pairs of items that block each other (a BLOCKS b and b BLOCKS a). */
     fun reportMutualBlocks(connection: Connection) {
         report(
             connection,
             "mutual blocking dependency pairs (a blocks b and b blocks a)",
-            "WITH edges(blocker, blocked) AS (" +
-                "SELECT from_item_id, to_item_id FROM dependencies WHERE type = 'BLOCKS' " +
-                "UNION " +
-                "SELECT to_item_id, from_item_id FROM dependencies WHERE type = 'IS_BLOCKED_BY') " +
-                "SELECT lower(hex(a.blocker)) || ' and ' || lower(hex(a.blocked)) AS ident " +
-                "FROM edges a JOIN edges b ON a.blocker = b.blocked AND a.blocked = b.blocker " +
-                "WHERE a.blocker < a.blocked"
+            "SELECT lower(hex(a.from_item_id)) || ' and ' || lower(hex(a.to_item_id)) AS ident " +
+                "FROM dependencies a JOIN dependencies b " +
+                "ON a.type = 'BLOCKS' AND b.type = 'BLOCKS' " +
+                "AND a.from_item_id = b.to_item_id AND a.to_item_id = b.from_item_id " +
+                "WHERE a.from_item_id < a.to_item_id"
         )
     }
 

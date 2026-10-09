@@ -240,55 +240,6 @@ class SQLiteDependencyRepositoryTest {
     // --- Cyclic dependency detection ---
 
     @Test
-    fun `hasCyclicDependency - A to B then B to A is cycle`() =
-        runBlocking {
-            depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB))
-
-            val isCyclic = depRepository.hasCyclicDependency(itemB, itemA)
-            assertTrue(isCyclic)
-        }
-
-    @Test
-    fun `hasCyclicDependency - A to B, B to C then C to A is transitive cycle`() =
-        runBlocking {
-            depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB))
-            depRepository.create(Dependency(fromItemId = itemB, toItemId = itemC))
-
-            val isCyclic = depRepository.hasCyclicDependency(itemC, itemA)
-            assertTrue(isCyclic)
-        }
-
-    @Test
-    fun `hasCyclicDependency - no cycle returns false`() =
-        runBlocking {
-            depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB))
-
-            val isCyclic = depRepository.hasCyclicDependency(itemC, itemA)
-            assertFalse(isCyclic)
-        }
-
-    @Test
-    fun `create auto-rejects cyclic dependency`() =
-        runBlocking {
-            depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB))
-
-            assertThrows<ValidationException> {
-                depRepository.create(Dependency(fromItemId = itemB, toItemId = itemA))
-            }
-        }
-
-    @Test
-    fun `create auto-rejects transitive cyclic dependency`() =
-        runBlocking {
-            depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB))
-            depRepository.create(Dependency(fromItemId = itemB, toItemId = itemC))
-
-            assertThrows<ValidationException> {
-                depRepository.create(Dependency(fromItemId = itemC, toItemId = itemA))
-            }
-        }
-
-    @Test
     fun `create rejects duplicate dependency`() =
         runBlocking {
             depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB))
@@ -309,17 +260,6 @@ class SQLiteDependencyRepositoryTest {
         }
 
     // --- RELATES_TO should not participate in cycle detection ---
-
-    @Test
-    fun `hasCyclicDependency - RELATES_TO edge does not create blocking path`() =
-        runBlocking {
-            // A RELATES_TO B is informational — it should not create a blocking path
-            depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB, type = DependencyType.RELATES_TO))
-
-            // "Would adding B BLOCKS A create a cycle?" — No, because RELATES_TO is not a blocking edge
-            val isCyclic = depRepository.hasCyclicDependency(itemB, itemA)
-            assertFalse(isCyclic, "RELATES_TO should not be treated as a blocking path in cycle detection")
-        }
 
     @Test
     fun `create succeeds when only RELATES_TO exists in reverse direction`() =
@@ -344,17 +284,6 @@ class SQLiteDependencyRepositoryTest {
             // C RELATES_TO A is informational — not a blocking cycle back to A
             val dep = depRepository.create(Dependency(fromItemId = itemC, toItemId = itemA, type = DependencyType.RELATES_TO))
             assertNotNull(dep, "RELATES_TO closing a BLOCKS chain should not be rejected as a cycle")
-        }
-
-    @Test
-    fun `mixed BLOCKS and IS_BLOCKED_BY cycle detection still works after fix`() =
-        runBlocking {
-            // A IS_BLOCKED_BY B — a real blocking relationship: B blocks A (blockerId=B, blockedId=A)
-            depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB, type = DependencyType.IS_BLOCKED_BY))
-
-            // A new blocking edge with blocker=A, blocked=B would close the cycle (A->B->A)
-            val isCyclic = depRepository.hasCyclicDependency(itemA, itemB)
-            assertTrue(isCyclic, "Real IS_BLOCKED_BY-based cycle should still be detected")
         }
 
     @Test

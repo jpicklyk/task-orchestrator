@@ -242,12 +242,12 @@ class EventPublishingWriteCoverageTest {
         }
 
     // -------------------------------------------------------------------------
-    // S11 — work-tree creation failure (cyclic dependency)
+    // S11 — work-tree creation failure (dependency ref not found)
     // -------------------------------------------------------------------------
 
-    /** S11: execute with cyclic deps throws → 0 events. [D][T] */
+    /** S11: execute with a dependency naming an unknown ref throws → 0 events. [D][T] */
     @Test
-    fun `S11 work tree creation with a cyclic dependency throws and emits no events`(): Unit =
+    fun `S11 work tree creation with an unknown dependency ref throws and emits no events`(): Unit =
         runBlocking {
             val delegate = db.repositoryProvider()
             val bus = ApiEventBus()
@@ -266,7 +266,7 @@ class EventPublishingWriteCoverageTest {
                     deps =
                         listOf(
                             TreeDepSpec(fromRef = "C1", toRef = "C2", type = DependencyType.BLOCKS, unblockAt = null),
-                            TreeDepSpec(fromRef = "C2", toRef = "C1", type = DependencyType.BLOCKS, unblockAt = null),
+                            TreeDepSpec(fromRef = "C2", toRef = "MISSING", type = DependencyType.BLOCKS, unblockAt = null),
                         ),
                     notes = emptyList(),
                 )
@@ -280,7 +280,7 @@ class EventPublishingWriteCoverageTest {
                 threw = true
             }
 
-            assertTrue(threw, "expected an exception for a cyclic in-tree dependency")
+            assertTrue(threw, "expected an exception for a dependency naming an unknown ref")
             val events = bus.drainDelivered("s11", flow)
             assertTrue(events.isEmpty(), "no events may be published when work-tree creation throws, got: $events")
         }
