@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerificationScope
+import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallPrincipal
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -129,6 +130,7 @@ interface ActorAware {
                 context.actorVerifier().verify(claim)
             }
         val hashedVerification = proofSha256?.let { verification.copy(proofSha256 = it) } ?: verification
+        recordCallPrincipal(claim, hashedVerification)
         return ActorParseResult.Success(claim, hashedVerification)
     }
 

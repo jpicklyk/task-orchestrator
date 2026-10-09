@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommende
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallResultCounts
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
@@ -341,14 +342,16 @@ Call when choosing what to work on next — at session start or after finishing 
         // findForNextItem(excludeActiveClaims=false), then apply new filters in-memory and run
         // the same dependency-blocking walk. The new filters do NOT change the includeClaimed
         // disclosure contract — claimedBy/claimedAt are never exposed in either path.
+        var eligibleCount = 0
         val recommendations: List<WorkItem> =
             if (!includeClaimed) {
                 run {
-                    val result =
+                    val counted =
                         legacyRead(
                             { return errorResponse(it, ErrorCodes.DATABASE_ERROR) }
-                        ) { context.nextItemRecommender.recommend(criteria, limit) }
-                    result
+                        ) { context.nextItemRecommender.recommendCounted(criteria, limit) }
+                    eligibleCount = counted.candidateCount
+                    counted.items
                 }
             } else {
                 val dependencyRepo = context.dependencyRepository()
@@ -391,6 +394,8 @@ Call when choosing what to work on next — at session start or after finishing 
                             (criteria.roleChangedBefore == null || !item.roleChangedAt.isAfter(criteria.roleChangedBefore))
                     }
 
+                eligibleCount = filtered.size
+
                 // Apply ordering
                 val sorted =
                     when (parsedOrderBy) {
@@ -415,6 +420,8 @@ Call when choosing what to work on next — at session start or after finishing 
                 }
                 unblocked
             }
+
+        recordCallResultCounts(result = recommendations.size, eligible = eligibleCount)
 
         // Resolve ancestor chains once for all recommendations if requested
         val ancestorChains: Map<java.util.UUID, List<WorkItem>> =

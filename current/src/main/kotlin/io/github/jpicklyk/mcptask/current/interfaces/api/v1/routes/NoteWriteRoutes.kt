@@ -1,18 +1,20 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
+import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
+import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
-import io.github.jpicklyk.mcptask.current.application.support.legacyWrite
-import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
-import io.github.jpicklyk.mcptask.current.application.support.writeOutcome
+import io.github.jpicklyk.mcptask.current.domain.error.DomainError
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.domain.model.Note
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
@@ -35,12 +37,13 @@ import io.ktor.server.routing.put
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import org.slf4j.LoggerFactory
 import java.util.UUID
 
 private val noteWriteLogger = LoggerFactory.getLogger("NoteWriteRoutes")
-
-private val VALID_NOTE_ROLES = setOf("queue", "work", "review")
 
 // Accepted Content-Types for the JSON note body (PUT /items/{id}/notes/{key}). `*/*` is what
 // `call.request.contentType()` reports when the header is ABSENT, which ContentNegotiation's
@@ -66,12 +69,39 @@ private fun noteErrorCaptured(
     )
 
 /**
+ * Maps a [NoteCommandService] write failure to its captured HTTP response. Only a payload-only failure
+ * (an invalid role) is a recordable [payloadRejection]; every config-dependent one (schema-role,
+ * `maxLength`) is returned unrecorded so a retry after a config change runs again.
+ */
+private fun noteWriteFailure(
+    error: DomainError,
+    itemId: UUID,
+    key: String,
+): CachedHttpResponse =
+    when (error.code) {
+        ErrorCode.INVALID_REQUEST -> payloadRejection(error.message)
+        ErrorCode.PAYLOAD_TOO_LARGE -> noteErrorCaptured(HttpStatusCode.PayloadTooLarge, "payload_too_large", error.message)
+        ErrorCode.NOTE_TOO_LONG -> noteErrorCaptured(HttpStatusCode.UnprocessableEntity, "note_body_too_long", error.message)
+        ErrorCode.SCHEMA_VIOLATION -> noteErrorCaptured(HttpStatusCode.BadRequest, "validation_error", error.message)
+        ErrorCode.NOT_FOUND -> noteErrorCaptured(HttpStatusCode.NotFound, "not_found", "Item $itemId not found")
+        else -> {
+            noteWriteLogger.warn("PUT /items/{}/notes/{} DB error: {} {}", itemId, key, error.code.wire, error.message)
+            noteErrorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to upsert note")
+        }
+    }
+
+/**
  * Registers note-write routes under the `/api/v1` route prefix.
  *
  * Endpoints:
  * - `PUT    /items/{id}/notes/{key}` — upsert note ([ApiCapability.WRITE_NOTES])
  * - `DELETE /items/{id}/notes/{key}` — delete note ([ApiCapability.WRITE_NOTES])
  *
+ * **Write policy:** role normalization, the byte cap, CRLF normalization, the schema-role rule and the
+ * schema `maxLength` all live in [NoteCommandService]; this file only maps its errors to HTTP
+ * (`maxLength` reject 422 `note_body_too_long`, byte cap 413 `payload_too_large`, schema-role 400
+ * `validation_error`, per-root config unavailable 503 `config_unavailable`). A `maxLength` overflow
+ * under `note_limits.mode: warn` is accepted and adds a `warning` string to the response body.
  * **Audit:** actor claim is synthesized server-side from [ApiPrincipal]; client `actor.*` is dropped.
  * **ETag:** `If-Match` is accepted on PUT (update path) but not required for create.
  * **Idempotency:** `Idempotency-Key: <UUID>` header supported on PUT.
@@ -81,6 +111,7 @@ fun Route.noteWriteRoutes(
     degradedModePolicy: DegradedModePolicy,
     idempotency: IdempotencyService,
     unitOfWork: UnitOfWork,
+    noteCommandService: NoteCommandService,
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
     val noteRepo = repositoryProvider.noteRepository()
@@ -182,45 +213,38 @@ fun Route.noteWriteRoutes(
                         return payloadRejection(e.message ?: "Invalid request body")
                     }
 
-                if (dto.role.lowercase() !in VALID_NOTE_ROLES) {
-                    return payloadRejection("role must be one of: queue, work, review")
-                }
-
                 // Synthesize actor server-side — client body actor.* fields are dropped
                 val actorClaim = ApiAuditBridge.toActorClaim(principal)
                 val verification = ApiAuditBridge.toVerificationResult(principal)
 
-                val note =
+                val written =
                     try {
-                        Note(
-                            id = existingNote?.id ?: UUID.randomUUID(),
-                            itemId = id,
-                            key = key,
-                            role = dto.role.lowercase(),
-                            body = dto.body,
-                            actorClaim = actorClaim,
-                            verification = verification,
-                        )
-                    } catch (e: Exception) {
-                        e.rethrowIfCancellation()
-                        return payloadRejection(e.message ?: "Validation failed")
+                        withConfigSession {
+                            noteCommandService.upsert(NoteUpsertCommand(id, key, dto.role, dto.body, actorClaim, verification))
+                        }
+                    } catch (e: PerRootConfigUnavailableException) {
+                        noteWriteLogger.warn("PUT /items/{}/notes/{} per-root config unavailable: {}", id, key, e.message)
+                        return noteErrorCaptured(HttpStatusCode.ServiceUnavailable, PerRootConfigUnavailableException.CODE, e.message)
                     }
-
-                return run {
-                    val result =
-                        unitOfWork.legacyWrite("NoteWriteRoutes.upsert", {
-                            return@run run {
-                                noteWriteLogger.warn("PUT /items/{}/notes/{} DB error: {}", id, key, it)
-                                noteErrorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to upsert note")
-                            }
-                        }) { noteRepo.upsert(note) }
-                    val isCreate = existingNote == null
-                    val redactedDto = redactor.redact(result.toDto(), call)
-                    CachedHttpResponse(
-                        statusCode = if (isCreate) HttpStatusCode.Created.value else HttpStatusCode.OK.value,
-                        bodyJson = noteWriteJson.encodeToString(NoteDto.serializer(), redactedDto),
-                        etag = etagFor(result.modifiedAt),
-                    )
+                return when (written) {
+                    is Outcome.Err -> noteWriteFailure(written.error, id, key)
+                    is Outcome.Ok -> {
+                        val result = written.value
+                        val redactedDto = redactor.redact(result.note.toDto(), call)
+                        val dtoJson = noteWriteJson.encodeToJsonElement(NoteDto.serializer(), redactedDto) as JsonObject
+                        val body =
+                            result.warning?.let { warning ->
+                                buildJsonObject {
+                                    dtoJson.forEach { (name, value) -> put(name, value) }
+                                    put("warning", JsonPrimitive(warning.message()))
+                                }
+                            } ?: dtoJson
+                        CachedHttpResponse(
+                            statusCode = if (result.created) HttpStatusCode.Created.value else HttpStatusCode.OK.value,
+                            bodyJson = noteWriteJson.encodeToString(JsonObject.serializer(), body),
+                            etag = etagFor(result.note.modifiedAt),
+                        )
+                    }
                 }
             }
 
@@ -281,7 +305,7 @@ fun Route.noteWriteRoutes(
                 val result =
                     withEventActor(
                         ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey])
-                    ) { unitOfWork.writeOutcome("NoteWriteRoutes.delete") { noteRepo.delete(existingNote.id) } }
+                    ) { noteCommandService.deleteById(existingNote.id) }
             ) {
                 is Outcome.Err -> {
                     noteWriteLogger.warn("DELETE /items/{}/notes/{} DB error: {}", id, key, LegacyFaults.message(result.error))

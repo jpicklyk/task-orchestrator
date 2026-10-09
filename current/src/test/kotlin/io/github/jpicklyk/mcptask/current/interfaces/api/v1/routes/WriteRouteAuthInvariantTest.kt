@@ -87,19 +87,27 @@ class WriteRouteAuthInvariantTest {
                     authConfig = jwksAuthConfig()
                     jwksVerifier = verifier
                 }
-                itemWriteRoutes(
-                    repo,
-                    degradedModePolicy,
-                    IdempotencyService(db.unitOfWork()),
+                val toolContext =
                     ToolExecutionContext(
                         repo,
                         NoOpNoteSchemaService,
                         perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
                         unitOfWork = db.unitOfWork()
-                    ).advanceServiceFactory(),
+                    )
+                itemWriteRoutes(
+                    repo,
+                    degradedModePolicy,
+                    IdempotencyService(db.unitOfWork()),
+                    toolContext.advanceServiceFactory(),
                     db.unitOfWork(),
                 )
-                noteWriteRoutes(repo, degradedModePolicy, IdempotencyService(db.unitOfWork()), db.unitOfWork())
+                noteWriteRoutes(
+                    repo,
+                    degradedModePolicy,
+                    IdempotencyService(db.unitOfWork()),
+                    db.unitOfWork(),
+                    toolContext.noteCommandService
+                )
                 dependencyWriteRoutes(repo, degradedModePolicy, IdempotencyService(db.unitOfWork()), db.unitOfWork())
             }
         }

@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.application.service.computeMissingBySe
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
+import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
@@ -220,6 +221,7 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
                 ErrorCodes.RESOURCE_NOT_FOUND
             )
 
+        recordCallTargetVersion(item.id, item.version)
         // canAdvance is the advance's own policy evaluation of `start` (ownership excluded): table,
         // dependency, note/independence and lease gates, so it never disagrees with advance_item. The
         // schema, notes and violations below come from the SAME read unit as that decision, so

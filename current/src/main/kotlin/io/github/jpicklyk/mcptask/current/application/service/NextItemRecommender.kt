@@ -71,7 +71,22 @@ class NextItemRecommender(
     suspend fun recommend(
         criteria: Criteria,
         limit: Int
-    ): List<WorkItem> {
+    ): List<WorkItem> = recommendCounted(criteria, limit).items
+
+    /** The recommended items plus how many candidates the repository returned before the dependency-block walk. */
+    data class Counted(
+        val items: List<WorkItem>,
+        val candidateCount: Int
+    )
+
+    /**
+     * [recommend] that also reports the size of the candidate list it walked (at most [OVER_FETCH_LIMIT]), for
+     * `get_next_item`'s call-log `eligible_count`. [recommend] shares this one implementation.
+     */
+    suspend fun recommendCounted(
+        criteria: Criteria,
+        limit: Int
+    ): Counted {
         val candidatesResult =
             workItemRepo.findClaimable(
                 role = criteria.role,
@@ -106,7 +121,7 @@ class NextItemRecommender(
             }
         }
 
-        return unblocked
+        return Counted(unblocked, candidates.size)
     }
 
     /**

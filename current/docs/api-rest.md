@@ -370,7 +370,8 @@ other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability
 | `duplicate_dependency` | 409 | `POST /dependencies`: an edge with the same `fromItemId`/`toItemId`/`type` already exists |
 | `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §23), or a non-JSON `Content-Type` on `POST /items`, `PUT /items/{id}/notes/{key}`, `POST /items/{id}/advance`, or `POST /dependencies` (see §5) |
 | `etag_mismatch` | 412 | `If-Match` header does not match current ETag |
-| `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT /items/{id}/notes/{key}`, and `POST /dependencies` share a 1 MiB limit; `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB, except a `{slug}` starting with `rule/` (e.g. `rule%2Fcommit-discipline`), which is capped tighter at 16384 bytes (16 KiB) — the single enforcement point `query_rules`/§19a rely on, so those read surfaces never re-check size themselves (see §18, §19, §19a). |
+| `note_body_too_long` | 422 | `PUT /items/{id}/notes/{key}`: the body exceeds the schema `maxLength` for the key and `note_limits.mode` is `reject` |
+| `payload_too_large` | 413 | Request body exceeds its route's byte limit (and, for `PUT /items/{id}/notes/{key}`, a note `body` over 65536 UTF-8 bytes) — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT /items/{id}/notes/{key}`, and `POST /dependencies` share a 1 MiB limit; `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB, except a `{slug}` starting with `rule/` (e.g. `rule%2Fcommit-discipline`), which is capped tighter at 16384 bytes (16 KiB) — the single enforcement point `query_rules`/§19a rely on, so those read surfaces never re-check size themselves (see §18, §19, §19a). |
 | `version_conflict` | 409 | `PATCH /items/{id}`: `If-Match` matched at read time, but a concurrent writer's update won the version race before this write committed — optimistic-lock loss, distinct from `etag_mismatch`. Retry with a fresh `If-Match` ETag. |
 | `invalid_request` | 401 | `error_description` body. Missing `Authorization` header, a non-Bearer scheme, or an empty Bearer credential (also the SSE pre-flight when no header or allowed `?token=` is presented). Carries `WWW-Authenticate: Bearer error="invalid_request"`. |
 | `invalid_token` | 401 | `error_description` body. Unknown, expired, or otherwise invalid token (bearer or JWKS). Carries `WWW-Authenticate: Bearer error="invalid_token"`. |
@@ -379,10 +380,25 @@ other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability
 | `insufficient_scope` | 403 | `error_description` body. A generic `requireCapability` check failed for the plugin's configured capability; (SSE-specific) a `GET /api/v1/events` connection presents a valid token that lacks the `read` capability (see §21); (SSE-specific) a `GET /api/v1/events` connection carries a `tags_include` scope but the route has no `WorkItemRepository` wired to filter by it -- fail-closed rather than serving an unfiltered stream; or (SSE-specific) a root-scoped principal's `?root=` values do not intersect its token's `scope.rootIds` -- the requested roots are entirely outside scope (see §21) |
 | `transition_failed` | 422 | Role transition rejected (invalid trigger, gate failure, dependency blocker) |
 | `resource_unavailable` | 409 | Resource-lease gate contention on `POST /items/{id}/advance` into WORK — transient, retryable. Carries a `Retry-After` header and `details.contendedResources`/`details.retryAfterMs`. Never discloses the current holder. |
-| `config_unavailable` | 503 | Per-root config read failed (a transient database error) and there was no last-known-good cached config to serve for that root — transient, retryable; the caller applies its own backoff (no `Retry-After` header). Returned by `POST /items/{id}/advance`, `GET /items/{id}/gate` (see §9, §10), and `GET /roots/{rootId}/config/effective` (see §18). REST and the MCP tools now read per-root config through the same `EffectiveConfigResolver`/last-known-good cache (one shared instance, built once in `ServerComposition`) — a transient DB error on one surface is absorbed by a cache warmed by the other, so this error is rarer than it was when each surface kept its own cache. Exception: `POST /items/{id}/advance` reads the item's config (and every cascade target's) inside the advance's unit of work, and `GET /items/{id}/gate` inside its preview's read unit; a unit has no last-known-good fallback, so on those two routes a read fault answers `config_unavailable` even when the cache is warm. |
+| `config_unavailable` | 503 | Per-root config read failed (a transient database error) and there was no last-known-good cached config to serve for that root — transient, retryable; the caller applies its own backoff (no `Retry-After` header). Returned by `POST /items/{id}/advance`, `GET /items/{id}/gate` (see §9, §10), `PUT /items/{id}/notes/{key}` (note write policy needs the per-root schema and `note_limits` mode), and `GET /roots/{rootId}/config/effective` (see §18). REST and the MCP tools now read per-root config through the same `EffectiveConfigResolver`/last-known-good cache (one shared instance, built once in `ServerComposition`) — a transient DB error on one surface is absorbed by a cache warmed by the other, so this error is rarer than it was when each surface kept its own cache. Exception: `POST /items/{id}/advance` reads the item's config (and every cascade target's) inside the advance's unit of work, `GET /items/{id}/gate` inside its preview's read unit, and `PUT /items/{id}/notes/{key}` inside the write's unit of work; a unit has no last-known-good fallback, so on those three routes a read fault answers `config_unavailable` even when the cache is warm. |
 | `db_error` | 500 | A store fault: a read route responds `Database query failed` (or the route's own read text), a write route its existing text (e.g. `Failed to create item`). A store fault on a read is never reported as `404 not_found`; `404` means only that the row does not exist. |
 
 ---
+
+## 6a. Request correlation (`X-Req-Id`)
+
+Every `/api/v1` response except the `GET /api/v1/events` stream carries an `X-Req-Id` header: the
+call's 8-character correlation id (lowercase Crockford base32). It is always server-generated (an
+inbound `X-Request-Id` only feeds the `requestId` log field), appears on success and error responses
+alike (including `401`), is the `req_id` of every `events` row the request wrote, and keys the
+request's row in the `call_log` table. Only `/api/v1` and paths under `/api/v1/` are covered (not
+`/api/v10`). A `401` from the auth layer records its body's `error` code (`invalid_request`,
+`invalid_token`, ...) as the row's `error_code`; `http_<status>` is the fallback. The row's `tool` is
+the matched route template as declared (`GET /api/v1/items/{id}/schema`); a call that matched no route is
+`<METHOD> /api/v1/<first segment>` for a served top-level resource, else `<METHOD> unmatched`. `principal_id`
+on REST rows is the authenticated API principal (`api:<tokenId>`); only MCP rows can carry a self-reported actor id (up to 500 characters, with `proof_status` distinguishing verified ids). `X-Req-Id` is in the default
+`CORS_EXPOSE_HEADERS`. See
+`fleet-deployment.md` -> "Call log and `reqId`".
 
 ## 7. Pagination
 
@@ -1295,7 +1311,7 @@ same transition. A lease-store fault while acquiring or releasing fails the whol
 ```
 `retryAfterMs` is the time until the soonest contended lease expires. A `Retry-After` response
 header accompanies the body — whole seconds, **rounded up** from `retryAfterMs` with a floor of 1, so a client never retries before the lease can possibly have
-expired. `CORS_EXPOSE_HEADERS` includes `Retry-After` by default (see `fleet-deployment.md`) so
+expired. `CORS_EXPOSE_HEADERS` includes `Retry-After` and `X-Req-Id` by default (see `fleet-deployment.md`) so
 browser-based dashboards behind CORS can read it directly; `details.retryAfterMs` is present as a
 fallback regardless. **No holder identity is ever disclosed** on this path — neither the holding
 item's id nor its actor. Use `GET /api/v1/resources/leases` (§14, `ADMIN` capability for actor
@@ -1449,8 +1465,8 @@ Upsert (create or replace) a note. `role` and `body` are always replaced on upda
 **Request body:**
 ```json
 {
-  "role": "queue|work|review",   // required
-  "body": "string",              // required
+  "role": "queue|work|review",   // required; any letter case, stored lowercase
+  "body": "string",              // required; at most 65536 UTF-8 bytes
   "properties": {}               // optional — reserved, currently ignored
 }
 ```
@@ -1460,9 +1476,15 @@ Upsert (create or replace) a note. `role` and `body` are always replaced on upda
 **Responses:**
 - `201 Created` → `NoteDto` + `ETag` header (note was new)
 - `200 OK` → `NoteDto` + `ETag` header (note was updated)
+- `201 Created` / `200 OK` also carry a `warning` string in the body when the note body exceeded the schema `maxLength` under `note_limits.mode: warn` (absent otherwise)
+- `400 validation_error` — invalid `role`, or the key is declared in the item's resolved schema with a different role
 - `412 etag_mismatch`
-- `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
+- `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6), or the note `body` itself exceeds 65536 UTF-8 bytes
 - `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the `Idempotency-Key` header or body is read
+- `422 note_body_too_long` — the body exceeds the schema `maxLength` for the key and `note_limits.mode` is `reject`
+- `503 config_unavailable` — the item's per-root config could not be read
+
+The write policy (role normalization, 64 KiB body cap, CRLF-to-LF normalization, schema-role and `maxLength` checks) is the same one `manage_notes` and `create_work_tree` apply; the `If-Match` check runs before it. A schema-role or `maxLength` rejection is not recorded for `Idempotency-Key` replay (it depends on config), so a retry after a config change runs again.
 
 Supports `Idempotency-Key` header.
 

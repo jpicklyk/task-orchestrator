@@ -99,20 +99,22 @@ fun Application.configureWriteTestApp(
             noteRoutes(repo)
             dependencyRoutes(repo)
             // WRITE routes under test
-            itemWriteRoutes(
-                repo,
-                degradedModePolicy,
-                IdempotencyService(unitOfWork),
+            val toolContext =
                 ToolExecutionContext(
                     repo,
                     schemaService,
                     statusLabelService = statusLabelService,
                     perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
                     unitOfWork = unitOfWork
-                ).advanceServiceFactory(),
+                )
+            itemWriteRoutes(
+                repo,
+                degradedModePolicy,
+                IdempotencyService(unitOfWork),
+                toolContext.advanceServiceFactory(),
                 unitOfWork,
             )
-            noteWriteRoutes(repo, degradedModePolicy, IdempotencyService(unitOfWork), unitOfWork)
+            noteWriteRoutes(repo, degradedModePolicy, IdempotencyService(unitOfWork), unitOfWork, toolContext.noteCommandService)
             dependencyWriteRoutes(repo, degradedModePolicy, IdempotencyService(unitOfWork), unitOfWork)
         }
     }

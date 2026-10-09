@@ -98,20 +98,28 @@ abstract class FullApiWiringSmokeScenarios(
                 // Phase 4 config
                 configRoutes(NoOpNoteSchemaService)
                 // Phase 5 write
-                itemWriteRoutes(
-                    decorated,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    IdempotencyService(db.unitOfWork()),
+                val toolContext =
                     ToolExecutionContext(
                         decorated,
                         NoOpNoteSchemaService,
                         statusLabelService = YamlStatusLabelService(),
                         perRootConfigService = PerRootConfigService(decorated.projectConfigRepository()),
                         unitOfWork = db.unitOfWork()
-                    ).advanceServiceFactory(),
+                    )
+                itemWriteRoutes(
+                    decorated,
+                    DegradedModePolicy.ACCEPT_CACHED,
+                    IdempotencyService(db.unitOfWork()),
+                    toolContext.advanceServiceFactory(),
                     db.unitOfWork(),
                 )
-                noteWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyService(db.unitOfWork()), db.unitOfWork())
+                noteWriteRoutes(
+                    decorated,
+                    DegradedModePolicy.ACCEPT_CACHED,
+                    IdempotencyService(db.unitOfWork()),
+                    db.unitOfWork(),
+                    toolContext.noteCommandService
+                )
                 dependencyWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyService(db.unitOfWork()), db.unitOfWork())
                 // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete
                 projectConfigRoutes(decorated, db.unitOfWork())

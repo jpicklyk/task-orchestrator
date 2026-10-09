@@ -92,6 +92,7 @@ class FlywayOnlyMigrationTest {
         insertNote(url, a, "k", "zebra body")
         val before = query(url, "SELECT title FROM work_items ORDER BY title") { it.getString(1) }
         // Rebuild the exact V17 shape: drop what later migrations added, then the history.
+        exec(url, "DROP TABLE call_log")
         exec(url, "DROP TABLE events")
         exec(url, "DROP TABLE idempotency_records")
         exec(url, "DROP TABLE flyway_schema_history")
@@ -100,13 +101,13 @@ class FlywayOnlyMigrationTest {
         assertTrue(manager(url).updateSchema(), "an exact V17 shape must be baselined, not refused")
 
         val rows = historyRows(url)
-        // Baselined at 17, then the pending V18 (data-only timestamp normalization), V19 (idempotency records) and V20 (events) are applied on top.
+        // Baselined at 17, then the pending V18 (data-only timestamp normalization), V19 (idempotency records), V20 (events) and V21 (call log) are applied on top.
         assertEquals(
-            listOf("17" to "BASELINE", "18" to "SQL", "19" to "SQL", "20" to "SQL"),
+            listOf("17" to "BASELINE", "18" to "SQL", "19" to "SQL", "20" to "SQL", "21" to "SQL"),
             rows.map {
                 it.first to it.second
             },
-            "history must be baseline@17 then V18, V19, V20, got $rows"
+            "history must be baseline@17 then V18, V19, V20, V21, got $rows"
         )
         assertTrue(rows.all { it.third })
         assertEquals(before, query(url, "SELECT title FROM work_items ORDER BY title") { it.getString(1) })

@@ -1,9 +1,15 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
+import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
+import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
+import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerificationScope
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.telemetry.CallLogFields
+import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetry
+import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
 import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
@@ -25,9 +31,12 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.slf4j.LoggerFactory
 import org.slf4j.MDC
 import java.util.UUID
+import kotlin.time.TimeSource
 
 /**
  * Adapter bridging v3 [ToolDefinition] instances to the MCP SDK [Server].
@@ -40,8 +49,15 @@ import java.util.UUID
  * - Uses simplified boolean preprocessing (no verbose debug logging per parameter)
  * - Returns clean single-line error messages (no multi-line recommendation blocks)
  * - Leverages v3 [ResponseUtil] for response envelope inspection
+ *
+ * Every call gets a [ReqId] that is stamped on the result (_meta.reqId), the MDC `reqId`, the per-call
+ * [CallTelemetry] (so events rows carry it) and the call_log record handed to [callLog] when the result is built.
+ * A telemetry failure never changes the result, and a cancelled call writes no record.
  */
-class McpToolAdapter {
+class McpToolAdapter(
+    private val callLog: CallLogSink = CallLogSink.NONE,
+    private val clock: Clock = Clock.SYSTEM
+) {
     private val logger = LoggerFactory.getLogger(McpToolAdapter::class.java)
 
     companion object {
@@ -77,6 +93,10 @@ class McpToolAdapter {
             // 'this' is ClientConnection — provides sessionId, createMessage, listRoots,
             // sendLoggingMessage, and other server-to-client capabilities from SDK 0.9.0.
             val clientConnection = this@addTool
+            val reqId = ReqId.generate()
+            val startedAt = clock.now()
+            val started = TimeSource.Monotonic.markNow()
+            val telemetry = CallTelemetry(reqId, CallLogRecord.SURFACE_MCP, clientConnection.sessionId)
 
             // MDC correlation fields for every log line emitted while this call is in flight
             // (WARN/ERROR below, plus any INFO the tool itself logs). Wrapped in MDCContext
@@ -92,166 +112,227 @@ class McpToolAdapter {
                     put("tool", toolDefinition.name)
                     put("sessionId", clientConnection.sessionId)
                     put("requestId", UUID.randomUUID().toString())
+                    put("reqId", reqId)
                     actorIdFrom(request.arguments)?.let { put("actorId", MdcValues.bounded(it, max = ACTOR_ID_MDC_MAX_LENGTH)) }
                 }
             // ActorVerificationScope: a fresh per-call memo so a proof re-verified multiple times
             // within this single MCP call (idempotency lookups, multi-transition batches) is only
             // ever checked once against an opt-in jti replay cache — see that class's KDoc.
-            withContext(
-                MDCContext((MDC.getCopyOfContextMap() ?: emptyMap()) + correlationFields) + ActorVerificationScope()
-            ) {
-                try {
-                    val preprocessedParams =
-                        preprocessParameters(
-                            request.arguments ?: JsonObject(emptyMap()),
-                            toolDefinition.parameterSchema
+            val built =
+                withContext(
+                    MDCContext((MDC.getCopyOfContextMap() ?: emptyMap()) + correlationFields) + ActorVerificationScope() + telemetry
+                ) {
+                    try {
+                        val preprocessedParams =
+                            preprocessParameters(
+                                request.arguments ?: JsonObject(emptyMap()),
+                                toolDefinition.parameterSchema
+                            )
+
+                        toolDefinition.validateParams(preprocessedParams)
+
+                        // Execute the tool. withConfigSession installs a per-call memo for
+                        // EffectiveConfigResolver's per-root layer reads (O2); see ConfigSession's KDoc.
+                        val result = withConfigSession { toolDefinition.execute(preprocessedParams, context) }
+                        val resultObj = result as? JsonObject
+
+                        // Determine error state from response envelope
+                        val isError = resultObj?.let { ResponseUtil.isErrorResponse(it) } ?: false
+
+                        // Generate user-facing summary
+                        val summary = toolDefinition.userSummary(preprocessedParams, result, isError)
+
+                        // Extract structuredContent: on success, the raw data payload (strip envelope);
+                        // on error, the structured error object ({code, message, kind?, retryAfterMs?,
+                        // contendedItemId?}) plus any error data (e.g. gate-failure details) so clients
+                        // can act on structured fields without a diagnostic round-trip.
+                        val structuredData =
+                            if (isError) {
+                                resultObj?.let { ResponseUtil.extractErrorPayload(it) }
+                            } else {
+                                resultObj?.let { ResponseUtil.extractDataPayload(it) } as? JsonObject
+                            }
+
+                        // Response size telemetry: reuse the summary/structuredData strings already
+                        // computed above (JsonElement.toString() is the same compact-JSON rendering the
+                        // MCP SDK serializes for structuredContent — no extra serialization pass). Logs
+                        // only the tool name, success/error, and a char count — never argument or
+                        // response bodies — so this is safe at INFO on every call.
+                        val responseChars = summary.length + (structuredData?.toString()?.length ?: 0)
+                        logResponseSize(toolDefinition.name, success = !isError, responseChars = responseChars)
+
+                        CallToolResult(
+                            content = listOf(TextContent(text = summary)),
+                            isError = isError,
+                            structuredContent = structuredData
                         )
-
-                    toolDefinition.validateParams(preprocessedParams)
-
-                    // Execute the tool. withConfigSession installs a per-call memo for
-                    // EffectiveConfigResolver's per-root layer reads (O2); see ConfigSession's KDoc.
-                    val result = withConfigSession { toolDefinition.execute(preprocessedParams, context) }
-                    val resultObj = result as? JsonObject
-
-                    // Determine error state from response envelope
-                    val isError = resultObj?.let { ResponseUtil.isErrorResponse(it) } ?: false
-
-                    // Generate user-facing summary
-                    val summary = toolDefinition.userSummary(preprocessedParams, result, isError)
-
-                    // Extract structuredContent: on success, the raw data payload (strip envelope);
-                    // on error, the structured error object ({code, message, kind?, retryAfterMs?,
-                    // contendedItemId?}) plus any error data (e.g. gate-failure details) so clients
-                    // can act on structured fields without a diagnostic round-trip.
-                    val structuredData =
-                        if (isError) {
-                            resultObj?.let { ResponseUtil.extractErrorPayload(it) }
-                        } else {
-                            resultObj?.let { ResponseUtil.extractDataPayload(it) } as? JsonObject
+                    } catch (e: ToolValidationException) {
+                        // Fix for 4e110d22: validateParams() and execute() both throw
+                        // ToolValidationException, and both map to the same validation envelope. Message
+                        // text is preserved exactly as validateParams-phase failures always returned it
+                        // (back-compat for existing text-matching clients/tests); structuredContent is now
+                        // populated via the same ToolError -> envelope -> structured-payload pipeline the
+                        // other dedicated catches below use, rather than being left null.
+                        val message = "Validation error in '${toolDefinition.name}': ${e.message}"
+                        logger.warn(message)
+                        try {
+                            clientConnection.sendLoggingMessage(
+                                LoggingMessageNotification(
+                                    LoggingMessageNotificationParams(
+                                        level = LoggingLevel.Warning,
+                                        data = JsonPrimitive(message),
+                                        logger = "mcp-task-orchestrator.tools"
+                                    )
+                                )
+                            )
+                        } catch (ignored: Exception) {
+                            ignored.rethrowIfCancellation()
                         }
-
-                    // Response size telemetry: reuse the summary/structuredData strings already
-                    // computed above (JsonElement.toString() is the same compact-JSON rendering the
-                    // MCP SDK serializes for structuredContent — no extra serialization pass). Logs
-                    // only the tool name, success/error, and a char count — never argument or
-                    // response bodies — so this is safe at INFO on every call.
-                    val responseChars = summary.length + (structuredData?.toString()?.length ?: 0)
-                    logResponseSize(toolDefinition.name, success = !isError, responseChars = responseChars)
-
-                    CallToolResult(
-                        content = listOf(TextContent(text = summary)),
-                        isError = isError,
-                        structuredContent = structuredData
-                    )
-                } catch (e: ToolValidationException) {
-                    // Fix for 4e110d22: validateParams() and execute() both throw
-                    // ToolValidationException, and both map to the same validation envelope. Message
-                    // text is preserved exactly as validateParams-phase failures always returned it
-                    // (back-compat for existing text-matching clients/tests); structuredContent is now
-                    // populated via the same ToolError -> envelope -> structured-payload pipeline the
-                    // other dedicated catches below use, rather than being left null.
-                    val message = "Validation error in '${toolDefinition.name}': ${e.message}"
-                    logger.warn(message)
-                    try {
-                        clientConnection.sendLoggingMessage(
-                            LoggingMessageNotification(
-                                LoggingMessageNotificationParams(
-                                    level = LoggingLevel.Warning,
-                                    data = JsonPrimitive(message),
-                                    logger = "mcp-task-orchestrator.tools"
-                                )
+                        logResponseSize(toolDefinition.name, success = false, responseChars = message.length)
+                        val errorEnvelope =
+                            ResponseUtil.createErrorResponse(
+                                ToolError.permanent(code = ErrorCodes.VALIDATION_ERROR, message = message)
                             )
-                        )
-                    } catch (ignored: Exception) {
-                        ignored.rethrowIfCancellation()
-                    }
-                    logResponseSize(toolDefinition.name, success = false, responseChars = message.length)
-                    val errorEnvelope =
-                        ResponseUtil.createErrorResponse(
-                            ToolError.permanent(code = ErrorCodes.VALIDATION_ERROR, message = message)
-                        )
-                    CallToolResult(
-                        content = listOf(TextContent(text = message)),
-                        isError = true,
-                        structuredContent = ResponseUtil.extractErrorPayload(errorEnvelope)
-                    )
-                } catch (e: PerRootConfigUnavailableException) {
-                    // D5: every tool other than advance_item/complete_tree (which handle this
-                    // per-transition/per-item themselves and never let it reach this adapter) fails
-                    // the WHOLE call through this dedicated catch — isError plus a structured
-                    // {kind, code, message} error envelope, so a caller can apply its own backoff
-                    // without parsing free text (no retryAfterMs, per the documented ErrorKind rule).
-                    val message = "Per-root config unavailable in '${toolDefinition.name}': ${e.message}"
-                    logger.warn(message)
-                    try {
-                        clientConnection.sendLoggingMessage(
-                            LoggingMessageNotification(
-                                LoggingMessageNotificationParams(
-                                    level = LoggingLevel.Warning,
-                                    data = JsonPrimitive(message),
-                                    logger = "mcp-task-orchestrator.tools"
-                                )
-                            )
-                        )
-                    } catch (ignored: Exception) {
-                        ignored.rethrowIfCancellation()
-                    }
-                    logResponseSize(toolDefinition.name, success = false, responseChars = message.length)
-                    // Reuse the same ToolError -> envelope -> structured-payload pipeline normal tool
-                    // failures use below, rather than hand-building the {kind, code, message} object —
-                    // the wire shape (isError, structuredContent.error.{kind,code,message}, no
-                    // retryAfterMs) stays identical.
-                    val errorEnvelope =
-                        ResponseUtil.createErrorResponse(
-                            ToolError.transient(code = PerRootConfigUnavailableException.CODE, message = message)
-                        )
-                    CallToolResult(
-                        content = listOf(TextContent(text = message)),
-                        isError = true,
-                        structuredContent = ResponseUtil.extractErrorPayload(errorEnvelope)
-                    )
-                } catch (e: Exception) {
-                    e.rethrowIfCancellation()
-                    // F10: a store fault that escaped the tool (a read the tool does not map itself) keeps the
-                    // 3.x DATABASE_ERROR code with the innermost SQL text, never INTERNAL and never not-found.
-                    if (PersistenceFaults.classify(e) != null) {
-                        val dbMessage = "Database error in '${toolDefinition.name}': ${LegacyFaults.message(e)}"
-                        logger.warn(dbMessage, e)
-                        logResponseSize(toolDefinition.name, success = false, responseChars = dbMessage.length)
-                        val dbEnvelope =
-                            ResponseUtil.createErrorResponse(ToolError.permanent(code = ErrorCodes.DATABASE_ERROR, message = dbMessage))
-                        return@withContext CallToolResult(
-                            content = listOf(TextContent(text = dbMessage)),
+                        CallToolResult(
+                            content = listOf(TextContent(text = message)),
                             isError = true,
-                            structuredContent = ResponseUtil.extractErrorPayload(dbEnvelope)
+                            structuredContent = ResponseUtil.extractErrorPayload(errorEnvelope)
                         )
-                    }
-                    val message = "Internal error in '${toolDefinition.name}' (session ${clientConnection.sessionId}): ${e.message}"
-                    logger.error(message, e)
-                    try {
-                        clientConnection.sendLoggingMessage(
-                            LoggingMessageNotification(
-                                LoggingMessageNotificationParams(
-                                    level = LoggingLevel.Error,
-                                    data = JsonPrimitive(message),
-                                    logger = "mcp-task-orchestrator.tools"
+                    } catch (e: PerRootConfigUnavailableException) {
+                        // D5: every tool other than advance_item/complete_tree (which handle this
+                        // per-transition/per-item themselves and never let it reach this adapter) fails
+                        // the WHOLE call through this dedicated catch — isError plus a structured
+                        // {kind, code, message} error envelope, so a caller can apply its own backoff
+                        // without parsing free text (no retryAfterMs, per the documented ErrorKind rule).
+                        val message = "Per-root config unavailable in '${toolDefinition.name}': ${e.message}"
+                        logger.warn(message)
+                        try {
+                            clientConnection.sendLoggingMessage(
+                                LoggingMessageNotification(
+                                    LoggingMessageNotificationParams(
+                                        level = LoggingLevel.Warning,
+                                        data = JsonPrimitive(message),
+                                        logger = "mcp-task-orchestrator.tools"
+                                    )
                                 )
                             )
+                        } catch (ignored: Exception) {
+                            ignored.rethrowIfCancellation()
+                        }
+                        logResponseSize(toolDefinition.name, success = false, responseChars = message.length)
+                        // Reuse the same ToolError -> envelope -> structured-payload pipeline normal tool
+                        // failures use below, rather than hand-building the {kind, code, message} object —
+                        // the wire shape (isError, structuredContent.error.{kind,code,message}, no
+                        // retryAfterMs) stays identical.
+                        val errorEnvelope =
+                            ResponseUtil.createErrorResponse(
+                                ToolError.transient(code = PerRootConfigUnavailableException.CODE, message = message)
+                            )
+                        CallToolResult(
+                            content = listOf(TextContent(text = message)),
+                            isError = true,
+                            structuredContent = ResponseUtil.extractErrorPayload(errorEnvelope)
                         )
-                    } catch (ignored: Exception) {
-                        ignored.rethrowIfCancellation()
+                    } catch (e: Exception) {
+                        e.rethrowIfCancellation()
+                        // F10: a store fault that escaped the tool (a read the tool does not map itself) keeps the
+                        // 3.x DATABASE_ERROR code with the innermost SQL text, never INTERNAL and never not-found.
+                        if (PersistenceFaults.classify(e) != null) {
+                            val dbMessage = "Database error in '${toolDefinition.name}': ${LegacyFaults.message(e)}"
+                            logger.warn(dbMessage, e)
+                            logResponseSize(toolDefinition.name, success = false, responseChars = dbMessage.length)
+                            val dbEnvelope =
+                                ResponseUtil.createErrorResponse(ToolError.permanent(code = ErrorCodes.DATABASE_ERROR, message = dbMessage))
+                            return@withContext CallToolResult(
+                                content = listOf(TextContent(text = dbMessage)),
+                                isError = true,
+                                structuredContent = ResponseUtil.extractErrorPayload(dbEnvelope)
+                            )
+                        }
+                        val message = "Internal error in '${toolDefinition.name}' (session ${clientConnection.sessionId}): ${e.message}"
+                        logger.error(message, e)
+                        try {
+                            clientConnection.sendLoggingMessage(
+                                LoggingMessageNotification(
+                                    LoggingMessageNotificationParams(
+                                        level = LoggingLevel.Error,
+                                        data = JsonPrimitive(message),
+                                        logger = "mcp-task-orchestrator.tools"
+                                    )
+                                )
+                            )
+                        } catch (ignored: Exception) {
+                            ignored.rethrowIfCancellation()
+                        }
+                        logResponseSize(toolDefinition.name, success = false, responseChars = message.length)
+                        CallToolResult(
+                            content = listOf(TextContent(text = message)),
+                            isError = true
+                        )
                     }
-                    logResponseSize(toolDefinition.name, success = false, responseChars = message.length)
-                    CallToolResult(
-                        content = listOf(TextContent(text = message)),
-                        isError = true
-                    )
                 }
-            }
+            // The built result gets its reqId, then one call_log record is submitted. Reaching here means the
+            // call was not cancelled (a cancellation propagates out of withContext above and writes no row).
+            val result = built.copy(meta = buildJsonObject { put("reqId", reqId) })
+            submitCallLog(toolDefinition, request.arguments, result, telemetry, startedAt, started.elapsedNow().inWholeMilliseconds)
+            result
         }
 
         logger.debug("Registered tool '{}' with MCP server", toolDefinition.name)
+    }
+
+    /**
+     * Builds and submits the `call_log` record for a finished call. Any failure here is logged at DEBUG and
+     * swallowed: telemetry must never change what the caller receives (cancellation is rethrown first).
+     */
+    private fun submitCallLog(
+        toolDefinition: ToolDefinition,
+        arguments: JsonObject?,
+        result: CallToolResult,
+        telemetry: CallTelemetry,
+        startedAt: java.time.Instant,
+        latencyMs: Long
+    ) {
+        try {
+            val isError = result.isError == true
+            val structured = result.structuredContent
+            val responseBytes =
+                result.content.sumOf { (it as? TextContent)?.text?.let(CallLogFields::utf8Length) ?: 0L } +
+                    (structured?.let { CallLogFields.utf8Length(it.toString()) } ?: 0L)
+            val requestBytes = arguments?.let { CallLogFields.utf8Length(it.toString()) } ?: 0L
+            val shapeSource =
+                try {
+                    preprocessParameters(arguments ?: JsonObject(emptyMap()), toolDefinition.parameterSchema) as? JsonObject
+                } catch (e: Exception) {
+                    e.rethrowIfCancellation()
+                    arguments
+                }
+            val errorCode =
+                if (isError) CallLogFields.errorCode(structured) ?: ErrorCodes.INTERNAL_ERROR else null
+            val data = if (isError) null else structured
+            callLog.submit(
+                CallLogFields.record(
+                    telemetry = telemetry,
+                    at = startedAt,
+                    tool = toolDefinition.name,
+                    operation = CallLogFields.operation(arguments),
+                    targetIds = CallLogFields.targetIdsJson(arguments),
+                    requestShape = CallLogFields.requestShapeJson(shapeSource),
+                    isError = isError,
+                    errorCode = errorCode,
+                    latencyMs = latencyMs,
+                    requestBytes = requestBytes,
+                    responseBytes = responseBytes,
+                    batchSize = CallLogFields.batchSize(arguments),
+                    failedCount = CallLogFields.failedCount(data),
+                    resultCount = CallLogFields.returnedCount(data),
+                    eligibleCount = null
+                )
+            )
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            logger.debug("Call log record for '{}' was not built: {}", toolDefinition.name, e.message)
+        }
     }
 
     /**

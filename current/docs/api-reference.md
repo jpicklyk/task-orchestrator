@@ -508,6 +508,8 @@ under it at `existing.depth + 1`. Providing both `root.id` and `parentId` is rej
 | `actor` | object | No | Actor claim `{ id, kind: orchestrator\|subagent\|user\|external, parent?, proof? }`. Used for idempotency keying AND propagated as the actor attribution on every persisted note (explicit, `noteAnchors`-sourced, and `createNotes=true` blanks alike). |
 | `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). Requires `actor` to function. |
 
+**Note write policy.** Explicit `notes` and `noteAnchors`-sourced notes follow the same policy as [`manage_notes`](#manage_notes) (see its **Note write policy**). `role` may be given in any letter case (stored lowercase). Unlike `manage_notes`, which reports per-note failures, a policy rejection here fails the WHOLE `create_work_tree` call: an over-cap body (65536 UTF-8 bytes), a schema-role mismatch, or - under `note_limits.mode: reject` - a body over the schema `maxLength` returns `VALIDATION_ERROR` with zero items created and the plan document not adopted. Under `note_limits.mode: warn` the call succeeds and the affected note's entry in the `notes` response array carries a `warning` field naming the limit and actual length; for a duplicate `(itemRef, key)` the warning follows the last-wins note. `createNotes=true` blanks are built from the schema entry with an empty body and do not go through the policy.
+
 `root.priority` and each `children[i].priority` must be one of `high`, `medium`, `low` (case-insensitive); a blank or absent value defaults to `medium`, the same rule `manage_items` applies. An unrecognized non-blank value (e.g. `"urgent"`) is rejected with a validation error, not silently coerced to `medium`.
 
 Nesting depth is unbounded. The root item can be at any depth; each child's depth is its resolved parent's depth + 1 — root.depth + 1 for direct children (default `parentRef: "root"`), deeper when nested under another child via `parentRef`. In attach mode, children derive depth from the existing root's depth. `parentRef` cycles are rejected at validation; cycle protection is also enforced at the database level. Descendant traversal (e.g. cascade delete, re-parent depth recompute) is additionally bounded to 1000 levels and fails with a data error on a cycle or a subtree at/beyond the bound, instead of hanging or silently truncating; subtree search instead bounds-and-continues, excluding anything past the cap.
@@ -782,10 +784,12 @@ Providing both `ids` and `itemId` in the same delete call is an error — the se
 |---|---|---|---|
 | `itemId` | string (UUID) | Yes | The WorkItem this note belongs to |
 | `key` | string | Yes | Logical name for this note (e.g., `requirements`, `done-criteria`) |
-| `role` | string | Yes | Workflow phase: `queue`, `work`, or `review` |
+| `role` | string | Yes | Workflow phase: `queue`, `work`, or `review` (any letter case; stored lowercase) |
 | `body` | string | No | Note content (default: `""`). Mutually exclusive with `bodyFromFile` — providing both fails that note. |
 | `bodyFromFile` | string | No | Server-side file path read in place of `body`. Resolved strictly relative to the agent config root (`AGENT_CONFIG_DIR`, falling back to the server's working directory) — absolute paths, `..` escapes, and symlink escapes are rejected. File must exist and be ≤65536 bytes. CRLF line endings are normalized to LF on read. |
 | `actor` | object | No | Optional actor claim — see Actor Attribution section |
+
+**Note write policy.** One service (`NoteCommandService`) applies the same policy to `manage_notes`, `create_work_tree` notes and the REST `PUT /items/{id}/notes/{key}`, in this order: (1) `role` is lowercased (locale-invariant, no trimming) and must be `queue`, `work` or `review`; (2) the raw body is capped at 65536 UTF-8 bytes in every `note_limits` mode (in `manage_notes` this note fails with `{ code: NOTE_BODY_TOO_LARGE, key, maxBytes, actualBytes }`); (3) CRLF is normalized to LF everywhere, inline and file-read alike (a lone CR is kept); (4) when the item's resolved schema declares the note's `key`, the role must equal the schema role, otherwise the note is rejected (off-schema keys and schema-free items are unconstrained); (5) the `maxLength` check below, measured in characters on the normalized body.
 
 **Note body length limits.** When the resolved schema declares `maxLength` for a note's `key`, the resolved body (from `body` or `bodyFromFile`) is checked against it after resolution. The top-level config `note_limits.mode` controls enforcement: `warn` (default) accepts the note and adds a `warning` field to that note's result naming the limit and actual size; `reject` fails that note with a structured error: `{ "code": "NOTE_BODY_TOO_LONG", "key": "...", "maxLength": N, "actualLength": N }` in its `failures` entry. `note_limits` is layered per-root: a per-root `manage_project_config` push that explicitly sets `note_limits.mode` wins for that root's items; a per-root document that omits `note_limits` entirely falls through to the global mode unchanged — see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md).
 
@@ -846,7 +850,7 @@ The `(itemId, key)` pair is unique — upserting with an existing pair updates t
 }
 ```
 
-Each note in the `notes` response array also carries a `warning` field when its body exceeded a schema `maxLength` under `note_limits.mode: warn` (naming the limit and actual length). Under `mode: reject`, an over-limit note instead appears in `failures` with `code: "NOTE_BODY_TOO_LONG"`, `key`, `maxLength`, and `actualLength`.
+Each note is validated independently under the **Note write policy** above, and a rejection is a per-note entry in `failures`; the rest of the batch proceeds. An over-cap body (65536 UTF-8 bytes) fails that note with `{ "code": "NOTE_BODY_TOO_LARGE", "key": "...", "maxBytes": 65536, "actualBytes": N }`; a role that is not `queue`/`work`/`review` (any letter case is accepted and stored lowercase) or a schema-role mismatch likewise fails only that note. A note whose body exceeded a schema `maxLength` under `note_limits.mode: warn` carries a `warning` field in its result (naming the limit and actual length); under `mode: reject` it instead appears in `failures` with `code: "NOTE_BODY_TOO_LONG"`, `key`, `maxLength`, and `actualLength`.
 
 A note whose schema or note-limits-mode could not be resolved because its item's per-root config was unavailable (see [Error Envelope](#error-envelope)) instead appears in `failures` as `{index, error, errorKind: "transient", errorCode: "config_unavailable"}`; nothing is stored for it and the rest of the batch proceeds.
 
@@ -2170,14 +2174,15 @@ repository error is NOT the same as "no per-root config" — `PerRootConfigServi
 to the global config on a read error. It instead serves that root's last cached parse (last-known-good)
 without evicting it, and logs a WARN naming the root and the error. Last-known-good has no TTL: the
 next successful read refreshes it via the normal fingerprint-comparison hot-reload path, and it is
-held per service instance (MCP and each REST route construct their own `PerRootConfigService`, so a
-last-known-good entry is not shared across them). When there is no cached entry to serve — a cold
-cache, e.g. this instance's first read for the root — the read fails closed with a transient
+shared by MCP and REST (one `EffectiveConfigResolver`, built once in `ServerComposition`). A read made
+inside a unit of work (a write's or a preview's read unit) never serves last-known-good — a fault there fails closed as below even
+with a warm cache; `manage_notes` upsert and REST note `PUT` read
+the config this way (`create_work_tree` reads it before its write, so the fallback still applies there). When there is no cached entry to serve — a cold
+cache, e.g. the first read for the root — the read fails closed with a transient
 `config_unavailable` error (see [Error Envelope](#error-envelope)) rather than silently resolving
 against the global config. This is distinct from an explicit absence (no config row, or malformed
 stored YAML), which is unchanged: evict any cached entry, fall through to the global config.
-Inside a unit of work the fallback is disabled: a read fault there fails closed with
-`config_unavailable` even when a last-known-good entry is cached. `advance_item`, `complete_tree` and
+`advance_item`, `complete_tree` and
 REST `POST /items/{id}/advance` read the advanced item's config (and every cascade target's) inside the
 advance's unit, so the NOTE, lease and label decisions never use config read before the writer lock;
 the `canAdvance` previews of `get_context` and REST `GET /items/{id}/gate` read it inside their read unit
@@ -2672,6 +2677,17 @@ The mutating tools `manage_items`, `manage_notes`, `manage_dependencies`, `advan
 Retry the same call with the same `requestId` whenever the outcome is unknown or a transient failure came back: elements that already succeeded replay, the rest run again. Use a **new** `requestId` for a different payload.
 
 ---
+
+## Request Correlation (`_meta.reqId`)
+
+Every tool result, success or error (validation, per-root config, database and internal failures
+included), carries `_meta.reqId`: the call's 8-character correlation id (lowercase Crockford base32,
+for example `k7f3q9ab`). It is the `req_id` of every event row the call wrote, the MDC `reqId` log
+key, and the primary key of the call's row in the `call_log` table (whose `operation` column holds
+the `operation` argument only when it is a plain name, else `invalid`; its `principal_id` column holds the
+self-reported actor id, up to the 500-character actor cap, with `proof_status` saying whether it was verified). It is not part of
+`structuredContent`, so tool payloads are unchanged. `tools/list` and `initialize` have none. See
+`fleet-deployment.md` -> "Call log and `reqId`".
 
 ## Error Envelope
 
