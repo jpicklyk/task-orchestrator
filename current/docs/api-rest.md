@@ -373,6 +373,7 @@ other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability
 | `note_body_too_long` | 422 | `PUT /items/{id}/notes/{key}`: the body exceeds the schema `maxLength` for the key and `note_limits.mode` is `reject` |
 | `payload_too_large` | 413 | Request body exceeds its route's byte limit (and, for `PUT /items/{id}/notes/{key}`, a note `body` over 65536 UTF-8 bytes) — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT /items/{id}/notes/{key}`, and `POST /dependencies` share a 1 MiB limit; `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB, except a `{slug}` starting with `rule/` (e.g. `rule%2Fcommit-discipline`), which is capped tighter at 16384 bytes (16 KiB) — the single enforcement point `query_rules`/§19a rely on, so those read surfaces never re-check size themselves (see §18, §19, §19a). |
 | `version_conflict` | 409 | `PATCH /items/{id}`: `If-Match` matched at read time, but a concurrent writer's update won the version race before this write committed — optimistic-lock loss, distinct from `etag_mismatch`. Retry with a fresh `If-Match` ETag. |
+| `invalid_transition` | 409 | `POST /items` or `PATCH /items/{id}` (4.0): the new parent is `terminal` and its effective lifecycle is `auto`, so it takes no new children; `details.parentId` names it. Reopen the parent (`POST /items/{id}/advance` with `reopen`) and retry. A `manual` or `permanent` parent accepts children. |
 | `invalid_request` | 401 | `error_description` body. Missing `Authorization` header, a non-Bearer scheme, or an empty Bearer credential (also the SSE pre-flight when no header or allowed `?token=` is presented). Carries `WWW-Authenticate: Bearer error="invalid_request"`. |
 | `invalid_token` | 401 | `error_description` body. Unknown, expired, or otherwise invalid token (bearer or JWKS). Carries `WWW-Authenticate: Bearer error="invalid_token"`. |
 | `verification_failed` | 401 | Not currently reachable via REST — a JWT passing `ApiBearerAuth` is always `VERIFIED`, which every `degradedModePolicy` trusts. Reserved for the same audit-policy check used by MCP tool calls, where a self-reported actor under a degraded JWKS result can still be rejected. |
@@ -1170,8 +1171,15 @@ Create a work item. Requires `WRITE_ITEMS`.
   create), a `root_ids`-scoped token is always denied (a new item's chain can never already be in
   `root_ids`), and a `tags_include`-only token is denied unless the tags it creates the root
   *with* satisfy its own `tags_include` (see §3)
+- `409 invalid_transition` — the parent is `terminal` under `auto` lifecycle (4.0); `details.parentId`
+  names it and nothing is written. Reopen the parent first.
 - `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
 - `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the `Idempotency-Key` header or body is read
+- `503 config_unavailable` — resolving a `terminal` parent's lifecycle read the per-root config and it
+  was unavailable (transient); nothing is written
+
+The item is always created in `queue` (the body has no `role` field). Its `depth` and `rootId` come
+from the parent row read inside the write's own transaction.
 
 Supports `Idempotency-Key` header.
 
@@ -1208,10 +1216,23 @@ JSON Merge Patch update. Requires `WRITE_ITEMS`, `If-Match`, and `Content-Type: 
   `findAncestorChains` lookup — not bounded by the parent row's denormalized `depth`, so a stale or
   incorrect `depth` value can no longer let a cycle through. **Ordering:** `404 not_found` (unknown
   parent) → `403 scope_forbidden` (parent outside scope) → this `400 validation_error`
-  (self/descendant cycle) — each check runs only after the previous one passes, and nothing is
-  written until all three clear.
+  (self/descendant cycle) → `409 invalid_transition` (closed parent) — each check runs only after
+  the previous one passes, and nothing is written until all clear. Since 4.0 the cycle and
+  closed-parent checks run inside the write's own transaction.
+- `409 invalid_transition` — the new parent is `terminal` under `auto` lifecycle (4.0);
+  `details.parentId` names it and nothing is written. Reopen the parent first.
 - `500 db_error` — the ancestor-chain lookup for the cycle check failed (repository error); the
   patch fails closed with no write, rather than silently treating the failure as "no cycle found."
+- `503 config_unavailable` — resolving a `terminal` new parent's lifecycle read the per-root config
+  and it was unavailable (transient); nothing is written
+
+**Reparent effects (4.0).** A reparent restamps every descendant's `depth` and `rootId` in one
+statement inside the same transaction; each restamped descendant's version and `modifiedAt` change,
+so its ETag changes too. Moving an item away from its parent (to another parent or to root) then
+re-evaluates the OLD parent exactly like a child completion: under `auto` lifecycle it completes when
+every remaining child is terminal and its gate passes (a missing required note suppresses it), in the
+same transaction. The response body is unchanged (no cascade report); the parent's new role is
+visible on the next read and as an `item.advanced` event.
 - `409 version_conflict` — a concurrent writer's update won the version race between the `If-Match`
   check and this request's own write. Distinct from `412 etag_mismatch` below: the ETag matched at
   read time, but the underlying row changed before this write committed. Retry with a fresh
@@ -1227,8 +1248,10 @@ Supports `Idempotency-Key` header.
 Deletes the item. Requires `WRITE_ITEMS`. A parent item (one with direct children) is refused
 with `409 has_children` unless `?recursive=true` is given, in which case it and every descendant
 (notes and dependencies cascade with each row) are deleted, leaves-first, inside one
-transaction — all-or-nothing, matching the MCP `manage_items` delete operation's semantics
-(`WorkItemDeletion`, shared by both surfaces).
+transaction — all-or-nothing, matching the MCP `manage_items` delete operation's semantics (the
+item command service, shared by both surfaces). Since 4.0 the delete then re-evaluates the deleted
+item's parent like a child completion, in the same transaction (deleting a parent's last child
+never completes it); the response body is unchanged.
 
 **Query parameter:** `recursive` — case-insensitive `"true"`/`"false"`; absent means `"false"`.
 Any other value → `400 validation_error`.
@@ -2147,6 +2170,8 @@ Both `sync.lost` and `auth.expired` are **control events** — they always bypas
 
 **Redaction.** Applied per connection, on egress only, identically for live delivery and `Last-Event-ID` replay: `actor` is omitted when `API_REDACT_NOTE_ATTRIBUTION=true` and the caller lacks `ADMIN`; otherwise it is delivered (`API_AUTH_MODE=none` callers are ADMIN).
 
+**Stored `events` row data:** each domain event's `events`-table row carries a type-specific `data` object that the SSE `ApiEvent` does not expose. For `note.upserted` it is `{itemId, key, role, bodyLength, bodyFromFile}` (plus `actorParent` when the writing actor names a parent): `bodyFromFile` is the server-side path a `manage_notes` caller supplied (since 4.0), or null for an inline body; the file contents are never recorded.
+
 **`item.updated` note:** since 4.0 an update that changes no field emits nothing, and a role change that also edits other fields emits only `item.advanced`.
 
 **`item.advanced` note:** This event is the projection of the transition row a role change records (via `advance_item`, `complete_tree`, `POST /items/{id}/advance`, including cascaded parent transitions). It carries the `newRole` field. This is distinct from `item.updated` -- a role change emits `item.advanced` (not `item.updated`).
@@ -2156,6 +2181,15 @@ Both `sync.lost` and `auth.expired` are **control events** — they always bypas
 **Bulk-write note:** `create_work_tree` emits `item.created` for each newly created item (root first; an attach-mode pre-existing root emits nothing), then `dependency.added` per edge and `note.upserted` per note, all after the enclosing transaction commits -- a rolled-back tree emits nothing. Deleting all of an item's notes at once emits one `note.deleted` per note (since 4.0; was one per call); removing all of an item's dependencies emits one `dependency.removed` per edge. Deleting an item also emits one `note.deleted` per note and one `dependency.removed` per edge the database cascade removes, before the `item.deleted`.
 
 **Table-only events:** the `events` table also records rejections (`transition.rejected`, `claim.rejected`, `lease.rejected`), expiry (`claim.expired`, `lease.expired`), resource-lease acquire/release, per-root config pushes and plan-document stash/adopt. These are audit rows and are not streamed; the stream carries only the event types listed above.
+
+**Who records what (4.0).** Each write service records its own rows, in its own transaction: the
+item command service (`item.created`, `item.updated`, the two `scope.*` rows of a reparent plus one
+`item.updated` per restamped descendant, `item.deleted` and the cascade `note.deleted` /
+`dependency.removed` rows of a delete), the note, dependency, project-config and plan-document
+services their own rows, the advance pipeline `item.advanced` (including a cascade a reparent or a
+delete triggers), and the claim service claim and lease rows. No store is decorated. The bus is the
+recorder's commit listener directly; a fan-out failure is logged and never fails the committed write
+(the 1 s poll picks the rows up).
 
 ---
 

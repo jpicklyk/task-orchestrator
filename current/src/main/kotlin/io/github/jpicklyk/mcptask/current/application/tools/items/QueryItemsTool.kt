@@ -839,9 +839,8 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                 return errorResponse(e.message ?: "Invalid search query", ErrorCodes.VALIDATION_ERROR)
             }
 
-        // Delegate to repository, dispatched via the WorkItemRepository interface: the tool
-        // context holds the event-recording decorator (EventPublishingWorkItemRepository,
-        // installed always since P8), which forwards reads to the concrete SQLite repo.
+        // Delegate to repository, dispatched via the WorkItemRepository interface (a read; the
+        // write services record their own event rows, so no decorator sits in front of it).
         val repo = context.workItemRepository()
         val searchResult =
             try {

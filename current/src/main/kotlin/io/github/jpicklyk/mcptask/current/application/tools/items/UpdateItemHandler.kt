@@ -1,11 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
-import io.github.jpicklyk.mcptask.current.application.service.PlacedWriteOutcome
-import io.github.jpicklyk.mcptask.current.application.service.ReparentCheck
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemPlacementService
+import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
+import io.github.jpicklyk.mcptask.current.application.service.ItemPatchCommand
+import io.github.jpicklyk.mcptask.current.application.service.ParentChange
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
@@ -19,6 +16,8 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationExcept
 import io.github.jpicklyk.mcptask.current.application.tools.resolveWorkItemIdString
 import io.github.jpicklyk.mcptask.current.application.tools.runElement
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import kotlinx.serialization.json.*
@@ -27,18 +26,19 @@ import java.util.UUID
 /**
  * Handles the `update` operation for [ManageItemsTool].
  *
- * Supports partial updates of existing WorkItems. Only provided fields are changed;
- * omitted fields retain their existing values. Parent changes trigger depth recomputation
- * with full cycle detection.
+ * Supports partial updates of existing WorkItems. Only provided fields are changed; omitted fields retain their
+ * existing values. The merged values become an [ItemPatchCommand] for
+ * [io.github.jpicklyk.mcptask.current.application.service.ItemCommandService.patch], which owns the hierarchy
+ * guards (self-parent, own-descendant, closed parent), the placement read, the descendant restamp and the old
+ * parent's cascade re-evaluation, all in one unit. A reparent's cascades are reported on the element as
+ * `cascadeEvents` (only when non-empty).
  *
  * Three-way parentId branching:
- * 1. Non-null parentId string -> validate and recompute depth
+ * 1. Non-null parentId string -> move under that parent
  * 2. Explicit JSON null -> move to root (depth = 0)
  * 3. Absent -> no change (keep existing parent and depth)
  */
-class UpdateItemHandler(
-    private val hierarchyValidator: ItemHierarchyValidator = ItemHierarchyValidator()
-) {
+class UpdateItemHandler {
     /**
      * Executes a batch update of WorkItems.
      *
@@ -79,18 +79,8 @@ class UpdateItemHandler(
                                 legacyRead({ throw IllegalStateException(it) }) { repo.getById(id) }
                                     ?: throw ToolValidationException("Item '$itemIdStr' not found: WorkItem not found with id: $id")
 
-                            val spec = parseUpdateFields(itemObj, itemIdStr, id, existing, sharedTraits, context, repo)
-                            when (val updateResult = persistWithPlacement(id, itemIdStr, existing, spec, repo, context.unitOfWork)) {
-                                is PersistedUpdate.Written ->
-                                    ElementResult.Done(
-                                        buildJsonObject {
-                                            put("id", JsonPrimitive(updateResult.item.id.toString()))
-                                            put("modifiedAt", JsonPrimitive(updateResult.item.modifiedAt.toString()))
-                                            put("requiresVerification", JsonPrimitive(updateResult.item.requiresVerification))
-                                        }
-                                    )
-                                is PersistedUpdate.Failed -> ElementResult.Failed(updateFailure(itemIdStr, updateResult.message, null))
-                            }
+                            val spec = parseUpdateFields(itemObj, itemIdStr, existing, sharedTraits, context)
+                            persist(itemIdStr, existing, spec, context)
                         }
                     }
                 when (outcome) {
@@ -104,6 +94,9 @@ class UpdateItemHandler(
                         put("error", JsonPrimitive(e.message ?: "Validation failed"))
                     }
                 )
+            } catch (e: PerRootConfigUnavailableException) {
+                // A per-root config fault resolving a TERMINAL new parent's lifecycle fails only this element.
+                failures.add(configUnavailableFailure("id", JsonPrimitive(itemId ?: "unknown"), e))
             } catch (e: Exception) {
                 e.rethrowIfCancellation()
                 failures.add(
@@ -157,9 +150,8 @@ class UpdateItemHandler(
     }
 
     /**
-     * A single item's parsed and validated partial-update fields, plus whether the parent
-     * changed. Depth/rootId are deliberately NOT part of this spec — they are resolved fresh
-     * inside the write transaction in [persistWithPlacement] (AR-19).
+     * A single item's parsed and validated partial-update fields, plus the parent change. Depth/rootId are
+     * deliberately NOT part of this spec: the service resolves them inside the write unit (AR-19).
      */
     private data class ParsedUpdateSpec(
         val newTitle: String?,
@@ -174,23 +166,19 @@ class UpdateItemHandler(
         val newType: String?,
         val newProperties: String?,
         val newParentId: UUID?,
-        val parentChanged: Boolean
+        val parent: ParentChange
     )
 
     /**
-     * Extracts and validates all optional partial-update fields for one update item: the
-     * role-change rejection, priority/complexity parsing, and the three-way parentId
-     * resolution + hierarchy guards (self-parent, ancestor cycle). Mirrors the pre-refactor
-     * inline logic byte-for-byte, including error messages.
+     * Extracts and validates all optional partial-update fields for one update item: the role-change rejection,
+     * priority/complexity parsing, and the three-way parentId resolution. The hierarchy guards run in the service.
      */
     private suspend fun parseUpdateFields(
         itemObj: JsonObject,
         itemId: String,
-        id: UUID,
         existing: WorkItem,
         sharedTraits: String?,
-        context: ToolExecutionContext,
-        repo: WorkItemRepository
+        context: ToolExecutionContext
     ): ParsedUpdateSpec {
         // Extract optional fields
         val newTitle = extractItemString(itemObj, "title")
@@ -232,10 +220,8 @@ class UpdateItemHandler(
             throw ToolValidationException("Item '$itemId': complexity must be between 1 and 10")
         }
 
-        // Handle parentId change. Depth/rootId are resolved from the CURRENT parent state
-        // below — inside the same transaction as the write when the parent actually
-        // changes, so a concurrent reparent/delete of the new parent cannot leave this
-        // item stamped with stale placement (AR-19).
+        // Handle parentId change. Depth/rootId are resolved from the CURRENT parent state inside the write unit
+        // (AR-19); the existence, self-parent, own-descendant and closed-parent guards run there too.
         val parentIdStr = extractItemString(itemObj, "parentId")
         val explicitNullParent = itemObj.containsKey("parentId") && itemObj["parentId"] is JsonNull
         val newParentId: UUID? =
@@ -244,26 +230,12 @@ class UpdateItemHandler(
                 explicitNullParent -> null
                 else -> existing.parentId
             }
-
-        if (parentIdStr != null && newParentId != null) {
-            // Guard checks only (existence, self-parent, descendant cycle); fails CLOSED when the
-            // ancestor lookup errors. Placement is resolved inside the write transaction.
-            when (val check = WorkItemPlacementService(repo, hierarchyValidator).checkReparent(id, newParentId)) {
-                ReparentCheck.Ok -> {}
-                ReparentCheck.SelfParent ->
-                    throw ToolValidationException("Item '$itemId': cannot be its own parent")
-                ReparentCheck.DescendantCycle ->
-                    throw ToolValidationException(
-                        "Item '$itemId': reparenting to '$newParentId' would create a circular hierarchy"
-                    )
-                is ReparentCheck.ParentNotFound ->
-                    throw ToolValidationException("Item '$itemId': parent '$newParentId' not found")
-                is ReparentCheck.LookupFailed ->
-                    throw ToolValidationException(
-                        "Item '$itemId': failed to verify hierarchy for parent '$newParentId': ${check.message}"
-                    )
+        val parent =
+            when {
+                parentIdStr != null && newParentId != null -> ParentChange.MoveUnder(newParentId)
+                explicitNullParent -> ParentChange.MoveToRoot
+                else -> ParentChange.Keep
             }
-        }
 
         return ParsedUpdateSpec(
             newTitle = newTitle,
@@ -278,75 +250,73 @@ class UpdateItemHandler(
             newType = newType,
             newProperties = newProperties,
             newParentId = newParentId,
-            parentChanged = newParentId != existing.parentId
+            parent = parent
         )
     }
 
     /**
-     * Writes the update via [WorkItemPlacementService.update]: when the parent actually changes,
-     * placement resolution, the item's own row and the descendant depth/rootId cascade all run
-     * inside ONE transaction (AR-19), and a cascade failure rolls back the item's own write too.
+     * Writes the update through the item command service. The final field values are merged against [existing]
+     * (read before the unit), so the patch carries [existing]'s version: a concurrent write in between loses the
+     * race as a version conflict instead of being silently overwritten.
      */
-    private suspend fun persistWithPlacement(
-        id: UUID,
+    private suspend fun persist(
         itemId: String,
         existing: WorkItem,
         spec: ParsedUpdateSpec,
-        repo: WorkItemRepository,
-        unitOfWork: UnitOfWork
-    ): PersistedUpdate {
-        // Builds the fully-updated WorkItem given a resolved placement, applying all the
-        // other partial-update fields extracted above via the update builder (monotonic
-        // modifiedAt).
-        fun buildUpdatedItem(
-            depth: Int,
-            rootId: UUID?
-        ): WorkItem =
-            existing.update { item ->
-                item.copy(
-                    parentId = spec.newParentId,
-                    rootId = rootId,
-                    title = spec.newTitle ?: item.title,
-                    description = spec.newDescription,
-                    summary = spec.newSummary ?: item.summary,
-                    role = item.role,
-                    statusLabel = spec.newStatusLabel,
-                    priority = spec.newPriority ?: item.priority,
-                    complexity = spec.newComplexity ?: item.complexity,
-                    requiresVerification = spec.newRequiresVerification ?: item.requiresVerification,
-                    depth = depth,
-                    metadata = spec.newMetadata,
-                    tags = spec.newTags,
-                    type = spec.newType,
-                    properties = spec.newProperties
+        context: ToolExecutionContext
+    ): ElementResult {
+        val command =
+            ItemPatchCommand(
+                itemId = existing.id,
+                expectedVersion = existing.version,
+                parent = spec.parent,
+                title = spec.newTitle ?: existing.title,
+                description = spec.newDescription,
+                summary = spec.newSummary ?: existing.summary,
+                statusLabel = spec.newStatusLabel,
+                priority = spec.newPriority ?: existing.priority,
+                complexity = spec.newComplexity ?: existing.complexity,
+                requiresVerification = spec.newRequiresVerification ?: existing.requiresVerification,
+                metadata = spec.newMetadata,
+                tags = spec.newTags,
+                type = spec.newType,
+                properties = spec.newProperties
+            )
+        val newParentId = spec.newParentId
+        return when (val outcome = context.itemCommandService.patch(command)) {
+            is Outcome.Ok -> {
+                val result = outcome.value
+                ElementResult.Done(
+                    buildJsonObject {
+                        put("id", JsonPrimitive(result.item.id.toString()))
+                        put("modifiedAt", JsonPrimitive(result.item.modifiedAt.toString()))
+                        put("requiresVerification", JsonPrimitive(result.item.requiresVerification))
+                        cascadeEventsJson(result.cascadeEvents)?.let { put("cascadeEvents", it) }
+                    }
                 )
             }
-
-        return when (
-            val outcome =
-                WorkItemPlacementService(repo, hierarchyValidator)
-                    .update(unitOfWork, existing, spec.newParentId, spec.parentChanged) { depth, rootId ->
-                        buildUpdatedItem(depth, rootId)
-                    }
-        ) {
-            is PlacedWriteOutcome.Written -> PersistedUpdate.Written(outcome.item)
-            is PlacedWriteOutcome.ParentNotFound ->
-                throw ToolValidationException("Item '$itemId': parent '${outcome.parentId}' not found")
-            is PlacedWriteOutcome.BuildFailed -> throw ToolValidationException(outcome.message)
-            is PlacedWriteOutcome.CascadeFailed ->
-                throw ToolValidationException("Item '$itemId': failed to update descendant depths: ${outcome.message}")
-            is PlacedWriteOutcome.WriteFailed -> PersistedUpdate.Failed(LegacyFaults.message(outcome.error))
+            is Outcome.Err -> {
+                val error = outcome.error
+                when {
+                    error.code == ErrorCode.NOT_FOUND && ItemCommandErrors.notFoundId(error) != existing.id.toString() ->
+                        throw ToolValidationException("Item '$itemId': parent '$newParentId' not found")
+                    ItemCommandErrors.isSelfParent(error) -> throw ToolValidationException("Item '$itemId': cannot be its own parent")
+                    error.code == ErrorCode.CYCLE_DETECTED ->
+                        throw ToolValidationException("Item '$itemId': reparenting to '$newParentId' would create a circular hierarchy")
+                    ItemCommandErrors.isHierarchyLookupFailure(error) -> throw ToolValidationException("Item '$itemId': ${error.message}")
+                    ItemCommandErrors.isClosedParent(error) ->
+                        ElementResult.Failed(
+                            updateFailure(
+                                itemId,
+                                "Item '$itemId': parent '$newParentId' is terminal under auto lifecycle; " +
+                                    "reopen it before moving items under it",
+                                null
+                            )
+                        )
+                    error.code == ErrorCode.INVALID_REQUEST -> throw ToolValidationException(error.message)
+                    else -> ElementResult.Failed(updateFailure(itemId, LegacyFaults.message(error), null))
+                }
+            }
         }
-    }
-
-    /** The per-item result of [persistWithPlacement]: the written item, or the legacy failure message. */
-    private sealed interface PersistedUpdate {
-        data class Written(
-            val item: WorkItem
-        ) : PersistedUpdate
-
-        data class Failed(
-            val message: String
-        ) : PersistedUpdate
     }
 }

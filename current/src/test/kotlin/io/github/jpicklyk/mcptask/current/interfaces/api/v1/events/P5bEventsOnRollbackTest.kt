@@ -1,6 +1,11 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.application.port.Clock
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.service.ItemCommandService
+import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
+import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -9,7 +14,6 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.OutsideUnitPolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.OutsideUnitWriteException
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SqliteUnitOfWork
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -68,19 +72,28 @@ class P5bEventsOnRollbackTest {
         baseline: Int
     ) = bus.projectedEvents().drop(baseline).filter { it.event == ApiEventType.ITEM_CREATED }
 
-    private fun unitOver(provider: EventPublishingRepositoryProvider) =
-        SqliteUnitOfWork(db.databaseManager, provider, Clock { Instant.now() })
+    /** A unit recording through one recorder that feeds [bus], and the item command service writing in it. */
+    private fun wired(
+        bus: ApiEventBus,
+        provider: RepositoryProvider = db.repositoryProvider(),
+        manager: DatabaseManager = db.databaseManager,
+    ): Pair<UnitOfWork, ItemCommandService> {
+        val (stores, unit) = eventWiredUnit(manager, provider, bus, Clock { Instant.now() })
+        return unit to ToolExecutionContext(stores, unitOfWork = unit).itemCommandService
+    }
+
+    private fun create(title: String) = ItemCreateCommand(parentId = null, title = title)
 
     @Test
-    fun `S10 a unit that creates through the decorated provider and returns Err publishes no item_created and leaves no row`(): Unit =
+    fun `S10 a unit that creates through the item command service and returns Err publishes no item_created and leaves no row`(): Unit =
         runBlocking {
             val bus = ApiEventBus()
-            val provider = EventPublishingRepositoryProvider(db.repositoryProvider(), bus)
+            val (unit, items) = wired(bus)
             val baseline = bus.projectedEvents().size
 
             val result =
-                unitOver(provider).write<Unit>("S10.err") {
-                    stores.workItemRepository().create(WorkItem(title = "S10 rolled back", depth = 0))
+                unit.write<Unit>("S10.err") {
+                    items.createInUnit(create("S10 rolled back"))
                     Outcome.Err(DomainError(ErrorCode.INTERNAL, "domain failure after the create"))
                 }
 
@@ -96,13 +109,13 @@ class P5bEventsOnRollbackTest {
                 "CREATE TRIGGER s10_fault BEFORE INSERT ON work_items WHEN NEW.title = 'S10 boom' BEGIN SELECT RAISE(ABORT, 'inj'); END"
             )
             val bus = ApiEventBus()
-            val provider = EventPublishingRepositoryProvider(db.repositoryProvider(), bus)
+            val (unit, items) = wired(bus)
             val baseline = bus.projectedEvents().size
 
             val result =
-                unitOver(provider).write<Unit>("S10.fault") {
-                    stores.workItemRepository().create(WorkItem(title = "S10 first", depth = 0))
-                    stores.workItemRepository().create(WorkItem(title = "S10 boom", depth = 0))
+                unit.write<Unit>("S10.fault") {
+                    items.createInUnit(create("S10 first"))
+                    items.createInUnit(create("S10 boom"))
                     Outcome.Ok(Unit)
                 }
 
@@ -116,12 +129,12 @@ class P5bEventsOnRollbackTest {
     fun `S10 control - the same unit returning Ok commits the row and publishes exactly one item_created`(): Unit =
         runBlocking {
             val bus = ApiEventBus()
-            val provider = EventPublishingRepositoryProvider(db.repositoryProvider(), bus)
+            val (unit, items) = wired(bus)
             val baseline = bus.projectedEvents().size
 
             val result =
-                unitOver(provider).write("S10.ok") {
-                    val created = stores.workItemRepository().create(WorkItem(title = "S10 committed", depth = 0))
+                unit.write("S10.ok") {
+                    val created = (items.createInUnit(create("S10 committed")) as Outcome.Ok).value
                     Outcome.Ok(created.id)
                 }
 
@@ -133,7 +146,7 @@ class P5bEventsOnRollbackTest {
         }
 
     @Test
-    fun `P1 a decorated write outside a unit under FAIL throws, writes nothing and publishes nothing`(): Unit =
+    fun `P1 a store write outside a unit under FAIL throws, writes nothing and publishes nothing`(): Unit =
         runBlocking {
             val failing =
                 DatabaseManager(appConfig = AppConfig.fromEnv { null }, outsideUnitPolicy = OutsideUnitPolicy.FAIL).also {
@@ -141,7 +154,8 @@ class P5bEventsOnRollbackTest {
                     managers += it
                 }
             val bus = ApiEventBus()
-            val provider = EventPublishingRepositoryProvider(DefaultRepositoryProvider(failing), bus)
+            val provider = DefaultRepositoryProvider(failing)
+            wired(bus, provider, failing)
             val baseline = bus.projectedEvents().size
 
             assertFailsWith<OutsideUnitWriteException> {
@@ -153,7 +167,7 @@ class P5bEventsOnRollbackTest {
         }
 
     @Test
-    fun `P1 control - the same decorated write inside a unit under FAIL commits and publishes`(): Unit =
+    fun `P1 control - the same create inside a unit under FAIL commits and publishes`(): Unit =
         runBlocking {
             val failing =
                 DatabaseManager(appConfig = AppConfig.fromEnv { null }, outsideUnitPolicy = OutsideUnitPolicy.FAIL).also {
@@ -161,11 +175,11 @@ class P5bEventsOnRollbackTest {
                     managers += it
                 }
             val bus = ApiEventBus()
-            val provider = EventPublishingRepositoryProvider(DefaultRepositoryProvider(failing), bus)
+            val (unit, items) = wired(bus, DefaultRepositoryProvider(failing), failing)
             val baseline = bus.projectedEvents().size
 
-            SqliteUnitOfWork(failing, provider, Clock { Instant.now() }).write("P1.control") {
-                stores.workItemRepository().create(WorkItem(title = "P1 inside", depth = 0))
+            unit.write("P1.control") {
+                items.createInUnit(create("P1 inside"))
                 Outcome.Ok(Unit)
             }
 

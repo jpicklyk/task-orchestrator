@@ -182,8 +182,7 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
                     else -> SearchScope()
                 }
 
-            // Dispatched via the NoteStore interface: noteRepo is the event-recording decorator
-            // (EventPublishingNoteRepository, installed always since P8), which forwards reads.
+            // Dispatched via the NoteStore interface (a read; no event-recording decorator since 4.0).
             val result =
                 noteRepo.ftsSearch(
                     sanitizedFtsQuery = sanitizedQuery,

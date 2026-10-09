@@ -1,11 +1,18 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentAdoptOutcome
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStashOutcome
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.UnitResult
 import io.github.jpicklyk.mcptask.current.application.support.writeUnit
+import io.github.jpicklyk.mcptask.current.domain.error.DomainError
+import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocument
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentSummary
@@ -66,12 +73,61 @@ class PlanDocumentService(
             }
 
             when (val outcome = repositoryProvider.planDocumentRepository().stash(rootItemId, slug, body)) {
-                is PlanDocumentStashOutcome.Stored -> UnitResult.Commit(PlanDocumentStashResult.Success(outcome.document))
+                is PlanDocumentStashOutcome.Stored -> {
+                    events.record(DomainEvent.PlanDocumentStashed(outcome.document.id, rootItemId, slug))
+                    UnitResult.Commit(PlanDocumentStashResult.Success(outcome.document))
+                }
                 is PlanDocumentStashOutcome.AdoptedConflict ->
                     UnitResult.Rollback(PlanDocumentStashResult.AdoptedConflict(outcome.existing))
             }
         }
     }
+
+    /**
+     * Marks the PENDING document at `(rootItemId, slug)` ADOPTED by [adoptedByItemId] and records
+     * `plan_document.adopted`, JOINING the caller's unit (an atomic composite such as `create_work_tree`, which adopts
+     * as its last step so the adoption commits or rolls back with the tree). A document already adopted (a concurrent
+     * adopt won) is `duplicate`; a vanished one is `not_found`.
+     */
+    suspend fun adoptInUnit(
+        rootItemId: UUID,
+        slug: String,
+        adoptedByItemId: UUID,
+    ): Outcome<PlanDocument> =
+        unitOfWork.write("PlanDocumentService.adoptInUnit") {
+            when (val outcome = repositoryProvider.planDocumentRepository().markAdopted(rootItemId, slug, adoptedByItemId)) {
+                is PlanDocumentAdoptOutcome.Adopted -> {
+                    val doc = outcome.document
+                    events.record(DomainEvent.PlanDocumentAdopted(doc.id, rootItemId, slug, doc.adoptedByItemId))
+                    Outcome.Ok(doc)
+                }
+                is PlanDocumentAdoptOutcome.AlreadyAdopted ->
+                    Outcome.Err(
+                        DomainError(
+                            code = ErrorCode.DUPLICATE,
+                            message =
+                                "Plan document '$slug' (root $rootItemId) was concurrently adopted by item " +
+                                    "${outcome.existing.adoptedByItemId}; aborting work tree creation",
+                            detail =
+                                ErrorDetail.Duplicate(
+                                    kind = EntityKind.DOCUMENT,
+                                    id = slug,
+                                    existingId = outcome.existing.id.toString()
+                                ),
+                            fixArgs = mapOf("kind" to "document", "existingId" to outcome.existing.id.toString())
+                        )
+                    )
+                PlanDocumentAdoptOutcome.NotFound ->
+                    Outcome.Err(
+                        DomainError(
+                            code = ErrorCode.NOT_FOUND,
+                            message = "Plan document '$slug' (root $rootItemId) no longer exists; aborting work tree creation",
+                            detail = ErrorDetail.NotFound(EntityKind.DOCUMENT, slug),
+                            fixArgs = mapOf("kind" to "document", "id" to slug)
+                        )
+                    )
+            }
+        }
 
     /** Reads back the full stored document (including body) at `(rootItemId, slug)`, or a null payload when none exists. */
     suspend fun get(

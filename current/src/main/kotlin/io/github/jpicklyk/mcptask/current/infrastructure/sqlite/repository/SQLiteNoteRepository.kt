@@ -80,7 +80,7 @@ class SQLiteNoteRepository(
      *
      * Returns the note with the correct ID (existing ID preserved on conflict, new ID on fresh insert).
      */
-    internal fun upsertRow(note: Note): Note {
+    private fun upsertRow(note: Note): Note {
         note.validate()
         val now = Instant.now()
 

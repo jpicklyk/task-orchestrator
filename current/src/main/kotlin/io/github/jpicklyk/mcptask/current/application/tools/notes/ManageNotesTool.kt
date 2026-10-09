@@ -351,7 +351,7 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                         when (
                             val written =
                                 context.noteCommandService.upsert(
-                                    NoteUpsertCommand(itemId, key, role, body, actorClaim, verification)
+                                    NoteUpsertCommand(itemId, key, role, body, actorClaim, verification, bodyFromFilePath)
                                 )
                         ) {
                             is Outcome.Err -> upsertFailure(written.error, index, itemIdStr, key)

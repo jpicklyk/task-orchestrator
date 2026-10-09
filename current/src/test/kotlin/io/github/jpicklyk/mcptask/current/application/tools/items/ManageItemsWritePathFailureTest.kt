@@ -112,6 +112,18 @@ class ManageItemsWritePathFailureTest {
             } else {
                 delegate.update(item)
             }
+
+        /** Since P15 the descendant cascade is one restamp statement: it fails when it would reach [failFor]. */
+        override suspend fun restampSubtree(
+            itemId: UUID,
+            depthDelta: Int,
+            newRootId: UUID
+        ): Int =
+            if (failFor in delegate.descendantIds(itemId)) {
+                throw IllegalStateException("simulated descendant cascade failure for $failFor")
+            } else {
+                delegate.restampSubtree(itemId, depthDelta, newRootId)
+            }
     }
 
     private class WorkItemRepoOverrideProvider(
@@ -260,6 +272,11 @@ class ManageItemsWritePathFailureTest {
                 setOf(1, 2, 3),
                 failures.map { it["index"]!!.jsonPrimitive.int }.toSet(),
                 "actual: $failures"
+            )
+            // P15 (D1): a create role is rejected outright, whatever its value.
+            assertEquals(
+                "Item at index 3: 'role' is not accepted on create; items are created in queue (use advance_item to move them)",
+                failures.first { it["index"]!!.jsonPrimitive.int == 3 }["error"]!!.jsonPrimitive.content
             )
 
             val all = repositoryProvider.workItemRepository().findByFilters()

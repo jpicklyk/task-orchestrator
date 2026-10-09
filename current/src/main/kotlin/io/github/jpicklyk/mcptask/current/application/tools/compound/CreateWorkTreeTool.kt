@@ -2,14 +2,14 @@ package io.github.jpicklyk.mcptask.current.application.tools.compound
 
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
 import io.github.jpicklyk.mcptask.current.application.port.ChildPlacement
-import io.github.jpicklyk.mcptask.current.application.service.DocRefSpec
+import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
+import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.application.service.MarkdownSectionSplitter
 import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
 import io.github.jpicklyk.mcptask.current.application.service.NoteLengthWarning
+import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
 import io.github.jpicklyk.mcptask.current.application.service.RuleService
 import io.github.jpicklyk.mcptask.current.application.service.TreeDepSpec
-import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
-import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
 import io.github.jpicklyk.mcptask.current.application.service.buildSchemaResponseFields
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
@@ -36,6 +36,12 @@ import java.util.UUID
  *
  * No application-layer depth cap is enforced. Cycle protection is delegated to the
  * DB BEFORE-UPDATE trigger on work_items.parent_id introduced in V7.
+ *
+ * The write is ONE unit over the write services: each item through `ItemCommandService.createInUnit` (root
+ * first, so every placement is the in-unit read of the parent just inserted, and a TERMINAL parent under auto
+ * lifecycle rejects the tree), then the dependencies through `DependencyCommandService.createInUnit`, the notes
+ * through `NoteCommandService.upsert` and the document adoption through `PlanDocumentService.adoptInUnit`. Any
+ * failure rolls the whole tree back: zero items, notes and dependencies, and the document stays PENDING.
  */
 class CreateWorkTreeTool :
     BaseToolDefinition(),
@@ -620,7 +626,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
 
         val (childrenResult, childrenError) = buildChildren(childrenArray, rootItem)
         if (childrenError != null) return childrenError
-        val (refToItem, sortedChildRefs) = childrenResult!!
+        val (refToItem, sortedChildRefs, refToCommand) = childrenResult!!
 
         val (depSpecsResult, depsError) = buildDependencySpecs(paramsObj, refToItem)
         if (depsError != null) return depsError
@@ -645,58 +651,64 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         val builtNotes = notesListResult!!
         val notesList = builtNotes.notes
 
-        // Build ordered item list. In attach mode the existing root is NOT inserted (it already
+        // Build the ordered create list. In attach mode the existing root is NOT inserted (it already
         // exists in the DB). In create mode the root leads the list (root first, children in
-        // topological order).
-        val orderedItems = mutableListOf<WorkItem>()
+        // topological order), so each item's parent is inserted before it.
+        val orderedCommands = mutableListOf<ItemCreateCommand>()
         if (!isExistingRoot) {
-            orderedItems.add(rootItem)
+            orderedCommands.add(rootResolution.rootCommand!!)
         }
         for (ref in sortedChildRefs) {
-            orderedItems.add(refToItem[ref]!!)
+            orderedCommands.add(refToCommand.getValue(ref))
         }
 
         val input =
-            WorkTreeInput(
-                items = orderedItems,
+            TreeInput(
+                commands = orderedCommands,
                 refToItem = refToItem,
                 deps = depSpecs,
                 notes = notesList,
-                docRef = docSlug?.let { slug -> DocRefSpec(rootItemId = docRootId!!, slug = slug, adoptingItemId = rootItem.id) }
+                adoption = docSlug?.let { slug -> DocAdoption(rootItemId = docRootId!!, slug = slug, adoptingItemId = rootItem.id) }
             )
 
         val (transactionOutcome, transactionError) =
-            runWorkTreeTransaction(context, isAttachMode, rootItem, rootIdStr, parentId, input, orderedItems)
+            runWorkTreeTransaction(context, isAttachMode, rootItem, rootIdStr, parentId, input)
         if (transactionError != null) return transactionError
         val (treeResult, finalRootPlacement) = transactionOutcome!!
 
-        // In attach mode, correct the root's depth/rootId to the SAME authoritative values just
-        // stamped onto its children by the transaction (placement.depth - 1 / placement.rootId),
-        // rather than the value fetched back earlier — the root row itself is not rewritten by
-        // this call, so this is response-shaping only, not a second write.
+        // In attach mode, report the root's depth/rootId from the SAME authoritative placement read
+        // inside the unit (placement.depth - 1 / placement.rootId) rather than the value fetched back
+        // earlier: the root row itself is not rewritten by this call, so this is response-shaping only.
         val finalRootItem =
             finalRootPlacement?.let { placement ->
                 rootItem.copy(depth = placement.depth - 1, rootId = placement.rootId)
             } ?: rootItem
         // In attach mode the root was not inserted — use finalRootItem for the response. In
-        // create mode the root is treeResult.items.first() (already the persisted, restamped row).
+        // create mode the root is treeResult.items.first() (the persisted row).
         val rootResultItem = if (isExistingRoot) finalRootItem else treeResult.items.first()
 
         return buildTreeResponse(context, treeResult, rootResultItem, isExistingRoot, depSpecs, builtNotes.warnings)
     }
 
+    /**
+     * The resolved root: [rootItem] is the fetched existing item (attach mode) or a PREVIEW of the new root
+     * (create mode: never persisted; it carries the tree's provisional rootId for schema and docRef resolution).
+     * [rootCommand] is the create command of a new root, null in attach mode.
+     */
     private data class RootResolution(
         val rootItem: WorkItem,
         val isAttachMode: Boolean,
         val isExistingRoot: Boolean,
         val rootIdStr: String?,
-        val parentId: UUID?
+        val parentId: UUID?,
+        val rootCommand: ItemCreateCommand? = null
     )
 
     /**
      * Detects attach-vs-create mode from `root.id`, resolves `parentId` (create mode only), and
-     * resolves the root item: fetches the existing item in attach mode, or builds a new one in
-     * create mode using the parent's depth/rootId (or depth 0 / a fresh id at top level).
+     * resolves the root item: fetches the existing item in attach mode, or builds the create command
+     * of a new one (and its preview) in create mode. Placement is NOT decided here: the item command
+     * service derives it from the parent row read inside the write unit.
      */
     private suspend fun resolveRootAndMode(
         rootObj: JsonObject,
@@ -732,13 +744,12 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
             ) to null
         }
 
-        // Create mode: compute root depth + rootId from parent, then build a new WorkItem.
-        // rootId: a new root with no parentId is its own root; a new root created under
-        // parentId inherits that parent's root (or the parent's own id, if the parent predates
-        // the root_id backfill and has no rootId yet) — same idiom as CreateItemHandler.
+        // Create mode: the parent must exist (checked again, authoritatively, inside the write unit).
+        // The provisional rootId (the parent's root, or the parent's own id when it predates the
+        // root_id backfill, or the new root's own id at top level) only selects the schema and the
+        // docRef root default; the persisted placement comes from the in-unit read.
         val rootItemId = UUID.randomUUID()
-        val rootDepth: Int
-        val rootRootId: UUID
+        val provisionalRootId: UUID
         if (parentId != null) {
             val parent =
                 legacyRead({ return null to errorResponse("Failed to read parent item '$parentId': $it", ErrorCodes.DATABASE_ERROR) }) {
@@ -748,28 +759,24 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                         "Parent item '$parentId' not found: WorkItem not found with id: $parentId",
                         ErrorCodes.RESOURCE_NOT_FOUND
                     )
-            rootDepth = parent.depth + 1
-            rootRootId = parent.rootId ?: parent.id
+            provisionalRootId = parent.rootId ?: parent.id
         } else {
-            rootDepth = 0
-            rootRootId = rootItemId
+            provisionalRootId = rootItemId
         }
+        val rootCommand =
+            buildItemCommand(obj = rootObj, parentId = parentId, id = rootItemId)
+                ?: return null to errorResponse("Failed to build root item", ErrorCodes.VALIDATION_ERROR)
         val rootItem =
-            buildWorkItem(
-                obj = rootObj,
-                parentId = parentId,
-                depth = rootDepth,
-                rootId = rootRootId,
-                contextLabel = "root",
-                id = rootItemId
-            ) ?: return null to errorResponse("Failed to build root item", ErrorCodes.VALIDATION_ERROR)
+            previewOf(rootCommand, provisionalRootId, "root")
+                ?: return null to errorResponse("Failed to build root item", ErrorCodes.VALIDATION_ERROR)
 
         return RootResolution(
             rootItem = rootItem,
             isAttachMode = false,
             isExistingRoot = false,
             rootIdStr = rootIdStr,
-            parentId = parentId
+            parentId = parentId,
+            rootCommand = rootCommand
         ) to null
     }
 
@@ -781,11 +788,10 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
      * independently and its own rootId may already be stale relative to a concurrent reparent of
      * the root itself, so it is re-read via resolveChildPlacement (its rootId component is
      * exactly the queried item's own effective rootId, independent of the +1 depth offset that
-     * method computes for a hypothetical child). The AUTHORITATIVE read that actually gates the
-     * write happens again inside the write transaction (see [runWorkTreeTransaction]) and is what
-     * restamps the rows actually written — a race in the narrow window between this read and that
-     * one could only affect which schema/document was selected, never the depth/rootId values
-     * persisted (AR-19).
+     * method computes for a hypothetical child). The AUTHORITATIVE placement of every row written
+     * is read inside the write unit (see [runWorkTreeTransaction]) — a race in the narrow window
+     * between this read and that one could only affect which schema/document was selected, never
+     * the depth/rootId values persisted (AR-19).
      */
     private suspend fun resolveEffectiveRootId(
         isAttachMode: Boolean,
@@ -843,9 +849,15 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         return DocRefSource(docSlug, parsedRootId) to null
     }
 
+    /**
+     * [refToItem] maps every ref (the root under [ROOT_REF]) to its item: the existing root in attach mode, otherwise
+     * a never-persisted preview (ids, type, tags and traits for schema resolution and note targeting).
+     * [refToCommand] holds each child's create command.
+     */
     private data class ChildrenBuildResult(
         val refToItem: MutableMap<String, WorkItem>,
-        val sortedChildRefs: List<String>
+        val sortedChildRefs: List<String>,
+        val refToCommand: Map<String, ItemCreateCommand>
     )
 
     /**
@@ -908,10 +920,9 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
     }
 
     /**
-     * Builds every child [WorkItem] in topological (parent-before-child) order, seeding
-     * `refToItem` with the root under [ROOT_REF]. Depth/rootId are inherited from each item's
-     * already-built parent (root or sibling) — a placement later re-stamped by delta once the
-     * authoritative anchor is re-read inside the write transaction (see [runWorkTreeTransaction]).
+     * Builds every child's create command (and its preview) in topological (parent-before-child) order, seeding
+     * `refToItem` with the root under [ROOT_REF]. Each child's parent is the root or an already-built sibling; no
+     * placement is computed here (the item command service derives it inside the write unit).
      */
     private fun buildChildren(
         childrenArray: JsonArray,
@@ -919,6 +930,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
     ): Pair<ChildrenBuildResult?, JsonElement?> {
         val refToItem = mutableMapOf<String, WorkItem>()
         refToItem[ROOT_REF] = rootItem
+        val refToCommand = mutableMapOf<String, ItemCreateCommand>()
 
         val (sortedChildRefs, refToParentRef) = topoSortChildRefs(childrenArray)
 
@@ -929,25 +941,17 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                     .first { (it["ref"] as JsonPrimitive).content == ref }
             val parentRef = refToParentRef[ref]!!
             val parentItem = refToItem[parentRef]!! // root or already-built sibling
-            val depth = parentItem.depth + 1
-            // rootId: inherit the parent's root (or the parent's own id, if the parent predates
-            // the root_id backfill and has no rootId yet). Works uniformly in both modes — in
-            // attach mode, refToItem[ROOT_REF] is the fetched *existing* root item, so its
-            // direct children correctly inherit its rootId ?: its id; deeper descendants inherit
-            // through their already-built parent, which by then carries the resolved rootId.
-            val childRootId = parentItem.rootId ?: parentItem.id
+            val command =
+                buildItemCommand(obj = childObj, parentId = parentItem.id)
+                    ?: return null to errorResponse("Failed to build child item '$ref'", ErrorCodes.VALIDATION_ERROR)
             val childItem =
-                buildWorkItem(
-                    obj = childObj,
-                    parentId = parentItem.id,
-                    depth = depth,
-                    rootId = childRootId,
-                    contextLabel = "child '$ref'"
-                ) ?: return null to errorResponse("Failed to build child item '$ref'", ErrorCodes.VALIDATION_ERROR)
+                previewOf(command, null, "child '$ref'")
+                    ?: return null to errorResponse("Failed to build child item '$ref'", ErrorCodes.VALIDATION_ERROR)
+            refToCommand[ref] = command
             refToItem[ref] = childItem
         }
 
-        return ChildrenBuildResult(refToItem, sortedChildRefs) to null
+        return ChildrenBuildResult(refToItem, sortedChildRefs, refToCommand) to null
     }
 
     /** Parses `deps` and validates each entry's `from`/`to` refs resolve within [refToItem]. */
@@ -1185,7 +1189,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
      * Resolves noteAnchors (materialize-from-document): fetches the referenced PENDING document,
      * slices each anchor, and appends into [notesList] — skipping any (itemRef, key) already
      * covered by an explicit note (explicit wins). Everything here is read-only against the
-     * document (the atomic adopt happens later, inside the executor's transaction) — an anchor
+     * document (the atomic adopt happens later, inside the tree's write unit) — an anchor
      * miss, missing document, or already-adopted document returns an error here, before any DB
      * write, so zero items are created.
      */
@@ -1379,21 +1383,41 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         return BuiltNotes(notesList, warnings) to null
     }
 
+    /** The stashed plan document a tree adopts as its LAST step, by [adoptingItemId] (the created/attached root). */
+    private data class DocAdoption(
+        val rootItemId: UUID,
+        val slug: String,
+        val adoptingItemId: UUID
+    )
+
+    /** Everything the tree's write unit writes: item commands root-first, ref-level deps, prepared notes, adoption. */
+    private data class TreeInput(
+        val commands: List<ItemCreateCommand>,
+        val refToItem: Map<String, WorkItem>,
+        val deps: List<TreeDepSpec>,
+        val notes: List<Note>,
+        val adoption: DocAdoption?
+    )
+
+    /** What the tree's write unit stored: the items (root-first, attach-mode root excluded), deps and notes. */
+    private data class TreeResult(
+        val items: List<WorkItem>,
+        val refToId: Map<String, UUID>,
+        val deps: List<Dependency>,
+        val notes: List<Note>
+    )
+
     private data class TransactionOutcome(
-        val treeResult: WorkTreeResult,
+        val treeResult: TreeResult,
         val finalRootPlacement: ChildPlacement?
     )
 
     /**
-     * Re-resolves the anchor's placement (parent in create mode, root itself in attach mode)
-     * INSIDE the write transaction and executes the tree write. This is the #339 invariant: the
-     * authoritative placement read, the depth/rootId restamp by delta, and
-     * `workTreeExecutor().execute` must all happen inside this ONE write unit (one unit per call): every
-     * item built earlier carries a depth/rootId computed from an EARLIER, possibly-stale read of
-     * the anchor, so a concurrent reparent/delete of the anchor between that earlier read and this
-     * write must not leave the new tree stamped with stale placement (AR-19). Root-level create
-     * (no parentId, not attach mode) has no anchor to re-read — the new tree's own root is
-     * unaffected by any concurrent write.
+     * Writes the whole tree in ONE write unit over the write services (joining a keyed call's element unit): every
+     * item through `ItemCommandService.createInUnit`, root first, so each placement is read from its parent's row
+     * inside this unit (AR-19) and a TERMINAL parent under auto lifecycle rejects the tree; then the dependencies,
+     * the notes and the document adoption. Any failure returns an error response and rolls everything back. In
+     * attach mode the existing root's placement is re-read in the unit for the response.
      */
     private suspend fun runWorkTreeTransaction(
         context: ToolExecutionContext,
@@ -1401,61 +1425,145 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         rootItem: WorkItem,
         rootIdStr: String?,
         parentId: UUID?,
-        input: WorkTreeInput,
-        orderedItems: List<WorkItem>
+        input: TreeInput
     ): Pair<TransactionOutcome?, JsonElement?> {
-        val anchorId = if (isAttachMode) rootItem.id else parentId
         val workItemRepo = context.workItemRepository()
-        var treeResultVar: WorkTreeResult? = null
-        var anchorNotFoundMessage: String? = null
-        // Attach mode only: the root itself is not re-inserted, so it is never in orderedItems /
-        // treeResult.items — capture the SAME authoritative placement resolved below so the
-        // response can report the root's current depth/rootId instead of the possibly-stale
-        // fetched value (review obs 4).
+        val refToId = input.refToItem.mapValues { (_, item) -> item.id }
+        var treeResultVar: TreeResult? = null
+        var failureVar: JsonElement? = null
+        var configFault: PerRootConfigUnavailableException? = null
+        // Attach mode only: the root itself is not re-inserted, so capture its authoritative placement
+        // read in the unit for the response (review obs 4).
         var finalRootPlacementVar: ChildPlacement? = null
+        val rollback = DomainError(ErrorCode.INTERNAL, "Unit 'CreateWorkTreeTool.execute' rolled back by its caller")
+
+        fun itemFailure(
+            error: DomainError,
+            command: ItemCreateCommand
+        ): JsonElement =
+            when {
+                ItemCommandErrors.isClosedParent(error) ->
+                    if (isAttachMode && command.parentId == rootItem.id) {
+                        errorResponse(
+                            "Root item '$rootIdStr' is terminal under auto lifecycle; reopen it before adding children",
+                            ErrorCodes.VALIDATION_ERROR
+                        )
+                    } else {
+                        errorResponse(
+                            "Parent item '${command.parentId}' is terminal under auto lifecycle; reopen it before adding children",
+                            ErrorCodes.VALIDATION_ERROR
+                        )
+                    }
+                error.code == ErrorCode.NOT_FOUND ->
+                    if (isAttachMode) {
+                        errorResponse(
+                            "Root item '$rootIdStr' not found: Parent item not found: ${rootItem.id}",
+                            ErrorCodes.RESOURCE_NOT_FOUND
+                        )
+                    } else {
+                        errorResponse("Parent item '$parentId' not found: Parent item not found: $parentId", ErrorCodes.RESOURCE_NOT_FOUND)
+                    }
+                error.code == ErrorCode.INVALID_REQUEST -> errorResponse(error.message, ErrorCodes.VALIDATION_ERROR)
+                else -> errorResponse("Work tree creation failed: ${LegacyFaults.message(error)}", ErrorCodes.INTERNAL_ERROR)
+            }
+
+        fun treeFailure(error: DomainError): JsonElement =
+            errorResponse("Work tree creation failed: ${LegacyFaults.message(error)}", ErrorCodes.INTERNAL_ERROR)
 
         val unit =
             try {
                 context.unitOfWork.write("CreateWorkTreeTool.execute") {
                     // Reset per attempt: a BUSY retry re-runs this block from scratch.
-                    anchorNotFoundMessage = null
-                    finalRootPlacementVar = null
                     treeResultVar = null
-                    var finalInput = input
-                    if (anchorId != null) {
-                        val placementResult = workItemRepo.resolveChildPlacement(anchorId)
-                        when (placementResult) {
-                            null -> {
-                                anchorNotFoundMessage =
-                                    if (isAttachMode) {
-                                        "Root item '$rootIdStr' not found: Parent item not found: $anchorId"
-                                    } else {
-                                        "Parent item '$parentId' not found: Parent item not found: $anchorId"
-                                    }
-                                // Nothing was written: the unit commits empty.
-                                return@write Outcome.Ok(Unit)
+                    failureVar = null
+                    configFault = null
+                    finalRootPlacementVar = null
+                    try {
+                        if (isAttachMode) {
+                            val placement = workItemRepo.resolveChildPlacement(rootItem.id)
+                            if (placement == null) {
+                                failureVar =
+                                    errorResponse(
+                                        "Root item '$rootIdStr' not found: Parent item not found: ${rootItem.id}",
+                                        ErrorCodes.RESOURCE_NOT_FOUND
+                                    )
+                                return@write Outcome.Err(rollback)
                             }
-                            else -> {
-                                val placement = placementResult
-                                if (isAttachMode) finalRootPlacementVar = placement
-                                // The base depth each item's chain was originally built from: for a
-                                // new root (create mode) that is the root's own depth; for attach
-                                // mode (root not re-inserted) that is the depth its DIRECT children
-                                // were built with, i.e. the root's stale depth + 1 — exactly what
-                                // resolveChildPlacement(rootItem.id) recomputes fresh as placement.depth.
-                                val staleBaseDepth = if (isAttachMode) rootItem.depth + 1 else rootItem.depth
-                                val delta = placement.depth - staleBaseDepth
-                                val restampedItems =
-                                    orderedItems.map { item ->
-                                        item.copy(depth = item.depth + delta, rootId = placement.rootId)
-                                    }
-                                finalInput = input.copy(items = restampedItems)
+                            finalRootPlacementVar = placement
+                        }
+
+                        val createdItems = mutableListOf<WorkItem>()
+                        for (command in input.commands) {
+                            when (val created = context.itemCommandService.createInUnit(command)) {
+                                is Outcome.Ok -> createdItems += created.value
+                                is Outcome.Err -> {
+                                    failureVar = itemFailure(created.error, command)
+                                    return@write Outcome.Err(rollback)
+                                }
                             }
                         }
+
+                        // The specs arrive normalized and cycle-checked (validateTreeEdges); the service re-checks
+                        // them against stored rows in this unit and records dependency.added.
+                        val deps =
+                            input.deps.map { spec ->
+                                Dependency(
+                                    fromItemId = refToId.getValue(spec.fromRef),
+                                    toItemId = refToId.getValue(spec.toRef),
+                                    type = spec.type,
+                                    unblockAt = spec.unblockAt
+                                )
+                            }
+                        val createdDeps =
+                            when (val stored = context.dependencyCommandService.createInUnit(deps)) {
+                                is Outcome.Ok -> stored.value
+                                is Outcome.Err -> {
+                                    failureVar = treeFailure(stored.error)
+                                    return@write Outcome.Err(rollback)
+                                }
+                            }
+
+                        val createdNotes = mutableListOf<Note>()
+                        for (note in input.notes) {
+                            val written =
+                                context.noteCommandService.upsert(
+                                    NoteUpsertCommand(note.itemId, note.key, note.role, note.body, note.actorClaim, note.verification)
+                                )
+                            when (written) {
+                                is Outcome.Ok -> createdNotes += written.value.note
+                                is Outcome.Err -> {
+                                    failureVar = treeFailure(written.error)
+                                    return@write Outcome.Err(rollback)
+                                }
+                            }
+                        }
+
+                        // LAST: a concurrent adopt or a vanished document rolls the whole tree back.
+                        val adoption = input.adoption
+                        if (adoption != null) {
+                            val adopted =
+                                context.planDocumentService.adoptInUnit(
+                                    adoption.rootItemId,
+                                    adoption.slug,
+                                    adoption.adoptingItemId
+                                )
+                            if (adopted is Outcome.Err) {
+                                failureVar = treeFailure(adopted.error)
+                                return@write Outcome.Err(rollback)
+                            }
+                        }
+
+                        treeResultVar = TreeResult(createdItems, refToId, createdDeps, createdNotes)
+                        Outcome.Ok(Unit)
+                    } catch (e: PerRootConfigUnavailableException) {
+                        // Caught inside the unit and rethrown after it: thrown out of the block, the outermost
+                        // runner would translate it into a store fault instead of config_unavailable.
+                        configFault = e
+                        Outcome.Err(rollback)
                     }
-                    treeResultVar = context.workTreeExecutor().execute(finalInput)
-                    Outcome.Ok(Unit)
                 }
+            } catch (e: PerRootConfigUnavailableException) {
+                throw e
             } catch (e: Exception) {
                 e.rethrowIfCancellation()
                 return null to
@@ -1464,6 +1572,8 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                         ErrorCodes.INTERNAL_ERROR
                     )
             }
+        configFault?.let { throw it }
+        failureVar?.let { return null to it }
         if (unit is Outcome.Err) {
             return null to
                 errorResponse(
@@ -1472,17 +1582,13 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                 )
         }
 
-        if (anchorNotFoundMessage != null) {
-            return null to errorResponse(anchorNotFoundMessage!!, ErrorCodes.RESOURCE_NOT_FOUND)
-        }
-
         return TransactionOutcome(treeResultVar!!, finalRootPlacementVar) to null
     }
 
     /** Builds the `{ root, children, dependencies, notes }` success response payload. */
     private suspend fun buildTreeResponse(
         context: ToolExecutionContext,
-        treeResult: WorkTreeResult,
+        treeResult: TreeResult,
         rootResultItem: WorkItem,
         isExistingRoot: Boolean,
         depSpecs: List<TreeDepSpec>,
@@ -1672,18 +1778,15 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
     }
 
     /**
-     * Builds a [WorkItem] from a JSON object spec.
-     * Returns null only if there is an unexpected internal error; all validation errors
-     * are expected to have been caught in [validateParams].
+     * Builds the [ItemCreateCommand] for a JSON object spec (no role, depth or rootId: the item command service
+     * decides them). Returns null only when the title is missing; all validation errors are expected to have been
+     * caught in [validateParams].
      */
-    private fun buildWorkItem(
+    private fun buildItemCommand(
         obj: JsonObject,
         parentId: UUID?,
-        depth: Int,
-        rootId: UUID,
-        contextLabel: String,
         id: UUID = UUID.randomUUID()
-    ): WorkItem? {
+    ): ItemCreateCommand? {
         val title =
             (obj["title"] as? JsonPrimitive)?.takeIf { it.isString }?.content
                 ?: return null
@@ -1704,26 +1807,49 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         val traitsStr = (obj["traits"] as? JsonPrimitive)?.takeIf { it.isString }?.content
         val properties = PropertiesHelper.mergeTraitsFromString(null, traitsStr)
 
-        return try {
+        return ItemCreateCommand(
+            id = id,
+            parentId = parentId,
+            title = title,
+            description = description,
+            summary = summary,
+            priority = priority,
+            requiresVerification = requiresVerification,
+            tags = tags,
+            type = type,
+            properties = properties
+        )
+    }
+
+    /**
+     * A never-persisted preview of [command] (QUEUE, the provisional [rootId]) used before the write unit for schema
+     * resolution and note targeting. Its depth is a placeholder that satisfies validation only: the persisted depth
+     * comes from the in-unit placement read. Null when the spec fails domain validation.
+     */
+    private fun previewOf(
+        command: ItemCreateCommand,
+        rootId: UUID?,
+        contextLabel: String
+    ): WorkItem? =
+        try {
             WorkItem(
-                id = id,
-                parentId = parentId,
+                id = command.id,
+                parentId = command.parentId,
                 rootId = rootId,
-                title = title,
-                description = description,
-                summary = summary,
+                title = command.title,
+                description = command.description,
+                summary = command.summary,
                 role = Role.QUEUE,
-                priority = priority,
-                requiresVerification = requiresVerification,
-                depth = depth,
-                tags = tags,
-                type = type,
-                properties = properties
+                priority = command.priority,
+                requiresVerification = command.requiresVerification,
+                depth = if (command.parentId == null) 0 else 1,
+                tags = command.tags,
+                type = command.type,
+                properties = command.properties
             )
         } catch (e: Exception) {
             e.rethrowIfCancellation()
             logger.warn("Failed to build WorkItem for $contextLabel: ${e.message}")
             null
         }
-    }
 }

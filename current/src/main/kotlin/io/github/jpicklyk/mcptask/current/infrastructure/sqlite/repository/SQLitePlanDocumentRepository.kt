@@ -128,18 +128,17 @@ class SQLitePlanDocumentRepository(
         }
 
     /**
-     * Raw (no own transaction) counterpart to [markAdopted], for callers already inside an open
-     * transaction — specifically
-     * [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.service.SQLiteWorkTreeService], which must
-     * mark a plan document ADOPTED in the SAME transaction as `create_work_tree`'s item/dependency/
-     * note inserts. Doing so means a race (the document being adopted by a concurrent call between
+     * Raw (no own transaction) body of [markAdopted]. [markAdopted] runs it through `writeTx`, which
+     * joins an ambient unit — so `create_work_tree` (via
+     * [io.github.jpicklyk.mcptask.current.application.service.PlanDocumentService.adoptInUnit]) marks a plan document
+     * ADOPTED in the SAME unit as its item/dependency/note inserts. Doing so means a race (the document being adopted by a concurrent call between
      * the tool's pre-check read and this call) is caught here and rolls back the WHOLE tree — via the
      * caller throwing on a non-[PlanDocumentAdoptOutcome.Adopted] result — rather than silently
      * double-materializing the same document.
      *
      * **Must be called within an existing transaction** — this function does NOT open its own.
      */
-    internal fun markAdoptedRow(
+    private fun markAdoptedRow(
         rootItemId: UUID,
         slug: String,
         adoptedByItemId: UUID

@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.support.UnitResult
 import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
@@ -11,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.event.DeleteCause
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
@@ -19,14 +21,20 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
 import java.util.UUID
 
-/** One note write: the raw, un-normalized request. */
+/**
+ * One note write: the raw, un-normalized request. [bodyFromFile] is the server-side path the caller supplied
+ * when [body] was read from a file (recorded on the
+ote.upserted row; never the file contents); null for an
+ * inline body.
+ */
 data class NoteUpsertCommand(
     val itemId: UUID,
     val key: String,
     val role: String,
     val body: String,
     val actorClaim: ActorClaim?,
-    val verification: VerificationResult?
+    val verification: VerificationResult?,
+    val bodyFromFile: String? = null
 )
 
 /** A note that passed the write policy: the normalized [role] and [body], plus any soft-limit [warning]. */
@@ -64,8 +72,9 @@ data class NoteWriteResult(
  * item's resolved schema declares must carry the schema's role), and the schema `maxLength` (measured
  * on the normalized body; `note_limits.mode: reject` fails, `warn` accepts with a [NoteLengthWarning]).
  *
- * Writes go through the same (event-decorated) [RepositoryProvider] the tools use, and this class never
- * touches the event sink, so no event is recorded twice. A write called inside an ambient unit joins it.
+ * Every write records its own `events` rows through the unit's sink, in the same unit: `note.upserted` (the
+ * principal is the note's own actor claim and verification) and `note.deleted` (cause `explicit`), under the
+ * owning item's root ([eventRootOf]). A write called inside an ambient unit joins it.
  * A `PerRootConfigUnavailableException` from the config resolver propagates; it is not an [Outcome].
  */
 class NoteCommandService(
@@ -180,6 +189,7 @@ class NoteCommandService(
                         )
                     }
                 val stored = noteRepo.upsert(note)
+                events.record(noteUpsertedEvent(stored, eventRootOf(item, repositoryProvider.workItemRepository()), cmd.bodyFromFile))
                 UnitResult.Commit(Outcome.Ok(NoteWriteResult(stored, existing == null, prepared.warning)))
             }
         val unavailable = configUnavailable
@@ -189,7 +199,13 @@ class NoteCommandService(
 
     /** Deletes the note [id]; `Ok(false)` when it does not exist. */
     suspend fun deleteById(id: UUID): Outcome<Boolean> =
-        writeOutcomeOf("NoteCommandService.deleteById") { repositoryProvider.noteRepository().delete(id) }
+        writeOutcomeOf("NoteCommandService.deleteById") {
+            val noteRepo = repositoryProvider.noteRepository()
+            val note = noteRepo.getById(id)
+            val deleted = noteRepo.delete(id)
+            if (deleted && note != null) events.record(noteDeletedEvent(note, rootOfItem(note.itemId), DeleteCause.EXPLICIT))
+            deleted
+        }
 
     /** Deletes the note `(itemId, key)`, returning it, or `Ok(null)` when it does not exist. */
     suspend fun deleteByKey(
@@ -199,17 +215,35 @@ class NoteCommandService(
         writeOutcomeOf("NoteCommandService.deleteByKey") {
             val noteRepo = repositoryProvider.noteRepository()
             val existing = noteRepo.findByItemIdAndKey(itemId, key)
-            if (existing != null) noteRepo.delete(existing.id)
+            if (existing != null && noteRepo.delete(existing.id)) {
+                events.record(noteDeletedEvent(existing, rootOfItem(existing.itemId), DeleteCause.EXPLICIT))
+            }
             existing
         }
 
     /** Deletes every note on [itemId], returning how many were removed. */
     suspend fun deleteAllForItem(itemId: UUID): Outcome<Int> =
-        writeOutcomeOf("NoteCommandService.deleteAllForItem") { repositoryProvider.noteRepository().deleteByItemId(itemId) }
+        writeOutcomeOf("NoteCommandService.deleteAllForItem") {
+            val noteRepo = repositoryProvider.noteRepository()
+            val notes = noteRepo.findByItemId(itemId)
+            val count = noteRepo.deleteByItemId(itemId)
+            if (count > 0 && notes.isNotEmpty()) {
+                val root = rootOfItem(itemId)
+                events.record(notes.map { noteDeletedEvent(it, root, DeleteCause.EXPLICIT) })
+            }
+            count
+        }
+
+    /** The root of the item [itemId] as it is NOW ([eventRootOf]; its own id when it cannot be resolved). */
+    private suspend fun rootOfItem(itemId: UUID): UUID {
+        val repo = repositoryProvider.workItemRepository()
+        val item = repo.getById(itemId) ?: return eventRootOf(itemId, repo)
+        return eventRootOf(item, repo)
+    }
 
     private suspend fun <T> writeOutcomeOf(
         op: String,
-        block: suspend () -> T
+        block: suspend WriteScope.() -> T
     ): Outcome<T> =
         unitOfWork.writeUnit<Outcome<T>>(op, onFault = { Outcome.Err(it) }) {
             UnitResult.Commit(Outcome.Ok(block()))

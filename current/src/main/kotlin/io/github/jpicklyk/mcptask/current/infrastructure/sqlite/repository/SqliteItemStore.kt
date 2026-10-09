@@ -64,7 +64,7 @@ class SqliteItemStore(
      * transaction. Use [create] for the public API that wraps this in a transaction. The claim columns are
      * written here (always null in production; test fixtures construct claimed items through it).
      */
-    internal fun insertRow(item: WorkItem): WorkItem {
+    private fun insertRow(item: WorkItem): WorkItem {
         item.validate()
         WorkItemsTable.insert {
             it[id] = item.id

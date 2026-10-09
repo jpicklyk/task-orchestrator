@@ -2,6 +2,9 @@ package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.application.service.ItemDeleteResult
+import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -35,7 +38,9 @@ class WorkItemDeletionBulkSubtreeTest {
     private val repositoryProvider get() = db.repositoryProvider()
 
     private val repo: WorkItemRepository get() = repositoryProvider.workItemRepository()
-    private val deletion get() = WorkItemDeletion(repositoryProvider, db.unitOfWork())
+    private val deletion get() = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork()).itemCommandService
+
+    private fun deleted(outcome: Outcome<ItemDeleteResult>?) = (outcome as Outcome.Ok).value.let { it.id to it.descendantsDeleted }
 
     private suspend fun create(
         title: String,
@@ -70,14 +75,14 @@ class WorkItemDeletionBulkSubtreeTest {
             val lease = repositoryProvider.resourceLeaseRepository()
             assertIs<LeaseAcquireResult.Success>(lease.acquireAll(all.first(), "a", listOf("res" to 900)))
 
-            var outcome: WorkItemDeleteOutcome? = null
+            var outcome: Outcome<ItemDeleteResult>? = null
             db.unitOfWork().inUnit {
                 val conn = TransactionManager.current().connection.connection as Connection
                 conn.unwrap(SQLiteConnection::class.java).setLimit(SQLiteLimits.SQLITE_LIMIT_VARIABLE_NUMBER, 600)
                 outcome = deletion.delete(root.id, recursive = true)
             }
 
-            assertEquals(WorkItemDeleteOutcome.Deleted(root.id, expectedDescendants), outcome)
+            assertEquals(root.id to expectedDescendants, deleted(outcome))
             assertTrue(!exists(root.id))
             assertTrue(all.none { exists(it) })
             assertTrue((repositoryProvider.noteRepository().findByItemId(noted)!!).isEmpty())
@@ -105,7 +110,7 @@ class WorkItemDeletionBulkSubtreeTest {
 
             val outcome = deletion.delete(root.id, recursive = true)
 
-            assertEquals(WorkItemDeleteOutcome.Deleted(root.id, 4), outcome)
+            assertEquals(root.id to 4, deleted(outcome))
             assertTrue(listOf(root, a, b, c, sibling).none { exists(it.id) })
         }
 }

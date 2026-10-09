@@ -427,8 +427,8 @@ class CurrentMcpServer(
             )
         }
 
-        // Phase 6: reuse the API wiring resolved ONCE in run() — the SAME bus and decorated
-        // provider already feeding the MCP tool context. Do NOT re-resolve here, or the SSE route
+        // Phase 6: reuse the API wiring resolved ONCE in run() — the SAME bus and provider already
+        // feeding the MCP tool context. Do NOT re-resolve here, or the SSE route
         // would subscribe to a different bus than the one MCP-tool writes publish to.
         val apiConfig = apiWiring.apiConfig
         val eventBus = apiWiring.eventBus
@@ -720,6 +720,7 @@ internal fun Application.installRestApiRoutes(
                 toolContext.idempotency,
                 toolContext.advanceServiceFactory(),
                 toolContext.unitOfWork,
+                toolContext.itemCommandService,
                 warnOnClaimedAdvance = appConfig.apiWarnOnClaimedAdvance,
                 clock = toolContext.clock,
             )

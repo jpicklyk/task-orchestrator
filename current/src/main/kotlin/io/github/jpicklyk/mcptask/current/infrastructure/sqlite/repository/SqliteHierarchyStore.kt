@@ -1,23 +1,32 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.ChildPlacement
+import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.HierarchyStore
+import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
+import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.domain.model.AncestorChain
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.UtcTimestamp
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
+import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
+import org.jetbrains.exposed.v1.core.IntegerColumnType
+import org.jetbrains.exposed.v1.core.VarCharColumnType
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.java.UUIDColumnType
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.slf4j.LoggerFactory
 import java.util.UUID
 
 /**
- * SQLite [HierarchyStore]: downward and upward walks over `parent_id`. No write methods in P7 - placement
- * (`parent_id`, `root_id`, `depth`) is still written by [SqliteItemStore.insertRow] / [SqliteItemStore.update], and
- * the placement-write guard pins that surface until a later item moves those writes here.
+ * SQLite [HierarchyStore]: downward and upward walks over `parent_id`, and the descendant restamp
+ * ([restampSubtree]), the one placement write outside [SqliteItemStore]'s insert/update (which still stamp an
+ * item's own `parent_id` / `root_id` / `depth`; the placement-write guard pins that surface).
  */
 class SqliteHierarchyStore(
-    private val databaseManager: DatabaseManager
+    private val databaseManager: DatabaseManager,
+    private val clock: Clock = SystemClock
 ) : HierarchyStore {
     private val logger = LoggerFactory.getLogger(SqliteHierarchyStore::class.java)
 
@@ -77,6 +86,50 @@ class SqliteHierarchyStore(
                     truncated = truncationReason != null,
                     truncationReason = truncationReason
                 )
+            }
+        }
+    }
+
+    override suspend fun restampSubtree(
+        itemId: UUID,
+        depthDelta: Int,
+        newRootId: UUID
+    ): Int {
+        val nowText = UtcTimestamp.format(clock.unitNow())
+        return databaseManager.writeTx("HierarchyStore.restampSubtree") {
+            // The bounded walk fails loud on cyclic or pathologically deep data before anything is written.
+            HierarchyTraversal.descendantIds(itemId)
+            val uuidType = UUIDColumnType()
+            val ps =
+                connection.prepareStatement(
+                    """
+                    UPDATE work_items
+                       SET depth = depth + ?, root_id = ?, version = version + 1, modified_at = ?
+                     WHERE id IN (
+                        WITH RECURSIVE walk(id, lvl) AS (
+                            SELECT id, 0 FROM work_items WHERE id = ?
+                            UNION ALL
+                            SELECT wi.id, w.lvl + 1 FROM work_items wi
+                            JOIN walk w ON wi.parent_id = w.id
+                            WHERE w.lvl < $MAX_TRAVERSAL_DEPTH
+                        )
+                        SELECT id FROM walk WHERE lvl > 0
+                     )
+                    """.trimIndent(),
+                    false
+                )
+            try {
+                ps.fillParameters(
+                    listOf(
+                        IntegerColumnType() to depthDelta,
+                        uuidType to newRootId,
+                        VarCharColumnType(40) to nowText,
+                        uuidType to itemId
+                    )
+                )
+                ps.executeUpdate()
+            } finally {
+                ps.closeIfPossible()
             }
         }
     }

@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
 import io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.ProjectConfig
@@ -124,6 +125,9 @@ class ProjectConfigPushService(
                     expectedFingerprint = expectedFingerprint,
                     rejectSuperseded = !force,
                 )
+            if (outcome is GuardedUpsertOutcome.Applied) {
+                events.record(DomainEvent.ProjectConfigUpserted(rootItemId, outcome.config.fingerprint))
+            }
             UnitResult.Commit(
                 when (outcome) {
                     is GuardedUpsertOutcome.Applied ->
@@ -183,10 +187,12 @@ class ProjectConfigPushService(
                 .lowercase()
         }
 
-    /** Deletes the stored config row for [rootItemId]. Returns true when a row was deleted. */
+    /** Deletes the stored config row for [rootItemId], recording `project_config.deleted`. Returns true when a row was deleted. */
     suspend fun delete(rootItemId: UUID): Outcome<Boolean> =
         unitOfWork.write("ProjectConfigPushService.delete") {
-            Outcome.Ok(repositoryProvider.projectConfigRepository().delete(rootItemId))
+            val deleted = repositoryProvider.projectConfigRepository().delete(rootItemId)
+            if (deleted) events.record(DomainEvent.ProjectConfigDeleted(rootItemId))
+            Outcome.Ok(deleted)
         }
 
     /**

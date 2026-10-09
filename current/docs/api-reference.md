@@ -50,6 +50,24 @@ is computed automatically from the parent; nesting depth is unbounded at creatio
 
 **Operations.** `create`, `update`, `delete`
 
+**Parent rules (4.0).** Every write runs as one unit over the item command service:
+
+- **Create always lands in `queue`.** A `role` field on a create item fails that item with
+  `Item at index N: 'role' is not accepted on create; items are created in queue (use advance_item to move them)`;
+  nothing is created for it. Move items with `advance_item`.
+- **Closed parent.** Creating an item under, or moving an item under, a `terminal` parent whose effective lifecycle
+  is `auto` fails that item (`Item at index N: parent '<id>' is terminal under auto lifecycle; reopen it before adding
+  children` on create; `Item '<id>': parent '<pid>' is terminal under auto lifecycle; reopen it before moving items
+  under it` on update). Under `manual` and `permanent` lifecycle the parent accepts children. Reopen the parent first.
+- **Old-parent re-evaluation.** Moving an item away from its parent (to another parent or to root), or deleting it,
+  re-evaluates the OLD parent exactly like a child completion: under `auto` lifecycle it completes when every remaining
+  child is terminal and its gate passes; with required notes missing the cascade is suppressed and reported with
+  `gateBlocked`; nothing happens when no child remains, under `manual`/`permanent`, or when the item had no parent.
+  The new parent is never cascaded. An update or delete element reports these cascades as `cascadeEvents` (the
+  element shape `advance_item` uses), omitted when empty.
+- **Descendant restamp.** A reparent restamps every descendant's `depth` and `rootId` in one statement; each
+  restamped descendant's `version` and `modifiedAt` change (its REST ETag changes).
+
 #### Key Parameters
 
 | Parameter | Type | Required | Description |
@@ -73,7 +91,6 @@ is computed automatically from the parent; nesting depth is unbounded at creatio
 | `title` | string | Yes | — | |
 | `description` | string | No | null | |
 | `summary` | string | No | `""` | |
-| `role` | string | No | `queue` | |
 | `statusLabel` | string | No | null | |
 | `priority` | string | No | `medium` | |
 | `complexity` | integer (1–10) | No | null (not set) | |
@@ -89,14 +106,22 @@ is computed automatically from the parent; nesting depth is unbounded at creatio
 `properties`, and `traits`. Only provided fields are changed; omitted fields retain existing values.
 Setting `parentId` to JSON null moves the item to root.
 
-**Note:** The `role` field is not accepted in update operations. Use `advance_item` with an appropriate trigger instead.
+**Note:** The `role` field is accepted in neither create nor update operations. Use `advance_item` with an
+appropriate trigger instead.
 
 **Response (update).**
 
 ```json
 {
   "items": [
-    { "id": "uuid", "modifiedAt": "2025-01-01T00:00:00Z", "requiresVerification": false }
+    {
+      "id": "uuid",
+      "modifiedAt": "2025-01-01T00:00:00Z",
+      "requiresVerification": false,
+      "cascadeEvents": [
+        { "itemId": "old-parent-uuid", "title": "Feature", "previousRole": "work", "targetRole": "terminal", "applied": true }
+      ]
+    }
   ],
   "updated": 1,
   "failed": 0,
@@ -104,7 +129,8 @@ Setting `parentId` to JSON null moves the item to root.
 }
 ```
 
-`failures` is only present when `failed > 0`; omitted entirely on a clean run.
+`failures` is only present when `failed > 0`; omitted entirely on a clean run. `cascadeEvents` is present only when
+the update moved the item and that re-evaluated its old parent (see **Parent rules** above).
 
 **Examples.**
 
@@ -146,7 +172,7 @@ Setting `parentId` to JSON null moves the item to root.
 }
 ```
 
-`descendantsDeleted` is only present when `recursive: true` and descendants were actually deleted; it counts the number of descendant items removed (not including the root items listed in `ids`). The `deleted` count includes both the root items and their descendants. Without `recursive: true`, deleting an item with children fails proactively (via a child-count check, not a DB constraint) with an error message listing the child count.
+`descendantsDeleted` is only present when `recursive: true` and descendants were actually deleted; it counts the number of descendant items removed (not including the root items listed in `ids`). The `deleted` count includes both the root items and their descendants. Without `recursive: true`, deleting an item with children fails proactively (via a child-count check, not a DB constraint) with an error message listing the child count. A deleted item's resource leases are released in the same unit as the delete. When a delete re-evaluated the deleted item's parent (see **Parent rules** above), the response carries a top-level `cascadeEvents` array (the `advance_item` element shape) collecting every element's cascades; it is omitted when empty.
 
 **Response (create).**
 
@@ -480,6 +506,12 @@ conventions as global mode, applied to the anchor's direct-children set rather t
 ---
 
 ### create_work_tree
+
+**4.0 write unit.** The whole tree is ONE unit over the write services: the items root-first through the item
+command service (every placement read from the just-inserted parent's row; a `terminal` parent under `auto` lifecycle,
+given as `parentId` or as the attach-mode `root.id`, rejects the whole call with `VALIDATION_ERROR`), then the
+dependencies, the notes and, last, the `docRef` adoption. Any failure leaves zero items, notes and dependencies, and
+the document stays PENDING.
 
 **Purpose.** Atomically create a root WorkItem, optional child items, optional dependency edges
 between them, and optional blank notes — all in a single call. Eliminates the round-trips required

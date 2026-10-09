@@ -2,11 +2,13 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.event.DeleteCause
 import io.github.jpicklyk.mcptask.current.domain.graph.CycleDetector
 import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
@@ -28,6 +30,9 @@ import java.util.UUID
  * Cycle detection loads the stored blocking edges reachable downstream of the request's blocked items
  * (a frontier walk over `findByItemIds`), inside the same write unit as the insert, then adds the
  * request's own earlier edges as it goes. A write called inside an ambient unit joins it.
+ *
+ * Every write records its own `events` rows through the unit's sink, in the same unit: `dependency.added` per stored
+ * row and `dependency.removed` (cause `explicit`) per deleted row, under the from item's root ([eventRootOf]).
  */
 class DependencyCommandService(
     private val repositoryProvider: RepositoryProvider,
@@ -35,14 +40,17 @@ class DependencyCommandService(
 ) {
     /** Applies the write policy to [deps] and stores them in one write unit, returning the stored rows in request order. */
     suspend fun create(deps: List<Dependency>): Outcome<List<Dependency>> =
-        unitOfWork.write("DependencyCommandService.create") { createInUnit(deps) }
+        unitOfWork.write("DependencyCommandService.create") { createBody(deps) }
 
     /**
      * The same policy as [create], for a caller that already holds a write unit (an atomic composite). It
-     * opens no unit of its own: the caller's unit decides commit, and an [Outcome.Err] returned from the
+     * joins the caller's unit: the caller's unit decides commit, and an [Outcome.Err] returned from the
      * caller's block rolls it back.
      */
-    suspend fun createInUnit(deps: List<Dependency>): Outcome<List<Dependency>> {
+    suspend fun createInUnit(deps: List<Dependency>): Outcome<List<Dependency>> =
+        unitOfWork.write("DependencyCommandService.createInUnit") { createBody(deps) }
+
+    private suspend fun WriteScope.createBody(deps: List<Dependency>): Outcome<List<Dependency>> {
         if (deps.isEmpty()) return Outcome.Ok(emptyList())
         val normalized =
             when (val checked = checkRequest(deps)) {
@@ -84,7 +92,9 @@ class DependencyCommandService(
             }
         }
 
-        return Outcome.Ok(depRepo.createBatch(normalized))
+        val created = depRepo.createBatch(normalized)
+        events.record(created.map { dependencyAddedEvent(it, rootOfItem(it.fromItemId)) })
+        return Outcome.Ok(created)
     }
 
     /**
@@ -124,10 +134,40 @@ class DependencyCommandService(
                 }
             var deleted = 0
             for (dep in matches) {
-                if (depRepo.delete(dep.id)) deleted++
+                if (depRepo.delete(dep.id)) {
+                    deleted++
+                    events.record(dependencyRemovedEvent(dep, rootOfItem(dep.fromItemId), DeleteCause.EXPLICIT))
+                }
             }
             Outcome.Ok(deleted)
         }
+
+    /** Deletes the dependency [id] in one write unit; `Ok(false)` when it does not exist. */
+    suspend fun deleteById(id: UUID): Outcome<Boolean> =
+        unitOfWork.write("DependencyCommandService.deleteById") {
+            val depRepo = repositoryProvider.dependencyRepository()
+            val dep = depRepo.findById(id)
+            val deleted = depRepo.delete(id)
+            if (deleted && dep != null) events.record(dependencyRemovedEvent(dep, rootOfItem(dep.fromItemId), DeleteCause.EXPLICIT))
+            Outcome.Ok(deleted)
+        }
+
+    /** Deletes every dependency touching [itemId] (either end) in one write unit, returning how many were removed. */
+    suspend fun deleteByItemId(itemId: UUID): Outcome<Int> =
+        unitOfWork.write("DependencyCommandService.deleteByItemId") {
+            val depRepo = repositoryProvider.dependencyRepository()
+            val edges = depRepo.findByItemId(itemId)
+            val count = depRepo.deleteByItemId(itemId)
+            if (count > 0) events.record(edges.map { dependencyRemovedEvent(it, rootOfItem(it.fromItemId), DeleteCause.EXPLICIT) })
+            Outcome.Ok(count)
+        }
+
+    /** The root of the item [itemId] as it is NOW ([eventRootOf]; its own id when it cannot be resolved). */
+    private suspend fun rootOfItem(itemId: UUID): UUID {
+        val repo = repositoryProvider.workItemRepository()
+        val item = repo.getById(itemId) ?: return eventRootOf(itemId, repo)
+        return eventRootOf(item, repo)
+    }
 
     /** Normalizes [deps] and rejects a duplicate within the request. */
     private fun checkRequest(deps: List<Dependency>): Outcome<List<Dependency>> {

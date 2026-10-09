@@ -11,9 +11,7 @@ import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.service.SQLiteWorkTreeService
 import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
 
 /**
@@ -37,7 +35,6 @@ class DefaultRepositoryProvider(
     private val resourceLeaseRepo by lazy { SQLiteResourceLeaseRepository(databaseManager, clock) }
     private val idempotencyStoreInstance by lazy { SqliteIdempotencyStore(databaseManager) }
     private val eventStoreInstance by lazy { SqliteEventStore(databaseManager) }
-    private val workTreeExecutorInstance by lazy { SQLiteWorkTreeService(databaseManager, workItemRepo, noteRepo, planDocumentRepo) }
 
     override fun workItemRepository(): WorkItemRepository = workItemRepo
 
@@ -52,8 +49,6 @@ class DefaultRepositoryProvider(
     override fun planDocumentRepository(): PlanDocumentStore = planDocumentRepo
 
     override fun resourceLeaseRepository(): LeaseStore = resourceLeaseRepo
-
-    override fun workTreeExecutor(): WorkTreeExecutor = workTreeExecutorInstance
 
     override fun idempotencyStore(): IdempotencyStore = idempotencyStoreInstance
 

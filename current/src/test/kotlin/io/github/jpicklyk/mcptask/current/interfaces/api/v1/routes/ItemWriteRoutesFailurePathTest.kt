@@ -141,6 +141,18 @@ class ItemWriteRoutesFailurePathTest {
             } else {
                 delegate.update(item)
             }
+
+        /** Since P15 the descendant cascade is one restamp statement: it fails when it would reach [failFor]. */
+        override suspend fun restampSubtree(
+            itemId: UUID,
+            depthDelta: Int,
+            newRootId: UUID
+        ): Int =
+            if (failFor in delegate.descendantIds(itemId)) {
+                throw IllegalStateException("simulated descendant cascade failure for $failFor")
+            } else {
+                delegate.restampSubtree(itemId, depthDelta, newRootId)
+            }
     }
 
     /** See `ItemWriteRoutesParentPlacementInTxnTest.MutateOnFirstTransactionRepository` KDoc. */

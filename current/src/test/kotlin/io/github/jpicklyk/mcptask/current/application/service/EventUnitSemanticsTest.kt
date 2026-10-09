@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
+import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
@@ -63,7 +64,12 @@ class EventUnitSemanticsTest {
 
             val failed =
                 uow.write<Unit>("S8.rollback") {
-                    val item = rig.provider.workItemRepository().create(WorkItem(title = "rolled back"))
+                    val item =
+                        (
+                            rig.ctx.itemCommandService.createInUnit(
+                                ItemCreateCommand(parentId = null, title = "rolled back")
+                            ) as Outcome.Ok
+                        ).value
                     rolledBackId = item.id
                     events.record(DomainEvent.ItemUpdated(item.id, item.id, listOf("title")))
                     Outcome.Err(DomainError(ErrorCode.INTERNAL, "boom"))
@@ -77,7 +83,12 @@ class EventUnitSemanticsTest {
             // to the rollback and not to a fixture that can never write.
             val committed =
                 uow.write<UUID>("S8.commit") {
-                    val item = rig.provider.workItemRepository().create(WorkItem(title = "committed"))
+                    val item =
+                        (
+                            rig.ctx.itemCommandService.createInUnit(
+                                ItemCreateCommand(parentId = null, title = "committed")
+                            ) as Outcome.Ok
+                        ).value
                     events.record(DomainEvent.ItemUpdated(item.id, item.id, listOf("title")))
                     Outcome.Ok(item.id)
                 }

@@ -1,1 +1,1 @@
-# Empty since P8 (ea2b9b63): DeferredEventPublisher no longer touches Exposed. A new line here is a new violation.
+# Empty since P8 (ea2b9b63), which took the last Exposed reference out of DeferredEventPublisher (deleted in P15). A new line here is a new violation.
