@@ -184,6 +184,10 @@ class EventPublishingDecoratorGuardTest {
         assertTrue(provider.idempotencyStore() === delegate.idempotencyStore(), "the idempotency store must pass through")
         assertTrue(provider.eventStore() === delegate.eventStore(), "the event store must never be decorated")
         assertTrue(
+            provider.resourceLeaseRepository() === delegate.resourceLeaseRepository(),
+            "the lease store must pass through (ClaimService records lease.* rows itself)",
+        )
+        assertTrue(
             provider.roleTransitionRepository() === delegate.roleTransitionRepository(),
             "the transition store must pass through (AdvanceService records item.transitioned)",
         )
