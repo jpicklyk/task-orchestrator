@@ -4,6 +4,8 @@ import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
 import io.github.jpicklyk.mcptask.current.application.port.ChildPlacement
 import io.github.jpicklyk.mcptask.current.application.service.DocRefSpec
 import io.github.jpicklyk.mcptask.current.application.service.MarkdownSectionSplitter
+import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
+import io.github.jpicklyk.mcptask.current.application.service.NoteLengthWarning
 import io.github.jpicklyk.mcptask.current.application.service.RuleService
 import io.github.jpicklyk.mcptask.current.application.service.TreeDepSpec
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
@@ -14,6 +16,8 @@ import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.error.DomainError
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
@@ -418,7 +422,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
 
     /**
      * Validates the optional top-level `notes` array: `itemRef`/`key`/`role` required, `role`
-     * must be one of queue/work/review, and `body` (if present) must be a string.
+     * must be one of queue/work/review in any letter case, and `body` (if present) must be a string.
      */
     private fun validateNotesSpec(paramsObj: JsonObject) {
         val notesElement = paramsObj["notes"]
@@ -444,7 +448,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
             if (role.isNullOrBlank()) {
                 throw ToolValidationException("notes[$index]: 'role' is required and must be a non-blank string")
             }
-            if (role !in validRoles) {
+            if (role.lowercase() !in validRoles) {
                 throw ToolValidationException("notes[$index]: invalid role '$role'. Valid: queue, work, review")
             }
             val bodyElement = noteObj["body"]
@@ -505,7 +509,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                 )
             }
             val role = (anchorObj["role"] as? JsonPrimitive)?.takeIf { it.isString }?.content
-            if (role.isNullOrBlank() || role !in validRoles) {
+            if (role.isNullOrBlank() || role.lowercase() !in validRoles) {
                 throw ToolValidationException(
                     "$contextLabel: noteAnchors[$index]: 'role' is required and must be one of queue, work, review"
                 )
@@ -634,7 +638,8 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
             )
         val (notesListResult, notesError) = buildNotes(paramsObj, params, treeBuildContext)
         if (notesError != null) return notesError
-        val notesList = notesListResult!!
+        val builtNotes = notesListResult!!
+        val notesList = builtNotes.notes
 
         // Build ordered item list. In attach mode the existing root is NOT inserted (it already
         // exists in the DB). In create mode the root leads the list (root first, children in
@@ -673,7 +678,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         // create mode the root is treeResult.items.first() (already the persisted, restamped row).
         val rootResultItem = if (isExistingRoot) finalRootItem else treeResult.items.first()
 
-        return buildTreeResponse(context, treeResult, rootResultItem, isExistingRoot, depSpecs)
+        return buildTreeResponse(context, treeResult, rootResultItem, isExistingRoot, depSpecs, builtNotes.warnings)
     }
 
     private data class RootResolution(
@@ -1005,35 +1010,53 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
     )
 
     /**
-     * Shared schema-role-mismatch check used by both [buildExplicitNotes] and [resolveAnchorNotes]:
-     * when [schema] declares [key], the note's [role] must match the schema's declared role. Returns
-     * an error [JsonElement] (built via [buildMessage], so each call site keeps its own exact wording)
-     * on mismatch, or null when the key is off-schema, the item is schema-free, or the role matches.
+     * Maps a [NoteCommandService.prepare] rejection to this tool's `VALIDATION_ERROR` response, which fails
+     * the WHOLE call (zero items created). A schema-role rejection keeps each call site's own legacy wording
+     * ([schemaRoleMessage], given the schema's declared role); every other rejection is [prefix] plus the
+     * service's message.
      */
-    private fun checkSchemaRoleMatch(
+    private fun noteRejection(
+        error: DomainError,
+        prefix: String,
         schema: WorkItemSchema?,
         key: String,
-        role: String,
-        buildMessage: (expectedRole: String) -> String
-    ): JsonElement? {
-        val schemaEntry = schema?.notes?.firstOrNull { it.key == key } ?: return null
-        val expectedRole = schemaEntry.role.toJsonString()
-        if (role == expectedRole) return null
-        return errorResponse(buildMessage(expectedRole), ErrorCodes.VALIDATION_ERROR)
+        schemaRoleMessage: (expectedRole: String) -> String
+    ): JsonElement {
+        val expectedRole =
+            schema
+                ?.notes
+                ?.firstOrNull { it.key == key }
+                ?.role
+                ?.toJsonString()
+        val message =
+            if (error.code == ErrorCode.SCHEMA_VIOLATION && expectedRole != null) {
+                schemaRoleMessage(expectedRole)
+            } else {
+                "$prefix${error.message}"
+            }
+        return errorResponse(message, ErrorCodes.VALIDATION_ERROR)
     }
+
+    /** What the note-building steps produce: the notes to write, and any `maxLength` warnings (warn mode). */
+    private data class BuiltNotes(
+        val notes: List<Note>,
+        val warnings: Map<Pair<UUID, String>, NoteLengthWarning>
+    )
 
     /**
      * Parses the explicit `notes` array, enforcing strict schema-role matching per (itemRef, key)
      * and last-wins dedup within the array itself. Off-schema keys and schema-free items are
      * unconstrained.
      */
-    private fun buildExplicitNotes(
+    private suspend fun buildExplicitNotes(
         explicitNotesArray: JsonArray,
-        refToItem: Map<String, WorkItem>,
+        treeCtx: TreeBuildContext,
         itemSchemas: Map<String, WorkItemSchema?>,
-        noteActorClaim: ActorClaim?,
-        noteVerification: VerificationResult?
+        warnings: MutableMap<Pair<UUID, String>, NoteLengthWarning>
     ): Pair<ExplicitNotesResult?, JsonElement?> {
+        val refToItem = treeCtx.refToItem
+        val noteActorClaim = treeCtx.noteActorClaim
+        val noteVerification = treeCtx.noteVerification
         val notesList = mutableListOf<Note>()
         val explicitByRefKey = mutableMapOf<Pair<String, String>, Int>()
 
@@ -1054,26 +1077,34 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                             ErrorCodes.VALIDATION_ERROR
                         )
 
-            // Strict role enforcement: when the resolved schema for this item declares the same
-            // key, the explicit note's role must match the schema role. The DB has a
-            // UNIQUE(itemId, key) constraint, so only one note per key can exist; allowing a role
-            // mismatch would silently leave the gate-required role unfilled.
+            // The write policy (role normalization, byte cap, CRLF, strict schema-role match, maxLength) is
+            // NoteCommandService's: any rejection fails the whole call. Schema resolution keys off the tree's
+            // single effective root, not the item's own possibly-stale rootId.
             val schema = itemSchemas[itemRef]
-            val roleMismatchError =
-                checkSchemaRoleMatch(schema, key, role) { expectedRole ->
-                    "notes[$index]: key '$key' is declared in the schema for itemRef " +
-                        "'$itemRef' with role '$expectedRole', but the explicit note has " +
-                        "role '$role'. Schema-declared keys must use the schema role; " +
-                        "off-schema keys may use any valid role."
+            val prepared =
+                when (
+                    val p =
+                        treeCtx.context.noteCommandService
+                            .prepare(targetItem.copy(rootId = treeCtx.effectiveRootId), key, role, body)
+                ) {
+                    is Outcome.Ok -> p.value
+                    is Outcome.Err ->
+                        return null to
+                            noteRejection(p.error, "notes[$index]: ", schema, key) { expectedRole ->
+                                "notes[$index]: key '$key' is declared in the schema for itemRef " +
+                                    "'$itemRef' with role '$expectedRole', but the explicit note has " +
+                                    "role '$role'. Schema-declared keys must use the schema role; " +
+                                    "off-schema keys may use any valid role."
+                            }
                 }
-            if (roleMismatchError != null) return null to roleMismatchError
+            prepared.warning?.let { warnings[targetItem.id to key] = it }
 
             val note =
                 Note(
                     itemId = targetItem.id,
                     key = key,
-                    role = role,
-                    body = body,
+                    role = prepared.role,
+                    body = prepared.body,
                     actorClaim = noteActorClaim,
                     verification = noteVerification
                 )
@@ -1103,7 +1134,8 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         treeCtx: TreeBuildContext,
         itemSchemas: Map<String, WorkItemSchema?>,
         explicitByRefKey: Map<Pair<String, String>, Int>,
-        notesList: MutableList<Note>
+        notesList: MutableList<Note>,
+        warnings: MutableMap<Pair<UUID, String>, NoteLengthWarning>
     ): Pair<MutableMap<Pair<String, String>, Int>?, JsonElement?> {
         val docSlug = treeCtx.docSlug
         val docRootId = treeCtx.docRootId
@@ -1155,13 +1187,6 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                         )
 
             val schema = itemSchemas[anchor.itemRef]
-            val roleMismatchError =
-                checkSchemaRoleMatch(schema, anchor.noteKey, anchor.role) { expectedRole ->
-                    "noteAnchors: key '${anchor.noteKey}' is declared in the schema for itemRef " +
-                        "'${anchor.itemRef}' with role '$expectedRole', but the anchor has role " +
-                        "'${anchor.role}'. Schema-declared keys must use the schema role."
-                }
-            if (roleMismatchError != null) return null to roleMismatchError
 
             val sliced =
                 MarkdownSectionSplitter.slice(doc.body, anchor.anchor)
@@ -1172,12 +1197,29 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                             ErrorCodes.VALIDATION_ERROR
                         )
 
+            val prepared =
+                when (
+                    val p =
+                        context.noteCommandService
+                            .prepare(targetItem.copy(rootId = treeCtx.effectiveRootId), anchor.noteKey, anchor.role, sliced)
+                ) {
+                    is Outcome.Ok -> p.value
+                    is Outcome.Err ->
+                        return null to
+                            noteRejection(p.error, "noteAnchors: ", schema, anchor.noteKey) { expectedRole ->
+                                "noteAnchors: key '${anchor.noteKey}' is declared in the schema for itemRef " +
+                                    "'${anchor.itemRef}' with role '$expectedRole', but the anchor has role " +
+                                    "'${anchor.role}'. Schema-declared keys must use the schema role."
+                            }
+                }
+            prepared.warning?.let { warnings[targetItem.id to anchor.noteKey] = it }
+
             val note =
                 Note(
                     itemId = targetItem.id,
                     key = anchor.noteKey,
-                    role = anchor.role,
-                    body = sliced,
+                    role = prepared.role,
+                    body = prepared.body,
                     actorClaim = noteActorClaim,
                     verification = noteVerification
                 )
@@ -1232,7 +1274,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         paramsObj: JsonObject,
         params: JsonElement,
         treeCtx: TreeBuildContext
-    ): Pair<List<Note>?, JsonElement?> {
+    ): Pair<BuiltNotes?, JsonElement?> {
         val refToItem = treeCtx.refToItem
         val noteActorClaim = treeCtx.noteActorClaim
         val noteVerification = treeCtx.noteVerification
@@ -1241,13 +1283,14 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         val explicitNotesArray = paramsObj["notes"] as? JsonArray ?: JsonArray(emptyList())
         val itemSchemas = resolveItemSchemas(refToItem, treeCtx.effectiveRootId, treeCtx.context)
 
+        val warnings = mutableMapOf<Pair<UUID, String>, NoteLengthWarning>()
         val (explicitResult, explicitError) =
-            buildExplicitNotes(explicitNotesArray, refToItem, itemSchemas, noteActorClaim, noteVerification)
+            buildExplicitNotes(explicitNotesArray, treeCtx, itemSchemas, warnings)
         if (explicitError != null) return null to explicitError
         val (notesList, explicitByRefKey) = explicitResult!!
 
         val (anchorByRefKey, anchorError) =
-            resolveAnchorNotes(treeCtx, itemSchemas, explicitByRefKey, notesList)
+            resolveAnchorNotes(treeCtx, itemSchemas, explicitByRefKey, notesList, warnings)
         if (anchorError != null) return null to anchorError
 
         fillCreateNotesBlanks(
@@ -1261,7 +1304,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
             noteVerification
         )
 
-        return notesList to null
+        return BuiltNotes(notesList, warnings) to null
     }
 
     private data class TransactionOutcome(
@@ -1370,7 +1413,8 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         treeResult: WorkTreeResult,
         rootResultItem: WorkItem,
         isExistingRoot: Boolean,
-        depSpecs: List<TreeDepSpec>
+        depSpecs: List<TreeDepSpec>,
+        noteWarnings: Map<Pair<UUID, String>, NoteLengthWarning>
     ): JsonElement {
         // Build ref-to-result-item map for note lookup
         val idToRef = treeResult.refToId.entries.associate { (ref, id) -> id to ref }
@@ -1445,6 +1489,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                         put("key", JsonPrimitive(note.key))
                         put("role", JsonPrimitive(note.role))
                         put("id", JsonPrimitive(note.id.toString()))
+                        noteWarnings[note.itemId to note.key]?.let { put("warning", JsonPrimitive(it.message())) }
                     }
                 }
             )

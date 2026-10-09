@@ -1,16 +1,16 @@
 package io.github.jpicklyk.mcptask.current.application.tools.notes
 
+import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
+import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
-import io.github.jpicklyk.mcptask.current.application.support.legacyWrite
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
-import io.github.jpicklyk.mcptask.current.application.support.writeOutcome
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
-import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.security.PathContainment
@@ -286,8 +286,6 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
 
         val upsertedNotes = mutableListOf<JsonObject>()
         val failures = mutableListOf<JsonObject>()
-        // Cache validated items to avoid redundant DB lookups in itemContext computation
-        val validatedItems = mutableMapOf<UUID, io.github.jpicklyk.mcptask.current.domain.model.WorkItem>()
 
         for ((index, element) in notesArray.withIndex()) {
             try {
@@ -347,71 +345,18 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                         }
                         val itemId = resolvedItemId
 
-                        // Validate that the WorkItem exists (cache for itemContext reuse)
-                        if (itemId !in validatedItems) {
-                            run {
-                                val r =
-                                    itemRepo.getById(itemId) ?: throw ToolValidationException(
-                                        "Note at index $index: WorkItem '$itemIdStr' not found"
-                                    )
-                                validatedItems[itemId] = r
-                            }
-                        }
-
-                        // Enforce the configured note-body length limit (schema maxLength), evaluated
-                        // AFTER body resolution so it applies uniformly to inline `body` and
-                        // file-sourced `bodyFromFile` content alike.
-                        var lengthWarning: String? = null
-                        val maxLength =
-                            context
-                                .resolveSchema(validatedItems.getValue(itemId))
-                                ?.notes
-                                ?.firstOrNull { it.key == key }
-                                ?.maxLength
-                        if (maxLength != null && body.length > maxLength) {
-                            val detail = "body length ${body.length} exceeds maxLength $maxLength for key '$key'"
-                            val effectiveNoteLimitsMode = context.resolveNoteLimitsMode(validatedItems.getValue(itemId).rootId)
-                            if (effectiveNoteLimitsMode == "reject") {
-                                return@body ElementResult.Failed(
-                                    buildJsonObject {
-                                        put("index", JsonPrimitive(index))
-                                        put("error", JsonPrimitive("Note at index $index: $detail"))
-                                        put("code", JsonPrimitive("NOTE_BODY_TOO_LONG"))
-                                        put("key", JsonPrimitive(key))
-                                        put("maxLength", JsonPrimitive(maxLength))
-                                        put("actualLength", JsonPrimitive(body.length))
-                                    }
+                        // The write policy (role normalization, byte cap, CRLF, schema-role, maxLength and
+                        // note_limits) and the item lookup live in NoteCommandService, shared with REST and
+                        // create_work_tree; this maps its outcome back to the manage_notes wire shapes.
+                        when (
+                            val written =
+                                context.noteCommandService.upsert(
+                                    NoteUpsertCommand(itemId, key, role, body, actorClaim, verification)
                                 )
-                            } else {
-                                lengthWarning = detail
-                            }
-                        }
-
-                        // One write unit per note: the existing-note lookup (to preserve its ID) and the
-                        // upsert commit or roll back together; a store failure rolls the unit back.
-                        val upserted =
-                            context.unitOfWork.writeOutcome("ManageNotesTool.upsert") {
-                                // Check for existing note with same (itemId, key) to preserve its ID
-                                val existingNote =
-                                    legacyReadOrNull { noteRepo.findByItemIdAndKey(itemId, key) }
-
-                                val note =
-                                    Note(
-                                        id = existingNote?.id ?: UUID.randomUUID(),
-                                        itemId = itemId,
-                                        key = key,
-                                        role = role,
-                                        body = body,
-                                        actorClaim = actorClaim,
-                                        verification = verification
-                                    )
-                                noteRepo.upsert(note)
-                            }
-
-                        when (upserted) {
-                            is Outcome.Err -> ElementResult.Failed(noteFailure(index, LegacyFaults.message(upserted.error)))
+                        ) {
+                            is Outcome.Err -> upsertFailure(written.error, index, itemIdStr, key)
                             is Outcome.Ok -> {
-                                val result = upserted.value
+                                val result = written.value.note
                                 ElementResult.Done(
                                     buildJsonObject {
                                         put("id", JsonPrimitive(result.id.toString()))
@@ -420,7 +365,7 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                                         put("role", JsonPrimitive(result.role))
                                         actorClaim?.let { put("actor", it.toJson()) }
                                         verification?.toJsonOrOmit()?.let { put("verification", it) }
-                                        lengthWarning?.let { put("warning", JsonPrimitive(it)) }
+                                        written.value.warning?.let { put("warning", JsonPrimitive(it.message())) }
                                     }
                                 )
                             }
@@ -473,8 +418,7 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                 for (itemIdStr in successItemIds) {
                     val itemId = UUID.fromString(itemIdStr)
                     val item =
-                        validatedItems[itemId]
-                            ?: legacyReadOrNull { itemRepo.getById(itemId) }
+                        legacyReadOrNull { itemRepo.getById(itemId) }
                             ?: continue
 
                     // The notes for this item are ALREADY PERSISTED at this point (the per-index
@@ -557,6 +501,50 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
         error: DomainError
     ): JsonObject = KeyedCall.defaultFailure(index, error)
 
+    /**
+     * Maps a [NoteCommandService] write failure to this tool's per-note failure shapes. Payload-only
+     * failures (byte cap, invalid role) are [ElementResult.Invalid] and may be recorded for idempotency;
+     * config-dependent ones (schema-role, `maxLength`) and store faults are [ElementResult.Failed], never recorded.
+     */
+    private fun upsertFailure(
+        error: DomainError,
+        index: Int,
+        itemIdStr: String,
+        key: String
+    ): ElementResult {
+        val message = "Note at index $index: ${error.message}"
+        return when (val detail = error.detail) {
+            is ErrorDetail.NoteTooLong ->
+                ElementResult.Failed(
+                    buildJsonObject {
+                        put("index", JsonPrimitive(index))
+                        put("error", JsonPrimitive(message))
+                        put("code", JsonPrimitive("NOTE_BODY_TOO_LONG"))
+                        put("key", JsonPrimitive(key))
+                        put("maxLength", JsonPrimitive(detail.max))
+                        put("actualLength", JsonPrimitive(detail.actual))
+                    }
+                )
+            is ErrorDetail.PayloadTooLarge ->
+                ElementResult.Invalid(
+                    buildJsonObject {
+                        put("index", JsonPrimitive(index))
+                        put("error", JsonPrimitive(message))
+                        put("code", JsonPrimitive("NOTE_BODY_TOO_LARGE"))
+                        put("key", JsonPrimitive(key))
+                        put("maxBytes", JsonPrimitive(detail.max))
+                        put("actualBytes", JsonPrimitive(detail.actual))
+                    },
+                    message
+                )
+            is ErrorDetail.InvalidRequest -> ElementResult.Invalid(noteFailure(index, message), message)
+            is ErrorDetail.NotFound ->
+                ElementResult.Failed(noteFailure(index, "Note at index $index: WorkItem '$itemIdStr' not found"))
+            is ErrorDetail.SchemaViolation -> ElementResult.Failed(noteFailure(index, message))
+            else -> ElementResult.Failed(noteFailure(index, LegacyFaults.message(error)))
+        }
+    }
+
     private fun deleteFailure(
         id: String,
         message: String
@@ -574,8 +562,6 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
         val idsArray = optionalJsonArray(params, "ids")
         val itemIdStr = optionalString(params, "itemId")
         val key = optionalString(params, "key")
-        val noteRepo = context.noteRepository()
-
         var deletedCount = 0
         var notFoundCount = 0
         val failures = mutableListOf<JsonObject>()
@@ -611,7 +597,7 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                 // back and is reported unrecorded, so a retry with the same key runs it again.
                 val outcome =
                     runElement(keyed, index, element, onError = { deleteFailure(idStr, it.message) }) {
-                        when (val deleted = context.unitOfWork.writeOutcome("ManageNotesTool.delete") { noteRepo.delete(id) }) {
+                        when (val deleted = context.noteCommandService.deleteById(id)) {
                             is Outcome.Err -> ElementResult.Failed(deleteFailure(idStr, LegacyFaults.message(deleted.error)))
                             is Outcome.Ok ->
                                 if (deleted.value) {
@@ -634,19 +620,9 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
 
             if (key != null) {
                 // Delete specific note by (itemId, key): the lookup and the delete share ONE write unit.
-                var lookupFailed = false
-                var deletedNoteId: UUID? = null
-                val keyed =
-                    context.unitOfWork.writeOutcome("ManageNotesTool.deleteByKey") {
-                        lookupFailed = true
-                        val note = legacyReadOrNull { noteRepo.findByItemIdAndKey(itemId, key) }
-                        lookupFailed = false
-                        deletedNoteId = note?.id
-                        if (note == null) false else noteRepo.delete(note.id)
-                    }
-                when (keyed) {
+                when (val deleted = context.noteCommandService.deleteByKey(itemId, key)) {
                     is Outcome.Ok ->
-                        if (deletedNoteId != null) {
+                        if (deleted.value != null) {
                             deletedCount++
                         } else {
                             // Key did not exist — not an error, but tracked so callers can distinguish
@@ -655,38 +631,23 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                     is Outcome.Err -> {
                         failures.add(
                             buildJsonObject {
-                                put(
-                                    "id",
-                                    JsonPrimitive(
-                                        if (lookupFailed ||
-                                            deletedNoteId == null
-                                        ) {
-                                            "$itemIdStr/$key"
-                                        } else {
-                                            deletedNoteId.toString()
-                                        }
-                                    )
-                                )
-                                put("error", JsonPrimitive(LegacyFaults.message(keyed.error)))
+                                put("id", JsonPrimitive("$itemIdStr/$key"))
+                                put("error", JsonPrimitive(LegacyFaults.message(deleted.error)))
                             }
                         )
                     }
                 }
             } else {
                 // Delete all notes for itemId
-                run {
-                    val result =
-                        context.unitOfWork.legacyWrite("ManageNotesTool.deleteByItemId", {
-                            return@run run {
-                                failures.add(
-                                    buildJsonObject {
-                                        put("id", JsonPrimitive(itemIdStr))
-                                        put("error", JsonPrimitive(it))
-                                    }
-                                )
+                when (val deleted = context.noteCommandService.deleteAllForItem(itemId)) {
+                    is Outcome.Ok -> deletedCount += deleted.value
+                    is Outcome.Err ->
+                        failures.add(
+                            buildJsonObject {
+                                put("id", JsonPrimitive(itemIdStr))
+                                put("error", JsonPrimitive(LegacyFaults.message(deleted.error)))
                             }
-                        }) { noteRepo.deleteByItemId(itemId) }
-                    deletedCount += result
+                        )
                 }
             }
         }
@@ -732,10 +693,8 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                             "exceeds the $MAX_BODY_FILE_BYTES byte cap"
                     )
                 }
-                val raw = file.readText(Charsets.UTF_8)
-                // Normalize CRLF line endings to LF: note bodies are stored and compared as
-                // LF-only, and files authored or edited on Windows commonly contain CRLF.
-                return raw.replace("\r\n", "\n")
+                // CRLF -> LF normalization is NoteCommandService's job (every write path shares it).
+                return file.readText(Charsets.UTF_8)
             }
         }
     }
@@ -759,6 +718,6 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
 
     companion object {
         /** Maximum size, in bytes, of a file readable via `bodyFromFile`. */
-        private const val MAX_BODY_FILE_BYTES = 65536
+        private const val MAX_BODY_FILE_BYTES = NoteCommandService.MAX_NOTE_BODY_BYTES
     }
 }

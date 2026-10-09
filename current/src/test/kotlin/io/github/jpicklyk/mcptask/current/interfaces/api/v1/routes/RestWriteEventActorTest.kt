@@ -57,20 +57,28 @@ class RestWriteEventActorTest {
 
     private fun Application.wire(decorated: EventPublishingRepositoryProvider) {
         configureTestApp(makeWriteAuthConfig()) {
-            itemWriteRoutes(
-                decorated,
-                DegradedModePolicy.ACCEPT_CACHED,
-                IdempotencyService(db.unitOfWork()),
+            val toolContext =
                 ToolExecutionContext(
                     decorated,
                     NoOpNoteSchemaService,
                     statusLabelService = NoOpStatusLabelService,
                     perRootConfigService = PerRootConfigService(decorated.projectConfigRepository()),
                     unitOfWork = db.unitOfWork()
-                ).advanceServiceFactory(),
+                )
+            itemWriteRoutes(
+                decorated,
+                DegradedModePolicy.ACCEPT_CACHED,
+                IdempotencyService(db.unitOfWork()),
+                toolContext.advanceServiceFactory(),
                 db.unitOfWork(),
             )
-            noteWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyService(db.unitOfWork()), db.unitOfWork())
+            noteWriteRoutes(
+                decorated,
+                DegradedModePolicy.ACCEPT_CACHED,
+                IdempotencyService(db.unitOfWork()),
+                db.unitOfWork(),
+                toolContext.noteCommandService
+            )
             dependencyWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyService(db.unitOfWork()), db.unitOfWork())
         }
     }

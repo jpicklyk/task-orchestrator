@@ -698,7 +698,13 @@ internal fun Application.installRestApiRoutes(
                 warnOnClaimedAdvance = appConfig.apiWarnOnClaimedAdvance,
                 clock = toolContext.clock,
             )
-            noteWriteRoutes(effectiveProvider, degradedModePolicy, toolContext.idempotency, toolContext.unitOfWork)
+            noteWriteRoutes(
+                effectiveProvider,
+                degradedModePolicy,
+                toolContext.idempotency,
+                toolContext.unitOfWork,
+                toolContext.noteCommandService
+            )
             dependencyWriteRoutes(effectiveProvider, degradedModePolicy, toolContext.idempotency, toolContext.unitOfWork)
             // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete —
             // converges on the same ProjectConfigPushService the manage_project_config MCP tool uses.

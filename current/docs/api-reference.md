@@ -782,10 +782,12 @@ Providing both `ids` and `itemId` in the same delete call is an error — the se
 |---|---|---|---|
 | `itemId` | string (UUID) | Yes | The WorkItem this note belongs to |
 | `key` | string | Yes | Logical name for this note (e.g., `requirements`, `done-criteria`) |
-| `role` | string | Yes | Workflow phase: `queue`, `work`, or `review` |
+| `role` | string | Yes | Workflow phase: `queue`, `work`, or `review` (any letter case; stored lowercase) |
 | `body` | string | No | Note content (default: `""`). Mutually exclusive with `bodyFromFile` — providing both fails that note. |
 | `bodyFromFile` | string | No | Server-side file path read in place of `body`. Resolved strictly relative to the agent config root (`AGENT_CONFIG_DIR`, falling back to the server's working directory) — absolute paths, `..` escapes, and symlink escapes are rejected. File must exist and be ≤65536 bytes. CRLF line endings are normalized to LF on read. |
 | `actor` | object | No | Optional actor claim — see Actor Attribution section |
+
+**Note write policy.** One service (`NoteCommandService`) applies the same policy to `manage_notes`, `create_work_tree` notes and the REST `PUT /items/{id}/notes/{key}`, in this order: (1) `role` is lowercased (locale-invariant, no trimming) and must be `queue`, `work` or `review`; (2) the raw body is capped at 65536 UTF-8 bytes in every `note_limits` mode (this note fails with `code: NOTE_BODY_TOO_LARGE`); (3) CRLF is normalized to LF everywhere, inline and file-read alike (a lone CR is kept); (4) when the item's resolved schema declares the note's `key`, the role must equal the schema role, otherwise the note is rejected (off-schema keys and schema-free items are unconstrained); (5) the `maxLength` check below, measured in characters on the normalized body.
 
 **Note body length limits.** When the resolved schema declares `maxLength` for a note's `key`, the resolved body (from `body` or `bodyFromFile`) is checked against it after resolution. The top-level config `note_limits.mode` controls enforcement: `warn` (default) accepts the note and adds a `warning` field to that note's result naming the limit and actual size; `reject` fails that note with a structured error: `{ "code": "NOTE_BODY_TOO_LONG", "key": "...", "maxLength": N, "actualLength": N }` in its `failures` entry. `note_limits` is layered per-root: a per-root `manage_project_config` push that explicitly sets `note_limits.mode` wins for that root's items; a per-root document that omits `note_limits` entirely falls through to the global mode unchanged — see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md).
 
@@ -846,7 +848,7 @@ The `(itemId, key)` pair is unique — upserting with an existing pair updates t
 }
 ```
 
-Each note in the `notes` response array also carries a `warning` field when its body exceeded a schema `maxLength` under `note_limits.mode: warn` (naming the limit and actual length). Under `mode: reject`, an over-limit note instead appears in `failures` with `code: "NOTE_BODY_TOO_LONG"`, `key`, `maxLength`, and `actualLength`.
+Notes follow the same write policy as `manage_notes` (see its **Note write policy**): roles may be given in any letter case, an over-cap body (65536 UTF-8 bytes) or a schema-role mismatch rejects the WHOLE call (`VALIDATION_ERROR`, zero items created), and under `note_limits.mode: reject` an over-`maxLength` note does too. Each note in the `notes` response array also carries a `warning` field when its body exceeded a schema `maxLength` under `note_limits.mode: warn` (naming the limit and actual length). Under `mode: reject`, an over-limit note instead appears in `failures` with `code: "NOTE_BODY_TOO_LONG"`, `key`, `maxLength`, and `actualLength`.
 
 A note whose schema or note-limits-mode could not be resolved because its item's per-root config was unavailable (see [Error Envelope](#error-envelope)) instead appears in `failures` as `{index, error, errorKind: "transient", errorCode: "config_unavailable"}`; nothing is stored for it and the rest of the batch proceeds.
 

@@ -370,7 +370,8 @@ other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability
 | `duplicate_dependency` | 409 | `POST /dependencies`: an edge with the same `fromItemId`/`toItemId`/`type` already exists |
 | `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §23), or a non-JSON `Content-Type` on `POST /items`, `PUT /items/{id}/notes/{key}`, `POST /items/{id}/advance`, or `POST /dependencies` (see §5) |
 | `etag_mismatch` | 412 | `If-Match` header does not match current ETag |
-| `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT /items/{id}/notes/{key}`, and `POST /dependencies` share a 1 MiB limit; `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB, except a `{slug}` starting with `rule/` (e.g. `rule%2Fcommit-discipline`), which is capped tighter at 16384 bytes (16 KiB) — the single enforcement point `query_rules`/§19a rely on, so those read surfaces never re-check size themselves (see §18, §19, §19a). |
+| `note_body_too_long` | 422 | `PUT /items/{id}/notes/{key}`: the body exceeds the schema `maxLength` for the key and `note_limits.mode` is `reject` |
+| `payload_too_large` | 413 | Request body exceeds its route's byte limit (and, for `PUT /items/{id}/notes/{key}`, a note `body` over 65536 UTF-8 bytes) — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT /items/{id}/notes/{key}`, and `POST /dependencies` share a 1 MiB limit; `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB, except a `{slug}` starting with `rule/` (e.g. `rule%2Fcommit-discipline`), which is capped tighter at 16384 bytes (16 KiB) — the single enforcement point `query_rules`/§19a rely on, so those read surfaces never re-check size themselves (see §18, §19, §19a). |
 | `version_conflict` | 409 | `PATCH /items/{id}`: `If-Match` matched at read time, but a concurrent writer's update won the version race before this write committed — optimistic-lock loss, distinct from `etag_mismatch`. Retry with a fresh `If-Match` ETag. |
 | `invalid_request` | 401 | `error_description` body. Missing `Authorization` header, a non-Bearer scheme, or an empty Bearer credential (also the SSE pre-flight when no header or allowed `?token=` is presented). Carries `WWW-Authenticate: Bearer error="invalid_request"`. |
 | `invalid_token` | 401 | `error_description` body. Unknown, expired, or otherwise invalid token (bearer or JWKS). Carries `WWW-Authenticate: Bearer error="invalid_token"`. |
@@ -1440,8 +1441,8 @@ Upsert (create or replace) a note. `role` and `body` are always replaced on upda
 **Request body:**
 ```json
 {
-  "role": "queue|work|review",   // required
-  "body": "string",              // required
+  "role": "queue|work|review",   // required; any letter case, stored lowercase
+  "body": "string",              // required; at most 65536 UTF-8 bytes
   "properties": {}               // optional — reserved, currently ignored
 }
 ```
@@ -1451,9 +1452,15 @@ Upsert (create or replace) a note. `role` and `body` are always replaced on upda
 **Responses:**
 - `201 Created` → `NoteDto` + `ETag` header (note was new)
 - `200 OK` → `NoteDto` + `ETag` header (note was updated)
+- `201 Created` / `200 OK` also carry a `warning` string in the body when the note body exceeded the schema `maxLength` under `note_limits.mode: warn` (absent otherwise)
+- `400 validation_error` — invalid `role`, or the key is declared in the item's resolved schema with a different role
 - `412 etag_mismatch`
-- `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
+- `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6), or the note `body` itself exceeds 65536 UTF-8 bytes
 - `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the `Idempotency-Key` header or body is read
+- `422 note_body_too_long` — the body exceeds the schema `maxLength` for the key and `note_limits.mode` is `reject`
+- `503 config_unavailable` — the item's per-root config could not be read
+
+The write policy (role normalization, 64 KiB body cap, CRLF-to-LF normalization, schema-role and `maxLength` checks) is the same one `manage_notes` and `create_work_tree` apply; the `If-Match` check runs before it. A schema-role or `maxLength` rejection is not recorded for `Idempotency-Key` replay (it depends on config), so a retry after a config change runs again.
 
 Supports `Idempotency-Key` header.
 
