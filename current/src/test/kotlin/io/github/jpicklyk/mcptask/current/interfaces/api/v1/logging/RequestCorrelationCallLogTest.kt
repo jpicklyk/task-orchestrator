@@ -221,6 +221,25 @@ class RequestCorrelationCallLogTest {
     }
 
     @Test
+    fun `G1 the top-level resource set is derived from the declared routes`() {
+        val sink = CollectingSink()
+        testApplication {
+            application {
+                installRequestCorrelation(callLog = sink)
+                probeRoutes()
+            }
+            client.get("/api/v1/probe/a/b/c")
+            client.get("/api/v1/status/1/2")
+            // probe and status are declared only by this test, so they are in no production vocabulary: the
+            // rows can only carry them if the set is derived from the declared routes.
+            assertEquals(
+                listOf("GET /api/v1/probe", "GET /api/v1/status"),
+                sink.records.map { it.tool }
+            )
+        }
+    }
+
+    @Test
     fun `A2 the SSE stream path and paths outside api v1 write no record and get no header`() {
         val sink = CollectingSink()
         testApplication {

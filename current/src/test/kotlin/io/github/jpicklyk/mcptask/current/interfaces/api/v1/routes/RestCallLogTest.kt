@@ -240,7 +240,7 @@ class RestCallLogTest {
             assertEquals(listOf(a.toString(), b.toString()), ids(two["target_ids"]))
             val keyedRow = byReq.getValue(keyed.headers["X-Req-Id"])
             assertTrue(!(keyedRow["tool"] as String).contains("my-key"), "the raw key is never stored: ${keyedRow["tool"]}")
-            assertTrue((keyedRow["tool"] as String).startsWith("GET /api/v1/items"), "${keyedRow["tool"]}")
+            assertEquals("GET /api/v1/items/{id}/notes/{key}", keyedRow["tool"])
             assertEquals(listOf(a.toString()), ids(keyedRow["target_ids"]), "a non-UUID segment is not a target")
             val listing = byReq.getValue(listingResponse.headers["X-Req-Id"])
             assertEquals("GET /api/v1/items", listing["tool"])
@@ -375,7 +375,7 @@ class RestCallLogTest {
             }
             val byReq = rows.associateBy { it["req_id"] }
             assertEquals("GET unmatched", byReq.getValue(outside.headers["X-Req-Id"])["tool"], "junk in the first segment")
-            // G1: auth runs after routing, so /items/<anything> resolves the declared /items/{id} route.
+            // G1: auth runs first but does not short-circuit, so routing still resolves and a 401 on a declared route records that route's template.
             assertEquals("GET /api/v1/items/{id}", byReq.getValue(inside.headers["X-Req-Id"])["tool"])
             assertEquals("GET /api/v1/items", byReq.getValue(insideDeep.headers["X-Req-Id"])["tool"], "no route: first segment only")
         }
