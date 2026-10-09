@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigReso
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
 import io.github.jpicklyk.mcptask.current.application.port.ItemSortFields
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.GatePredicate
 import io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView
 import io.github.jpicklyk.mcptask.current.application.service.TransitionPreview
 import io.github.jpicklyk.mcptask.current.application.service.blockedByWire
@@ -647,7 +646,9 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
  * `config_unavailable` on both routes, same envelope as the advance route's D6 handling.
  *
  * [transitionPreview] is the SAME preview `get_context` uses: `gateStatus.canAdvance` is
- * `evaluate(item, start) is Allow` and `gateStatus.blockedBy` the rejecting gate.
+ * `inspect(item, start).decision is Allow` and `gateStatus.blockedBy` the rejecting gate; `missing`,
+ * `missingBySeat` and `violations` come from the same read unit. That unit reads config with no
+ * last-known-good fallback, so the gate route answers 503 on a per-root read fault even when warm.
  */
 fun Route.itemGateRoutes(
     repositoryProvider: RepositoryProvider,
@@ -655,7 +656,6 @@ fun Route.itemGateRoutes(
     transitionPreview: TransitionPreview,
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
-    val noteRepo = repositoryProvider.noteRepository()
 
     requireCapability(ApiCapability.READ) {
         // ─── GET /items/{id}/gate ──────────────────────────────────────────────
@@ -689,12 +689,12 @@ fun Route.itemGateRoutes(
 
             // Per D6: a per-root config read failure resolving the gate's schema responds 503 with
             // a config_unavailable ErrorDto — no Retry-After header, same contract as the advance
-            // route (RFC 9110 §15.6.4: 503 describes a temporary server-side inability).
-            val (resolvedSchema, startDecision) =
+            // route (RFC 9110 §15.6.4: 503 describes a temporary server-side inability). The preview
+            // reads config inside its read unit (no last-known-good fallback there).
+            // Schema, notes, violations and the start decision all come from ONE read unit.
+            val startView =
                 try {
-                    withConfigSession {
-                        configResolver.resolveSchema(item) to transitionPreview.evaluate(item, Trigger.User.START)
-                    }
+                    withConfigSession { transitionPreview.inspect(item, Trigger.User.START) }
                 } catch (e: PerRootConfigUnavailableException) {
                     call.respond(
                         HttpStatusCode.ServiceUnavailable,
@@ -703,8 +703,9 @@ fun Route.itemGateRoutes(
                     return@get
                 }
 
-            val notes = legacyReadOrNull { noteRepo.findByItemId(item.id) } ?: emptyList()
-            val notesByKey = notes.associateBy { it.key }
+            val resolvedSchema = startView.schema
+            val startDecision = startView.decision
+            val notesByKey = startView.notes.associateBy { it.key }
 
             val phaseContext = computePhaseNoteContext(item.role, resolvedSchema?.notes, notesByKey)
             val missing = phaseContext?.missingKeys ?: emptyList()
@@ -716,13 +717,7 @@ fun Route.itemGateRoutes(
             // A2: independence-attestation violations for the item's CURRENT phase -- same
             // computation GetContextTool's item mode uses (null when TERMINAL, mode OFF, or the
             // resolved schema declares no `independent_of` anywhere).
-            val independencePolicy = configResolver.resolveIndependencePolicy(item.rootId)
-            val violations =
-                if (!isTerminal && resolvedSchema != null) {
-                    GatePredicate.violationsForStart(resolvedSchema, item.role, notes, independencePolicy)
-                } else {
-                    null
-                }
+            val violations = if (isTerminal) null else startView.violations
             val canAdvance = startDecision is Decision.Allow
 
             call.respond(

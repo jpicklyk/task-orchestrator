@@ -325,7 +325,9 @@ private data class ParsedAdvanceRequest(
  *   for the advance route below — the SAME factory (and therefore the SAME [io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver]
  *   / per-root config cache) the MCP `advance_item` tool uses, so REST-driven advances stamp
  *   identical status labels (bug 80e48e55 — REST previously hardcoded [NoOpStatusLabelService] and
- *   never applied labels at all) and share MCP's last-known-good per-root cache.
+ *   never applied labels at all) and share MCP's per-root config cache. The advance reads that config
+ *   inside its unit, where the last-known-good fallback is disabled: a per-root read fault answers 503
+ *   `config_unavailable` even when the cache is warm.
  */
 fun Route.itemWriteRoutes(
     repositoryProvider: RepositoryProvider,

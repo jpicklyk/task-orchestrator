@@ -51,8 +51,12 @@ class AdvanceServiceFactory(
 
     /**
      * Builds the [AdvanceService] for advances of [item] (and the cascades they trigger), with status
-     * labels resolved under [item]'s `rootId`. Config is read lazily inside the advance's unit, so a
-     * `PerRootConfigUnavailableException` surfaces from [AdvanceService.advance], not from here.
+     * labels resolved under [item]'s `rootId`. Nothing is read here: the schema, independence policy,
+     * resource requirements, registry and labels of the item and of every cascade target are read inside
+     * the advance's write unit, where the per-root last-known-good fallback is disabled. A per-root read
+     * fault on the advanced item therefore surfaces from [AdvanceService.advance] as a
+     * `PerRootConfigUnavailableException` (`config_unavailable`), keyed or unkeyed alike; one on a cascade
+     * target skips that cascade and the primary still commits.
      *
      * [resourceLeasesEnforced] is read fresh on EVERY call.
      */

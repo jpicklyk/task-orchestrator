@@ -27,7 +27,6 @@ import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.FollowUp
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.GateId
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.RejectContext
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.SchemaFacts
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionPolicy
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionSnapshot
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionTable
@@ -337,14 +336,6 @@ class AdvanceService(
 
         private const val UNIT_OP = "AdvanceService.advance"
 
-        /** One (trigger, target) per cascade kind, for pre-resolving cascade labels. */
-        private val CASCADE_TARGETS: List<Pair<Trigger.Cascade, Role>> =
-            listOf(
-                Trigger.Cascade.Complete() to Role.TERMINAL,
-                Trigger.Cascade.Start to Role.WORK,
-                Trigger.Cascade.Reopen to Role.WORK
-            )
-
         /** Environment variable name for the deployment-wide resource-lease kill switch. */
         const val RESOURCE_LEASES_ENFORCED_ENV = "RESOURCE_LEASES_ENFORCED"
 
@@ -425,10 +416,10 @@ class AdvanceService(
         }
 
         val leaseGateActive = enforceResourceLeases && resourceLeasesEnforced
-        // Config (schema, policy, requirements, labels) is resolved here, OUTSIDE the unit: a unit opens a fresh
-        // config session in which a failed per-root read has no last-known-good fallback. Inside the unit it is
-        // reused for the re-read row unless that row's config-relevant fields changed meanwhile.
-        val config = loader.resolveConfig(item, userTrigger, LeaseInput(leaseGateActive))
+        // Config (schema, independence policy, requirements, registry, labels) is read INSIDE the unit, against
+        // the re-read row, so no gate decides on config read before the writer lock (AR-15). The unit's config
+        // session has no last-known-good fallback: a per-root read fault fails the advance closed
+        // (config_unavailable), keyed or unkeyed alike.
         val request =
             PrimaryRequest(
                 itemId = item.id,
@@ -438,40 +429,9 @@ class AdvanceService(
                 verification = verification,
                 ownership = OwnershipInput(enforceOwnership, callerId),
                 leaseGateActive = leaseGateActive,
-                credentialRefs = credentialRefs,
-                config = config,
-                labels = preResolveLabels(item, userTrigger, config)
+                credentialRefs = credentialRefs
             )
         return runUnit { primary(request) }
-    }
-
-    /**
-     * Labels the advance of [item] can stamp, resolved ahead of the unit: the primary trigger's label for its
-     * expected table target, and (when [item] has a parent) the cascade label for each cascade kind.
-     */
-    private suspend fun preResolveLabels(
-        item: WorkItem,
-        trigger: Trigger.User,
-        config: ResolvedConfig
-    ): Map<Pair<String, Role>, String?> {
-        val labels = HashMap<Pair<String, Role>, String?>()
-        val facts = config.schema?.let { SchemaFacts(it.hasReviewPhase(), it.lifecycleMode) } ?: SchemaFacts.SCHEMA_FREE
-        val target = (TransitionTable.resolve(item.role, trigger, facts, item.previousRole) as? TransitionTable.Resolution.To)?.role
-        if (target != null) labels[trigger.wire to target] = labelFor(trigger, target)
-        if (item.parentId != null) {
-            for ((cascade, cascadeTarget) in CASCADE_TARGETS) labels[cascade.wire to cascadeTarget] = labelFor(cascade, cascadeTarget)
-        }
-        return labels
-    }
-
-    /** The label for ([trigger], [target]): pre-resolved when available, else resolved now (inside the unit). */
-    private suspend fun label(
-        labels: Map<Pair<String, Role>, String?>,
-        trigger: Trigger,
-        target: Role
-    ): String? {
-        val key = trigger.wire to target
-        return if (labels.containsKey(key)) labels[key] else labelFor(trigger, target)
     }
 
     private data class PrimaryRequest(
@@ -482,9 +442,7 @@ class AdvanceService(
         val verification: VerificationResult?,
         val ownership: OwnershipInput,
         val leaseGateActive: Boolean,
-        val credentialRefs: List<String>,
-        val config: ResolvedConfig,
-        val labels: Map<Pair<String, Role>, String?>
+        val credentialRefs: List<String>
     )
 
     /** An apply step aborted by a missing row: rolls the unit back and becomes [AdvanceFailure.ApplyFailed]. */
@@ -550,7 +508,7 @@ class AdvanceService(
                     AdvanceFailure.ApplyFailed("Failed to update item: WorkItem not found with id: ${request.itemId}")
                 )
 
-        val loaded = loader.loadDetailed(view, item, trigger, request.ownership, LeaseInput(request.leaseGateActive), request.config)
+        val loaded = loader.loadDetailed(view, item, trigger, request.ownership, LeaseInput(request.leaseGateActive))
         val snapshot = loaded.snapshot
         val decision = policy.evaluate(snapshot, trigger)
         val target = (decision as? Decision.Allow)?.target ?: resolvedTarget(snapshot, trigger)
@@ -590,7 +548,7 @@ class AdvanceService(
                     return AdvanceOutcome.Failure(AdvanceFailure.ResolutionFailed(legacyTableMessage(item, trigger, null)))
             }
 
-        val label = label(request.labels, trigger, allow.target)
+        val label = labelFor(trigger, allow.target)
         val applied =
             when (
                 val result =
@@ -620,7 +578,7 @@ class AdvanceService(
                     )
             }
 
-        val cascadeEvents = runCascades(view, allow.followUps, request.leaseGateActive, request.labels, now)
+        val cascadeEvents = runCascades(view, allow.followUps, request.leaseGateActive, now)
         val unblocked = findUnblocked(item.id)
 
         return AdvanceOutcome.Success(
@@ -988,7 +946,6 @@ class AdvanceService(
         view: ReadScope,
         followUps: List<FollowUp>,
         leaseGateActive: Boolean,
-        labels: Map<Pair<String, Role>, String?>,
         now: Instant
     ): List<AdvanceCascadeEvent> {
         val out = mutableListOf<AdvanceCascadeEvent>()
@@ -1006,7 +963,7 @@ class AdvanceService(
             val followUp = pending.removeFirst()
             val step =
                 try {
-                    cascadeStep(view, followUp, leaseGateActive, labels, now)
+                    cascadeStep(view, followUp, leaseGateActive, now)
                 } catch (e: PerRootConfigUnavailableException) {
                     // D7: a parent's config fault skips that cascade only; the primary still commits.
                     logger.warn(
@@ -1030,7 +987,6 @@ class AdvanceService(
         view: ReadScope,
         followUp: FollowUp,
         leaseGateActive: Boolean,
-        labels: Map<Pair<String, Role>, String?>,
         now: Instant
     ): CascadeStep? {
         val parent = workItemRepository.getById(followUp.parentId) ?: return null
@@ -1045,7 +1001,7 @@ class AdvanceService(
             is Decision.NotApplicable -> null
             is Decision.Reject -> CascadeStep(suppressedEvent(parent, trigger, decision, loaded), emptyList())
             is Decision.Allow -> {
-                val label = label(labels, trigger, decision.target)
+                val label = labelFor(trigger, decision.target)
                 when (
                     val result =
                         applyDecision(

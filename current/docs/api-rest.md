@@ -379,7 +379,7 @@ other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability
 | `insufficient_scope` | 403 | `error_description` body. A generic `requireCapability` check failed for the plugin's configured capability; (SSE-specific) a `GET /api/v1/events` connection presents a valid token that lacks the `read` capability (see §21); (SSE-specific) a `GET /api/v1/events` connection carries a `tags_include` scope but the route has no `WorkItemRepository` wired to filter by it -- fail-closed rather than serving an unfiltered stream; or (SSE-specific) a root-scoped principal's `?root=` values do not intersect its token's `scope.rootIds` -- the requested roots are entirely outside scope (see §21) |
 | `transition_failed` | 422 | Role transition rejected (invalid trigger, gate failure, dependency blocker) |
 | `resource_unavailable` | 409 | Resource-lease gate contention on `POST /items/{id}/advance` into WORK — transient, retryable. Carries a `Retry-After` header and `details.contendedResources`/`details.retryAfterMs`. Never discloses the current holder. |
-| `config_unavailable` | 503 | Per-root config read failed (a transient database error) and there was no last-known-good cached config to serve for that root — transient, retryable; the caller applies its own backoff (no `Retry-After` header). Returned by `POST /items/{id}/advance`, `GET /items/{id}/gate` (see §9, §10), and `GET /roots/{rootId}/config/effective` (see §18). REST and the MCP tools now read per-root config through the same `EffectiveConfigResolver`/last-known-good cache (one shared instance, built once in `ServerComposition`) — a transient DB error on one surface is absorbed by a cache warmed by the other, so this error is rarer than it was when each surface kept its own cache. |
+| `config_unavailable` | 503 | Per-root config read failed (a transient database error) and there was no last-known-good cached config to serve for that root — transient, retryable; the caller applies its own backoff (no `Retry-After` header). Returned by `POST /items/{id}/advance`, `GET /items/{id}/gate` (see §9, §10), and `GET /roots/{rootId}/config/effective` (see §18). REST and the MCP tools now read per-root config through the same `EffectiveConfigResolver`/last-known-good cache (one shared instance, built once in `ServerComposition`) — a transient DB error on one surface is absorbed by a cache warmed by the other, so this error is rarer than it was when each surface kept its own cache. Exception: `POST /items/{id}/advance` reads the item's config (and every cascade target's) inside the advance's unit of work, and `GET /items/{id}/gate` inside its preview's read unit; a unit has no last-known-good fallback, so on those two routes a read fault answers `config_unavailable` even when the cache is warm. |
 | `db_error` | 500 | A store fault: a read route responds `Database query failed` (or the route's own read text), a write route its existing text (e.g. `Failed to create item`). A store fault on a read is never reported as `404 not_found`; `404` means only that the row does not exist. |
 
 ---
@@ -1091,8 +1091,8 @@ decide whether a `reject`-mode violation should block a subagent's stop.
 - `400 bad_request` — invalid UUID
 - `403 scope_forbidden`
 - `404 not_found`
-- `503 config_unavailable` — the item's per-root config could not be read and there was no
-  last-known-good cached config for that root (see §6); transient, no `Retry-After` header
+- `503 config_unavailable` — the item's per-root config could not be read inside the preview's read
+  unit, where the last-known-good fallback is disabled (see §6); transient, no `Retry-After` header
 
 ### GET /items/{id}/schema
 
@@ -1104,8 +1104,9 @@ stay identical by construction, never by separately-maintained convention. `{ ty
 configFingerprint, configSource, notes: [...], dispatch?, resources?, seats?, dispatchBySeat?,
 features }` — `seats`/`dispatchBySeat` present only for a seat-aware schema, `features` always
 present. Id handling mirrors `GET /items/{id}` and `GET /items/{id}/gate`: full UUID only (a hex
-prefix is rejected), checked in the order below. Same `configResolver` and last-known-good per-root
-config cache as `GET /items/{id}/gate` (§6) — no separate cache, no `ETag`/`If-None-Match` handling
+prefix is rejected), checked in the order below. Same `configResolver` and per-root config cache as
+`GET /items/{id}/gate` (§6), read outside any unit so the last-known-good fallback applies here — no
+separate cache, no `ETag`/`If-None-Match` handling
 (§4's rationale applies here too: neither notes nor config version `item.modifiedAt`).
 
 **Responses:**
@@ -1370,9 +1371,10 @@ The `cascadeEvents`, `unblockedItems`, and `expectedNotes` fields are **additive
 - `422 transition_blocked` — a dependency blocker prevents the transition; `details.blockers` lists the blocking edges
 - `422 transition_failed` — invalid state transition, or a persistence fault anywhere in the advance
   (including a cascade or a lease release); nothing was applied
-- `503 config_unavailable` — the item's per-root config could not be read and there was no
-  last-known-good cached config for that root (see §6); transient, no `Retry-After` header — the
-  transition was NOT applied
+- `503 config_unavailable` — the item's per-root config could not be read inside the advance's unit
+  of work, where the last-known-good fallback is disabled (see §6); transient, no `Retry-After`
+  header — the transition was NOT applied (a cascade parent whose own root's config cannot be read is
+  skipped instead; the transition still commits)
 
 **Gate-rejection example (`422`):**
 ```json

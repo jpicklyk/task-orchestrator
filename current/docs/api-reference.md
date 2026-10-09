@@ -722,8 +722,8 @@ apply to that failure — see [Error Envelope](#error-envelope) for the full fie
 rejections skip in-set dependents exactly like a gate failure does.
 
 **Per-root config unavailable (`applied: false`, `errorCode: "config_unavailable"`):** when an
-item's per-root config cannot be read (a transient database error) and there is no last-known-good
-cached config for that root (see `manage_project_config`'s Purpose note below), that item's entry
+item's per-root config cannot be read (a transient database error) inside its advance's unit of work,
+where the last-known-good fallback is disabled (see `manage_project_config`'s Purpose note below), that item's entry
 carries `skipped: true`, `errorKind: "transient"`, `errorCode: "config_unavailable"` — no
 `retryAfterMs` — and counts as a rejection (`skipped`, not `gateFailures`); its in-set dependents are
 skipped exactly like any other rejection. The rest of the batch (siblings, and items whose own root's
@@ -1455,8 +1455,10 @@ force-release, item-keyed exclusivity, single-DB arbiter, opaque-labels-never-se
 `exclusive` vs `advisory` modeling guidance.
 
 **Per-root config unavailable.** When a transition's per-root config cannot be read (a transient
-database error) and there is no last-known-good cached config for that root (see
-`manage_project_config`'s Purpose note below), that ONE transition is rejected as **transient** —
+database error), that ONE transition is rejected as **transient**. The advance reads the item's config
+inside its unit of work, where the last-known-good fallback is disabled (see `manage_project_config`'s
+Purpose note below), so this happens even when the cache is warm, keyed or unkeyed alike; a cascade
+parent whose own root's config cannot be read is skipped instead (the transition still commits) —
 the rest of a batch continues — and nothing is persisted for it:
 
 ```json
@@ -2174,6 +2176,12 @@ cache, e.g. this instance's first read for the root — the read fails closed wi
 `config_unavailable` error (see [Error Envelope](#error-envelope)) rather than silently resolving
 against the global config. This is distinct from an explicit absence (no config row, or malformed
 stored YAML), which is unchanged: evict any cached entry, fall through to the global config.
+Inside a unit of work the fallback is disabled: a read fault there fails closed with
+`config_unavailable` even when a last-known-good entry is cached. `advance_item`, `complete_tree` and
+REST `POST /items/{id}/advance` read the advanced item's config (and every cascade target's) inside the
+advance's unit, so the NOTE, lease and label decisions never use config read before the writer lock;
+the `canAdvance` previews of `get_context` and REST `GET /items/{id}/gate` read it inside their read unit
+the same way.
 
 Supports two operations, selected via `operation`:
 
@@ -2717,7 +2725,9 @@ is returned as `DATABASE_ERROR` with the message `Database error in '<tool>': <s
 **`config_unavailable` (transient).** A root's per-root config could not be read (a transient
 database error on `getFingerprint`/`get`) and there was no last-known-good cached config for that
 root to serve instead — see `manage_project_config`'s Purpose note above for the last-known-good
-cache this falls back to. `retryAfterMs` is null, per the `transient` kind's own-backoff rule.
+cache this falls back to. A read made inside a unit of work (an advance, and the `canAdvance` preview)
+has no fallback, so there it fails even when the cache is warm. `retryAfterMs` is null, per the
+`transient` kind's own-backoff rule.
 `advance_item` reports this per transition (the rest of a batch continues) and `complete_tree`
 reports it per item (`skipped: true`, outcome `REJECTED`, in-set dependents skipped); `manage_notes`
 reports it per note — a note whose schema/note-limits-mode resolution hits this error appears in

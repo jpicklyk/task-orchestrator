@@ -317,7 +317,7 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
     ): JsonElement {
         // Step 0: Resolve the single top-level actor once for the whole tree. Every per-item
         // advance below records THIS claim on its audit row — before bug 3e455253 was fixed the
-        // tool passed a null actorClaim to applyTransition, so complete_tree audit rows carried no
+        // tool passed a null actorClaim to the transition apply step, so complete_tree audit rows carried no
         // attribution at all. An invalid actor object fails the whole call rather than silently
         // degrading to an unattributed completion of the entire tree.
         val actorResult = parseActorClaim(paramsObj["actor"] as? JsonObject, context)

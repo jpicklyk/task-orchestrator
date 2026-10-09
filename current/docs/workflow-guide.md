@@ -501,9 +501,8 @@ Status labels are human-readable strings automatically set on WorkItems during r
 
 ### Label Precedence
 
-1. **Resolution label** — hardcoded for `cancel` ("cancelled") and `reopen` (null/cleared). Always wins when non-null.
-2. **Config-driven label** — resolved from `StatusLabelService` for the trigger. Used when the resolution label is null.
-3. **Resume behavior** — `applyTransition` preserves the pre-block label automatically.
+1. **Config-driven label**: one rule for every applied transition: the `status_labels` entry for the trigger (per-root config, then the global config, then the defaults above). A `start` that lands in `terminal` uses the `complete` label; cascades use the `cascade` label. A configured `cancel` label takes effect (there is no hardcoded override).
+2. **No label configured**: when the resolved label is null, a transition into `blocked` keeps the item's current label; any other transition clears it.
 
 ### Customizing Labels
 

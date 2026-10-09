@@ -20,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionTable
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.model.ClaimState
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
+import io.github.jpicklyk.mcptask.current.domain.model.IndependenceViolation
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
@@ -57,35 +58,15 @@ data class LeaseInput(
 }
 
 /**
- * The config-backed inputs of a snapshot (schema, independence policy, resource requirements), resolved AHEAD of
- * the unit that loads the snapshot. A unit opens a fresh config session in which a failed per-root read has no
- * last-known-good fallback; resolving these first, outside the unit, keeps the pre-P11 fallback for the item
- * being advanced or previewed. Valid only for a row whose config-relevant fields ([appliesTo]) are unchanged;
- * [TransitionSnapshotLoader] re-resolves inside the unit otherwise. A null [policy] / [requirements] means
- * "not resolved" (the loader resolves it if it turns out to be needed).
- */
-internal class ResolvedConfig(
-    private val rootId: UUID?,
-    private val type: String?,
-    private val tags: String?,
-    private val properties: String?,
-    val schema: WorkItemSchema?,
-    val policy: IndependencePolicy?,
-    val requirements: List<ResourceRequirement>?
-) {
-    /** True when [item]'s config-relevant fields equal those this config was resolved for. */
-    fun appliesTo(item: WorkItem): Boolean =
-        item.rootId == rootId && item.type == type && item.tags == tags && item.properties == properties
-}
-
-/**
  * A loaded snapshot plus the inputs the apply step reuses: the resolved [schema] and, when the lease
- * facts were loaded, the item's declared resource [requirements] (empty otherwise).
+ * facts were loaded, the item's declared resource [requirements] (empty otherwise). [notes] are the
+ * item's notes when the note gate's facts were loaded (null when they were not read).
  */
 internal data class LoadedSnapshot(
     val snapshot: TransitionSnapshot,
     val schema: WorkItemSchema?,
-    val requirements: List<ResourceRequirement>
+    val requirements: List<ResourceRequirement>,
+    val notes: List<Note>? = null
 )
 
 /**
@@ -93,6 +74,10 @@ internal data class LoadedSnapshot(
  * evaluates, inside the caller's unit ([scope] supplies the unit instant). Shared by the advance pipeline
  * ([AdvanceService]) and the read-only previews ([TransitionPreview]), so a preview and an advance on the
  * same state see the same facts.
+ *
+ * Config (schema, independence policy, resource requirements) is resolved here too, inside the unit, so it
+ * is read in the same unit as the facts it gates. A unit's config session has no last-known-good fallback:
+ * a per-root read fault propagates as a `PerRootConfigUnavailableException`.
  *
  * Reads only what the trigger can need: notes and independence only when the trigger's note gate applies,
  * a schema matched and the table resolves a target; child counts only for a complete cascade; blockers only when the table target is
@@ -117,46 +102,28 @@ class TransitionSnapshotLoader(
         leases: LeaseInput
     ): TransitionSnapshot = loadDetailed(scope, item, trigger, ownership, leases).snapshot
 
-    /**
-     * Resolves [item]'s config-backed inputs for [trigger] (call it OUTSIDE any unit): the schema always; the
-     * independence policy when the note gate can apply; the resource requirements when [leases] is enforced and
-     * the table target is WORK.
-     */
-    internal suspend fun resolveConfig(
-        item: WorkItem,
-        trigger: Trigger,
-        leases: LeaseInput
-    ): ResolvedConfig {
-        val schema = schemaResolver(item)
-        val schemaFacts = schema?.let { SchemaFacts(it.hasReviewPhase(), it.lifecycleMode) } ?: SchemaFacts.SCHEMA_FREE
-        val target = (TransitionTable.resolve(item.role, trigger, schemaFacts, item.previousRole) as? TransitionTable.Resolution.To)?.role
-        val policy = if (schema != null && target != null && noteGateApplies(trigger)) independencePolicyResolver(item) else null
-        val requirements = if (leases.enforced && target == Role.WORK) resourceRequirementsResolver(item) else null
-        return ResolvedConfig(item.rootId, item.type, item.tags, item.properties, schema, policy, requirements)
-    }
-
     internal suspend fun loadDetailed(
         scope: ReadScope,
         item: WorkItem,
         trigger: Trigger,
         ownership: OwnershipInput,
-        leases: LeaseInput,
-        config: ResolvedConfig? = null
+        leases: LeaseInput
     ): LoadedSnapshot {
-        val pre = config?.takeIf { it.appliesTo(item) }
-        val schema = if (pre != null) pre.schema else schemaResolver(item)
+        val schema = schemaResolver(item)
         val schemaFacts = schema?.let { SchemaFacts(it.hasReviewPhase(), it.lifecycleMode) } ?: SchemaFacts.SCHEMA_FREE
         val target = (TransitionTable.resolve(item.role, trigger, schemaFacts, item.previousRole) as? TransitionTable.Resolution.To)?.role
 
         var filledKeys: Set<String> = emptySet()
         var independence: IndependenceFacts? = null
+        var notes: List<Note>? = null
         // No table target means the policy stops at TABLE: the note facts are never read, so skip them.
         if (schema != null && target != null && noteGateApplies(trigger)) {
-            val notes: List<Note> = noteRepository.findByItemId(item.id)
-            filledKeys = GatePredicate.filledNoteKeys(notes)
-            val policy = pre?.policy ?: independencePolicyResolver(item)
-            val current = GatePredicate.violationsForStart(schema, item.role, notes, policy)
-            val all = GatePredicate.violationsForComplete(schema, notes, policy)
+            val itemNotes: List<Note> = noteRepository.findByItemId(item.id)
+            notes = itemNotes
+            filledKeys = GatePredicate.filledNoteKeys(itemNotes)
+            val policy = independencePolicyResolver(item)
+            val current = GatePredicate.violationsForStart(schema, item.role, itemNotes, policy)
+            val all = GatePredicate.violationsForComplete(schema, itemNotes, policy)
             if (current != null || all != null) independence = IndependenceFacts(policy.mode, current, all)
         }
 
@@ -185,7 +152,7 @@ class TransitionSnapshotLoader(
         var requirements: List<ResourceRequirement> = emptyList()
         var leaseFacts = LeaseFacts.NONE
         if (leases.enforced && target == Role.WORK) {
-            requirements = pre?.requirements ?: resourceRequirementsResolver(item)
+            requirements = resourceRequirementsResolver(item)
             val exclusiveKeys = requirements.filter { it.mode == ResourceMode.EXCLUSIVE }.map { it.key }.distinct()
             val leaseRepo = resourceLeaseRepository
             if (exclusiveKeys.isNotEmpty() && leaseRepo != null) {
@@ -216,8 +183,18 @@ class TransitionSnapshotLoader(
                 ownership = ownershipFacts,
                 lease = leaseFacts
             )
-        return LoadedSnapshot(snapshot, schema, requirements)
+        return LoadedSnapshot(snapshot, schema, requirements, notes)
     }
+
+    /** All notes of [itemId] (read in the caller's unit). */
+    internal suspend fun notesOf(itemId: UUID): List<Note> = noteRepository.findByItemId(itemId)
+
+    /** Independence-attestation violations for [item]'s current phase under [schema] and its root's policy. */
+    internal suspend fun currentPhaseViolations(
+        schema: WorkItemSchema,
+        item: WorkItem,
+        notes: List<Note>
+    ): List<IndependenceViolation>? = GatePredicate.violationsForStart(schema, item.role, notes, independencePolicyResolver(item))
 
     /** The normalized edges blocking [itemId], each with its blocker's current role (null = unreadable). */
     internal suspend fun loadBlockers(itemId: UUID): List<BlockerState> {
