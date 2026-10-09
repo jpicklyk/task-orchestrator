@@ -2643,7 +2643,8 @@ Every tool result, success or error (validation, per-root config, database and i
 included), carries `_meta.reqId`: the call's 8-character correlation id (lowercase Crockford base32,
 for example `k7f3q9ab`). It is the `req_id` of every event row the call wrote, the MDC `reqId` log
 key, and the primary key of the call's row in the `call_log` table (whose `operation` column holds
-the `operation` argument only when it is a plain name, else `invalid`). It is not part of
+the `operation` argument only when it is a plain name, else `invalid`; its `principal_id` column holds the
+self-reported actor id, up to the 500-character actor cap, with `proof_status` saying whether it was verified). It is not part of
 `structuredContent`, so tool payloads are unchanged. `tools/list` and `initialize` have none. See
 `fleet-deployment.md` -> "Call log and `reqId`".
 

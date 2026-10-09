@@ -16,6 +16,7 @@ import io.ktor.http.content.OutgoingContent
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCallPipeline
 import io.ktor.server.application.call
+import io.ktor.server.application.pluginOrNull
 import io.ktor.server.request.header
 import io.ktor.server.request.httpMethod
 import io.ktor.server.request.path
@@ -23,6 +24,10 @@ import io.ktor.server.request.queryString
 import io.ktor.server.response.ApplicationSendPipeline
 import io.ktor.server.response.PipelineResponse
 import io.ktor.server.response.header
+import io.ktor.server.routing.HttpMethodRouteSelector
+import io.ktor.server.routing.Route
+import io.ktor.server.routing.RouteSelector
+import io.ktor.server.routing.RoutingRoot
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.slf4j.MDCContext
 import kotlinx.coroutines.withContext
@@ -70,6 +75,8 @@ internal fun Application.installRequestCorrelation(
     callLog: CallLogSink = CallLogSink.NONE,
     clock: Clock = Clock.SYSTEM
 ) {
+    subscribeRouteCapture()
+    val resources = DeclaredResources(this)
     intercept(ApplicationCallPipeline.Monitoring) {
         val path = call.request.path()
         if (path != API_ROOT && !path.startsWith("$API_ROOT/")) {
@@ -124,7 +131,7 @@ internal fun Application.installRequestCorrelation(
             throw e
         } finally {
             if (!cancelled) {
-                submitRestCall(callLog, call, path, telemetry, startedAt, started.elapsedNow().inWholeMilliseconds, threw)
+                submitRestCall(callLog, call, path, resources, telemetry, startedAt, started.elapsedNow().inWholeMilliseconds, threw)
             }
         }
     }
@@ -133,66 +140,95 @@ internal fun Application.installRequestCorrelation(
 internal const val REQ_ID_HEADER = "X-Req-Id"
 private const val API_ROOT = "/api/v1"
 private const val EVENT_STREAM_PATH = "/api/v1/events"
-private const val MAX_TOOL_SEGMENTS = 6
-
-/** The top-level REST resources the API serves; any other first segment is recorded as unmatched. */
-private val REST_RESOURCES =
-    setOf("config", "dependencies", "events", "health", "info", "items", "notes", "resources", "roots", "search", "transitions")
-
-/** Literal (non-parameter) path segments the REST routes declare below the first segment. */
-private val REST_STATIC_SEGMENTS =
-    setOf(
-        "advance",
-        "backlinks",
-        "breadcrumbs",
-        "children",
-        "config",
-        "dependencies",
-        "effective",
-        "events",
-        "gate",
-        "history",
-        "items",
-        "leases",
-        "notes",
-        "plans",
-        "resources",
-        "roots",
-        "rules",
-        "schemas",
-        "search",
-        "status-graph",
-        "traits",
-        "transitions",
-        "tree",
-        "types"
-    )
 
 private val STANDARD_METHODS = setOf("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
 
+/** The matched route template (`/api/v1/items/{id}/schema`) recorded from Ktor's routing event; absent if no route resolved. */
+private val MATCHED_ROUTE_TEMPLATE = AttributeKey<String>("CallLogMatchedRoute")
+
 /**
- * The bounded `tool` value of a REST row: `<METHOD> /api/v1/<segments>` where every UUID is `{id}`, every literal
- * route word is kept and every other segment is `{param}`, at most [MAX_TOOL_SEGMENTS] segments. A path whose first
- * segment is not a served top-level resource (a 404, or a 401 before routing) is `<METHOD> unmatched`. The raw
- * request path is never stored.
+ * The path-segment text of a route selector, or null for selectors that are not path segments (HTTP method,
+ * authenticate wrappers, trailing-slash markers).
+ */
+private fun pathSegmentOf(selector: RouteSelector?): String? {
+    if (selector == null || selector is HttpMethodRouteSelector) return null
+    val text = selector.toString()
+    if (text.isEmpty() || text.startsWith("(") || text.startsWith("<")) return null
+    return text.trim('/')
+}
+
+/** The declared path template of [route] (`/api/v1/items/{id}`), built from its selectors, without the HTTP method. */
+internal fun routeTemplate(route: Route): String {
+    val parts = ArrayList<String>()
+    var node: Route? = route
+    while (node != null) {
+        pathSegmentOf(node.selector)?.takeIf { it.isNotEmpty() }?.let { parts.add(it) }
+        node = node.parent
+    }
+    return "/" + parts.reversed().joinToString("/")
+}
+
+/**
+ * Records, for the call that Ktor routed to an endpoint (a route whose selector is an HTTP method), the declared
+ * route template. A call that resolved no endpoint (401 before routing, 404, 405) records nothing.
+ */
+private fun Application.subscribeRouteCapture() {
+    monitor.subscribe(RoutingRoot.RoutingCallStarted) { routingCall ->
+        if (routingCall.route.selector is HttpMethodRouteSelector) {
+            routingCall.attributes.put(MATCHED_ROUTE_TEMPLATE, routeTemplate(routingCall.route))
+        }
+    }
+}
+
+/**
+ * The top-level resources (first literal segment under `/api/v1`) the declared routing tree serves, derived from the
+ * routes themselves. Computed on first use (routing is installed after this plugin) and cached once non-empty.
+ */
+private class DeclaredResources(
+    private val application: Application
+) {
+    @Volatile
+    private var cached: Set<String> = emptySet()
+
+    fun get(): Set<String> {
+        cached.takeIf { it.isNotEmpty() }?.let { return it }
+        val root = application.pluginOrNull(RoutingRoot) ?: return emptySet()
+        val found = HashSet<String>()
+        collect(root, emptyList(), found)
+        cached = found
+        return found
+    }
+
+    private fun collect(
+        route: Route,
+        prefix: List<String>,
+        found: MutableSet<String>
+    ) {
+        val segment = pathSegmentOf(route.selector)
+        val path = if (segment == null || segment.isEmpty()) prefix else prefix + segment.split('/').filter { it.isNotEmpty() }
+        if (path.size > 2 && path[0] == "api" && path[1] == "v1" && !path[2].startsWith("{") && !path[2].startsWith("*")) {
+            found.add(path[2])
+        }
+        for (child in route.children) collect(child, path, found)
+    }
+}
+
+/**
+ * The bounded `tool` value of a REST row. A call that resolved a route is `<METHOD> <declared route template>`, one
+ * value per declared route. A call that resolved none (401 before routing, 404, 405) is `<METHOD> /api/v1/<first
+ * segment>` when the first segment is a top-level resource the routing tree declares, else `<METHOD> unmatched`: never
+ * more than the first segment. The raw request path is never stored.
  */
 internal fun restToolName(
     method: String,
-    path: String
+    matchedTemplate: String?,
+    path: String,
+    resources: Set<String>
 ): String {
     val verb = if (method in STANDARD_METHODS) method else "OTHER"
-    val segments = path.removePrefix(API_ROOT).split('/').filter { it.isNotEmpty() }
-    if (segments.isEmpty() || segments[0] !in REST_RESOURCES) return "$verb unmatched"
-    val template =
-        segments.take(MAX_TOOL_SEGMENTS).mapIndexed { index, segment ->
-            when {
-                index == 0 -> segment
-                UUID_SEGMENT.matches(segment) -> "{id}"
-                segment in REST_STATIC_SEGMENTS -> segment
-                else -> "{param}"
-            }
-        }
-    return "$verb $API_ROOT/" + template.joinToString("/")
+    if (matchedTemplate != null) return "$verb $matchedTemplate"
+    val first = path.removePrefix(API_ROOT).split('/').firstOrNull { it.isNotEmpty() }
+    return if (first != null && first in resources) "$verb $API_ROOT/$first" else "$verb unmatched"
 }
 
 private val CAPTURED_ERROR_CODE = AttributeKey<String>("CallLogErrorCode")
@@ -230,6 +266,7 @@ private fun submitRestCall(
     callLog: CallLogSink,
     call: io.ktor.server.application.ApplicationCall,
     path: String,
+    resources: DeclaredResources,
     telemetry: CallTelemetry,
     startedAt: java.time.Instant,
     latencyMs: Long,
@@ -250,7 +287,7 @@ private fun submitRestCall(
         val errorCode = if (isError) call.attributes.getOrNull(CAPTURED_ERROR_CODE) ?: "http_$status" else null
         val segments = path.split('/').filter { it.isNotEmpty() }
         val uuidSegments = segments.filter { UUID_SEGMENT.matches(it) }
-        val tool = restToolName(call.request.httpMethod.value, path)
+        val tool = restToolName(call.request.httpMethod.value, call.attributes.getOrNull(MATCHED_ROUTE_TEMPLATE), path, resources.get())
         val requestBytes =
             call.request.header(HttpHeaders.ContentLength)?.toLongOrNull()
                 ?: if (call.request.header(HttpHeaders.TransferEncoding) == null) 0L else null

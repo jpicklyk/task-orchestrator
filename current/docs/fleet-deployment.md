@@ -137,15 +137,17 @@ Every MCP tool call and every non-SSE `/api/v1` request gets a `reqId`. It is re
 set as the MDC `reqId` key, stamped as `req_id` on every `events` row the call writes, and is the
 primary key of that call's row in the `call_log` table (migration V21). A row records who called
 (principal id, kind, proof status, session), what (surface `mcp`/`rest`, tool or the REST route
-template `METHOD /api/v1/<route>` with UUIDs as `{id}` and other parameters as `{param}`, `operation`,
+template `METHOD /api/v1/<route>` exactly as declared in routing (for example `GET /api/v1/items/{id}/schema`), `operation`,
 target ids and versions, boolean/`limit` request shape), the
 outcome (`ok`/`error`, error code, BUSY-retry `attempts`, `replayed`), `latency_ms`, UTF-8 request
 and response byte sizes, and a `bytes/4` token estimate of the response (`ceil(bytes / 4)`).
 
 Rows are written off the request path by a background writer: a bounded in-memory queue (10 000
 rows) flushed in batches of up to 100 rows or every 250 ms, one write unit per batch, and drained on
-graceful shutdown (at most 5 s; on timeout the write loop is cancelled and joined, and unwritten rows
-count as dropped). Telemetry never blocks or fails a call. When the queue overflows the new row is
+graceful shutdown (drain timeout 5 s; on timeout the write loop is cancelled and joined, and unwritten rows
+count as dropped. `stop()` returns after the drain timeout plus at most one in-flight batch write, because JDBC
+inserts are not interruptible. A cancel that lands after a batch committed may count its already-written rows
+as dropped, so `dropped` can over-count in that edge; it is a counter only, with no effect on stored data). Telemetry never blocks or fails a call. When the queue overflows the new row is
 dropped; a WARN line `Call log dropped N row(s) since the last notice` reports the count dropped since
 the previous notice (at most one per 250 ms, plus a final one at shutdown); a batch that fails is
 logged at WARN and dropped. The 8-character id has 40 bits,
@@ -153,12 +155,18 @@ so a duplicate `req_id` is possible (about 0.45 expected collisions by a million
 duplicate is ignored, any other constraint refusal is counted as failed and logged at WARN. Cancelled
 calls write no row.
 
-Client-derived text in a row is bounded: the REST `tool` is a route template whose first segment is
-one of the served resources (`config`, `dependencies`, `events`, `health`, `info`, `items`, `notes`,
-`resources`, `roots`, `search`, `transitions`), at most 6 segments, otherwise `<METHOD> unmatched`
-(the raw request path is never stored); `operation` is kept only when it matches `^[a-z_]{1,64}$`
+Client-derived text in a row is bounded: the REST `tool` of a call that resolved a route is
+`<METHOD> <matched route template>` exactly as declared (captured from Ktor's routing event, so there is one
+value per declared route). A call that resolved no route (a 401 before routing, a 404, a 405) is
+`<METHOD> /api/v1/<first segment>` when that first segment is a top-level resource the routing tree declares
+(derived from the declared routes, not a hand-kept list), else `<METHOD> unmatched`: never more than the first
+segment, and the raw request path is never stored; `operation` is kept only when it matches `^[a-z_]{1,64}$`
 (any other supplied value is stored as `invalid`); `request_shape` keeps at most 16 flags whose key
 matches `^[A-Za-z0-9_.-]{1,64}$`. Only paths equal to `/api/v1` or under `/api/v1/` are logged.
+
+The `principal_id` column holds the caller's self-reported actor id, up to the 500-character `ActorClaim` cap
+(the same bound as actor ids already stored in notes and `role_transitions`); `proof_status` says whether the id
+was verified.
 
 `call_log` has **no retention yet**: it grows by about 250-450 bytes per call (about 8 MB per day at
 20 000 calls a day), like `events`. Pruning arrives with W6.
