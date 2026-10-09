@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
+import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
@@ -276,10 +278,16 @@ class SyncLostSseDeliveryTest {
             withTimeout(10.seconds) {
                 coroutineScope {
                     launch {
-                        delay(SETTLE_DELAY_MS)
-                        repeat(10) {
-                            bus.emit(ApiEventType.NOTE_UPSERTED, itemId = UUID.randomUUID())
-                        }
+                        // Deterministic overflow: wait until the connection is registered, then commit all ten rows
+                        // under ONE commit signal. The bus fans a signal out without suspending, so the 4-slot queue
+                        // overflows however fast the client drains it (one emit per row lets the client keep up).
+                        while (bus.subscriberCount() == 0) delay(10)
+                        val item = UUID.randomUUID()
+                        val rows =
+                            EventRecorder(bus.source!!).record(
+                                List(10) { DomainEvent.NoteUpserted(UUID.randomUUID(), item, item, "k", "queue", 1) },
+                            )
+                        bus.committed(rows)
                     }
                     sseClient.sse(
                         urlString = "/events?types=${ApiEventType.ITEM_CREATED}",
