@@ -157,16 +157,16 @@ calls write no row.
 
 Client-derived text in a row is bounded: the REST `tool` of a call that resolved a route is
 `<METHOD> <matched route template>` exactly as declared (captured from Ktor's routing event, so there is one
-value per declared route). A call that resolved no route (a 401 before routing, a 404, a 405) is
+value per declared route). A call that resolved no route (a 404 or 405, or a 401 on a path no route matches; a 401 on a declared route records that route's template, because the auth check does not stop routing) is
 `<METHOD> /api/v1/<first segment>` when that first segment is a top-level resource the routing tree declares
 (derived from the declared routes, not a hand-kept list), else `<METHOD> unmatched`: never more than the first
 segment, and the raw request path is never stored; `operation` is kept only when it matches `^[a-z_]{1,64}$`
 (any other supplied value is stored as `invalid`); `request_shape` keeps at most 16 flags whose key
 matches `^[A-Za-z0-9_.-]{1,64}$`. Only paths equal to `/api/v1` or under `/api/v1/` are logged.
 
-The `principal_id` column holds the caller's self-reported actor id, up to the 500-character `ActorClaim` cap
-(the same bound as actor ids already stored in notes and `role_transitions`); `proof_status` says whether the id
-was verified.
+On MCP rows the `principal_id` column holds the caller's self-reported actor id, up to the 500-character
+`ActorClaim` cap (the same bound as actor ids already stored in notes and `role_transitions`); `proof_status` says
+whether the id was verified. On REST rows it holds the authenticated API principal (`api:<tokenId>`), never client text.
 
 `call_log` has **no retention yet**: it grows by about 250-450 bytes per call (about 8 MB per day at
 20 000 calls a day), like `events`. Pruning arrives with W6.

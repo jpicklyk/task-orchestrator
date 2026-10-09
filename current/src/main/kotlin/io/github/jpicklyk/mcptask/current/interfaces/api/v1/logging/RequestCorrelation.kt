@@ -170,7 +170,8 @@ internal fun routeTemplate(route: Route): String {
 
 /**
  * Records, for the call that Ktor routed to an endpoint (a route whose selector is an HTTP method), the declared
- * route template. A call that resolved no endpoint (401 before routing, 404, 405) records nothing.
+ * route template. A call that resolved no endpoint (404, 405, or a 401 on a path no route matches) records nothing.
+ * The auth check does not stop routing, so a 401 on a declared route still records its template.
  */
 private fun Application.subscribeRouteCapture() {
     monitor.subscribe(RoutingRoot.RoutingCallStarted) { routingCall ->
@@ -215,7 +216,7 @@ private class DeclaredResources(
 
 /**
  * The bounded `tool` value of a REST row. A call that resolved a route is `<METHOD> <declared route template>`, one
- * value per declared route. A call that resolved none (401 before routing, 404, 405) is `<METHOD> /api/v1/<first
+ * value per declared route. A call that resolved none (404, 405, or a 401 on a path no route matches) is `<METHOD> /api/v1/<first
  * segment>` when the first segment is a top-level resource the routing tree declares, else `<METHOD> unmatched`: never
  * more than the first segment. The raw request path is never stored.
  */
