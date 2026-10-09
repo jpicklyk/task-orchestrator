@@ -576,6 +576,14 @@ unset — never a raw possibly-null passthrough.
 `phase` is the item's CURRENT role, lowercased. `missing` is the required-note KEY strings (schema
 order) still unfilled for `phase` — plain strings, never `{key, description, ...}` objects.
 
+`canAdvance` is "`POST /items/{id}/advance` with `start` would be allowed right now", claim ownership
+excluded: the same transition-policy evaluation the advance runs. It is `false` when the transition
+table rejects `start` (terminal or blocked item), a blocking dependency is unmet, a current-phase
+required note is unfilled (or a `reject`-mode violation blocks), or an exclusive resource the item
+declares is held by another item. `blockedBy` (string, optional) names that gate — `table`,
+`dependency`, `note` or `lease` — and is present only when `canAdvance` is `false` and the item is not
+terminal.
+
 `missingBySeat` (object, optional, A1) buckets `missing`'s keys by owning seat —
 `{<seat>: [keys], ..., "unowned": [keys]}`, non-empty buckets only, in merged-seat order with
 `unowned` always last. Present only when the item's resolved schema is seat-aware AND the item is
@@ -1063,7 +1071,8 @@ candidate window; see §3's pagination caveat) — `totalItems` is the filtered 
 Gate status for the item's current phase — field-for-field identical to the MCP `get_context`
 item mode's `gateStatus`/`guidanceKey`/`skillPointer` (see
 [api-reference.md → get_context](api-reference.md#get_context), "Response (item mode)"), computed via the same `resolveSchema` +
-`computePhaseNoteContext` path. No dependency/blocker info and no dispatch field. Consumed by the
+`computePhaseNoteContext` path; `canAdvance`/`blockedBy` come from the same transition-policy preview
+`get_context` uses (`start`, claim ownership excluded). No blocker list and no dispatch field. Consumed by the
 plugin's SubagentStop phase guard (see
 [integration-guides/plugin-skills-hooks.md](integration-guides/plugin-skills-hooks.md)).
 
@@ -1223,7 +1232,7 @@ Any other value → `400 validation_error`.
 
 Trigger a role transition. Requires `ADVANCE`. Supports `Idempotency-Key` header (see [section 5](#5-idempotency)).
 
-This route runs the **same advance pipeline as the MCP `advance_item` tool**, unified behind `AdvanceService`: resolve → validate dependencies → **required-note gate** → **resource-lease gate** → apply → cascade detection → unblock detection. Previously the REST path skipped the gate, cascades, and unblock detection; those are now enforced and reported.
+This route runs the **same advance pipeline as the MCP `advance_item` tool**, unified behind `AdvanceService`: ONE transaction in which the transition policy evaluates the transition table, **blocking dependencies**, the **required-note gate** and the **resource-lease gate** (claim ownership is not enforced on REST), then the role change, its audit row and event, the lease acquire/release, and every cascade commit together or not at all; unblocked downstream items are then reported.
 
 **Request body:**
 ```json
@@ -1268,14 +1277,14 @@ Entry into WORK is gated on **both** the `start` and `resume` triggers (`resume`
 BLOCKED and re-resolves/re-acquires leases against config as it stands at resume time — it is not
 exempt just because the note gate's `start`/`complete` check is). `complete`, `cancel`, `block`,
 `hold`, and `reopen` never acquire; every trigger that leaves WORK releases held leases inside the
-same transition (best-effort — a release failure is WARN-logged and never fails the transition; the
-lease TTL is the backstop).
+same transition. A lease-store fault while acquiring or releasing fails the whole advance with
+`422 transition_failed` and nothing is persisted.
 
 **Contention response (`409 resource_unavailable`):**
 ```json
 {
   "error": "resource_unavailable",
-  "message": "Resource lease contended: staging-db",
+  "message": "Cannot enter work phase: resource(s) currently held by another work item: staging-db",
   "details": {
     "targetRole": "work",
     "contendedResources": ["staging-db"],
@@ -1283,8 +1292,8 @@ lease TTL is the backstop).
   }
 }
 ```
-A `Retry-After` response header accompanies the body — whole seconds, **rounded up** from
-`retryAfterMs` with a floor of 1, so a client never retries before the lease can possibly have
+`retryAfterMs` is the time until the soonest contended lease expires. A `Retry-After` response
+header accompanies the body — whole seconds, **rounded up** from `retryAfterMs` with a floor of 1, so a client never retries before the lease can possibly have
 expired. `CORS_EXPOSE_HEADERS` includes `Retry-After` by default (see `fleet-deployment.md`) so
 browser-based dashboards behind CORS can read it directly; `details.retryAfterMs` is present as a
 fallback regardless. **No holder identity is ever disclosed** on this path — neither the holding
@@ -1303,17 +1312,17 @@ resource-suppressed cascade from any other unapplied one by field alone; this is
 additive follow-up, not a blocking gap (the child item's own transition still fully succeeds either
 way).
 
-`CascadeEventDto` DOES carry `error` (string, optional, omitted when null): populated when a
-cascade's own apply step fails outright (a persistence conflict) — as opposed to being suppressed
-by `gateBlocked`, `roleBlocked`, `dependencyBlocked`, or the not-yet-parity-mapped resource block
-above — naming the failure reason.
+`CascadeEventDto` still carries `error` (string, optional, omitted when null), but it is never
+populated: cascades commit in the same transaction as the child, so a cascade apply fault fails the
+whole advance with `422 transition_failed` (the child's transition is rolled back too).
 
 `CascadeEventDto` also carries `roleBlocked` (boolean, default `false`) — a terminal cascade
 suppressed because the parent is `blocked` — and `dependencyBlocked` (boolean, default `false`)
 plus `blockers` (array of `{fromItemId, currentRole, requiredRole}`, non-null only when
-`dependencyBlocked`) — a terminal cascade suppressed by an unmet blocking dependency on the parent.
-Both apply to cancel-originated cascades too.
-Any resource lease that cascade itself acquired for entering `work` is released in the same call.
+`dependencyBlocked`; `currentRole` is `"unknown"` for an unreadable blocker) — a terminal, start or
+reopen cascade suppressed by an unmet blocking dependency on the parent. Both apply to
+cancel-originated cascades too. Start and reopen cascades do not happen at all for a parent whose
+lifecycle is `manual` or `permanent`.
 
 **Response `200 OK`:** `AdvanceResponseDto`
 ```json
@@ -1336,9 +1345,6 @@ Any resource lease that cascade itself acquired for entering `work` is released 
       "statusLabel": "done"
     }
   ],
-  // A cascade whose own apply step failed instead looks like:
-  // { "itemId": "<uuid>", "title": "Parent", "previousRole": "work", "targetRole": "terminal",
-  //   "applied": false, "error": "Failed to update item: WorkItem was modified by another transaction (version mismatch)" }
   "unblockedItems": [
     { "itemId": "<uuid>", "title": "Downstream" }
   ],
@@ -1362,7 +1368,8 @@ The `cascadeEvents`, `unblockedItems`, and `expectedNotes` fields are **additive
 - `409 not_claim_holder` — pre-existing, defensive-only on this route (REST bypasses claim ownership by default — see "Claimed-item behavior" above); not expected to occur in normal REST usage
 - `422 gate_blocked` — a required-note gate failed; `details.missingNotes` lists the unfilled required notes, and `details.missingBySeat` (A1, optional) buckets those keys by owning seat when the target schema is seat-aware
 - `422 transition_blocked` — a dependency blocker prevents the transition; `details.blockers` lists the blocking edges
-- `422 transition_failed` — invalid state transition (resolution/apply failure)
+- `422 transition_failed` — invalid state transition, or a persistence fault anywhere in the advance
+  (including a cascade or a lease release); nothing was applied
 - `503 config_unavailable` — the item's per-root config could not be read and there was no
   last-known-good cached config for that root (see §6); transient, no `Retry-After` header — the
   transition was NOT applied
@@ -1696,7 +1703,8 @@ Sorted list of registered type name strings.
 
 ### GET /config/status-graph
 
-Structural role-transition graph across all schema types.
+Structural role-transition graph across all schema types, derived from the transition table the
+advance policy uses (one cell per role and user trigger; an invalid cell is omitted).
 
 **Response:** `200 OK` → `StatusGraphDto`
 

@@ -85,7 +85,7 @@ class SharedConfigCacheRestMcpTest {
         ctx: ToolExecutionContext,
     ) {
         configureTestApp(makeWriteAuthConfig()) {
-            itemGateRoutes(provider, ctx.configResolver)
+            itemGateRoutes(provider, ctx.configResolver, ctx.transitionPreview())
             itemWriteRoutes(
                 provider,
                 DegradedModePolicy.ACCEPT_CACHED,

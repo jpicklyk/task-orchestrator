@@ -16,6 +16,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
+import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -76,11 +78,13 @@ class AdvanceItemToolLeaseBlockedTest {
         workItemRepo = mockk()
         leaseRepo = mockk()
         val depRepo = mockk<DependencyStore>()
+        AdvanceMockStores.stubReads(workItemRepo, depRepo)
         val roleTransitionRepo = mockk<TransitionStore>()
         val noteRepo = mockk<NoteStore>()
 
         repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
+        every { repoProvider.eventStore() } returns InMemoryEventStore()
         every { repoProvider.dependencyRepository() } returns depRepo
         every { repoProvider.noteRepository() } returns noteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
@@ -91,6 +95,8 @@ class AdvanceItemToolLeaseBlockedTest {
         coEvery { workItemRepo.update(any()) } answers { firstArg() }
         coEvery { roleTransitionRepo.create(any()) } returns mockk()
         coEvery { leaseRepo.releaseAllForItem(any()) } returns LeaseReleaseResult.Success(0)
+        // P11: the policy's lease gate reads current holders first; contention in these tests is forced at acquireAll.
+        coEvery { leaseRepo.findActiveByKeys(any()) } returns emptyList()
         every { depRepo.findByToItemId(any()) } returns emptyList()
         every { depRepo.findByFromItemId(any()) } returns emptyList()
 
@@ -193,7 +199,7 @@ class AdvanceItemToolLeaseBlockedTest {
         }
 
     @Test
-    fun `a DB error from the lease store is reported as transient with the default backoff`(): Unit =
+    fun `a DB error from the lease store fails the advance as a transient apply_failed (P11)`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
             coEvery { workItemRepo.getById(itemId) } returns tracedItem(itemId)
@@ -206,9 +212,9 @@ class AdvanceItemToolLeaseBlockedTest {
                     .jsonArray[0]
                     .jsonObject
 
-            assertEquals("resource_unavailable", transition["errorCode"]!!.jsonPrimitive.content)
+            // P11: acquisition runs inside the advance's unit; a store fault fails (and rolls back) the advance.
+            assertEquals("apply_failed", transition["errorCode"]!!.jsonPrimitive.content)
             assertEquals("transient", transition["errorKind"]!!.jsonPrimitive.content)
-            assertEquals(1000L, transition["retryAfterMs"]!!.jsonPrimitive.content.toLong())
         }
 
     @Test

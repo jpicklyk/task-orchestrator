@@ -1,10 +1,12 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
+import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -13,7 +15,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
-import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.get
@@ -301,7 +302,7 @@ class EventRoutesTest {
         runBlocking {
             val baseRepo = db.repositoryProvider()
             val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
-            val decorated = EventPublishingRepositoryProvider(baseRepo, bus)
+            val (decorated, unitOfWork) = eventWiredUnit(db.databaseManager, baseRepo, bus)
 
             // Subscriber connected before the writes — create + advance produce exactly two events.
             val flow = bus.subscribe("advance-sub", emptySet(), lastEventId = null)
@@ -313,16 +314,20 @@ class EventRoutesTest {
             assertTrue(decorated.workItemRepository().create(item) != null)
 
             // Change the ROLE (a phase advance) — must surface as item.advanced (carries newRole),
-            // distinct from item.updated. P8: the advance path writes the role change AND its
-            // transition row in one unit (RoleTransitionHandler.applyTransition); the transition row
-            // is what projects as item.advanced, and the role-changing update records nothing.
-            val advanced = item.copy(role = Role.WORK)
-            db.unitOfWork().inUnit {
-                assertTrue(decorated.workItemRepository().update(advanced) != null)
-                decorated.roleTransitionRepository().create(
-                    RoleTransition(itemId = itemId, fromRole = "queue", toRole = "work", trigger = "start"),
+            // distinct from item.updated. P11: AdvanceService writes the role change, its transition row
+            // and the item.transitioned event in one unit; that event is what projects as item.advanced,
+            // and the role-changing update records nothing.
+            val service =
+                AdvanceService(
+                    workItemRepository = decorated.workItemRepository(),
+                    roleTransitionRepository = decorated.roleTransitionRepository(),
+                    dependencyRepository = decorated.dependencyRepository(),
+                    noteRepository = decorated.noteRepository(),
+                    schemaResolver = { null },
+                    unitOfWork = unitOfWork,
                 )
-            }
+            val outcome = service.advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = false)
+            assertTrue(outcome is AdvanceOutcome.Success, "advance failed: $outcome")
 
             val events = collectorDeferred.await()
             bus.unsubscribe("advance-sub")

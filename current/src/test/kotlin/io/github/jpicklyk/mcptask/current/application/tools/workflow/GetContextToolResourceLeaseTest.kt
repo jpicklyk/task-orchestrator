@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
@@ -64,7 +65,8 @@ class GetContextToolResourceLeaseTest {
         every { repoProvider.workItemRepository() } returns workItemRepo
         every { repoProvider.noteRepository() } returns noteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
-        every { repoProvider.dependencyRepository() } returns mockk()
+        every { repoProvider.dependencyRepository() } returns
+            mockk<DependencyStore>().also { coEvery { it.findByItemId(any()) } returns emptyList() }
         every { repoProvider.resourceLeaseRepository() } returns leaseRepo
         return ToolExecutionContext(repoProvider, schemaService)
     }

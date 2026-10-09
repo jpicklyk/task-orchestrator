@@ -203,7 +203,8 @@ class AdvanceItemToolApplyFailureLeaseTest {
                     )!!
                 )
             val failingRoleTx = FailingRoleTransitionRepository(repositoryProvider.roleTransitionRepository(), failFor = item.id)
-            val leaseFake = SimpleLeaseFakeRepository()
+            // P11: the real (transactional) lease store, so the advance unit's rollback is observable.
+            val leaseFake = repositoryProvider.resourceLeaseRepository()
             val provider = LeaseOverrideProvider(RoleTransitionOverrideProvider(repositoryProvider, failingRoleTx), leaseFake)
             val context = ToolExecutionContext(provider, TraitSchemaService(), unitOfWork = db.unitOfWork())
 
@@ -221,7 +222,7 @@ class AdvanceItemToolApplyFailureLeaseTest {
 
             val persisted = (repositoryProvider.workItemRepository().getById(item.id)!!)
             assertEquals(Role.QUEUE, persisted.role, "the failed apply must not leave the item in WORK")
-            assertTrue(leaseFake.findActiveForItem(item.id).isEmpty(), "the same-call fresh lease must be released on apply failure")
+            assertTrue(leaseFake.findActiveForItem(item.id).isEmpty(), "the failed advance's lease must be rolled back with it")
         }
 
     @Test
@@ -240,7 +241,8 @@ class AdvanceItemToolApplyFailureLeaseTest {
                     )!!
                 )
             val failingRoleTx = FailingRoleTransitionRepository(repositoryProvider.roleTransitionRepository(), failFor = item.id)
-            val leaseFake = SimpleLeaseFakeRepository()
+            // P11: the real (transactional) lease store, so the advance unit's rollback is observable.
+            val leaseFake = repositoryProvider.resourceLeaseRepository()
             val provider = LeaseOverrideProvider(RoleTransitionOverrideProvider(repositoryProvider, failingRoleTx), leaseFake)
             val context = ToolExecutionContext(provider, TraitSchemaService(), unitOfWork = db.unitOfWork())
 
@@ -260,7 +262,7 @@ class AdvanceItemToolApplyFailureLeaseTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `S3 starting a child while the parent cascade apply fails still applies the child`() =
+    fun `S3 starting a child while the parent cascade apply fails fails and rolls back the whole advance`() =
         runBlocking {
             val repositoryProvider = buildProvider()
             val p =
@@ -277,7 +279,8 @@ class AdvanceItemToolApplyFailureLeaseTest {
                     )!!
                 )
             val failingRoleTx = FailingRoleTransitionRepository(repositoryProvider.roleTransitionRepository(), failFor = pStamped.id)
-            val leaseFake = SimpleLeaseFakeRepository()
+            // P11: the real (transactional) lease store, so the advance unit's rollback is observable.
+            val leaseFake = repositoryProvider.resourceLeaseRepository()
             val provider = LeaseOverrideProvider(RoleTransitionOverrideProvider(repositoryProvider, failingRoleTx), leaseFake)
             val context = ToolExecutionContext(provider, TraitSchemaService(), unitOfWork = db.unitOfWork())
 
@@ -285,25 +288,17 @@ class AdvanceItemToolApplyFailureLeaseTest {
             val data = result["data"]!!.jsonObject
             val transition = data["results"]!!.jsonArray[0].jsonObject
 
-            assertEquals(true, transition["applied"]!!.jsonPrimitive.boolean, "actual: $transition")
-            assertEquals("work", transition["newRole"]!!.jsonPrimitive.content, "actual: $transition")
-
-            val cascadeEvents = transition["cascadeEvents"]?.jsonArray
-            assertTrue(cascadeEvents != null && cascadeEvents.isNotEmpty(), "actual: $transition")
-            val cascade = cascadeEvents!![0].jsonObject
-            assertEquals(pStamped.id.toString(), cascade["itemId"]?.jsonPrimitive?.content, "actual: $cascade")
-            assertEquals(false, cascade["applied"]?.jsonPrimitive?.boolean, "actual: $cascade")
-            assertTrue(cascade["error"]?.jsonPrimitive?.content?.isNotBlank() == true, "actual: $cascade")
-            assertTrue(
-                "gateBlocked" !in cascade,
-                "an apply-failure cascade event (not a gate failure) must omit gateBlocked entirely: $cascade"
-            )
+            // P11: cascades run in the advance's unit, so a cascade apply fault fails (and rolls back) the child too.
+            assertEquals(false, transition["applied"]!!.jsonPrimitive.boolean, "actual: $transition")
+            assertEquals("apply_failed", transition["errorCode"]!!.jsonPrimitive.content, "actual: $transition")
 
             val persistedP = (repositoryProvider.workItemRepository().getById(pStamped.id)!!)
             assertEquals(Role.QUEUE, persistedP.role, "the failed parent cascade must not leave P in WORK")
+            val persistedC = (repositoryProvider.workItemRepository().getById(c.id)!!)
+            assertEquals(Role.QUEUE, persistedC.role, "the child's own transition must roll back with the failed cascade")
             assertTrue(
                 leaseFake.findActiveForItem(pStamped.id).isEmpty(),
-                "the cascade's own fresh lease must be released on apply failure"
+                "the cascade's lease must be rolled back with the failed advance"
             )
         }
 

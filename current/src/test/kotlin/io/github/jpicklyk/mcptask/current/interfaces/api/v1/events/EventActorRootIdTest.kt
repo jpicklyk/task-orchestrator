@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.TreeDepSpec
@@ -19,8 +21,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -91,13 +91,17 @@ class EventActorRootIdTest {
 
     private fun decorated(bus: ApiEventBus) = EventPublishingRepositoryProvider(repositoryProvider, bus)
 
-    private fun toolContext(bus: ApiEventBus) =
-        ToolExecutionContext(
-            repositoryProvider = decorated(bus),
+    private fun toolContext(bus: ApiEventBus): ToolExecutionContext {
+        // P11: item.transitioned is recorded by AdvanceService through its unit's event sink, so the unit must
+        // share the bus-feeding recorder with the decorator, exactly as ServerComposition wires it.
+        val (provider, unitOfWork) = eventWiredUnit(db.databaseManager, repositoryProvider, bus)
+        return ToolExecutionContext(
+            repositoryProvider = provider,
             actorVerifier = NoOpActorVerifier,
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
-            unitOfWork = db.unitOfWork(),
+            unitOfWork = unitOfWork,
         )
+    }
 
     private fun List<ApiEvent>.one(
         type: String,
@@ -159,14 +163,19 @@ class EventActorRootIdTest {
             val root = provider.newRoot("R-s1a")
             val child = provider.newChild("C-s1a", root)
             val renamed = provider.workItemRepository().update(child.copy(title = "C-s1a-renamed"))!!
-            // P8: an advance is the role-changing update plus its transition row, in one unit (as
-            // RoleTransitionHandler.applyTransition writes them); the transition row projects as item.advanced.
-            db.unitOfWork().inUnit {
-                provider.workItemRepository().update(renamed.copy(role = Role.WORK))!!
-                provider.roleTransitionRepository().create(
-                    RoleTransition(itemId = child.id, fromRole = "queue", toRole = "work", trigger = "start"),
-                )
-            }
+            // P11: an advance is AdvanceService's one unit (role change, transition row and the item.transitioned
+            // event it records itself); that event projects as item.advanced.
+            val (wired, unitOfWork) = eventWiredUnit(db.databaseManager, repositoryProvider, bus)
+            val outcome =
+                AdvanceService(
+                    workItemRepository = wired.workItemRepository(),
+                    roleTransitionRepository = wired.roleTransitionRepository(),
+                    dependencyRepository = wired.dependencyRepository(),
+                    noteRepository = wired.noteRepository(),
+                    schemaResolver = { null },
+                    unitOfWork = unitOfWork,
+                ).advance(renamed, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = false)
+            assertTrue(outcome is AdvanceOutcome.Success, "advance failed: $outcome")
             provider.workItemRepository().delete(child.id)
 
             val events = bus.drainDelivered("s1a", flow)

@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
-import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
@@ -18,6 +17,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
+import io.github.jpicklyk.mcptask.current.test.advanceSeeded
 import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
 import io.mockk.coEvery
 import io.mockk.every
@@ -44,7 +45,7 @@ import kotlin.test.assertTrue
  * `AdvanceParityTest` reads the REST response's `restJson["cascadeEvents"]` — the same name at
  * both layers, with no `@SerialName` override in evidence anywhere in src/test.
  *
- * This test drives a real `AdvanceOutcome.Success.result` out of `AdvanceService.advance()` (never
+ * This test drives a real `AdvanceOutcome.Success.result` out of `AdvanceService.advanceSeeded(advanceStores, )` (never
  * constructed by hand — `AdvanceResult`'s full constructor was not among the supplied declarations)
  * and maps it with the real `toDto()` extension, exactly as `AdvanceItemTool`/`CompleteTreeTool`/
  * the REST advance route do. Harness mirrors `AdvanceServiceLeaseGateTest`'s start-cascade fixtures
@@ -56,6 +57,7 @@ class AdvanceResultCascadeErrorDtoTest {
     private lateinit var depRepo: DependencyStore
     private lateinit var roleTransitionRepo: TransitionStore
     private lateinit var noteRepo: NoteStore
+    private lateinit var advanceStores: AdvanceMockStores
     private lateinit var leaseRepo: LeaseStore
 
     @BeforeEach
@@ -65,6 +67,7 @@ class AdvanceResultCascadeErrorDtoTest {
         roleTransitionRepo = mockk()
         noteRepo = mockk()
         leaseRepo = mockk()
+        advanceStores = AdvanceMockStores(workItemRepo, depRepo, leaseRepo)
 
         coEvery { workItemRepo.clear(any()) } returns true
         coEvery { workItemRepo.update(any()) } answers { firstArg() }
@@ -94,7 +97,6 @@ class AdvanceResultCascadeErrorDtoTest {
             roleTransitionRepository = roleTransitionRepo,
             dependencyRepository = depRepo,
             noteRepository = noteRepo,
-            statusLabelService = NoOpStatusLabelService,
             schemaResolver = { null },
             resourceLeaseRepository = leaseRepo,
             resourceRequirementsResolver = { item -> requirementsByItem[item.id] ?: emptyList() },
@@ -130,11 +132,13 @@ class AdvanceResultCascadeErrorDtoTest {
             coEvery { workItemRepo.getById(parentId) } returns parent
             coEvery { leaseRepo.acquireAll(parentId, any(), any()) } returns
                 LeaseAcquireResult.Success(listOf(lease(parentId, "staging-db")))
-            coEvery { workItemRepo.update(match { it.id == parentId }) } throws IllegalStateException("boom")
-            coEvery { leaseRepo.releaseAllForItem(parentId) } returns LeaseReleaseResult.Success(1)
+            // P11: a cascade apply fault now fails the whole advance, so the domain never populates the (reserved)
+            // error field; the mapping is exercised on an applied result carrying an error value.
+            coEvery { workItemRepo.update(match { it.id == parentId }) } answers { firstArg() }
 
             val outcome =
-                serviceWith(mapOf(parentId to listOf(exclusive("staging-db")))).advance(
+                serviceWith(mapOf(parentId to listOf(exclusive("staging-db")))).advanceSeeded(
+                    advanceStores,
                     child,
                     "start",
                     null,
@@ -145,10 +149,12 @@ class AdvanceResultCascadeErrorDtoTest {
                 )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
-            val domainCascade = success.result.cascadeEvents.single()
-            assertTrue(domainCascade.error?.isNotBlank() == true, "fixture must produce a non-null domain error to map")
+            val result =
+                success.result.copy(cascadeEvents = success.result.cascadeEvents.map { it.copy(error = "reserved cascade error") })
+            val domainCascade = result.cascadeEvents.single()
+            assertTrue(domainCascade.error?.isNotBlank() == true, "fixture must carry a non-null domain error to map")
 
-            val dto = success.result.toDto(existingNoteKeys = emptySet())
+            val dto = result.toDto(existingNoteKeys = emptySet())
             val dtoCascade = dto.cascadeEvents.single()
 
             assertEquals(domainCascade.error, dtoCascade.error, "toDto must map error = event.error unchanged")
@@ -168,7 +174,8 @@ class AdvanceResultCascadeErrorDtoTest {
             coEvery { workItemRepo.update(match { it.id == parentId }) } answers { firstArg() }
 
             val outcome =
-                serviceWith(mapOf(parentId to listOf(exclusive("staging-db")))).advance(
+                serviceWith(mapOf(parentId to listOf(exclusive("staging-db")))).advanceSeeded(
+                    advanceStores,
                     child,
                     "start",
                     null,
@@ -201,7 +208,9 @@ class AdvanceResultCascadeErrorDtoTest {
             coEvery { leaseRepo.releaseAllForItem(any()) } returns LeaseReleaseResult.Success(0)
 
             val outcome =
-                serviceWith(emptyMap()).advance(child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith(
+                    emptyMap()
+                ).advanceSeeded(advanceStores, child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val dtoCascade =
@@ -232,7 +241,9 @@ class AdvanceResultCascadeErrorDtoTest {
                 listOf(Dependency(fromItemId = blockerId, toItemId = parentId, type = DependencyType.BLOCKS))
 
             val outcome =
-                serviceWith(emptyMap()).advance(child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith(
+                    emptyMap()
+                ).advanceSeeded(advanceStores, child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val dtoCascade =
@@ -261,7 +272,9 @@ class AdvanceResultCascadeErrorDtoTest {
             coEvery { leaseRepo.releaseAllForItem(any()) } returns LeaseReleaseResult.Success(0)
 
             val outcome =
-                serviceWith(emptyMap()).advance(child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith(
+                    emptyMap()
+                ).advanceSeeded(advanceStores, child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val dtoCascade =

@@ -46,7 +46,7 @@ object NoteSchemaJsonHelpers {
             blockers.map { blocker ->
                 buildJsonObject {
                     put("fromItemId", JsonPrimitive(blocker.fromItemId.toString()))
-                    put("currentRole", JsonPrimitive(blocker.currentRole.toJsonString()))
+                    put("currentRole", JsonPrimitive(blocker.currentRole?.toJsonString() ?: BlockerInfo.UNKNOWN_ROLE))
                     put("requiredRole", JsonPrimitive(blocker.requiredRole))
                 }
             }

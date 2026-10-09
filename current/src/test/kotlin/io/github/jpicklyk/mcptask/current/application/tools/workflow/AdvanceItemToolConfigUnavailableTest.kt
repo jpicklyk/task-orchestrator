@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigSer
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -116,6 +117,7 @@ class AdvanceItemToolConfigUnavailableTest {
             tool = AdvanceItemTool()
             workItemRepo = mockk()
             depRepo = mockk()
+            AdvanceMockStores.stubReads(workItemRepo, depRepo)
             noteRepo = mockk()
             roleTransitionRepo = mockk()
             coEvery { noteRepo.findByItemId(any()) } returns emptyList()

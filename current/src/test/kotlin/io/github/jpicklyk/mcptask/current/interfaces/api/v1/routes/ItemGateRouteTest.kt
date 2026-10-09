@@ -796,14 +796,11 @@ private fun Application.configureGateApp(
 ) {
     configureTestApp(authConfig) {
         if (includeItemRoute) itemRoutes(repo)
-        itemGateRoutes(
+        ToolExecutionContext(
             repo,
-            ToolExecutionContext(
-                repo,
-                schemaService,
-                perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
-            ).configResolver,
-        )
+            schemaService,
+            perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
+        ).let { ctx -> itemGateRoutes(repo, ctx.configResolver, ctx.transitionPreview()) }
     }
 }
 

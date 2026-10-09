@@ -753,10 +753,11 @@ data class IndependenceViolationDto(
  * seat-aware schema whose item is NOT terminal — see
  * [io.github.jpicklyk.mcptask.current.application.service.computeMissingBySeat].
  * `violations` (A2) is present (possibly `[]`) whenever independence mode is not OFF and the
- * resolved schema declares `independent_of` somewhere; null otherwise. `canAdvance` already
- * accounts for a REJECT-mode block (a non-waived violation), same as `missing.isEmpty()` does for
- * required notes -- see
- * [io.github.jpicklyk.mcptask.current.application.service.GatePredicate.blocksAdvance].
+ * resolved schema declares `independent_of` somewhere; null otherwise. `canAdvance` is "a `start`
+ * advance would be allowed right now" (claim ownership excluded): the same policy evaluation the
+ * advance runs ([io.github.jpicklyk.mcptask.current.application.service.TransitionPreview]), so it is
+ * false when the transition table, an unmet dependency, a required note / REJECT-mode independence
+ * violation, or an exclusive resource lease held elsewhere blocks it; `blockedBy` names that gate.
  */
 @Serializable
 data class GateStatusDto(
@@ -765,6 +766,11 @@ data class GateStatusDto(
     val missing: List<String>,
     val missingBySeat: Map<String, List<String>>? = null,
     val violations: List<IndependenceViolationDto>? = null,
+    /**
+     * The first gate that blocks a `start` (`"table"` | `"dependency"` | `"note"` | `"lease"`); present only
+     * when [canAdvance] is false and the item is not terminal.
+     */
+    val blockedBy: String? = null,
 )
 
 /**

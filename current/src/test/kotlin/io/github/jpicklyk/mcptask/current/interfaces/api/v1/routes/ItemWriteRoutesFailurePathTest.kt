@@ -50,7 +50,6 @@ import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -332,7 +331,8 @@ class ItemWriteRoutesFailurePathTest {
                     )!!
                 )
             val failingRoleTx = FailingRoleTransitionRepository(sqlite.roleTransitionRepository(), failFor = item.id)
-            val leaseFake = SimpleLeaseFakeRepository()
+            // P11: the real (transactional) lease store, so the advance unit's rollback is observable.
+            val leaseFake = sqlite.resourceLeaseRepository()
             val provider = LeaseOverrideProvider(RoleTransitionOverrideProvider(sqlite, failingRoleTx), leaseFake)
             application { configureFailurePathTestApp(provider, schemaService = TraitSchemaService()) }
 
@@ -350,7 +350,7 @@ class ItemWriteRoutesFailurePathTest {
             val persisted = runBlocking { sqlite.workItemRepository().getById(item.id) }
             assertNotNull(persisted)
             assertEquals(Role.QUEUE, persisted.role)
-            assertTrue(leaseFake.findActiveForItem(item.id).isEmpty(), "the same-call fresh lease must be released on apply failure")
+            assertTrue(leaseFake.findActiveForItem(item.id).isEmpty(), "the failed advance's lease must be rolled back with it")
         }
 
     @Test
@@ -369,7 +369,8 @@ class ItemWriteRoutesFailurePathTest {
                     )!!
                 )
             val failingRoleTx = FailingRoleTransitionRepository(sqlite.roleTransitionRepository(), failFor = item.id)
-            val leaseFake = SimpleLeaseFakeRepository()
+            // P11: the real (transactional) lease store, so the advance unit's rollback is observable.
+            val leaseFake = sqlite.resourceLeaseRepository()
             val provider = LeaseOverrideProvider(RoleTransitionOverrideProvider(sqlite, failingRoleTx), leaseFake)
             application { configureFailurePathTestApp(provider, schemaService = TraitSchemaService()) }
 
@@ -392,7 +393,7 @@ class ItemWriteRoutesFailurePathTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `S4 REST start with cascade apply failure reports cascadeEvents applied false with error`(): Unit =
+    fun `S4 REST start with cascade apply failure fails the whole advance with 422 and rolls it back`(): Unit =
         testApplication {
             val sqlite = db.repositoryProvider()
             val p =
@@ -409,7 +410,8 @@ class ItemWriteRoutesFailurePathTest {
                     )!!
                 )
             val failingRoleTx = FailingRoleTransitionRepository(sqlite.roleTransitionRepository(), failFor = pStamped.id)
-            val leaseFake = SimpleLeaseFakeRepository()
+            // P11: the real (transactional) lease store, so the advance unit's rollback is observable.
+            val leaseFake = sqlite.resourceLeaseRepository()
             val provider = LeaseOverrideProvider(RoleTransitionOverrideProvider(sqlite, failingRoleTx), leaseFake)
             application { configureFailurePathTestApp(provider, schemaService = TraitSchemaService()) }
 
@@ -420,26 +422,20 @@ class ItemWriteRoutesFailurePathTest {
                     setBody("""{"trigger":"start"}""")
                 }
 
-            assertEquals(HttpStatusCode.OK, response.status, "actual: ${response.bodyAsText()}")
+            // P11: cascades run in the advance's unit, so a cascade apply fault fails (and rolls back) the child too.
+            assertEquals(HttpStatusCode.UnprocessableEntity, response.status, "actual: ${response.bodyAsText()}")
             val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
-            val cascadeEvents = json["cascadeEvents"]?.jsonArray
-            assertTrue(cascadeEvents != null && cascadeEvents.isNotEmpty(), "actual: $json")
-            val cascade = cascadeEvents!![0].jsonObject
-            assertEquals(pStamped.id.toString(), cascade["itemId"]?.jsonPrimitive?.content, "actual: $cascade")
-            assertEquals(false, cascade["applied"]?.jsonPrimitive?.boolean, "actual: $cascade")
-            assertTrue(cascade["error"]?.jsonPrimitive?.content?.isNotBlank() == true, "actual: $cascade")
-            assertEquals(
-                false,
-                cascade["gateBlocked"]?.jsonPrimitive?.boolean,
-                "REST cascadeEvents must carry gateBlocked=false explicitly (not merely absent): $cascade"
-            )
+            assertEquals("transition_failed", json["error"]?.jsonPrimitive?.content, "actual: $json")
 
             val persistedP = runBlocking { sqlite.workItemRepository().getById(pStamped.id) }
             assertNotNull(persistedP)
             assertEquals(Role.QUEUE, persistedP.role)
+            val persistedC = runBlocking { sqlite.workItemRepository().getById(c.id) }
+            assertNotNull(persistedC)
+            assertEquals(Role.QUEUE, persistedC.role, "the child's own transition must roll back with the failed cascade")
             assertTrue(
                 leaseFake.findActiveForItem(pStamped.id).isEmpty(),
-                "the cascade's own fresh lease must be released on apply failure"
+                "the cascade's lease must be rolled back with the failed advance"
             )
         }
 

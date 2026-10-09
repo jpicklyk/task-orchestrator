@@ -54,6 +54,14 @@ class MockRepositoryProvider {
         // Default: noteRepo returns empty lists for any query
         coEvery { noteRepo.findByItemId(any()) } returns emptyList()
         coEvery { noteRepo.findByItemId(any(), any()) } returns emptyList()
+        // P11: the advance and its previews read dependency rows through findByItemId, blocker roles through
+        // findByIds and lease contention through findActiveByKeys. Default them onto the suite's own
+        // per-direction / getById stubs (a test's later stub for the same call still wins).
+        AdvanceMockStores.stubDependencyUnion(depRepo)
+        coEvery { workItemRepo.findByIds(any()) } coAnswers {
+            firstArg<Set<java.util.UUID>>().mapNotNull { id -> runCatching { workItemRepo.getById(id) }.getOrNull() }
+        }
+        coEvery { resourceLeaseRepo.findActiveByKeys(any()) } returns emptyList()
     }
 
     /** Build a ToolExecutionContext with optional schema, status label, and actor verifier services. */

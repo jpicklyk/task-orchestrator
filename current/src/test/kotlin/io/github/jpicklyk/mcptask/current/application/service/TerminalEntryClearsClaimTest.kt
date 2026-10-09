@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
+import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -10,11 +11,11 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
 
 /**
- * A claim that lands between the transition's snapshot read and its update must not survive an entry into
- * TERMINAL: claims no longer bump `version`, so nothing else would catch the interleaving.
+ * A claim that lands after the caller read its copy of the item must not survive an entry into TERMINAL:
+ * claims no longer bump `version`, so the advance clears the claim columns unconditionally on TERMINAL entry
+ * (and re-reads the row inside its unit, so the stale caller copy is never what gets written).
  */
 class TerminalEntryClearsClaimTest {
     @RegisterExtension
@@ -22,28 +23,37 @@ class TerminalEntryClearsClaimTest {
     val sqliteDb = SqliteTestDatabase.perMethod()
 
     @Test
-    fun `a claim placed after the snapshot is cleared when the item enters terminal`(): Unit =
+    fun `a claim placed after the caller's read is cleared when the item enters terminal`(): Unit =
         runBlocking {
             val provider = sqliteDb.repositoryProvider()
             val repository = provider.workItemRepository()
             val snapshot = repository.create(WorkItem(title = "Racy", role = Role.WORK))
             assertNull(snapshot.claimedBy)
 
-            // The interleaving: a claim lands after the snapshot was read, before applyTransition writes.
+            // The interleaving: a claim lands after the caller's read, before the advance runs.
             assertIs<ClaimResult.Success>(repository.claim(snapshot.id, "late-claimer", ttlSeconds = 900))
 
-            val result =
-                RoleTransitionHandler().applyTransition(
-                    item = snapshot,
-                    targetRole = Role.TERMINAL,
-                    trigger = "complete",
-                    summary = null,
-                    statusLabel = null,
+            val service =
+                AdvanceService(
                     workItemRepository = repository,
                     roleTransitionRepository = provider.roleTransitionRepository(),
+                    dependencyRepository = provider.dependencyRepository(),
+                    noteRepository = provider.noteRepository(),
+                    schemaResolver = { null },
                     unitOfWork = sqliteDb.unitOfWork()
                 )
-            assertTrue(result.success, "transition failed: ${result.error}")
+            // REST-style (ownership not enforced): the late claim does not block the operator's complete.
+            val outcome =
+                service.advance(
+                    snapshot,
+                    "complete",
+                    null,
+                    null,
+                    null,
+                    DegradedModePolicy.ACCEPT_CACHED,
+                    enforceOwnership = false
+                )
+            assertIs<AdvanceOutcome.Success>(outcome, "transition failed: $outcome")
 
             val after = assertNotNull(repository.getById(snapshot.id))
             assertNull(after.claimedBy, "a terminal item must not stay claimed")

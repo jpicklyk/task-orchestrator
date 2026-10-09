@@ -7,6 +7,8 @@ import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.*
+import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
+import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
@@ -38,11 +40,13 @@ class CompleteTreeToolCascadeOrderTest {
         tool = CompleteTreeTool()
         workItemRepo = mockk()
         depRepo = mockk()
+        AdvanceMockStores.stubReads(workItemRepo, depRepo)
         noteRepo = mockk()
         roleTransitionRepo = mockk()
 
         repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
+        every { repoProvider.eventStore() } returns InMemoryEventStore()
         every { repoProvider.dependencyRepository() } returns depRepo
         every { repoProvider.noteRepository() } returns noteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo

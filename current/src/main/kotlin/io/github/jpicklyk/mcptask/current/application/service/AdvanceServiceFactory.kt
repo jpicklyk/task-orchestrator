@@ -11,14 +11,14 @@ import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 
 /**
- * Builds a per-item [AdvanceService], bound to that item's `rootId` (per-root status-label
- * layering — see [EffectiveConfigResolver.rootBoundStatusLabels]) and config-resolved
- * schema/resource wiring, from ONE shared [configResolver].
+ * Builds a per-item [AdvanceService] (status labels bound to that item's `rootId` through
+ * [EffectiveConfigResolver.labelFor]) and the shared [TransitionPreview], from ONE shared
+ * [configResolver].
  *
  * The single construction site for [AdvanceService] in production: the MCP `advance_item` tool,
- * `complete_tree`, and the REST advance route all call [forItem] instead of hand-wiring an
- * `AdvanceService(...)` themselves, so the three previously-separate construction sites (and their
- * risk of drifting apart, as in bug 80e48e55/3e455253) collapse into one.
+ * `complete_tree`, and the REST advance route all call [forItem]; `get_context`, `get_next_status` and
+ * `GET /items/{id}/gate` evaluate through [preview], so previews and advances share one loader and one
+ * policy.
  */
 class AdvanceServiceFactory(
     private val workItemRepository: WorkItemRepository,
@@ -27,31 +27,43 @@ class AdvanceServiceFactory(
     private val noteRepository: NoteStore,
     private val resourceLeaseRepository: LeaseStore?,
     val configResolver: EffectiveConfigResolver,
-    /** The transaction boundary every built [AdvanceService] runs its steps in. */
+    /** The transaction boundary every built [AdvanceService] runs its unit in. */
     private val unitOfWork: UnitOfWork,
     private val resourceLeasesEnforced: () -> Boolean = { AdvanceService.resourceLeasesEnforcedFromEnv() },
     /** The one time source every built [AdvanceService] reads (the ambient unit instant wins inside a unit). */
     private val clock: Clock = Clock.SYSTEM,
 ) {
+    private val previewLazy by lazy {
+        TransitionPreview(
+            unitOfWork,
+            TransitionSnapshotLoader(
+                workItemRepository,
+                dependencyRepository,
+                noteRepository,
+                resourceLeaseRepository,
+                schemaResolver = { configResolver.resolveSchema(it) },
+                resourceRequirementsResolver = { configResolver.resolveResourceRequirements(it) },
+                independencePolicyResolver = { configResolver.resolveIndependencePolicy(it.rootId) }
+            ),
+            resourceLeasesEnforced
+        )
+    }
+
     /**
-     * Builds the [AdvanceService] for a single advance of [item] via [trigger]. Bound to [item]'s
-     * `rootId` for per-root status-label layering — mirrors the pre-refactor per-site inline
-     * construction byte-for-byte. May propagate `PerRootConfigUnavailableException` from the
-     * status-label resolution.
+     * Builds the [AdvanceService] for advances of [item] (and the cascades they trigger), with status
+     * labels resolved under [item]'s `rootId`. Config is read lazily inside the advance's unit, so a
+     * `PerRootConfigUnavailableException` surfaces from [AdvanceService.advance], not from here.
      *
-     * [resourceLeasesEnforced] is read fresh on EVERY call, matching the prior per-call
-     * `AdvanceService.resourceLeasesEnforcedFromEnv()` reads at each construction site.
+     * [resourceLeasesEnforced] is read fresh on EVERY call.
      */
-    suspend fun forItem(
-        item: WorkItem,
-        trigger: String
-    ): AdvanceService =
-        AdvanceService(
+    fun forItem(item: WorkItem): AdvanceService {
+        val rootId = item.rootId
+        return AdvanceService(
             workItemRepository = workItemRepository,
             roleTransitionRepository = roleTransitionRepository,
             dependencyRepository = dependencyRepository,
             noteRepository = noteRepository,
-            statusLabelService = configResolver.rootBoundStatusLabels(item.rootId, trigger),
+            labelFor = { trigger, target -> configResolver.labelFor(rootId, trigger, target) },
             schemaResolver = { configResolver.resolveSchema(it) },
             unitOfWork = unitOfWork,
             resourceLeaseRepository = resourceLeaseRepository,
@@ -61,4 +73,8 @@ class AdvanceServiceFactory(
             independencePolicyResolver = { workItem: WorkItem -> configResolver.resolveIndependencePolicy(workItem.rootId) },
             clock = clock
         )
+    }
+
+    /** The shared read-only [TransitionPreview] (lease kill switch read per evaluation). */
+    fun preview(): TransitionPreview = previewLazy
 }

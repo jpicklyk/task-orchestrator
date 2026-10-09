@@ -27,6 +27,8 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions
+import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
+import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.every
@@ -201,6 +203,7 @@ class ActorVerificationScopeTest {
     private fun contextFor(items: Map<UUID, WorkItem>): ToolExecutionContext {
         val workItemRepo = mockk<WorkItemRepository>()
         val depRepo = mockk<DependencyStore>()
+        AdvanceMockStores.stubReads(workItemRepo, depRepo)
         val roleTransitionRepo = mockk<TransitionStore>()
         val noteRepo = mockk<NoteStore>()
         coEvery { noteRepo.findByItemId(any()) } returns emptyList()
@@ -216,6 +219,7 @@ class ActorVerificationScopeTest {
 
         val repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
+        every { repoProvider.eventStore() } returns InMemoryEventStore()
         every { repoProvider.dependencyRepository() } returns depRepo
         every { repoProvider.noteRepository() } returns noteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo

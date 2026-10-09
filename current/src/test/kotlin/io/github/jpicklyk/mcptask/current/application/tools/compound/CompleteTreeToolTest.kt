@@ -12,6 +12,8 @@ import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.*
+import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
+import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
 import io.github.jpicklyk.mcptask.current.test.TestStatusLabelService
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
@@ -36,11 +38,13 @@ class CompleteTreeToolTest {
         tool = CompleteTreeTool()
         workItemRepo = mockk()
         depRepo = mockk()
+        AdvanceMockStores.stubReads(workItemRepo, depRepo)
         noteRepo = mockk()
         roleTransitionRepo = mockk()
 
         repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
+        every { repoProvider.eventStore() } returns InMemoryEventStore()
         every { repoProvider.dependencyRepository() } returns depRepo
         every { repoProvider.noteRepository() } returns noteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
@@ -201,6 +205,7 @@ class CompleteTreeToolTest {
 
             val repoProvider = mockk<RepositoryProvider>()
             every { repoProvider.workItemRepository() } returns workItemRepo
+            every { repoProvider.eventStore() } returns InMemoryEventStore()
             every { repoProvider.dependencyRepository() } returns depRepo
             every { repoProvider.noteRepository() } returns noteRepo
             every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
@@ -272,6 +277,7 @@ class CompleteTreeToolTest {
 
             val repoProvider = mockk<RepositoryProvider>()
             every { repoProvider.workItemRepository() } returns workItemRepo
+            every { repoProvider.eventStore() } returns InMemoryEventStore()
             every { repoProvider.dependencyRepository() } returns depRepo
             every { repoProvider.noteRepository() } returns noteRepo
             every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
@@ -386,6 +392,7 @@ class CompleteTreeToolTest {
             }
         val gatedRepoProvider = mockk<RepositoryProvider>()
         every { gatedRepoProvider.workItemRepository() } returns workItemRepo
+        every { gatedRepoProvider.eventStore() } returns InMemoryEventStore()
         every { gatedRepoProvider.dependencyRepository() } returns depRepo
         every { gatedRepoProvider.noteRepository() } returns noteRepo
         every { gatedRepoProvider.roleTransitionRepository() } returns roleTransitionRepo
@@ -673,6 +680,8 @@ class CompleteTreeToolTest {
 
             coEvery { workItemRepo.findDescendants(rootId) } returns listOf(child)
             coEvery { workItemRepo.getById(childId) } returns child
+            // P11: the child's terminal cascade reads its parent in the advance unit; the root row is not in this fixture.
+            coEvery { workItemRepo.getById(rootId) } returns null
             coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
@@ -755,6 +764,8 @@ class CompleteTreeToolTest {
 
             coEvery { workItemRepo.findDescendants(rootId) } returns listOf(child)
             coEvery { workItemRepo.getById(childId) } returns child
+            // P11: the child's terminal cascade reads its parent in the advance unit; the root row is not in this fixture.
+            coEvery { workItemRepo.getById(rootId) } returns null
             coEvery { workItemRepo.clear(any()) } returns true
             coEvery { workItemRepo.update(any()) } answers { firstArg() }
             coEvery { roleTransitionRepo.create(any()) } returns mockk()
@@ -846,6 +857,7 @@ class CompleteTreeToolTest {
 
             val repoProvider = mockk<RepositoryProvider>()
             every { repoProvider.workItemRepository() } returns workItemRepo
+            every { repoProvider.eventStore() } returns InMemoryEventStore()
             every { repoProvider.dependencyRepository() } returns depRepo
             every { repoProvider.noteRepository() } returns noteRepo
             every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
@@ -926,6 +938,7 @@ class CompleteTreeToolTest {
 
             val repoProvider = mockk<RepositoryProvider>()
             every { repoProvider.workItemRepository() } returns workItemRepo
+            every { repoProvider.eventStore() } returns InMemoryEventStore()
             every { repoProvider.dependencyRepository() } returns depRepo
             every { repoProvider.noteRepository() } returns noteRepo
             every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
@@ -988,6 +1001,7 @@ class CompleteTreeToolTest {
 
             val repoProvider = mockk<RepositoryProvider>()
             every { repoProvider.workItemRepository() } returns workItemRepo
+            every { repoProvider.eventStore() } returns InMemoryEventStore()
             every { repoProvider.dependencyRepository() } returns depRepo
             every { repoProvider.noteRepository() } returns noteRepo
             every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
@@ -1047,6 +1061,7 @@ class CompleteTreeToolTest {
 
             val repoProvider = mockk<RepositoryProvider>()
             every { repoProvider.workItemRepository() } returns workItemRepo
+            every { repoProvider.eventStore() } returns InMemoryEventStore()
             every { repoProvider.dependencyRepository() } returns depRepo
             every { repoProvider.noteRepository() } returns noteRepo
             every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
@@ -1131,10 +1146,9 @@ class CompleteTreeToolTest {
         }
 
     @Test
-    fun `cancel label precedence in complete_tree - hardcoded cancelled wins over config`(): Unit =
+    fun `cancel label precedence in complete_tree - a configured cancel label wins (P11 one label policy)`(): Unit =
         runBlocking {
-            // Config maps cancel→"dropped", but resolution.statusLabel = "cancelled" (hardcoded)
-            // effectiveLabel = "cancelled" ?: "dropped" = "cancelled"
+            // P11: there is no hardcoded cancel label any more; status_labels.cancel is honored like any trigger.
             val customLabels = TestStatusLabelService(mapOf("cancel" to "dropped"))
             val customContext = contextWithLabels(customLabels)
 
@@ -1154,8 +1168,7 @@ class CompleteTreeToolTest {
             assertEquals(1, results.size)
             val r = results[0].jsonObject
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
-            // Hardcoded "cancelled" from resolution.statusLabel takes precedence over config "dropped"
-            assertEquals("cancelled", r["statusLabel"]!!.jsonPrimitive.content)
+            assertEquals("dropped", r["statusLabel"]!!.jsonPrimitive.content)
         }
 
     // ──────────────────────────────────────────────
@@ -1307,6 +1320,7 @@ class CompleteTreeToolTest {
         private fun contextWithNoteSchema(noteSchemaService: NoteSchemaService): ToolExecutionContext {
             val provider = mockk<RepositoryProvider>()
             every { provider.workItemRepository() } returns workItemRepo
+            every { provider.eventStore() } returns InMemoryEventStore()
             every { provider.dependencyRepository() } returns depRepo
             every { provider.noteRepository() } returns noteRepo
             every { provider.roleTransitionRepository() } returns roleTransitionRepo
@@ -1490,6 +1504,7 @@ class CompleteTreeToolTest {
 
             val leaseRepoProvider = mockk<RepositoryProvider>()
             every { leaseRepoProvider.workItemRepository() } returns workItemRepo
+            every { leaseRepoProvider.eventStore() } returns InMemoryEventStore()
             every { leaseRepoProvider.dependencyRepository() } returns depRepo
             every { leaseRepoProvider.noteRepository() } returns noteRepo
             every { leaseRepoProvider.roleTransitionRepository() } returns roleTransitionRepo
@@ -1521,6 +1536,7 @@ class CompleteTreeToolTest {
 
             val leaseRepoProvider = mockk<RepositoryProvider>()
             every { leaseRepoProvider.workItemRepository() } returns workItemRepo
+            every { leaseRepoProvider.eventStore() } returns InMemoryEventStore()
             every { leaseRepoProvider.dependencyRepository() } returns depRepo
             every { leaseRepoProvider.noteRepository() } returns noteRepo
             every { leaseRepoProvider.roleTransitionRepository() } returns roleTransitionRepo

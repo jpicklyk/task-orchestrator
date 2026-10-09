@@ -1,7 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
-import io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler
+import io.github.jpicklyk.mcptask.current.application.service.BlockerInfo
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.GateId
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.RejectContext
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
@@ -10,10 +14,12 @@ import kotlinx.serialization.json.*
 /**
  * Read-only MCP tool that recommends the next status progression for a WorkItem.
  *
- * Analyzes the item's current role, dependency constraints, and workflow position
- * to provide one of three recommendations:
+ * Evaluates a `start` with the same policy the advance runs ([io.github.jpicklyk.mcptask.current.application.service.TransitionPreview],
+ * claim ownership excluded) to provide one of three recommendations:
  * - **Ready**: The item can progress to the next role via the "start" trigger
- * - **Blocked**: The item cannot progress due to unsatisfied dependencies or explicit BLOCKED role
+ * - **Blocked**: The item cannot progress: unsatisfied dependencies (`blockers`), unfilled required
+ *   notes (`reason` "gate_blocked"), a held exclusive resource (`reason` "resource_unavailable"), or an
+ *   explicit BLOCKED role
  * - **Terminal**: The item has already completed its workflow and cannot progress further
  */
 class GetNextStatusTool : BaseToolDefinition() {
@@ -22,8 +28,8 @@ class GetNextStatusTool : BaseToolDefinition() {
     override val description =
         """
 Read-only status progression recommendation for a WorkItem: "Ready" (can advance via the "start"
-trigger), "Blocked" (unsatisfied dependencies, or explicit BLOCKED role — use "resume" to return to
-its previous role), or "Terminal" (workflow already complete).
+trigger), "Blocked" (unsatisfied dependencies, missing required notes, a held resource, or explicit
+BLOCKED role — use "resume" to return to its previous role), or "Terminal" (workflow already complete).
 
 Call to check one item's advance-readiness when a full context snapshot is not needed.
         """.trimIndent()
@@ -73,8 +79,6 @@ Call to check one item's advance-readiness when a full context snapshot is not n
                 ErrorCodes.RESOURCE_NOT_FOUND
             )
 
-        val handler = RoleTransitionHandler()
-
         return when (item.role) {
             Role.TERMINAL -> {
                 // Terminal recommendation
@@ -102,65 +106,81 @@ Call to check one item's advance-readiness when a full context snapshot is not n
             }
 
             Role.QUEUE, Role.WORK, Role.REVIEW -> {
-                // Resolve next role via "start" trigger, respecting schema-driven review phase
+                // The advance's own policy evaluation of "start" (ownership excluded), so Ready/Blocked
+                // never disagrees with advance_item on the same state.
                 val hasReviewPhase = context.resolveHasReviewPhase(item)
-                val resolution = handler.resolveTransition(item, "start", hasReviewPhase)
-
-                if (!resolution.success || resolution.targetRole == null) {
-                    return errorResponse(
-                        resolution.error ?: "Failed to resolve next status",
-                        ErrorCodes.OPERATION_FAILED
-                    )
-                }
-
-                val targetRole = resolution.targetRole
-
-                // Validate transition against dependency constraints
-                val validation =
-                    handler.validateTransition(
-                        item,
-                        targetRole,
-                        context.dependencyRepository(),
-                        context.workItemRepository()
-                    )
-
-                if (validation.valid) {
-                    // Ready recommendation
-                    val position = Role.PROGRESSION.indexOf(item.role)
-                    val effectiveTotal = if (hasReviewPhase) Role.PROGRESSION.size else Role.PROGRESSION.size - 1
-                    successResponse(
-                        buildJsonObject {
-                            put("recommendation", JsonPrimitive("Ready"))
-                            put("currentRole", JsonPrimitive(item.role.toJsonString()))
-                            put("nextRole", JsonPrimitive(targetRole.toJsonString()))
-                            put("trigger", JsonPrimitive("start"))
-                            put("progressionPosition", JsonPrimitive("${position + 1}/$effectiveTotal"))
-                        }
-                    )
-                } else {
-                    // Blocked by dependencies
-                    successResponse(
-                        buildJsonObject {
-                            put("recommendation", JsonPrimitive("Blocked"))
-                            put("currentRole", JsonPrimitive(item.role.toJsonString()))
-                            put(
-                                "blockers",
-                                JsonArray(
-                                    validation.blockers.map { blocker ->
-                                        buildJsonObject {
-                                            put("fromItemId", JsonPrimitive(blocker.fromItemId.toString()))
-                                            put("currentRole", JsonPrimitive(blocker.currentRole.toJsonString()))
-                                            put("requiredRole", JsonPrimitive(blocker.requiredRole))
-                                        }
-                                    }
-                                )
-                            )
-                        }
-                    )
+                when (val decision = context.transitionPreview().evaluate(item, Trigger.User.START)) {
+                    is Decision.Allow -> {
+                        val position = Role.PROGRESSION.indexOf(item.role)
+                        val effectiveTotal = if (hasReviewPhase) Role.PROGRESSION.size else Role.PROGRESSION.size - 1
+                        successResponse(
+                            buildJsonObject {
+                                put("recommendation", JsonPrimitive("Ready"))
+                                put("currentRole", JsonPrimitive(item.role.toJsonString()))
+                                put("nextRole", JsonPrimitive(decision.target.toJsonString()))
+                                put("trigger", JsonPrimitive("start"))
+                                put("progressionPosition", JsonPrimitive("${position + 1}/$effectiveTotal"))
+                            }
+                        )
+                    }
+                    is Decision.Reject -> blockedResponse(item.role, decision)
+                    is Decision.NotApplicable -> errorResponse("Failed to resolve next status", ErrorCodes.OPERATION_FAILED)
                 }
             }
         }
     }
+
+    /** The "Blocked" recommendation for a rejected `start` preview. */
+    private fun blockedResponse(
+        role: Role,
+        decision: Decision.Reject
+    ): JsonElement =
+        when (decision.gate) {
+            GateId.DEPENDENCY ->
+                successResponse(
+                    buildJsonObject {
+                        put("recommendation", JsonPrimitive("Blocked"))
+                        put("currentRole", JsonPrimitive(role.toJsonString()))
+                        put(
+                            "blockers",
+                            JsonArray(
+                                (decision.context as? RejectContext.Dependency)?.unsatisfied.orEmpty().map { blocker ->
+                                    buildJsonObject {
+                                        put("fromItemId", JsonPrimitive(blocker.blockerId.toString()))
+                                        put("currentRole", JsonPrimitive(blocker.role?.toJsonString() ?: BlockerInfo.UNKNOWN_ROLE))
+                                        put("requiredRole", JsonPrimitive(blocker.threshold.toJsonString()))
+                                    }
+                                }
+                            )
+                        )
+                    }
+                )
+            GateId.NOTE ->
+                successResponse(
+                    buildJsonObject {
+                        put("recommendation", JsonPrimitive("Blocked"))
+                        put("currentRole", JsonPrimitive(role.toJsonString()))
+                        put("reason", JsonPrimitive("gate_blocked"))
+                        put(
+                            "missingNotes",
+                            JsonArray((decision.context as? RejectContext.Notes)?.missing.orEmpty().map { JsonPrimitive(it.key) })
+                        )
+                    }
+                )
+            GateId.LEASE ->
+                successResponse(
+                    buildJsonObject {
+                        put("recommendation", JsonPrimitive("Blocked"))
+                        put("currentRole", JsonPrimitive(role.toJsonString()))
+                        put("reason", JsonPrimitive("resource_unavailable"))
+                        put(
+                            "contendedResources",
+                            JsonArray((decision.context as? RejectContext.Lease)?.contended.orEmpty().map { JsonPrimitive(it) })
+                        )
+                    }
+                )
+            else -> errorResponse(decision.error.message, ErrorCodes.OPERATION_FAILED)
+        }
 
     override fun userSummary(
         params: JsonElement,

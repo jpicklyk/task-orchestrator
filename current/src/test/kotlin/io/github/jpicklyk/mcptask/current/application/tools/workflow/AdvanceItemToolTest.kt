@@ -15,6 +15,8 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
+import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
 import io.github.jpicklyk.mcptask.current.test.TestStatusLabelService
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -44,10 +46,12 @@ class AdvanceItemToolTest {
         // update() no longer writes the claim columns: a terminal transition of a claimed item releases it via clear().
         coEvery { workItemRepo.clear(any()) } returns true
         depRepo = mockk()
+        AdvanceMockStores.stubReads(workItemRepo, depRepo)
         roleTransitionRepo = mockk()
 
         repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
+        every { repoProvider.eventStore() } returns InMemoryEventStore()
         every { repoProvider.dependencyRepository() } returns depRepo
         val defaultNoteRepo = mockk<NoteStore>()
         coEvery { defaultNoteRepo.findByItemId(any()) } returns emptyList()
@@ -807,7 +811,8 @@ class AdvanceItemToolTest {
             coEvery { workItemRepo.getById(itemId) } returnsMany
                 listOf(
                     item, // first call: fetch for transition
-                    terminalItem // second call: isFullyUnblocked check
+                    item, // second call: the advance's in-unit re-read (P11)
+                    terminalItem // third call: unblock check
                 )
 
             val params = buildParams(transitionObj(itemId, "complete"))
@@ -1172,6 +1177,7 @@ class AdvanceItemToolTest {
     ): ToolExecutionContext {
         val repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
+        every { repoProvider.eventStore() } returns InMemoryEventStore()
         every { repoProvider.dependencyRepository() } returns depRepo
         every { repoProvider.noteRepository() } returns noteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
@@ -2340,10 +2346,9 @@ class AdvanceItemToolTest {
         }
 
     @Test
-    fun `cancel label precedence - hardcoded cancelled wins over config`(): Unit =
+    fun `cancel label precedence - a configured cancel label wins (P11 one label policy)`(): Unit =
         runBlocking {
-            // Config maps cancel→"custom-cancel", but resolution.statusLabel = "cancelled" (hardcoded)
-            // effectiveLabel = "cancelled" ?: "custom-cancel" = "cancelled"
+            // P11: there is no hardcoded cancel label any more; status_labels.cancel is honored like any trigger.
             val customLabels = TestStatusLabelService(mapOf("cancel" to "custom-cancel"))
             val customContext = contextWithLabels(customLabels)
 
@@ -2363,8 +2368,7 @@ class AdvanceItemToolTest {
             val r = results[0].jsonObject
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
             assertEquals("terminal", r["newRole"]!!.jsonPrimitive.content)
-            // Hardcoded "cancelled" from resolution.statusLabel takes precedence over config
-            assertEquals("cancelled", r["statusLabel"]!!.jsonPrimitive.content)
+            assertEquals("custom-cancel", r["statusLabel"]!!.jsonPrimitive.content)
         }
 
     @Test
@@ -3666,6 +3670,7 @@ class AdvanceItemToolTest {
                 run {
                     val provider = mockk<RepositoryProvider>()
                     every { provider.workItemRepository() } returns workItemRepo
+                    every { provider.eventStore() } returns InMemoryEventStore()
                     every { provider.dependencyRepository() } returns depRepo
                     every { provider.noteRepository() } returns noteRepo
                     every { provider.roleTransitionRepository() } returns roleTransitionRepo
@@ -3738,6 +3743,7 @@ class AdvanceItemToolTest {
                 run {
                     val provider = mockk<RepositoryProvider>()
                     every { provider.workItemRepository() } returns workItemRepo
+                    every { provider.eventStore() } returns InMemoryEventStore()
                     every { provider.dependencyRepository() } returns depRepo
                     every { provider.noteRepository() } returns noteRepo
                     every { provider.roleTransitionRepository() } returns roleTransitionRepo

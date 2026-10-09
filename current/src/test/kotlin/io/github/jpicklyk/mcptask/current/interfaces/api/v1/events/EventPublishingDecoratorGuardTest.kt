@@ -110,12 +110,14 @@ class EventPublishingDecoratorGuardTest {
     /**
      * Stores the decorator deliberately passes through unrecorded, with their full method surface (P8 F4). A new
      * method on one of them fails here until it is classified. The event store is never decorated: its appends
-     * are what the decorator records.
+     * are what the decorator records. The transition store passes through since P11: AdvanceService records
+     * `item.transitioned` itself, in its own unit.
      */
     private val passThroughSurfaces =
         mapOf(
             IdempotencyStore::class.java to setOf("find", "upsert", "insertIfAbsent", "deleteExpired"),
             EventStore::class.java to setOf("append", "readAfter", "maxSeq"),
+            TransitionStore::class.java to setOf("create", "findByItemId", "findByTimeRange", "findSince"),
         )
 
     /** Shared classification: every declared method of [port] is overridden by [decoratorClass] or allow-listed. */
@@ -155,14 +157,6 @@ class EventPublishingDecoratorGuardTest {
         )
 
     @Test
-    fun `TransitionStore method surface is fully classified as EVENTED or read-only allow-listed`() =
-        assertClassified(
-            TransitionStore::class.java,
-            setOf("create", "findByItemId", "findByTimeRange", "findSince"),
-            "EventPublishingTransitionStore",
-        )
-
-    @Test
     fun `ProjectConfigStore method surface is fully classified as EVENTED or read-only allow-listed`() =
         assertClassified(
             ProjectConfigStore::class.java,
@@ -187,6 +181,10 @@ class EventPublishingDecoratorGuardTest {
         val provider = EventPublishingRepositoryProvider(delegate, ApiEventBus())
         assertTrue(provider.idempotencyStore() === delegate.idempotencyStore(), "the idempotency store must pass through")
         assertTrue(provider.eventStore() === delegate.eventStore(), "the event store must never be decorated")
+        assertTrue(
+            provider.roleTransitionRepository() === delegate.roleTransitionRepository(),
+            "the transition store must pass through (AdvanceService records item.transitioned)",
+        )
     }
 
     private fun isReadOnlyAllowListed(name: String): Boolean {
@@ -360,7 +358,6 @@ class EventPublishingDecoratorGuardTest {
                 "instance distinct from the delegate's raw executor",
         )
         assertTrue(provider.resourceLeaseRepository() !== delegate.resourceLeaseRepository(), "the lease store must be wrapped")
-        assertTrue(provider.roleTransitionRepository() !== delegate.roleTransitionRepository(), "the transition store must be wrapped")
         assertTrue(provider.projectConfigRepository() !== delegate.projectConfigRepository(), "the config store must be wrapped")
         assertTrue(provider.planDocumentRepository() !== delegate.planDocumentRepository(), "the plan-document store must be wrapped")
     }

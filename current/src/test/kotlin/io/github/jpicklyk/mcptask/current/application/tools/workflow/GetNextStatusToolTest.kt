@@ -1,12 +1,15 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.*
+import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -55,8 +58,11 @@ class GetNextStatusToolTest {
         val repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
         every { repoProvider.dependencyRepository() } returns depRepo
-        every { repoProvider.noteRepository() } returns mockk()
+        every { repoProvider.noteRepository() } returns mockk<NoteStore>().also { coEvery { it.findByItemId(any()) } returns emptyList() }
         every { repoProvider.roleTransitionRepository() } returns mockk()
+        every { repoProvider.resourceLeaseRepository() } returns
+            mockk<LeaseStore>().also { coEvery { it.findActiveByKeys(any()) } returns emptyList() }
+        AdvanceMockStores(workItemRepo, depRepo)
 
         context = ToolExecutionContext(repoProvider, noteSchemaService)
     }

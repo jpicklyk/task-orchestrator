@@ -22,7 +22,8 @@
             "phase": "work",
             "missing": [
                 "session-tracking"
-            ]
+            ],
+            "blockedBy": "note"
         },
         "guidanceKey": "session-tracking"
     },

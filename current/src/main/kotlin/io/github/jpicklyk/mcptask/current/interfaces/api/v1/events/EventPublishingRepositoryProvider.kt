@@ -25,12 +25,10 @@ import io.github.jpicklyk.mcptask.current.domain.event.ClaimReleaseReason
 import io.github.jpicklyk.mcptask.current.domain.event.DeleteCause
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.event.ReparentSide
-import io.github.jpicklyk.mcptask.current.domain.event.TransitionOrigin
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.ProjectConfig
-import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import java.time.Duration
 import java.util.UUID
@@ -311,33 +309,6 @@ class EventPublishingRepositoryProvider(
         DomainEvent.DependencyRemoved(dep.id, root, dep.fromItemId, dep.toItemId, dep.type.name.lowercase(), dep.unblockAt, cause)
 
     // -------------------------------------------------------------------------
-    // Transition store decorator
-    // -------------------------------------------------------------------------
-
-    private inner class EventPublishingTransitionStore(
-        private val inner: TransitionStore,
-    ) : TransitionStore by inner {
-        override suspend fun create(transition: RoleTransition): RoleTransition {
-            val result = inner.create(transition)
-            record(
-                DomainEvent.ItemTransitioned(
-                    entityId = result.itemId,
-                    rootId = rootOfItem(result.itemId),
-                    trigger = result.trigger,
-                    fromRole = result.fromRole,
-                    toRole = result.toRole,
-                    fromStatusLabel = result.fromStatusLabel,
-                    toStatusLabel = result.toStatusLabel,
-                    origin = if (result.trigger == "cascade") TransitionOrigin.CASCADE else TransitionOrigin.USER,
-                    actor = result.actorClaim,
-                    verification = result.verification,
-                ),
-            )
-            return result
-        }
-    }
-
-    // -------------------------------------------------------------------------
     // Lease store decorator (entity = the holder item)
     // -------------------------------------------------------------------------
 
@@ -528,7 +499,6 @@ class EventPublishingRepositoryProvider(
     private val wrappedWorkItemRepo by lazy { EventPublishingWorkItemRepository(delegate.workItemRepository()) }
     private val wrappedNoteRepo by lazy { EventPublishingNoteRepository(delegate.noteRepository()) }
     private val wrappedDependencyRepo by lazy { EventPublishingDependencyRepository(delegate.dependencyRepository()) }
-    private val wrappedTransitionStore by lazy { EventPublishingTransitionStore(delegate.roleTransitionRepository()) }
     private val wrappedLeaseStore by lazy { EventPublishingLeaseStore(delegate.resourceLeaseRepository()) }
     private val wrappedProjectConfigStore by lazy { EventPublishingProjectConfigStore(delegate.projectConfigRepository()) }
     private val wrappedPlanDocumentStore by lazy { EventPublishingPlanDocumentStore(delegate.planDocumentRepository()) }
@@ -540,7 +510,11 @@ class EventPublishingRepositoryProvider(
 
     override fun dependencyRepository(): DependencyStore = wrappedDependencyRepo
 
-    override fun roleTransitionRepository(): TransitionStore = wrappedTransitionStore
+    /**
+     * Explicit pass-through: `item.transitioned` rows are recorded by
+     * [io.github.jpicklyk.mcptask.current.application.service.AdvanceService] in its own unit (P11), not here.
+     */
+    override fun roleTransitionRepository(): TransitionStore = delegate.roleTransitionRepository()
 
     override fun projectConfigRepository(): ProjectConfigStore = wrappedProjectConfigStore
 

@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.port.ReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.SelectorMatchCounts
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
-import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.ClaimStatus
@@ -311,7 +310,6 @@ class P7ClaimClockStoreTest {
                     roleTransitionRepository = provider.roleTransitionRepository(),
                     dependencyRepository = provider.dependencyRepository(),
                     noteRepository = provider.noteRepository(),
-                    statusLabelService = NoOpStatusLabelService,
                     schemaResolver = { null },
                     unitOfWork = sqliteDb.unitOfWork()
                 )

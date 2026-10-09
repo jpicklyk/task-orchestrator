@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
-import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -49,7 +48,6 @@ class SQLiteTerminalClaimClearTest {
             roleTransitionRepository = repositoryProvider.roleTransitionRepository(),
             dependencyRepository = repositoryProvider.dependencyRepository(),
             noteRepository = repositoryProvider.noteRepository(),
-            statusLabelService = NoOpStatusLabelService,
             schemaResolver = { null },
             unitOfWork = sqliteDb.unitOfWork(),
         )

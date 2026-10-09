@@ -10,6 +10,8 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationExcept
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
+import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -53,10 +55,12 @@ class AdvanceItemToolCredentialRefTest {
         tool = AdvanceItemTool()
         workItemRepo = mockk()
         depRepo = mockk()
+        AdvanceMockStores.stubReads(workItemRepo, depRepo)
         roleTransitionRepo = mockk()
 
         repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
+        every { repoProvider.eventStore() } returns InMemoryEventStore()
         every { repoProvider.dependencyRepository() } returns depRepo
         val defaultNoteRepo = mockk<NoteStore>()
         coEvery { defaultNoteRepo.findByItemId(any()) } returns emptyList()

@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping
 
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceResult
+import io.github.jpicklyk.mcptask.current.application.service.BlockerInfo
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
@@ -337,7 +338,7 @@ fun AdvanceResult.toDto(existingNoteKeys: Set<String>): AdvanceResponseDto {
                             event.blockers.map {
                                 CascadeBlockerDto(
                                     fromItemId = it.fromItemId.toString(),
-                                    currentRole = it.currentRole.name.lowercase(),
+                                    currentRole = it.currentRole?.name?.lowercase() ?: BlockerInfo.UNKNOWN_ROLE,
                                     requiredRole = it.requiredRole,
                                 )
                             }
