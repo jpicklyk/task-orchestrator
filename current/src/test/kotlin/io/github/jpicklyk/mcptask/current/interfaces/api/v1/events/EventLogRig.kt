@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
@@ -8,6 +9,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -116,6 +119,8 @@ internal class EventLogRig(
             db: SqliteTestDatabase,
             tempDir: Path,
             configYaml: String = "work_item_schemas: {}\n",
+            clock: Clock = SystemClock,
+            databaseManager: DatabaseManager = db.databaseManager,
         ): EventLogRig {
             val configDir = tempDir.resolve(".taskorchestrator")
             Files.createDirectories(configDir)
@@ -124,8 +129,9 @@ internal class EventLogRig(
             val composition =
                 ServerComposition(
                     appConfig = appConfig,
-                    databaseManager = db.databaseManager,
+                    databaseManager = databaseManager,
                     shutdownCoordinator = ShutdownCoordinator(),
+                    clock = clock,
                 ).build()
             return EventLogRig(db, composition)
         }
