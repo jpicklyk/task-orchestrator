@@ -15,6 +15,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService
+import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
+import io.github.jpicklyk.mcptask.current.test.advanceSeeded
 import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
 import io.mockk.coEvery
 import io.mockk.every
@@ -31,7 +33,7 @@ import kotlin.test.assertIs
  * Independently authored against the frozen `task-scope`/`test-plan` notes on item `f2c50e6d` —
  * scenarios S1 and S2 map to this file per the test-plan's file list. Oracle for S1:
  * `task-scope`'s Part A `AdvanceServiceFactory.forItem` body, `statusLabelService =
- * configResolver.rootBoundStatusLabels(item.rootId, trigger)` — a rooted item must see the
+ * the per-root-then-global label lookup (now configResolver.labelFor(item.rootId, trigger, target))` — a rooted item must see the
  * PER-ROOT status label for the trigger, and a rootless item must fall through to the global
  * label, exactly as [io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolverTest]
  * already characterizes for `resolveStatusLabels`/Q11. Oracle for S2: the same body assigns
@@ -47,6 +49,7 @@ class AdvanceServiceFactoryTest {
     private lateinit var roleTransitionRepo: TransitionStore
     private lateinit var depRepo: DependencyStore
     private lateinit var noteRepo: NoteStore
+    private lateinit var advanceStores: AdvanceMockStores
 
     @BeforeEach
     fun setUp() {
@@ -54,6 +57,7 @@ class AdvanceServiceFactoryTest {
         roleTransitionRepo = mockk()
         depRepo = mockk()
         noteRepo = mockk()
+        advanceStores = AdvanceMockStores(workItemRepo, depRepo)
 
         coEvery { workItemRepo.update(any()) } answers { firstArg() }
         coEvery { roleTransitionRepo.create(any()) } returns mockk()
@@ -111,16 +115,26 @@ class AdvanceServiceFactoryTest {
                 )
 
             val prItem = makeItem(role = Role.QUEUE, rootId = prRoot)
-            val prService = factory.forItem(prItem, "start")
+            val prService = factory.forItem(prItem)
             val prOutcome =
-                prService.advance(prItem, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                prService.advanceSeeded(
+                    advanceStores,
+                    prItem,
+                    "start",
+                    null,
+                    null,
+                    null,
+                    DegradedModePolicy.ACCEPT_CACHED,
+                    enforceOwnership = true
+                )
             val prSuccess = assertIs<AdvanceOutcome.Success>(prOutcome)
             assertEquals("pr-s", prSuccess.result.statusLabel, "a rooted item must see the per-root status label, not the global one")
 
             val rootlessItem = makeItem(role = Role.QUEUE, rootId = null)
-            val rootlessService = factory.forItem(rootlessItem, "start")
+            val rootlessService = factory.forItem(rootlessItem)
             val rootlessOutcome =
-                rootlessService.advance(
+                rootlessService.advanceSeeded(
+                    advanceStores,
                     rootlessItem,
                     "start",
                     null,
@@ -159,8 +173,8 @@ class AdvanceServiceFactoryTest {
                 )
             val item = makeItem(role = Role.QUEUE, rootId = null)
 
-            factory.forItem(item, "start")
-            factory.forItem(item, "start")
+            factory.forItem(item)
+            factory.forItem(item)
 
             assertEquals(2, calls, "resourceLeasesEnforced must be read fresh on every forItem call, not once at construction")
         }

@@ -694,7 +694,7 @@ internal fun Application.installRestApiRoutes(
             )
             // Phase 3: read API — items, notes, dependencies, transitions, search
             itemRoutes(effectiveProvider)
-            itemGateRoutes(effectiveProvider, toolContext.configResolver)
+            itemGateRoutes(effectiveProvider, toolContext.configResolver, toolContext.transitionPreview())
             noteRoutes(effectiveProvider)
             dependencyRoutes(effectiveProvider)
             transitionRoutes(

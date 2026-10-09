@@ -121,15 +121,12 @@ class ConfigUnavailableRoutesTest {
             val provider = FailableRepositoryProvider(sqlite, failable)
             application {
                 configureTestApp(makeTestAuthConfig()) {
-                    itemGateRoutes(
+                    ToolExecutionContext(
                         provider,
-                        ToolExecutionContext(
-                            provider,
-                            NoSchemaWorkItemSchemaService,
-                            perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
-                            unitOfWork = db.unitOfWork(),
-                        ).configResolver,
-                    )
+                        NoSchemaWorkItemSchemaService,
+                        perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                        unitOfWork = db.unitOfWork(),
+                    ).let { ctx -> itemGateRoutes(provider, ctx.configResolver, ctx.transitionPreview()) }
                 }
             }
 

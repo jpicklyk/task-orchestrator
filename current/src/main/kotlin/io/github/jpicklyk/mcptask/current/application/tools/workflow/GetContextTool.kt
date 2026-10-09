@@ -2,7 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
-import io.github.jpicklyk.mcptask.current.application.service.GatePredicate
+import io.github.jpicklyk.mcptask.current.application.service.blockedByWire
 import io.github.jpicklyk.mcptask.current.application.service.buildDispatchBySeatFlatJson
 import io.github.jpicklyk.mcptask.current.application.service.buildDispatchProfileJson
 import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
@@ -14,6 +14,8 @@ import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.model.ClaimState
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -220,14 +222,20 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
             )
 
         recordCallTargetVersion(item.id, item.version)
-        val resolvedSchema = context.resolveSchema(item)
+        // canAdvance is the advance's own policy evaluation of `start` (ownership excluded): table,
+        // dependency, note/independence and lease gates, so it never disagrees with advance_item. The
+        // schema, notes and violations below come from the SAME read unit as that decision, so
+        // `missing` / `missingBySeat` / `violations` never disagree with `canAdvance` / `blockedBy`.
+        val startView = context.transitionPreview().inspect(item, Trigger.User.START)
+        val startDecision = startView.decision
+        val canAdvance = startDecision is Decision.Allow
+        val resolvedSchema = startView.schema
 
         // Dispatch routing profile for the item's CURRENT role, using the already-resolved schema
         // above (never re-resolves it) — see ToolExecutionContext.resolveDispatchProfile's KDoc.
         val dispatchProfile = context.resolveDispatchProfile(item, item.role, resolvedSchema)
 
-        val notes =
-            legacyReadOrNull { context.noteRepository().findByItemId(item.id) } ?: emptyList()
+        val notes = startView.notes
         val notesByKey = notes.associateBy { it.key }
 
         // Build schema list with exists/filled status
@@ -255,14 +263,7 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
         // A2: independence-attestation violations for the item's CURRENT phase — null when the
         // item is TERMINAL (mirrors missingBySeat), independence mode is OFF, or the resolved
         // schema declares no independent_of in any phase.
-        val independencePolicy = context.resolveIndependencePolicy(item.rootId)
-        val violations =
-            if (item.role != Role.TERMINAL && resolvedSchema != null) {
-                GatePredicate.violationsForStart(resolvedSchema, item.role, notes, independencePolicy)
-            } else {
-                null
-            }
-        val independenceBlocks = GatePredicate.blocksAdvance(violations, independencePolicy)
+        val violations = if (item.role != Role.TERMINAL) startView.violations else null
 
         // A1: current-phase seats + per-seat dispatch overrides (task-scope §6 "get_context item
         // mode"). Both omitted (never an empty array/object) when the resolved schema declares no
@@ -328,13 +329,13 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
                 put(
                     "gateStatus",
                     buildJsonObject {
-                        // Terminal items can never advance; schema-free items always can; schema items need all notes filled
                         val isTerminal = item.role == Role.TERMINAL
-                        put("canAdvance", JsonPrimitive(!isTerminal && missingForPhase.isEmpty() && !independenceBlocks))
+                        put("canAdvance", JsonPrimitive(canAdvance))
                         put("phase", JsonPrimitive(item.role.toJsonString()))
                         put("missing", JsonArray(missingForPhase.map { JsonPrimitive(it) }))
                         buildMissingBySeatJson(missingBySeat)?.let { put("missingBySeat", it) }
                         NoteSchemaJsonHelpers.buildViolationsArray(violations)?.let { put("violations", it) }
+                        if (!canAdvance && !isTerminal) startDecision.blockedByWire()?.let { put("blockedBy", JsonPrimitive(it)) }
                     }
                 )
                 guidanceKey?.let { put("guidanceKey", JsonPrimitive(it)) }

@@ -1,7 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping
 
-import io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.SchemaFacts
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionTable
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.StatusGraphDto
@@ -10,16 +12,11 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.StatusGraphTypeD
 /**
  * Derives the static status-transition graph from registered work-item schemas.
  *
- * The graph is built by calling the pure [RoleTransitionHandler.resolveTransition] overload
- * (role + trigger, no WorkItem) for every (role, trigger) combination across all registered
- * schema types. Two overrides are applied on top of the pure result:
- *
- * 1. **(work, start)**: the pure overload assumes `hasReviewPhase=true` and returns REVIEW.
- *    When the schema's `hasReviewPhase()==false` this cell is rewritten to `"terminal"`.
- *
- * 2. **(blocked, resume)**: the pure overload returns `success=false` because it cannot
- *    determine `previousRole`. We always emit the sentinel `"<previousRole>"` for this cell
- *    so dashboards know they must read the live item to resolve the target.
+ * The graph is derived from the transition table ([TransitionTable.cell]) for every (role, user
+ * trigger) pair, per registered schema type (its review phase and lifecycle mode are the
+ * [SchemaFacts]). A `To` cell emits the target role; the `ToPrevious` cell of (blocked, resume)
+ * emits the sentinel `"<previousRole>"` so dashboards know they must read the live item to resolve
+ * the target; an invalid cell is omitted.
  *
  * The result is cached in memory keyed by config fingerprint. When the fingerprint changes
  * (config reload), the cache is invalidated and the graph is rebuilt on the next request.
@@ -29,7 +26,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.StatusGraphTypeD
  */
 class StatusGraphBuilder(
     private val schemaService: WorkItemSchemaService,
-    private val handler: RoleTransitionHandler = RoleTransitionHandler(),
 ) {
     companion object {
         /** The ordered list of roles that appear as rows in the graph. */
@@ -67,12 +63,12 @@ class StatusGraphBuilder(
      * unchanged.
      */
     fun buildStatusGraph(schemas: Map<String, WorkItemSchema>): StatusGraphDto {
-        val triggers = RoleTransitionHandler.USER_TRIGGERS.toList().sorted()
+        val triggers = Trigger.User.entries.sortedBy { it.wire }
 
         val types =
             schemas.entries.map { (typeName, schema) ->
                 val hasReview = schema.hasReviewPhase()
-                val transitions = buildTransitionsForType(hasReview, triggers)
+                val transitions = buildTransitionsForType(SchemaFacts(hasReview, schema.lifecycleMode), triggers)
                 StatusGraphTypeDto(
                     type = typeName,
                     lifecycleMode = schema.lifecycleMode.name.lowercase(),
@@ -83,22 +79,22 @@ class StatusGraphBuilder(
 
         return StatusGraphDto(
             roles = GRAPH_ROLES.map { it.name.lowercase() },
-            triggers = triggers,
+            triggers = triggers.map { it.wire },
             types = types,
         )
     }
 
     private fun buildTransitionsForType(
-        hasReviewPhase: Boolean,
-        triggers: List<String>,
+        facts: SchemaFacts,
+        triggers: List<Trigger.User>,
     ): Map<String, Map<String, String>> {
         val result = mutableMapOf<String, MutableMap<String, String>>()
 
         for (role in GRAPH_ROLES) {
             val rowKey = role.name.lowercase()
             for (trigger in triggers) {
-                val targetCell = resolveCell(role, trigger, hasReviewPhase) ?: continue
-                result.getOrPut(rowKey) { mutableMapOf() }[trigger] = targetCell
+                val targetCell = resolveCell(role, trigger, facts) ?: continue
+                result.getOrPut(rowKey) { mutableMapOf() }[trigger.wire] = targetCell
             }
         }
 
@@ -106,32 +102,17 @@ class StatusGraphBuilder(
     }
 
     /**
-     * Resolves a single (role, trigger) cell to a target role string,
-     * or returns `null` if the transition is invalid (cell should be omitted).
-     *
-     * Special cases:
-     * - **(blocked, resume)** always emits [PREVIOUS_ROLE_SENTINEL].
-     * - **(work, start)** result is overridden based on [hasReviewPhase].
+     * The table cell for (role, trigger) as a target string: the target role, [PREVIOUS_ROLE_SENTINEL]
+     * for a return-to-previous cell, or `null` (omitted) for an invalid cell.
      */
     private fun resolveCell(
         role: Role,
-        trigger: String,
-        hasReviewPhase: Boolean,
-    ): String? {
-        // Special case: (blocked, resume) — pure overload can't resolve without WorkItem
-        if (role == Role.BLOCKED && trigger == "resume") {
-            return PREVIOUS_ROLE_SENTINEL
+        trigger: Trigger.User,
+        facts: SchemaFacts,
+    ): String? =
+        when (val cell = TransitionTable.cell(role, trigger, facts)) {
+            is TransitionTable.Cell.To -> cell.role.name.lowercase()
+            TransitionTable.Cell.ToPrevious -> PREVIOUS_ROLE_SENTINEL
+            TransitionTable.Cell.Invalid, TransitionTable.Cell.NotApplicable -> null
         }
-
-        val resolution = handler.resolveTransition(role, trigger)
-        if (!resolution.success || resolution.targetRole == null) return null
-
-        // Override (work, start): pure result is REVIEW (assumes hasReviewPhase=true),
-        // but we need to respect the schema's actual hasReviewPhase flag.
-        return if (role == Role.WORK && trigger == "start" && !hasReviewPhase) {
-            Role.TERMINAL.name.lowercase()
-        } else {
-            resolution.targetRole.name.lowercase()
-        }
-    }
 }

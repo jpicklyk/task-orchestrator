@@ -237,45 +237,45 @@ taken, not that it produced a correct result.
 
 ```kotlin
 @Test
-fun `advanceItem triggers cascade check before persisting transition`() {
-    val cascadeDetector = mockk<CascadeDetector>(relaxed = true)
+fun `advance evaluates the policy before persisting the transition`() {
+    val policy = mockk<TransitionPolicy>(relaxed = true)
     val repository = mockk<WorkItemRepository>(relaxed = true)
-    val handler = RoleTransitionHandler(repository, cascadeDetector)
+    val service = advanceServiceWith(repository, policy)
 
-    handler.advance(itemId, trigger = "start")
+    service.advance(item, trigger = "start")
 
     verifyOrder {
-        cascadeDetector.check(itemId)
-        repository.updateRole(itemId, any())
+        policy.evaluate(any(), Trigger.User.START)
+        repository.update(any())
     }
 }
 ```
 
-If `updateRole` were called with the wrong target role, or `check`'s result were ignored
+If `update` were called with the wrong target role, or `evaluate`'s decision were ignored
 entirely, this test would still pass — it never looks at what was actually passed or returned.
 
 **After — order is verified where it matters, plus a real assertion on the resulting state:**
 
 ```kotlin
 @Test
-fun `advanceItem triggers cascade check before persisting transition`() {
-    val cascadeDetector = mockk<CascadeDetector>()
-    every { cascadeDetector.check(itemId) } returns CascadeResult.Clear
+fun `advance evaluates the policy before persisting the transition`() {
+    val policy = mockk<TransitionPolicy>()
+    every { policy.evaluate(any(), Trigger.User.START) } returns allowInto(Role.WORK)
     val repository = mockk<WorkItemRepository>(relaxed = true)
-    val handler = RoleTransitionHandler(repository, cascadeDetector)
+    val service = advanceServiceWith(repository, policy)
 
-    val result = handler.advance(itemId, trigger = "start")
+    val result = service.advance(item, trigger = "start")
 
     verifyOrder {
-        cascadeDetector.check(itemId)
-        repository.updateRole(itemId, Role.WORK)
+        policy.evaluate(any(), Trigger.User.START)
+        repository.update(match { it.id == item.id && it.role == Role.WORK })
     }
     assertEquals(Role.WORK, result.newRole)
     assertTrue(result.applied)
 }
 ```
 
-`repository.updateRole(itemId, Role.WORK)` asserts the *argument*, not just that the call
+`repository.update(match { ... Role.WORK })` asserts the *argument*, not just that the call
 happened, and the return value is checked independently of the mock interactions.
 
 ---

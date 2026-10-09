@@ -24,6 +24,7 @@ import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelSer
 import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
+import io.github.jpicklyk.mcptask.current.application.service.TransitionPreview
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.application.support.UnscopedUnitOfWork
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -259,18 +260,6 @@ class ToolExecutionContext(
     ): Map<String, String?> = configResolver.resolveStatusLabels(triggers, rootId)
 
     /**
-     * Builds a synchronous [StatusLabelService] bound to [rootId] and pre-resolved for [trigger],
-     * `"complete"` and `"cascade"`, for handing to
-     * [io.github.jpicklyk.mcptask.current.application.service.AdvanceService]. Shared by the MCP
-     * advance tool and the REST advance route (bug 80e48e55). Delegates to
-     * [EffectiveConfigResolver.rootBoundStatusLabels].
-     */
-    suspend fun rootAwareStatusLabelService(
-        rootId: UUID?,
-        trigger: String
-    ): StatusLabelService = configResolver.rootBoundStatusLabels(rootId, trigger)
-
-    /**
      * Returns the union of trait names available for the given [rootIds], per-root traits first,
      * followed by the global trait list, distinct. Delegates to
      * [EffectiveConfigResolver.availableTraits].
@@ -282,6 +271,12 @@ class ToolExecutionContext(
      * `complete_tree` construction of [io.github.jpicklyk.mcptask.current.application.service.AdvanceService].
      */
     fun advanceServiceFactory(): AdvanceServiceFactory = advanceServiceFactoryLazy
+
+    /**
+     * The shared read-only [TransitionPreview] (`get_context` / `GET /items/{id}/gate` `canAdvance`,
+     * `get_next_status`): the same snapshot loader and policy every advance uses.
+     */
+    fun transitionPreview(): TransitionPreview = advanceServiceFactory().preview()
 }
 
 /** Which config layer supplied a resolved schema; see [ToolExecutionContext.resolveSchemaWithSource]. */

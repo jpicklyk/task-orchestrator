@@ -1,7 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
-import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
+import io.github.jpicklyk.mcptask.current.application.service.statusLabelKey
 import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
@@ -154,19 +155,16 @@ class EffectiveConfigResolver(
     }
 
     /**
-     * A synchronous [StatusLabelService] bound to [rootId], pre-resolved (from one per-root read)
-     * for every trigger a single advance can consult: [trigger], `"complete"` and `"cascade"`.
+     * The ONE label policy for an applied transition: the status label for [trigger] entering [target]
+     * under [rootId] (per-root `status_labels` key, else global, else the built-in defaults). The key is
+     * [statusLabelKey]: `"cascade"` for any cascade, `"complete"` for a `start` into TERMINAL, else the
+     * trigger's wire name. One per-root read per call.
      */
-    suspend fun rootBoundStatusLabels(
+    suspend fun labelFor(
         rootId: UUID?,
-        trigger: String
-    ): StatusLabelService {
-        val consultedTriggers = setOf(trigger, "complete", "cascade")
-        val resolved = resolveStatusLabels(consultedTriggers, rootId)
-        return object : StatusLabelService {
-            override fun resolveLabel(trigger: String): String? = resolved[trigger]
-        }
-    }
+        trigger: Trigger,
+        target: Role
+    ): String? = layered(rootId).statusLabel(statusLabelKey(trigger, target))
 
     /**
      * Union of trait names for [rootIds]: per-root trait keys first (one per-root read per ELEMENT

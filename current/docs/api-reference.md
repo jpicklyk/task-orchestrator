@@ -724,8 +724,8 @@ apply to that failure — see [Error Envelope](#error-envelope) for the full fie
 rejections skip in-set dependents exactly like a gate failure does.
 
 **Per-root config unavailable (`applied: false`, `errorCode: "config_unavailable"`):** when an
-item's per-root config cannot be read (a transient database error) and there is no last-known-good
-cached config for that root (see `manage_project_config`'s Purpose note below), that item's entry
+item's per-root config cannot be read (a transient database error) inside its advance's unit of work,
+where the last-known-good fallback is disabled (see `manage_project_config`'s Purpose note below), that item's entry
 carries `skipped: true`, `errorKind: "transient"`, `errorCode: "config_unavailable"` — no
 `retryAfterMs` — and counts as a rejection (`skipped`, not `gateFailures`); its in-set dependents are
 skipped exactly like any other rejection. The rest of the batch (siblings, and items whose own root's
@@ -1191,11 +1191,13 @@ Each backlink entry represents another item that holds a dependency edge pointin
 gate enforcement, cascade detection, and unblock reporting. Supports batch transitions.
 
 This tool and the REST `POST /items/{id}/advance` route share a single advance pipeline
-(`AdvanceService`): ownership pre-check → resolve → validate → required-note gate → resource-lease
-gate → apply → cascade detection → unblock detection. The MCP path enforces claim ownership; the
-REST path bypasses it (see `api-rest.md`). Both enforce the same note gates and the same
-resource-lease gate (REST accepts an ADMIN-only override for the lease gate; MCP does not), and
-report the same cascade/unblock results.
+(`AdvanceService`). Each transition is ONE transaction: the item is re-read, the transition policy
+evaluates its gates in a fixed order (claim ownership → transition table → cascade warrant → hold →
+blocking dependencies → required notes → resource lease; the first failure wins), and the role change,
+its audit row, its event, the lease acquire or release, and every cascade it triggers commit together
+or not at all. Unblocked downstream items are then reported. The MCP path enforces claim ownership; the
+REST path bypasses it (see `api-rest.md`). Both enforce the same gates (REST accepts an ADMIN-only
+override for the lease gate; MCP does not), and report the same cascade/unblock results.
 
 **When to call.** Call to move an item between phases once its work is done — never edit status via `manage_items`.
 
@@ -1217,7 +1219,7 @@ Provide **either** a `transitions` array **or** the singular `itemId` + `trigger
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `itemId` | string (UUID) | Yes | Item to transition |
-| `trigger` | string | Yes | One of: `start`, `complete`, `block`, `hold`, `resume`, `cancel`, `reopen`. Only `UserTrigger` values are accepted — `cascade` is system-internal and is rejected at the API boundary. |
+| `trigger` | string | Yes | One of: `start`, `complete`, `block`, `hold`, `resume`, `cancel`, `reopen` (case-insensitive). `cascade` is system-internal and is rejected at the API boundary. |
 | `summary` | string | No | Optional annotation stored on the transition record |
 | `actor` | object | No | Optional actor claim — see Actor Attribution section |
 | `credentialRefs` | string or array of strings | No | Opaque audit labels for credentials/resources this transition consumed — never secret values. A bare string is coerced to a one-element array. Max 8 entries, each 1-128 chars matching `^[a-z0-9][a-z0-9\-_./]*$`. See **Resource-lease gate** below for the closed-set rule that applies once the item declares `resources:`. |
@@ -1239,8 +1241,8 @@ When provided, the response includes an `actor` object on each successful transi
 | `start` | QUEUE→WORK, WORK→REVIEW (or TERMINAL if no review phase in schema), REVIEW→TERMINAL |
 | `complete` | Any non-terminal, non-blocked → TERMINAL |
 | `block` / `hold` | Any non-terminal → BLOCKED (saves `previousRole`) |
-| `resume` | BLOCKED → `previousRole` |
-| `cancel` | Any non-terminal → TERMINAL with `statusLabel="cancelled"` |
+| `resume` | BLOCKED → `previousRole` (dependency-gated when that role is WORK or REVIEW) |
+| `cancel` | Any non-terminal → TERMINAL with the `cancel` status label (default `"cancelled"`); never dependency-gated |
 | `reopen` | TERMINAL → QUEUE (clears statusLabel, bypasses gate enforcement, cascades parent TERMINAL → WORK) |
 
 **Gate enforcement.** The schema used for gate checks is resolved in this order:
@@ -1255,11 +1257,16 @@ When a schema is resolved:
 Trait notes are merged into the resolved schema: `default_traits` from config apply globally, and per-item traits (stored in `properties` JSON) add their note requirements on top. The `dispatch` trait dimension (below) resolves in the **reverse** order — per-item `traits` first, then `default_traits` — and a per-root trait's `dispatch` map replaces the global trait's map wholesale (no per-role fall-through within a trait); see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension) → "Dispatch (Trait Dimension)" for the full precedence and layering rules.
 
 **Lifecycle modes** (set on the schema via `work_item_schemas`):
-- `AUTO` (default) — terminal cascade fires automatically when all children reach terminal
-- `MANUAL` — suppresses terminal cascade; parent must be advanced explicitly
-- `PERMANENT` — item never auto-terminates; intended for persistent containers
+- `AUTO` (default) — cascades (terminal, start and reopen) apply automatically
+- `MANUAL` — suppresses every cascade into this item; it must be advanced explicitly
+- `PERMANENT` — item never auto-transitions; intended for persistent containers
 
-**Start cascade.** When a child item transitions to WORK, the parent is automatically advanced from QUEUE to WORK if it is still in QUEUE. This is immediate-parent-only — it does not chain further up the ancestor chain (a grandparent stays in QUEUE until the parent itself transitions to WORK through its own trigger or cascade). The cascade gates on the parent's own CURRENT-phase required notes: if the parent has a resolved schema and its required notes for its current phase are not all filled, the cascade is suppressed rather than applied — the `cascadeEvents` entry carries `applied: false`, `gateBlocked: true`, and `missingNotes` (the missing note keys), and the parent is left in QUEUE for the caller to fill notes and advance explicitly. A schema-free parent, or one with no missing required notes for its current phase, cascades exactly as before. This appears in `cascadeEvents` in the response with `trigger="cascade"`.
+**Dependency gate.** A transition into `work`, `review` or `terminal` requires every blocking
+dependency's blocker to have reached its `unblockAt` threshold — for `start`, `complete`, `resume`
+(into work or review) and every cascade; `cancel` is exempt. A blocker whose row cannot be read never
+satisfies its dependency and is reported with `currentRole: "unknown"`.
+
+**Start cascade.** When a child item transitions to WORK, the parent is automatically advanced from QUEUE to WORK if it is still in QUEUE and its lifecycle is `AUTO`. This is immediate-parent-only — it does not chain further up the ancestor chain (a grandparent stays in QUEUE until the parent itself transitions to WORK through its own trigger or cascade). The cascade is suppressed rather than applied — the `cascadeEvents` entry carries `applied: false` and the parent is left in QUEUE — when the parent has an unmet blocking dependency (`dependencyBlocked: true` + `blockers`), unfilled CURRENT-phase required notes (`gateBlocked: true` + `missingNotes`), or a contended exclusive resource (`resourceBlocked: true` + `contendedResources`). This appears in `cascadeEvents` in the response with `trigger="cascade"`.
 
 **Terminal cascade.** When a child item reaches TERMINAL, the parent may also automatically advance if all its children are terminal. A terminal cascade is suppressed (the entry carries `applied: false` and the cascade stops climbing the tree) in three cases, checked in this order:
 
@@ -1269,14 +1276,14 @@ Trait notes are merged into the resolved schema: `default_traits` from config ap
 
 `violations` is omitted on role- and dependency-suppressed events because the note gate never evaluated them.
 
-**Reopen cascade.** When a child item is reopened (TERMINAL → QUEUE) and its parent is TERMINAL, the parent is automatically reopened to WORK. This ensures the parent reflects that it has active children again. Reopen cascades never gate on notes — the direct `reopen` trigger itself bypasses gate enforcement (see the `reopen` row above), so gating its cascade would contradict that.
+**Reopen cascade.** When a child item is reopened (TERMINAL → QUEUE) and its parent is TERMINAL with an `AUTO` lifecycle, the parent is automatically reopened to WORK. This ensures the parent reflects that it has active children again. Reopen cascades never gate on notes — the direct `reopen` trigger itself bypasses gate enforcement (see the `reopen` row above), so gating its cascade would contradict that — but they are dependency-gated (`dependencyBlocked`) and acquire the parent's exclusive leases like a start (`resourceBlocked` on contention).
 
-All cascade types are recorded in `cascadeEvents`. When a cascade's own apply step fails (a
-persistence conflict, not a gate/resource suppression), the entry carries `applied: false` and an
-`error` (string) naming the reason; `error` is omitted whenever the cascade applied successfully or
-was suppressed by `gateBlocked`/`resourceBlocked`/`roleBlocked`/`dependencyBlocked` instead. Any resource lease that cascade itself
-acquired for entering WORK is released in the same call (see [`workflow-guide.md`](./workflow-guide.md)
-§ Resource Leasing).
+All cascade types are recorded in `cascadeEvents`. Cascades commit in the same transaction as the
+child's transition: if applying a cascade (or releasing a lease) fails, the WHOLE advance fails with
+`apply_failed` and nothing is persisted, the child's transition included. The `error` field of a
+cascade event is therefore never populated (it is kept for response-shape compatibility). A per-root
+config read failure for a cascade parent skips that cascade (no event) and the child's transition still
+commits.
 
 **Examples.**
 
@@ -1399,13 +1406,14 @@ none). `mode: advisory` keys never lock; they are recorded into `consumedCredent
 audit visibility only. The lease is released on every exit from `work` (`complete`, `cancel`,
 `block`/`hold`, `reopen`, or a terminal cascade) and is not re-validated while the item stays in
 `work` — it is a precondition captured at entry, not a continuously-checked invariant. Items that
-declare no resources are entirely unaffected (zero extra queries, byte-identical behavior). A
-transition that acquires the lease and then FAILS to persist the role change (see `ApplyFailed`
-below) releases it too, in the same call, so a failed `start`/`resume` never orphans a lease it just
-took — see [`workflow-guide.md`](./workflow-guide.md) § Resource Leasing for the exact conditions.
+declare no resources are entirely unaffected (zero extra queries, byte-identical behavior). The
+acquire runs in the transition's own transaction: a transition that then FAILS to persist (`apply_failed`)
+rolls the lease back with it, so a failed `start`/`resume` never orphans a lease. A store fault while
+acquiring or releasing a lease fails the transition with `apply_failed` (transient).
 
-*Contention.* When an exclusive key is already held, the transition is rejected as **transient**,
-not gate-blocked — the fix is to wait and retry (or work a different item), not to write more notes:
+*Contention.* When an exclusive key is already held by another item, the transition is rejected as
+**transient**, not gate-blocked — the fix is to wait and retry (or work a different item), not to write
+more notes. `retryAfterMs` is the time until the soonest of the contended leases expires (at least 1):
 
 ```json
 {
@@ -1414,7 +1422,7 @@ not gate-blocked — the fix is to wait and retry (or work a different item), no
       "itemId": "uuid",
       "trigger": "start",
       "applied": false,
-      "error": "Resource lease contended: staging-db",
+      "error": "Cannot enter work phase: resource(s) currently held by another work item: staging-db",
       "errorKind": "transient",
       "errorCode": "resource_unavailable",
       "retryAfterMs": 30000,
@@ -1441,8 +1449,8 @@ into the persisted transition's `consumedCredentials`, unioned with any caller-s
 resources keep the open, format-only-validated behavior of the plain `credentialRefs` field
 (unchanged from its baseline behavior).
 
-A start-cascade into `work` acquires leases the same way; on contention the cascade event is
-recorded with `applied: false`, `resourceBlocked: true`, and `contendedResources` — the **child's
+A start or reopen cascade into `work` acquires leases the same way; on contention the cascade event
+is recorded with `applied: false`, `resourceBlocked: true`, and `contendedResources` — the **child's
 own transition still succeeds**, only the parent's automatic promotion is deferred.
 
 See [Workflow Guide §11 — Resource Leasing](workflow-guide.md#11-resource-leasing) for the full
@@ -1451,8 +1459,10 @@ force-release, item-keyed exclusivity, single-DB arbiter, opaque-labels-never-se
 `exclusive` vs `advisory` modeling guidance.
 
 **Per-root config unavailable.** When a transition's per-root config cannot be read (a transient
-database error) and there is no last-known-good cached config for that root (see
-`manage_project_config`'s Purpose note below), that ONE transition is rejected as **transient** —
+database error), that ONE transition is rejected as **transient**. The advance reads the item's config
+inside its unit of work, where the last-known-good fallback is disabled (see `manage_project_config`'s
+Purpose note below), so this happens even when the cache is warm, keyed or unkeyed alike; a cascade
+parent whose own root's config cannot be read is skipped instead (the transition still commits) —
 the rest of a batch continues — and nothing is persisted for it:
 
 ```json
@@ -1481,7 +1491,9 @@ omitted, never turned into a failure of a transition that already committed.
 ### get_next_status
 
 **Purpose.** Read-only status progression recommendation for a single WorkItem. Returns whether
-the item is Ready to advance, Blocked, or Terminal, without making any changes.
+the item is Ready to advance, Blocked, or Terminal, without making any changes. For a queue, work or
+review item the answer is the same policy evaluation `advance_item(trigger="start")` runs (claim
+ownership excluded), so `Ready` means the `start` would be applied right now.
 
 **When to call.** Call to check one item's advance-readiness when a full context snapshot is not needed.
 
@@ -1520,6 +1532,22 @@ the item is Ready to advance, Blocked, or Terminal, without making any changes.
   ]
 }
 
+// Blocked by unfilled required notes for the current phase
+{
+  "recommendation": "Blocked",
+  "currentRole": "queue",
+  "reason": "gate_blocked",
+  "missingNotes": ["task-scope"]
+}
+
+// Blocked by an exclusive resource held by another item
+{
+  "recommendation": "Blocked",
+  "currentRole": "queue",
+  "reason": "resource_unavailable",
+  "contendedResources": ["staging-db"]
+}
+
 // Blocked — item is explicitly in BLOCKED role (set via block/hold trigger)
 {
   "recommendation": "Blocked",
@@ -1531,7 +1559,7 @@ the item is Ready to advance, Blocked, or Terminal, without making any changes.
 { "recommendation": "Terminal", "currentRole": "terminal", "reason": "Item is terminal. Use 'reopen' trigger to move back to queue, or 'cancel' if already cancelled." }
 ```
 
-When the item is in BLOCKED role, the response includes a `suggestion` field instead of `blockers`. When the item is blocked by unsatisfied dependencies, the response includes `blockers` but no `suggestion`.
+When the item is in BLOCKED role, the response includes a `suggestion` field instead of `blockers`. When the item is blocked by unsatisfied dependencies, the response includes `blockers` but no `suggestion` (a blocker whose row cannot be read reports `currentRole: "unknown"`). A note or resource block carries `reason` with `missingNotes` or `contendedResources`.
 
 ---
 
@@ -1613,11 +1641,13 @@ When `mode` is omitted, the mode is inferred from which parameters are present (
 
 `get_context` does not return `noteProgress` — `gateStatus` (`canAdvance`, `phase`, `missing[]`) is the canonical gate signal for the current phase. Required/remaining/total counts are still available via `advance_item` responses and `manage_notes(upsert)`'s `itemContext`.
 
+`gateStatus.canAdvance` is the policy evaluation `advance_item(trigger="start")` would run on the item right now, claim ownership excluded: it is `false` when the transition table rejects `start` (a `terminal` or `blocked` item), a blocking dependency is unmet, a required note for the current phase is unfilled (or a `reject`-mode independence violation blocks), or an exclusive resource the item declares is held by another item. `gateStatus.blockedBy` (string, optional) names that gate — `"table"`, `"dependency"`, `"note"` or `"lease"` — and is present only when `canAdvance` is `false` and the item is not terminal. The preview reads the item's config, notes and blockers in one read unit, so a store or per-root config read fault there fails the `get_context` call (transient `config_unavailable` for a config fault) rather than rendering an empty `missing` list.
+
 Each entry in the `schema` array is keys-only: `key`, `role`, `required`, `exists`, `filled`, plus `seat` (A1) whenever the resolved schema is seat-aware — omitted entirely for a seat-less schema. Resolve `description`/`guidance`/`skill` for any entry via `query_items(operation="schema", itemId=...)`.
 
 **Seats (A1).** `gateStatus.missingBySeat` (object, optional) buckets `missing`'s keys by owning seat — `{<seat>: [keys], ..., "unowned": [keys]}`, non-empty buckets only, in merged-seat order with `unowned` always last — present whenever the resolved schema is seat-aware AND the item is not `TERMINAL` (an empty object `{}` when the schema is seat-aware but nothing is missing); omitted entirely for a seat-less schema or a terminal item. Top-level `seats` (array, optional) and `dispatchBySeat` (object, optional, **flat** — `{<seat>: {agent?, model?, effort?}}`, unlike the per-phase-nested shape `query_items(operation="schema")` returns) cover the item's **current phase only** — same seat-declaration and dispatch-resolution rules as `query_items(operation="schema")`'s `seats`/`dispatchBySeat` fields (see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension) → "Seats"), both omitted entirely (never `[]`/`{}`) when the current phase declares no seats. All seat fields are absent for a `TERMINAL` item and for any seat-less schema — a seat-less config's `get_context` response is byte-identical to a pre-A1 server.
 
-**Independence (A2).** `gateStatus.violations` (array, optional) reports A2 independence-attestation findings for the item's CURRENT phase — present (possibly `[]`) whenever independence `mode` is not `off` and the resolved schema declares `independent_of` somewhere; omitted entirely (not `null`) otherwise, including for a `TERMINAL` item. Each entry is `{key, seat?, constraint, conflictingSeat?, waived?}` — actor-free by construction, never an actor id, proof, or claim — see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2) → "Independence (A2)" for the constraint kinds (`same_actor`/`missing_actor`/`unverified`), the `independence: temporal-only` waiver, and honest limits. `canAdvance` already accounts for a `reject`-mode block from a non-waived violation, the same way it accounts for missing required notes.
+**Independence (A2).** `gateStatus.violations` (array, optional) reports A2 independence-attestation findings for the item's CURRENT phase — present (possibly `[]`) whenever independence `mode` is not `off` and the resolved schema declares `independent_of` somewhere; omitted entirely (not `null`) otherwise, including for a `TERMINAL` item. Each entry is `{key, seat?, constraint, conflictingSeat?, waived?}` — actor-free by construction, never an actor id, proof, or claim — see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2) → "Independence (A2)" for the constraint kinds (`same_actor`/`missing_actor`/`unverified`), the `independence: temporal-only` waiver, and honest limits. `canAdvance` already accounts for a `reject`-mode block from a non-waived violation (`blockedBy: "note"`), the same way it accounts for missing required notes.
 
 `claimDetail` is present only when the item is currently claimed (`claimedBy != null`). This is the **only** tool mode that exposes `claimedBy` identity — use it for operator diagnostics on stalled or contested items.
 
@@ -2145,13 +2175,18 @@ to the global config on a read error. It instead serves that root's last cached 
 without evicting it, and logs a WARN naming the root and the error. Last-known-good has no TTL: the
 next successful read refreshes it via the normal fingerprint-comparison hot-reload path, and it is
 shared by MCP and REST (one `EffectiveConfigResolver`, built once in `ServerComposition`). A read made
-inside a write's unit of work never serves last-known-good — a fault there fails closed as below even
+inside a unit of work (a write's or a preview's read unit) never serves last-known-good — a fault there fails closed as below even
 with a warm cache; `manage_notes` upsert and REST note `PUT` read
 the config this way (`create_work_tree` reads it before its write, so the fallback still applies there). When there is no cached entry to serve — a cold
 cache, e.g. the first read for the root — the read fails closed with a transient
 `config_unavailable` error (see [Error Envelope](#error-envelope)) rather than silently resolving
 against the global config. This is distinct from an explicit absence (no config row, or malformed
 stored YAML), which is unchanged: evict any cached entry, fall through to the global config.
+`advance_item`, `complete_tree` and
+REST `POST /items/{id}/advance` read the advanced item's config (and every cascade target's) inside the
+advance's unit, so the NOTE, lease and label decisions never use config read before the writer lock;
+the `canAdvance` previews of `get_context` and REST `GET /items/{id}/gate` read it inside their read unit
+the same way.
 
 Supports two operations, selected via `operation`:
 
@@ -2706,7 +2741,9 @@ is returned as `DATABASE_ERROR` with the message `Database error in '<tool>': <s
 **`config_unavailable` (transient).** A root's per-root config could not be read (a transient
 database error on `getFingerprint`/`get`) and there was no last-known-good cached config for that
 root to serve instead — see `manage_project_config`'s Purpose note above for the last-known-good
-cache this falls back to. `retryAfterMs` is null, per the `transient` kind's own-backoff rule.
+cache this falls back to. A read made inside a unit of work (an advance, and the `canAdvance` preview)
+has no fallback, so there it fails even when the cache is warm. `retryAfterMs` is null, per the
+`transient` kind's own-backoff rule.
 `advance_item` reports this per transition (the rest of a batch continues) and `complete_tree`
 reports it per item (`skipped: true`, outcome `REJECTED`, in-set dependents skipped); `manage_notes`
 reports it per note — a note whose schema/note-limits-mode resolution hits this error appears in

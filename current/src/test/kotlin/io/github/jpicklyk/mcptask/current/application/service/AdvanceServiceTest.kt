@@ -16,6 +16,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
+import io.github.jpicklyk.mcptask.current.test.advanceSeeded
 import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -44,6 +46,7 @@ class AdvanceServiceTest {
     private lateinit var depRepo: DependencyStore
     private lateinit var roleTransitionRepo: TransitionStore
     private lateinit var noteRepo: NoteStore
+    private lateinit var advanceStores: AdvanceMockStores
 
     @BeforeEach
     fun setUp() {
@@ -51,6 +54,7 @@ class AdvanceServiceTest {
         depRepo = mockk()
         roleTransitionRepo = mockk()
         noteRepo = mockk()
+        advanceStores = AdvanceMockStores(workItemRepo, depRepo)
 
         coEvery { workItemRepo.clear(any()) } returns true
         coEvery { workItemRepo.update(any()) } answers { firstArg() }
@@ -94,7 +98,6 @@ class AdvanceServiceTest {
             roleTransitionRepository = roleTransitionRepo,
             dependencyRepository = depRepo,
             noteRepository = noteRepo,
-            statusLabelService = NoOpStatusLabelService,
             schemaResolver = { schema },
             unitOfWork = unscopedUnitOfWork(),
         )
@@ -110,7 +113,8 @@ class AdvanceServiceTest {
         runBlocking {
             val item = makeItem(role = Role.QUEUE)
             val outcome =
-                serviceWith().advance(
+                serviceWith().advanceSeeded(
+                    advanceStores,
                     item,
                     "start",
                     null,
@@ -139,7 +143,7 @@ class AdvanceServiceTest {
                 listOf(Note(itemId = id, key = "spec", role = "queue", body = "filled"))
 
             val outcome =
-                serviceWith(sc).advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith(sc).advanceSeeded(advanceStores, item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.WORK, success.result.newRole)
         }
@@ -153,7 +157,7 @@ class AdvanceServiceTest {
             coEvery { noteRepo.findByItemId(id) } returns emptyList()
 
             val outcome =
-                serviceWith(sc).advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith(sc).advanceSeeded(advanceStores, item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
             val failure = assertIs<AdvanceOutcome.Failure>(outcome)
             val gate = assertIs<AdvanceFailure.GateBlocked>(failure.failure)
             assertEquals(listOf("spec"), gate.missingNotes.map { it.key })
@@ -176,7 +180,7 @@ class AdvanceServiceTest {
             coEvery { noteRepo.findByItemId(id) } returns emptyList()
 
             val outcome =
-                serviceWith(sc).advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith(sc).advanceSeeded(advanceStores, item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
             assertIs<AdvanceOutcome.Success>(outcome)
         }
 
@@ -199,7 +203,7 @@ class AdvanceServiceTest {
                 listOf(Note(itemId = id, key = "spec", role = "queue", body = "x"))
 
             val outcome =
-                serviceWith(sc).advance(item, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith(sc).advanceSeeded(advanceStores, item, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
             val failure = assertIs<AdvanceOutcome.Failure>(outcome)
             val gate = assertIs<AdvanceFailure.GateBlocked>(failure.failure)
             assertEquals(listOf("impl"), gate.missingNotes.map { it.key })
@@ -223,7 +227,7 @@ class AdvanceServiceTest {
                 )
 
             val outcome =
-                serviceWith(sc).advance(item, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith(sc).advanceSeeded(advanceStores, item, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.TERMINAL, success.result.newRole)
         }
@@ -245,7 +249,7 @@ class AdvanceServiceTest {
             coEvery { workItemRepo.countChildrenByRole(parentId) } returns mapOf(Role.TERMINAL to 1)
 
             val outcome =
-                serviceWith().advance(child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advanceSeeded(advanceStores, child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(1, success.result.cascadeEvents.size)
             val cascade = success.result.cascadeEvents.first()
@@ -279,11 +283,11 @@ class AdvanceServiceTest {
                     roleTransitionRepo,
                     depRepo,
                     noteRepo,
-                    NoOpStatusLabelService,
+                    AdvanceService.DEFAULT_LABEL_FOR,
                     schemaResolver = { it -> if (it.id == parentId) sc else null },
                     unitOfWork = unscopedUnitOfWork(),
                 )
-            val outcome = service.advance(child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+            val outcome = service.advanceSeeded(advanceStores, child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(1, success.result.cascadeEvents.size)
             val cascade = success.result.cascadeEvents.first()
@@ -308,7 +312,8 @@ class AdvanceServiceTest {
             // AdvanceService receives the item as a parameter and only re-fetches the blocker during
             // the unblock check (isFullyUnblocked) — AFTER apply — so getById(itemId) must return the
             // now-terminal blocker for the downstream item to count as fully unblocked.
-            coEvery { workItemRepo.getById(itemId) } returns terminalItem
+            // P11: the advance re-reads its item first (WORK), then the unblock check reads the now-terminal blocker.
+            coEvery { workItemRepo.getById(itemId) } returnsMany listOf(item, terminalItem)
             coEvery { workItemRepo.getById(downstreamId) } returns downstream
 
             val dep = Dependency(fromItemId = itemId, toItemId = downstreamId, type = DependencyType.BLOCKS)
@@ -317,7 +322,7 @@ class AdvanceServiceTest {
             every { depRepo.findByFromItemId(downstreamId) } returns emptyList()
 
             val outcome =
-                serviceWith().advance(item, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advanceSeeded(advanceStores, item, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(1, success.result.unblockedItems.size)
             assertEquals(
@@ -351,7 +356,8 @@ class AdvanceServiceTest {
             val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
 
             val outcome =
-                serviceWith().advance(
+                serviceWith().advanceSeeded(
+                    advanceStores,
                     item,
                     "start",
                     null,
@@ -378,7 +384,8 @@ class AdvanceServiceTest {
             // No schema at all -> hasReviewPhase() is false -> resolveStart(WORK) targets TERMINAL.
             val item = makeItem(role = Role.WORK)
             val outcome =
-                serviceWith(schema = null).advance(
+                serviceWith(schema = null).advanceSeeded(
+                    advanceStores,
                     item,
                     "start",
                     null,
@@ -398,7 +405,7 @@ class AdvanceServiceTest {
             val item = makeItem(role = Role.REVIEW)
             val sc = schema(NoteSchemaEntry("review-checklist", Role.REVIEW, required = false, description = "x"))
             val outcome =
-                serviceWith(sc).advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith(sc).advanceSeeded(advanceStores, item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.TERMINAL, success.result.newRole)
             assertEquals("done", success.result.statusLabel)
@@ -413,7 +420,7 @@ class AdvanceServiceTest {
 
             val step1 =
                 assertIs<AdvanceOutcome.Success>(
-                    service.advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true),
+                    service.advanceSeeded(advanceStores, item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true),
                 )
             assertEquals(Role.WORK, step1.result.newRole)
             assertEquals("in-progress", step1.result.statusLabel)
@@ -421,7 +428,7 @@ class AdvanceServiceTest {
             item = step1.result.appliedItem
             val step2 =
                 assertIs<AdvanceOutcome.Success>(
-                    service.advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true),
+                    service.advanceSeeded(advanceStores, item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true),
                 )
             assertEquals(Role.TERMINAL, step2.result.newRole)
             assertEquals("done", step2.result.statusLabel, "final start-driven transition must not leave a stale 'in-progress' label")
@@ -437,7 +444,7 @@ class AdvanceServiceTest {
 
             val step1 =
                 assertIs<AdvanceOutcome.Success>(
-                    service.advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true),
+                    service.advanceSeeded(advanceStores, item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true),
                 )
             assertEquals(Role.WORK, step1.result.newRole)
             assertEquals("in-progress", step1.result.statusLabel)
@@ -445,7 +452,7 @@ class AdvanceServiceTest {
             item = step1.result.appliedItem
             val step2 =
                 assertIs<AdvanceOutcome.Success>(
-                    service.advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true),
+                    service.advanceSeeded(advanceStores, item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true),
                 )
             assertEquals(Role.REVIEW, step2.result.newRole)
             assertEquals("in-progress", step2.result.statusLabel, "WORK->REVIEW is still in-flight work, not completion")
@@ -453,7 +460,7 @@ class AdvanceServiceTest {
             item = step2.result.appliedItem
             val step3 =
                 assertIs<AdvanceOutcome.Success>(
-                    service.advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true),
+                    service.advanceSeeded(advanceStores, item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true),
                 )
             assertEquals(Role.TERMINAL, step3.result.newRole)
             assertEquals("done", step3.result.statusLabel)
@@ -481,12 +488,12 @@ class AdvanceServiceTest {
                     roleTransitionRepository = roleTransitionRepo,
                     dependencyRepository = depRepo,
                     noteRepository = noteRepo,
-                    statusLabelService = nullBlockLabelService,
+                    labelFor = { trigger, target -> nullBlockLabelService.resolveLabel(statusLabelKey(trigger, target)) },
                     schemaResolver = { null },
                     unitOfWork = unscopedUnitOfWork(),
                 )
             val item = makeItem(role = Role.WORK).copy(statusLabel = "in-progress")
-            val outcome = service.advance(item, "block", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+            val outcome = service.advanceSeeded(advanceStores, item, "block", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.BLOCKED, success.result.newRole)
             assertEquals("in-progress", success.result.statusLabel)
@@ -497,7 +504,7 @@ class AdvanceServiceTest {
         runBlocking {
             val item = makeItem(role = Role.TERMINAL).copy(statusLabel = "done")
             val outcome =
-                serviceWith().advance(item, "reopen", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advanceSeeded(advanceStores, item, "reopen", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.QUEUE, success.result.newRole)
             assertEquals(null, success.result.statusLabel)
@@ -516,7 +523,8 @@ class AdvanceServiceTest {
             val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
 
             val outcome =
-                serviceWith().advance(
+                serviceWith().advanceSeeded(
+                    advanceStores,
                     item,
                     "start",
                     null,
@@ -572,7 +580,7 @@ class AdvanceServiceTest {
             val fx = cascadeFixture(Role.BLOCKED, Role.WORK)
 
             val outcome =
-                serviceWith().advance(fx.child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advanceSeeded(advanceStores, fx.child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val cascade = success.result.cascadeEvents.single()
             assertEquals(fx.parentId, cascade.itemId)
@@ -593,7 +601,7 @@ class AdvanceServiceTest {
             val blockerId = stubIncomingBlocker(fx.parentId, Role.QUEUE)
 
             val outcome =
-                serviceWith().advance(fx.child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advanceSeeded(advanceStores, fx.child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val cascade = success.result.cascadeEvents.single()
             assertFalse(cascade.applied)
@@ -618,7 +626,7 @@ class AdvanceServiceTest {
             coEvery { workItemRepo.getById(blockerId) } returns blocker
 
             val outcome =
-                serviceWith().advance(fx.child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advanceSeeded(advanceStores, fx.child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val cascade = success.result.cascadeEvents.single()
             assertFalse(cascade.applied)
@@ -635,7 +643,7 @@ class AdvanceServiceTest {
             stubIncomingBlocker(fx.parentId, Role.TERMINAL)
 
             val outcome =
-                serviceWith().advance(fx.child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advanceSeeded(advanceStores, fx.child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val cascade = success.result.cascadeEvents.single()
             assertTrue(cascade.applied)
@@ -651,7 +659,7 @@ class AdvanceServiceTest {
             val fx = cascadeFixture(Role.BLOCKED, Role.WORK)
 
             val outcome =
-                serviceWith().advance(fx.child, "cancel", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advanceSeeded(advanceStores, fx.child, "cancel", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val cascade = success.result.cascadeEvents.single()
             assertFalse(cascade.applied)
@@ -666,7 +674,7 @@ class AdvanceServiceTest {
             val blockerId = stubIncomingBlocker(fx.parentId, Role.QUEUE)
 
             val outcome =
-                serviceWith().advance(fx.child, "cancel", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advanceSeeded(advanceStores, fx.child, "cancel", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val cascade = success.result.cascadeEvents.single()
             assertFalse(cascade.applied)
@@ -691,7 +699,7 @@ class AdvanceServiceTest {
             coEvery { workItemRepo.countChildrenByRole(grandparentId) } returns mapOf(Role.TERMINAL to 1)
 
             val outcome =
-                serviceWith().advance(child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advanceSeeded(advanceStores, child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val cascade = success.result.cascadeEvents.single()
             assertEquals(parentId, cascade.itemId)

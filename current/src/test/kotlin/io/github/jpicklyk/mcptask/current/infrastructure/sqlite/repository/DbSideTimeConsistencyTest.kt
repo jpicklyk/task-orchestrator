@@ -1,9 +1,16 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
+import io.github.jpicklyk.mcptask.current.application.port.ReadScope
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.application.service.LeaseInput
+import io.github.jpicklyk.mcptask.current.application.service.OwnershipInput
+import io.github.jpicklyk.mcptask.current.application.service.TransitionSnapshotLoader
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.GateId
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionPolicy
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.SettableClock
@@ -26,7 +33,7 @@ import kotlin.test.assertTrue
  *
  * 1. `findForNextItem`: a claimed item is excluded while the claim is active and returns once the clock passes
  *    the expiry; an expiry equal to now is already expired.
- * 2. `checkOwnershipForTransition` takes an explicit `now`: the injected instant wins over any other time source.
+ * 2. The ownership gate decides claim freshness at the snapshot's `now` (the unit instant), not `Instant.now()`.
  * 3. `countByClaimStatus`: active/expired counts follow the clock.
  * 4. `retryAfterMs` is the time left on the bound clock, at least 1.
  */
@@ -41,7 +48,6 @@ class DbSideTimeConsistencyTest {
     private val repositoryProvider get() = sqliteDb.repositoryProvider()
 
     private lateinit var repository: WorkItemRepository
-    private val handler = RoleTransitionHandler()
 
     @BeforeEach
     fun setUp() {
@@ -90,26 +96,44 @@ class DbSideTimeConsistencyTest {
         }
 
     // -----------------------------------------------------------------------
-    // 2. checkOwnershipForTransition respects injected `now` parameter
+    // 2. The ownership gate respects the snapshot's `now` (the unit instant)
     // -----------------------------------------------------------------------
 
+    /** Evaluates `start` on [item] with ownership enforced and no caller identity, as of [now]. */
+    private suspend fun ownershipDecision(
+        item: WorkItem,
+        now: Instant
+    ): Decision {
+        val scope =
+            object : ReadScope {
+                override val stores: RepositoryProvider get() = repositoryProvider
+                override val now: Instant = now
+            }
+        val loader =
+            TransitionSnapshotLoader(
+                repository,
+                repositoryProvider.dependencyRepository(),
+                repositoryProvider.noteRepository(),
+                null,
+                schemaResolver = { null }
+            )
+        val snapshot = loader.load(scope, item, Trigger.User.START, OwnershipInput(enforced = true, callerId = null), LeaseInput.OFF)
+        return TransitionPolicy().evaluate(snapshot, Trigger.User.START)
+    }
+
     /**
-     * Demonstrates the clock-injection surface of checkOwnershipForTransition.
-     *
      * Scenario: an item has an active claim (expiresAt = now + 10 minutes).
-     * - When `now` is JVM-real-time: hasActiveClaim = true → Rejected (no actor credentials).
-     * - When `now` is simulated "5 minutes ahead" (i.e., skewed so expiry is in the past):
-     *   hasActiveClaim = false → Allowed (expired claim is treated as unclaimed).
+     * - At real time: the claim is active -> the ownership gate rejects (no caller identity).
+     * - At a "now" 5 minutes past the expiry: the claim is expired -> allowed.
      *
-     * This proves that the function uses the injected `now`, not `Instant.now()` internally.
+     * This proves the claim freshness decision uses the snapshot's `now`, not `Instant.now()`.
      */
     @Test
-    fun `checkOwnershipForTransition uses injected now for freshness — JVM-ahead skew treats active claim as expired`(): Unit =
+    fun `ownership gate uses the snapshot now for freshness — JVM-ahead skew treats active claim as expired`(): Unit =
         runBlocking {
             val realNow = Instant.now()
             val claimExpiresAt = realNow.plusSeconds(600) // expires in 10 minutes
 
-            // Build an item that looks claimed from the DB's perspective.
             val claimedItem =
                 WorkItem(
                     title = "Skew test item",
@@ -120,38 +144,15 @@ class DbSideTimeConsistencyTest {
                     originalClaimedAt = realNow.minusSeconds(60)
                 )
 
-            // Case A: real now — claim is active → ownership check rejects (no actor provided).
-            val resultRealNow =
-                handler.checkOwnershipForTransition(
-                    item = claimedItem,
-                    actorClaim = null,
-                    verification = null,
-                    degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
-                    now = realNow
-                )
-            assertIs<io.github.jpicklyk.mcptask.current.application.service.OwnershipCheckResult.Rejected>(
-                resultRealNow,
-                "With real-time now, active claim should cause rejection when no actor provided"
-            )
+            val atRealNow = ownershipDecision(claimedItem, realNow)
+            assertEquals(GateId.OWNERSHIP, assertIs<Decision.Reject>(atRealNow).gate, "an active claim rejects a caller with no identity")
 
-            // Case B: simulated "JVM 15 minutes ahead of DB" — claim looks expired → allowed.
-            val jvmAheadNow = claimExpiresAt.plusSeconds(300) // 5 min past expiry
-            val resultAheadNow =
-                handler.checkOwnershipForTransition(
-                    item = claimedItem,
-                    actorClaim = null,
-                    verification = null,
-                    degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
-                    now = jvmAheadNow
-                )
-            assertIs<io.github.jpicklyk.mcptask.current.application.service.OwnershipCheckResult.Allowed>(
-                resultAheadNow,
-                "With skewed-ahead now past expiry, claim should be treated as expired → Allowed"
-            )
+            val atAheadNow = ownershipDecision(claimedItem, claimExpiresAt.plusSeconds(300))
+            assertIs<Decision.Allow>(atAheadNow, "past the expiry the claim is treated as expired")
         }
 
     @Test
-    fun `checkOwnershipForTransition uses injected now — JVM-behind skew treats expired claim as active`(): Unit =
+    fun `ownership gate uses the snapshot now — JVM-behind skew treats expired claim as active`(): Unit =
         runBlocking {
             val realNow = Instant.now()
             // Claim expired 5 minutes ago from the DB's perspective.
@@ -167,34 +168,11 @@ class DbSideTimeConsistencyTest {
                     originalClaimedAt = realNow.minusSeconds(900)
                 )
 
-            // Case A: real now — claim is expired → Allowed (unclaimed).
-            val resultRealNow =
-                handler.checkOwnershipForTransition(
-                    item = claimedItem,
-                    actorClaim = null,
-                    verification = null,
-                    degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
-                    now = realNow
-                )
-            assertIs<io.github.jpicklyk.mcptask.current.application.service.OwnershipCheckResult.Allowed>(
-                resultRealNow,
-                "With real-time now, expired claim should be treated as unclaimed → Allowed"
-            )
+            val atRealNow = ownershipDecision(claimedItem, realNow)
+            assertIs<Decision.Allow>(atRealNow, "an expired claim is treated as unclaimed")
 
-            // Case B: simulated "JVM 10 minutes behind DB" — claim looks active → Rejected.
-            val jvmBehindNow = claimExpiresAt.minusSeconds(600) // 10 min before expiry
-            val resultBehindNow =
-                handler.checkOwnershipForTransition(
-                    item = claimedItem,
-                    actorClaim = null,
-                    verification = null,
-                    degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
-                    now = jvmBehindNow
-                )
-            assertIs<io.github.jpicklyk.mcptask.current.application.service.OwnershipCheckResult.Rejected>(
-                resultBehindNow,
-                "With skewed-behind now before expiry, claim should appear active → Rejected"
-            )
+            val atBehindNow = ownershipDecision(claimedItem, claimExpiresAt.minusSeconds(600))
+            assertEquals(GateId.OWNERSHIP, assertIs<Decision.Reject>(atBehindNow).gate, "before the expiry the claim is active")
         }
 
     // -----------------------------------------------------------------------

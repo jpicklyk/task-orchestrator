@@ -11,7 +11,8 @@
                 "implementation-notes",
                 "session-tracking",
                 "test-manifest"
-            ]
+            ],
+            "blockedBy": "note"
         },
         "guidanceKey": "implementation-notes"
     }

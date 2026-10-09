@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
-import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -23,7 +22,7 @@ import kotlin.test.assertNull
 
 /**
  * Bug `3785f37a`, S12 (integration, SQLite): the terminal claim-clear performed inside
- * [AdvanceService.advance] / [io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler.applyTransition]
+ * [AdvanceService.advance] / AdvanceService's apply step
  * must actually survive the round trip through [io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository.update]
  * — a plain in-memory mock (as used by `AdvanceServiceTerminalClaimClearTest`) cannot prove that;
  * only a real persisted `update()` + re-fetch can. Uses real SQLite-backed
@@ -31,7 +30,7 @@ import kotlin.test.assertNull
  * alongside the mocked `AdvanceService` unit tests.
  *
  * EXISTING-SURFACE: no new production signature; a narrowest revert of the
- * `RoleTransitionHandler.applyTransition` copy-block change alone turns these tests red.
+ * AdvanceService apply step's claim-clear change alone turns these tests red.
  *
  * Oracles: O1 (`api-reference.md:1727`, terminal items cannot be claimed) and O3 (`reopen`
  * TERMINAL->QUEUE) from the frozen test-plan.
@@ -49,7 +48,6 @@ class SQLiteTerminalClaimClearTest {
             roleTransitionRepository = repositoryProvider.roleTransitionRepository(),
             dependencyRepository = repositoryProvider.dependencyRepository(),
             noteRepository = repositoryProvider.noteRepository(),
-            statusLabelService = NoOpStatusLabelService,
             schemaResolver = { null },
             unitOfWork = sqliteDb.unitOfWork(),
         )

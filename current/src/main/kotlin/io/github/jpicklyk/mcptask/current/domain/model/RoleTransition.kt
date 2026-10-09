@@ -24,8 +24,4 @@ data class RoleTransition(
      * "github-pat-ci") — never raw secret material. Optional audit trail; empty when not supplied.
      */
     val consumedCredentials: List<String> = emptyList()
-) {
-    companion object {
-        val VALID_TRIGGERS = setOf("start", "complete", "block", "hold", "resume", "cancel", "reopen", "cascade")
-    }
-}
+)

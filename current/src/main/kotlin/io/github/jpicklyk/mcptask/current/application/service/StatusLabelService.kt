@@ -1,5 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
+import io.github.jpicklyk.mcptask.current.domain.model.Role
+
 /**
  * Provides trigger-to-label mappings for status labels on role transitions.
  *
@@ -10,13 +13,11 @@ package io.github.jpicklyk.mcptask.current.application.service
  * - block -> "blocked"
  * - cancel -> "cancelled"
  * - cascade -> "done"
- * - resume -> null (preserves pre-block label)
- * - reopen -> null (clears label)
+ * - resume, hold, reopen -> null (no label override)
  *
- * Label precedence in AdvanceItemTool:
- * 1. resolution.statusLabel (hardcoded cancel/reopen) — if non-null, use it
- * 2. Config-driven label from resolveLabel(trigger) — if resolution was null
- * 3. For resume: existing applyTransition logic preserves pre-block label
+ * The key a transition looks up is [statusLabelKey]; the label is then applied by the advance
+ * pipeline's rule: an explicit label wins, else entering BLOCKED preserves the item's label, else the
+ * label is cleared.
  */
 interface StatusLabelService {
     /**
@@ -25,6 +26,21 @@ interface StatusLabelService {
      */
     fun resolveLabel(trigger: String): String?
 }
+
+/**
+ * The `status_labels` key a transition looks up: `"cascade"` for every cascade; `"complete"` for a
+ * `start` whose target is TERMINAL (a start that actually completes the item, bug 100da214); else the
+ * trigger's wire name.
+ */
+fun statusLabelKey(
+    trigger: Trigger,
+    target: Role
+): String =
+    when {
+        trigger is Trigger.Cascade -> Trigger.Cascade.WIRE
+        trigger == Trigger.User.START && target == Role.TERMINAL -> Trigger.User.COMPLETE.wire
+        else -> trigger.wire
+    }
 
 /**
  * No-op implementation that returns hardcoded defaults.
@@ -38,7 +54,7 @@ object NoOpStatusLabelService : StatusLabelService {
             "block" to "blocked",
             "cancel" to "cancelled",
             "cascade" to "done"
-            // resume and reopen intentionally absent — null means no label override
+            // resume, hold and reopen intentionally absent — null means no label override
         )
 
     override fun resolveLabel(trigger: String): String? = defaults[trigger]

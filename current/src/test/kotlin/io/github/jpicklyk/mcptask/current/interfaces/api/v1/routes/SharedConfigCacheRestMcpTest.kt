@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
@@ -29,13 +30,12 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -48,6 +48,10 @@ import kotlin.test.assertTrue
  * S5 ("a warm-then-error read serves the last-known-good per-root schema") for the underlying
  * [PerRootConfigService] LKG mechanism, and [AdvanceParityTest]'s established 422/`missingNotes`
  * shape for a gate-blocked REST advance.
+ *
+ * r1 (fix-decision H1): the advance (and its cascade targets) and the gate preview resolve per-root config INSIDE a unit of
+ * work, where there is no last-known-good, so S4/S5 now pin a fail-closed config_unavailable on those surfaces while the ONE
+ * shared cache still serves reads made outside any unit (GET /roots/{rootId}/config/effective, api-rest.md section 18).
  *
  * Harness mirrors [ConfigUnavailableRoutesTest]'s `FailableProjectConfigRepository`/
  * `FailableRepositoryProvider` pattern (each file defines its own copy; no shared harness class
@@ -85,7 +89,8 @@ class SharedConfigCacheRestMcpTest {
         ctx: ToolExecutionContext,
     ) {
         configureTestApp(makeWriteAuthConfig()) {
-            itemGateRoutes(provider, ctx.configResolver)
+            itemGateRoutes(provider, ctx.configResolver, ctx.transitionPreview())
+            effectiveConfigRoutes(provider, ctx.configResolver, NoGlobalSchemaService)
             itemWriteRoutes(
                 provider,
                 DegradedModePolicy.ACCEPT_CACHED,
@@ -126,11 +131,11 @@ class SharedConfigCacheRestMcpTest {
     }
 
     // ──────────────────────────────────────────────
-    // S4 — warm via MCP (GetContextTool), then a per-root failure; REST gate 200 / advance 422
+    // S4 - warm via MCP (GetContextTool), then a per-root failure: REST gate 503 / advance 503 (in-unit), effective config 200 (cache)
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S4 - after a warm read via GetContextTool, a per-root read failure serves REST gate 200 and advance 422, not 503`() =
+    fun `S4 - after a warm MCP read, a read failure fails REST gate and advance closed (503) while a non-unit read is still cached`() =
         testApplication {
             val sqlite = db.repositoryProvider()
             val failable = FailableProjectConfigRepository(sqlite.projectConfigRepository())
@@ -172,18 +177,17 @@ class SharedConfigCacheRestMcpTest {
 
             application { configureSharedApp(provider, ctx) }
 
+            // H1: the gate resolves config inside its preview's read unit - no last-known-good, so a warm cache does not help.
             val gateResponse = client.get("/api/v1/items/${item.id}/gate") { header("Authorization", "Bearer $TEST_TOKEN") }
             assertEquals(
-                HttpStatusCode.OK,
+                HttpStatusCode.ServiceUnavailable,
                 gateResponse.status,
-                "O1: a warm shared cache must serve the gate route through a per-root read failure",
+                "H1: the gate must fail closed even though the shared cache is warm",
             )
-            val gateJson = Json.parseToJsonElement(gateResponse.bodyAsText()).jsonObject
-            assertEquals(
-                listOf(NOTE_KEY),
-                gateJson["gateStatus"]!!.jsonObject["missing"]!!.jsonArray.map { it.jsonPrimitive.content },
-            )
+            assertTrue(gateResponse.bodyAsText().contains("config_unavailable"), gateResponse.bodyAsText())
+            assertNull(gateResponse.headers["Retry-After"], "D6: no Retry-After on a config_unavailable 503")
 
+            // H1: the advance resolves config inside its write unit - same fail-closed answer, and nothing is applied.
             val advanceResponse =
                 client.post("/api/v1/items/${item.id}/advance") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
@@ -191,25 +195,34 @@ class SharedConfigCacheRestMcpTest {
                     setBody("""{"trigger":"start"}""")
                 }
             assertEquals(
-                HttpStatusCode.UnprocessableEntity,
+                HttpStatusCode.ServiceUnavailable,
                 advanceResponse.status,
-                "O1: a warm shared cache must gate-block (422), not fail cold (503)",
+                "H1: the advance must fail closed (503), not gate-block (422) from a cached schema",
             )
-            val advanceJson = Json.parseToJsonElement(advanceResponse.bodyAsText()).jsonObject
-            val missingKeys =
-                advanceJson["details"]!!
-                    .jsonObject["missingNotes"]!!
-                    .jsonArray
-                    .map { it.jsonObject["key"]!!.jsonPrimitive.content }
-            assertEquals(listOf(NOTE_KEY), missingKeys)
+            assertTrue(advanceResponse.bodyAsText().contains("config_unavailable"), advanceResponse.bodyAsText())
+            assertNull(advanceResponse.headers["Retry-After"], "D6: no Retry-After on a config_unavailable 503")
+            assertEquals(Role.QUEUE, runBlocking { sqlite.workItemRepository().getById(item.id)!!.role }, "nothing was applied")
+
+            // The cache warmed by the MCP read is still the one shared cache: a read OUTSIDE any unit is served from it.
+            val effective =
+                client.get("/api/v1/roots/${item.rootId}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
+            assertEquals(
+                HttpStatusCode.OK,
+                effective.status,
+                "O1: a non-unit read must still be served from the cache the MCP read warmed: ${effective.bodyAsText()}",
+            )
+            assertTrue(
+                effective.bodyAsText().contains(SCHEMA_TYPE),
+                "the per-root type is visible from the cached layer: ${effective.bodyAsText()}"
+            )
         }
 
-    // ──────────────────────────────────────────────
-    // S5 — reverse: warm via REST gate, then a per-root failure; MCP get_context still succeeds
-    // ──────────────────────────────────────────────
+    // ----------------------------------------------------------------------------------------------------
+    // S5 - reverse: warm via REST gate, then a per-root failure; MCP get_context fails closed on the shared context
+    // ----------------------------------------------------------------------------------------------------
 
     @Test
-    fun `S5 - after a warm REST gate read, a per-root read failure still serves get_context on the shared context`() =
+    fun `S5 - after a warm REST gate read, a read failure makes get_context throw while a non-unit read is still cached`() =
         testApplication {
             val sqlite = db.repositoryProvider()
             val failable = FailableProjectConfigRepository(sqlite.projectConfigRepository())
@@ -249,20 +262,22 @@ class SharedConfigCacheRestMcpTest {
             failable.failFingerprint = true
             failable.failGet = true
 
-            val getContextResult = GetContextTool().execute(gateParams(item.id), ctx) as JsonObject
-            assertTrue(
-                getContextResult["success"]!!.jsonPrimitive.boolean,
-                "O1: get_context on the shared context must be served from the LKG cache, not throw config_unavailable: $getContextResult",
-            )
-            val data = getContextResult["data"] as JsonObject
-            val missing = data["gateStatus"]!!.jsonObject["missing"]!!.jsonArray.map { it.jsonPrimitive.content }
-            assertEquals(listOf(NOTE_KEY), missing, "get_context must still see the per-root schema pushed for this root")
+            // H1: get_context's canAdvance preview resolves config inside its read unit; a direct execute throws, the MCP
+            // adapter turns that into the transient config_unavailable error.
+            val e = assertFailsWith<PerRootConfigUnavailableException> { GetContextTool().execute(gateParams(item.id), ctx) }
+            assertEquals(item.rootId, e.rootId)
+            assertTrue(e.message.orEmpty().contains("inside a unit of work"), "the fault names the unit-of-work read: ${e.message}")
+
+            // The REST-warmed cache is still the shared cache for reads outside any unit.
+            val effective =
+                client.get("/api/v1/roots/${item.rootId}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
+            assertEquals(HttpStatusCode.OK, effective.status, effective.bodyAsText())
+            assertTrue(effective.bodyAsText().contains(SCHEMA_TYPE), effective.bodyAsText())
         }
 
-    // ──────────────────────────────────────────────
-    // S6 — control: cold cache, no warm anywhere; both routes still 503 config_unavailable
-    // ──────────────────────────────────────────────
-
+    // ----------------------------------------------------------------------------------------------------
+    // S6 - control: cold cache, no warm anywhere; both routes still 503 config_unavailable
+    // ----------------------------------------------------------------------------------------------------
     @Test
     fun `S6 - with no warm read at all, a cold per-root failure yields 503 config_unavailable with no Retry-After on both routes`() =
         testApplication {

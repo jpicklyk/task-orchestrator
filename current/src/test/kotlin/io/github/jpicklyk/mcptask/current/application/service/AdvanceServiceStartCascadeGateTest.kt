@@ -17,6 +17,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
+import io.github.jpicklyk.mcptask.current.test.advanceSeeded
 import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -50,6 +52,7 @@ class AdvanceServiceStartCascadeGateTest {
     private lateinit var depRepo: DependencyStore
     private lateinit var roleTransitionRepo: TransitionStore
     private lateinit var noteRepo: NoteStore
+    private lateinit var advanceStores: AdvanceMockStores
     private lateinit var leaseRepo: LeaseStore
 
     @BeforeEach
@@ -59,6 +62,7 @@ class AdvanceServiceStartCascadeGateTest {
         roleTransitionRepo = mockk()
         noteRepo = mockk()
         leaseRepo = mockk()
+        advanceStores = AdvanceMockStores(workItemRepo, depRepo, leaseRepo)
 
         coEvery { workItemRepo.clear(any()) } returns true
         coEvery { workItemRepo.update(any()) } answers { firstArg() }
@@ -128,7 +132,6 @@ class AdvanceServiceStartCascadeGateTest {
             roleTransitionRepository = roleTransitionRepo,
             dependencyRepository = depRepo,
             noteRepository = noteRepo,
-            statusLabelService = NoOpStatusLabelService,
             schemaResolver = { item -> schemasById[item.id] },
             resourceLeaseRepository = leaseRepository,
             resourceRequirementsResolver = { item -> requirementsByItem[item.id] ?: emptyList() },
@@ -155,7 +158,16 @@ class AdvanceServiceStartCascadeGateTest {
 
             val outcome =
                 serviceWith(schemasById = mapOf(child.id to schema, parentId to schema))
-                    .advance(child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                    .advanceSeeded(
+                        advanceStores,
+                        child,
+                        "start",
+                        null,
+                        null,
+                        null,
+                        DegradedModePolicy.ACCEPT_CACHED,
+                        enforceOwnership = true
+                    )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.WORK, success.result.newRole, "the child's own advance must still succeed")
@@ -189,7 +201,16 @@ class AdvanceServiceStartCascadeGateTest {
 
             val outcome =
                 serviceWith(schemasById = mapOf(child.id to schema, parentId to schema))
-                    .advance(child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                    .advanceSeeded(
+                        advanceStores,
+                        child,
+                        "start",
+                        null,
+                        null,
+                        null,
+                        DegradedModePolicy.ACCEPT_CACHED,
+                        enforceOwnership = true
+                    )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val cascade = success.result.cascadeEvents.single()
@@ -214,7 +235,8 @@ class AdvanceServiceStartCascadeGateTest {
 
             // No entry in schemasById for either id => schemaResolver returns null for both.
             val outcome =
-                serviceWith().advance(
+                serviceWith().advanceSeeded(
+                    advanceStores,
                     child,
                     "start",
                     null,
@@ -249,7 +271,16 @@ class AdvanceServiceStartCascadeGateTest {
 
             val outcome =
                 serviceWith(schemasById = mapOf(parentId to schema))
-                    .advance(child, "reopen", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                    .advanceSeeded(
+                        advanceStores,
+                        child,
+                        "reopen",
+                        null,
+                        null,
+                        null,
+                        DegradedModePolicy.ACCEPT_CACHED,
+                        enforceOwnership = true
+                    )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.QUEUE, success.result.newRole)
@@ -281,7 +312,16 @@ class AdvanceServiceStartCascadeGateTest {
             // Child itself is schema-free so its own gate trivially passes on "complete".
             val outcome =
                 serviceWith(schemasById = mapOf(parentId to schema))
-                    .advance(child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                    .advanceSeeded(
+                        advanceStores,
+                        child,
+                        "complete",
+                        null,
+                        null,
+                        null,
+                        DegradedModePolicy.ACCEPT_CACHED,
+                        enforceOwnership = true
+                    )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.TERMINAL, success.result.newRole)
@@ -320,7 +360,16 @@ class AdvanceServiceStartCascadeGateTest {
 
             val outcome =
                 serviceWith(schemasById = mapOf(parentId to schema))
-                    .advance(child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                    .advanceSeeded(
+                        advanceStores,
+                        child,
+                        "start",
+                        null,
+                        null,
+                        null,
+                        DegradedModePolicy.ACCEPT_CACHED,
+                        enforceOwnership = true
+                    )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val cascade = success.result.cascadeEvents.single()
@@ -344,7 +393,16 @@ class AdvanceServiceStartCascadeGateTest {
 
             val outcome =
                 serviceWith(schemasById = mapOf(parentId to schema))
-                    .advance(child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                    .advanceSeeded(
+                        advanceStores,
+                        child,
+                        "start",
+                        null,
+                        null,
+                        null,
+                        DegradedModePolicy.ACCEPT_CACHED,
+                        enforceOwnership = true
+                    )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertTrue(success.result.cascadeEvents.isEmpty(), "detectStartCascades must be empty when the parent is not QUEUE")
@@ -372,7 +430,16 @@ class AdvanceServiceStartCascadeGateTest {
 
             val outcome =
                 serviceWith(schemasById = mapOf(parentId to schema))
-                    .advance(child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                    .advanceSeeded(
+                        advanceStores,
+                        child,
+                        "start",
+                        null,
+                        null,
+                        null,
+                        DegradedModePolicy.ACCEPT_CACHED,
+                        enforceOwnership = true
+                    )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(1, success.result.cascadeEvents.size, "exactly ONE cascade event — the immediate parent only")
@@ -400,7 +467,16 @@ class AdvanceServiceStartCascadeGateTest {
 
             val outcome =
                 serviceWith(schemasById = mapOf(parentId to schema))
-                    .advance(child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                    .advanceSeeded(
+                        advanceStores,
+                        child,
+                        "start",
+                        null,
+                        null,
+                        null,
+                        DegradedModePolicy.ACCEPT_CACHED,
+                        enforceOwnership = true
+                    )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val cascade = success.result.cascadeEvents.single()
@@ -437,7 +513,16 @@ class AdvanceServiceStartCascadeGateTest {
 
             val outcome =
                 serviceWith(schemasById = mapOf(child.id to childSchema))
-                    .advance(child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                    .advanceSeeded(
+                        advanceStores,
+                        child,
+                        "start",
+                        null,
+                        null,
+                        null,
+                        DegradedModePolicy.ACCEPT_CACHED,
+                        enforceOwnership = true
+                    )
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.REVIEW, success.result.newRole)
@@ -464,7 +549,7 @@ class AdvanceServiceStartCascadeGateTest {
                 serviceWith(
                     schemasById = mapOf(parentId to schema),
                     requirementsByItem = mapOf(parentId to listOf(exclusive("staging-db")))
-                ).advance(child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
+                ).advanceSeeded(advanceStores, child, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = true)
 
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             val cascade = success.result.cascadeEvents.single()

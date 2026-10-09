@@ -287,8 +287,9 @@ class AdvanceRouteResourceLeaseTest {
                 }
 
             assertEquals(HttpStatusCode.Conflict, response.status)
-            // 30_000ms rounds UP to 30s — a client must never retry before the lease can expire.
-            assertEquals("30", response.headers[HttpHeaders.RetryAfter])
+            // P11: the policy's lease gate derives the hint from the holder's expiry (now + 600s), rounded UP to
+            // whole seconds — a client must never retry before the lease can expire.
+            assertEquals("600", response.headers[HttpHeaders.RetryAfter])
             val body = response.bodyAsText()
             assertTrue(body.contains("resource_unavailable"), "body: $body")
             assertTrue(body.contains("staging-db-credential"), "body: $body")

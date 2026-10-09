@@ -13,6 +13,8 @@ import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
+import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
 import io.github.jpicklyk.mcptask.current.test.InMemoryIdempotencyStore
 import io.github.jpicklyk.mcptask.current.test.TestStatusLabelService
 import io.mockk.*
@@ -32,7 +34,7 @@ import kotlin.test.*
  * (S1, S2, S5-S7, S9-S11 + probes) match that note; do not renumber.
  *
  * Per the test-author blindness rule this file was written against public signatures and
- * declarations only (AdvanceService, AdvanceFailure, AdvanceResult, RoleTransitionHandler,
+ * declarations only (AdvanceService, AdvanceFailure, AdvanceResult,
  * ToolExecutionContext, ActorParsing, existing test harnesses) plus CompleteTreeTool's own public
  * `description`/`parameterSchema` contract text — never the implementer's changed function bodies.
  */
@@ -52,11 +54,13 @@ class CompleteTreeToolAdvanceParityTest {
         // update() no longer writes the claim columns: a terminal transition of a claimed item releases it via clear().
         coEvery { workItemRepo.clear(any()) } returns true
         depRepo = mockk()
+        AdvanceMockStores.stubReads(workItemRepo, depRepo)
         noteRepo = mockk()
         roleTransitionRepo = mockk()
 
         repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
+        every { repoProvider.eventStore() } returns InMemoryEventStore()
         every { repoProvider.dependencyRepository() } returns depRepo
         every { repoProvider.noteRepository() } returns noteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
@@ -118,6 +122,7 @@ class CompleteTreeToolAdvanceParityTest {
             }
         val gatedRepoProvider = mockk<RepositoryProvider>()
         every { gatedRepoProvider.workItemRepository() } returns workItemRepo
+        every { gatedRepoProvider.eventStore() } returns InMemoryEventStore()
         every { gatedRepoProvider.dependencyRepository() } returns depRepo
         every { gatedRepoProvider.noteRepository() } returns noteRepo
         every { gatedRepoProvider.roleTransitionRepository() } returns roleTransitionRepo

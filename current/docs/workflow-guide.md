@@ -501,9 +501,8 @@ Status labels are human-readable strings automatically set on WorkItems during r
 
 ### Label Precedence
 
-1. **Resolution label** — hardcoded for `cancel` ("cancelled") and `reopen` (null/cleared). Always wins when non-null.
-2. **Config-driven label** — resolved from `StatusLabelService` for the trigger. Used when the resolution label is null.
-3. **Resume behavior** — `applyTransition` preserves the pre-block label automatically.
+1. **Config-driven label**: one rule for every applied transition: the `status_labels` entry for the trigger (per-root config, then the global config, then the defaults above). A `start` that lands in `terminal` uses the `complete` label; cascades use the `cascade` label. A configured `cancel` label takes effect (there is no hardcoded override).
+2. **No label configured**: when the resolved label is null, a transition into `blocked` keeps the item's current label; any other transition clears it.
 
 ### Customizing Labels
 
@@ -595,13 +594,13 @@ get_blocked_items(parentId="feature-uuid", includeAncestors=true)
 
 ### Cascade Behavior in `advance_item`
 
-`advance_item` automatically cascades role transitions up the hierarchy in two situations:
+`advance_item` automatically cascades role transitions up the hierarchy. Every cascade is evaluated by the same transition policy as a direct advance, applies only under the parent's `auto` lifecycle (never under `manual` or `permanent`), and commits in the SAME transaction as the child's transition: if a cascade cannot be applied (a persistence fault), the whole advance fails and nothing is persisted.
 
-**Start cascade (QUEUE → WORK):** When a child item transitions to WORK, the parent is automatically advanced from QUEUE to WORK (if it is still in QUEUE). This applies to the immediate parent only — it does not recurse further up the ancestor chain — and is skipped when the parent's current-phase required notes are missing (`gateBlocked`) or a declared resource lease is contended (`resourceBlocked`). See [`advance_item`](./api-reference.md#advance_item) for the full cascade contract.
+**Start cascade (QUEUE → WORK):** When a child item transitions to WORK, the parent is automatically advanced from QUEUE to WORK (if it is still in QUEUE). This applies to the immediate parent only — it does not recurse further up the ancestor chain — and is skipped when the parent has an unmet blocking dependency (`dependencyBlocked`), its current-phase required notes are missing (`gateBlocked`), or a declared resource lease is contended (`resourceBlocked`). See [`advance_item`](./api-reference.md#advance_item) for the full cascade contract.
 
 **Terminal cascade (all children → TERMINAL):** When a child item reaches TERMINAL, if all siblings are also terminal, the parent is automatically advanced to TERMINAL. This cascade also continues up the ancestor chain. It is suppressed (`applied: false`, and the climb stops) when the parent is `blocked` (`roleBlocked`), has an unmet blocking dependency (`dependencyBlocked` + `blockers`), or has unfilled required notes (`gateBlocked`); a cancel-originated cascade bypasses only the note gate.
 
-**Reopen cascade (child TERMINAL → QUEUE):** When a child item is reopened under a terminal parent, the parent is automatically reopened to WORK. This only applies to the immediate parent — no recursion.
+**Reopen cascade (child TERMINAL → QUEUE):** When a child item is reopened under a terminal parent, the parent is automatically reopened to WORK, unless it has an unmet blocking dependency (`dependencyBlocked`) or a contended resource (`resourceBlocked`). This only applies to the immediate parent — no recursion.
 
 All cascade types appear in `cascadeEvents` in the response:
 
@@ -1123,15 +1122,11 @@ invariant, and not fairness. Read this section before relying on it for anything
   every WORK exit, and `complete_tree` drives each item through the same `AdvanceService` pipeline,
   so lease release goes through that same work-exit path — a batch completion via `complete_tree`
   does not orphan leases until TTL expiry.
-- **A transition that acquires a lease and then fails to apply releases it in the same call.**
-  Acquiring the lease and persisting the role change are separate steps; if the persistence step
-  fails (a DB conflict, most commonly a concurrent writer), the item never actually entered WORK, so
-  any lease(s) that call itself just acquired are released before the failure is returned — same for
-  a cascade whose own resource acquire succeeded but whose apply then failed. This release is skipped
-  (WARN logged, the failure returned unchanged either way) when it cannot be proven safe: any
-  acquired lease that was a refresh of a pre-existing hold rather than a brand-new acquire by this
-  call, or a re-read showing the item has concurrently reached WORK by another call. A skipped
-  release simply falls back to the TTL backstop above.
+- **A transition that acquires a lease and then fails to apply leaves no lease behind.** The lease
+  acquire, the role change, and every cascade of one advance run in ONE transaction: if any of them
+  fails (a DB fault), the whole transaction rolls back — the item never entered WORK and the lease
+  was never committed. A fault while acquiring or releasing a lease fails the advance
+  (`apply_failed`) the same way.
 - **The exclusivity subject is the work item, not the actor.** Leases are keyed on `holder_item_id`,
   not on `acquired_by_actor_id` (audit metadata only). This makes the guarantee independent of actor
   identity quality — it holds the same whether or not `actor_authentication` is configured, and

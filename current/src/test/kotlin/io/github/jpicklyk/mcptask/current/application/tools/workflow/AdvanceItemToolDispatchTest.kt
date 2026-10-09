@@ -13,6 +13,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
+import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -57,10 +59,12 @@ class AdvanceItemToolDispatchTest {
         tool = AdvanceItemTool()
         workItemRepo = mockk()
         depRepo = mockk()
+        AdvanceMockStores.stubReads(workItemRepo, depRepo)
         roleTransitionRepo = mockk()
 
         val repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
+        every { repoProvider.eventStore() } returns InMemoryEventStore()
         every { repoProvider.dependencyRepository() } returns depRepo
         val defaultNoteRepo = mockk<NoteStore>()
         coEvery { defaultNoteRepo.findByItemId(any()) } returns emptyList()
@@ -79,6 +83,7 @@ class AdvanceItemToolDispatchTest {
     ): ToolExecutionContext {
         val provider = mockk<RepositoryProvider>()
         every { provider.workItemRepository() } returns workItemRepo
+        every { provider.eventStore() } returns InMemoryEventStore()
         every { provider.dependencyRepository() } returns depRepo
         every { provider.noteRepository() } returns noteRepo
         every { provider.roleTransitionRepository() } returns roleTransitionRepo

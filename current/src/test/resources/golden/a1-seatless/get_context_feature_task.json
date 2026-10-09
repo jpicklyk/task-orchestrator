@@ -43,7 +43,8 @@
             "phase": "queue",
             "missing": [
                 "task-scope"
-            ]
+            ],
+            "blockedBy": "note"
         },
         "guidanceKey": "task-scope",
         "skillPointer": "spec-quality"

@@ -804,6 +804,15 @@ components:
             config-format.md "Independence (A2)".
           items:
             $ref: "#/components/schemas/IndependenceViolationDto"
+        blockedBy:
+          type: string
+          nullable: true
+          enum: [table, dependency, note, lease]
+          description: >-
+            The first gate that blocks a start advance right now (claim ownership excluded): the
+            transition table, an unmet blocking dependency, a required note or reject-mode
+            independence violation, or an exclusive resource lease held by another item. Present
+            only when canAdvance is false and the item is not terminal; omitted otherwise.
 
     ItemGateDto:
       type: object

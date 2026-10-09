@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.domain.event.DeleteCause
@@ -11,6 +12,8 @@ import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.event.ReparentSide
 import io.github.jpicklyk.mcptask.current.domain.event.TransitionOrigin
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SqliteUnitOfWork
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.withTimeout
@@ -72,6 +75,25 @@ internal fun EventPublishingRepositoryProvider(
     val store = LazyEventStore { delegate.eventStore() }
     if (bus.source == null) bus.source = store
     return EventPublishingRepositoryProvider(delegate, EventRecorder(store, listener = DeferredEventPublisher(bus)))
+}
+
+/**
+ * The full `ServerComposition` wiring with the API on, over [delegate]: ONE [EventRecorder] whose commit listener feeds
+ * [bus], shared by the decorator AND a [SqliteUnitOfWork] over [databaseManager]. Rows a unit records itself through
+ * `WriteScope.events` (since P11, `item.transitioned` is recorded by AdvanceService, not the decorator) reach [bus] only
+ * through this shared recorder.
+ */
+internal fun eventWiredUnit(
+    databaseManager: DatabaseManager,
+    delegate: RepositoryProvider,
+    bus: ApiEventBus,
+    clock: Clock = Clock.SYSTEM,
+): Pair<EventPublishingRepositoryProvider, UnitOfWork> {
+    val store = LazyEventStore { delegate.eventStore() }
+    if (bus.source == null) bus.source = store
+    val recorder = EventRecorder(store, clock, DeferredEventPublisher(bus))
+    val provider = EventPublishingRepositoryProvider(delegate, recorder)
+    return provider to SqliteUnitOfWork(databaseManager, provider, clock, recorder)
 }
 
 /**

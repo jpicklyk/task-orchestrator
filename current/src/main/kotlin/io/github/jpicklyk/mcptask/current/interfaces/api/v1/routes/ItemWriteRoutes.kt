@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
+import io.github.jpicklyk.mcptask.current.application.service.BlockerInfo
 import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.PlacedWriteOutcome
@@ -23,11 +24,11 @@ import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCanc
 import io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDeleteOutcome
 import io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDeletion
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.model.ClaimState
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
-import io.github.jpicklyk.mcptask.current.domain.model.UserTrigger
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
@@ -268,7 +269,7 @@ private fun buildValidationFailedDetails(failure: AdvanceFailure.ValidationFaile
                     add(
                         buildJsonObject {
                             put("fromItemId", JsonPrimitive(blocker.fromItemId.toString()))
-                            put("currentRole", JsonPrimitive(blocker.currentRole.name.lowercase()))
+                            put("currentRole", JsonPrimitive(blocker.currentRole?.name?.lowercase() ?: BlockerInfo.UNKNOWN_ROLE))
                             put("requiredRole", JsonPrimitive(blocker.requiredRole))
                         },
                     )
@@ -296,7 +297,7 @@ private fun buildResourceLeaseUnavailableDetails(failure: AdvanceFailure.Resourc
  */
 private data class ParsedAdvanceRequest(
     val advanceDto: AdvanceRequestDto,
-    val userTrigger: UserTrigger,
+    val userTrigger: Trigger.User,
     val credentialRefs: List<String>,
     val overrideResourceLeases: Boolean,
 )
@@ -324,7 +325,9 @@ private data class ParsedAdvanceRequest(
  *   for the advance route below — the SAME factory (and therefore the SAME [io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver]
  *   / per-root config cache) the MCP `advance_item` tool uses, so REST-driven advances stamp
  *   identical status labels (bug 80e48e55 — REST previously hardcoded [NoOpStatusLabelService] and
- *   never applied labels at all) and share MCP's last-known-good per-root cache.
+ *   never applied labels at all) and share MCP's per-root config cache. The advance reads that config
+ *   inside its unit, where the last-known-good fallback is disabled: a per-root read fault answers 503
+ *   `config_unavailable` even when the cache is warm.
  */
 fun Route.itemWriteRoutes(
     repositoryProvider: RepositoryProvider,
@@ -353,8 +356,8 @@ fun Route.itemWriteRoutes(
             }
 
         val userTrigger =
-            UserTrigger.fromString(advanceDto.trigger) ?: run {
-                val validTriggers = UserTrigger.entries.joinToString { it.triggerString }
+            Trigger.User.parse(advanceDto.trigger) ?: run {
+                val validTriggers = Trigger.User.entries.joinToString { it.wire }
                 return null to payloadRejection("Invalid trigger '${advanceDto.trigger}'. Valid: $validTriggers")
             }
 
@@ -1042,10 +1045,9 @@ fun Route.itemWriteRoutes(
                 //    credential safe, so this gate is NOT waived by virtue of being an operator; it takes
                 //    an explicit, admin-gated, WARN-logged opt-out per request.
                 //
-                // Unlike the prior userTransition() path, the required-note gate is now ENFORCED.
-                // statusLabelService is bound to THIS item's rootId via the SAME root-aware factory
-                // AdvanceItemTool uses, so REST advances stamp identical (config-driven, per-root)
-                // status labels instead of applying none at all (bug 80e48e55).
+                // The required-note gate is ENFORCED. Status labels are bound to THIS item's rootId via the
+                // SAME factory AdvanceItemTool uses, so REST advances stamp identical (config-driven, per-root)
+                // status labels (bug 80e48e55).
                 // Per D6: a per-root config read failure anywhere in this pre-commit pipeline (status
                 // label resolution, gate check, review-phase detection) responds 503 with a
                 // config_unavailable ErrorDto — no Retry-After header, matching the ErrorKind contract
@@ -1054,12 +1056,12 @@ fun Route.itemWriteRoutes(
                 val outcome =
                     try {
                         withConfigSession {
-                            val advanceService = advanceServiceFactory.forItem(item, userTrigger.triggerString)
+                            val advanceService = advanceServiceFactory.forItem(item)
 
                             withEventActor(actorClaim) {
                                 advanceService.advance(
                                     item = item,
-                                    trigger = userTrigger.triggerString,
+                                    trigger = userTrigger.wire,
                                     summary = transitionSummary,
                                     actorClaim = actorClaim,
                                     verification = verification,

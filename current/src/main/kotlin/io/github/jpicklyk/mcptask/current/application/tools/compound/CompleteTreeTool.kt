@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceResult
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
+import io.github.jpicklyk.mcptask.current.application.service.BlockerInfo
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.tools.*
@@ -28,10 +29,9 @@ import java.util.UUID
  *
  * Each item is transitioned through the SAME
  * [io.github.jpicklyk.mcptask.current.application.service.AdvanceService] pipeline that backs
- * `advance_item` (ownership → resolve → dependency validation → note gate → resource-lease gate →
- * apply → cascade → unblock). `complete_tree` owns only the tree-shaped concerns on top of it:
- * target collection, the Kahn topological ordering, and skip propagation. Before this routing
- * (bug 3e455253) the tool called [io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler]
+ * `advance_item` (one unit: snapshot → policy gates → apply → cascades → unblock). `complete_tree`
+ * owns only the tree-shaped concerns on top of it: target collection, the Kahn topological
+ * ordering, and skip propagation. Before this routing (bug 3e455253) the tool applied transitions
  * directly and therefore silently bypassed claim ownership, dependency validation, cascade/unblock
  * detection, actor attribution on audit rows, and per-root status labels.
  *
@@ -317,7 +317,7 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
     ): JsonElement {
         // Step 0: Resolve the single top-level actor once for the whole tree. Every per-item
         // advance below records THIS claim on its audit row — before bug 3e455253 was fixed the
-        // tool passed a null actorClaim to applyTransition, so complete_tree audit rows carried no
+        // tool passed a null actorClaim to the transition apply step, so complete_tree audit rows carried no
         // attribution at all. An invalid actor object fails the whole call rather than silently
         // degrading to an unattributed completion of the entire tree.
         val actorResult = parseActorClaim(paramsObj["actor"] as? JsonObject, context)
@@ -541,10 +541,10 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
     /**
      * Runs one item through the shared [AdvanceService] pipeline and records the result.
      *
-     * The service is constructed PER ITEM rather than once for the whole tree because
-     * [ToolExecutionContext.rootAwareStatusLabelService] must be bound to THIS item's `rootId` — a
-     * tree (or an explicit `itemIds` list) can span roots, each with its own per-root
-     * `status_labels` override. This mirrors `AdvanceItemTool.executeTransitions` exactly.
+     * The service is constructed PER ITEM rather than once for the whole tree because its status
+     * labels are bound to THIS item's `rootId` — a tree (or an explicit `itemIds` list) can span
+     * roots, each with its own per-root `status_labels` override. This mirrors
+     * `AdvanceItemTool.executeTransitions` exactly.
      *
      * `enforceOwnership = true` and `enforceResourceLeases = true` are the MCP-side constants: an
      * operator who must bypass either uses the ADMIN-gated REST surface.
@@ -564,7 +564,7 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
         // dependents are skipped exactly like any other rejection; the rest of the tree continues.
         val outcome =
             try {
-                val advanceService = context.advanceServiceFactory().forItem(item, trigger)
+                val advanceService = context.advanceServiceFactory().forItem(item)
 
                 withEventActor(actorClaim) {
                     advanceService.advance(
@@ -756,7 +756,7 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
                                 failure.blockers.map { blocker ->
                                     buildJsonObject {
                                         put("fromItemId", JsonPrimitive(blocker.fromItemId.toString()))
-                                        put("currentRole", JsonPrimitive(blocker.currentRole.toJsonString()))
+                                        put("currentRole", JsonPrimitive(blocker.currentRole?.toJsonString() ?: BlockerInfo.UNKNOWN_ROLE))
                                         put("requiredRole", JsonPrimitive(blocker.requiredRole))
                                     }
                                 }

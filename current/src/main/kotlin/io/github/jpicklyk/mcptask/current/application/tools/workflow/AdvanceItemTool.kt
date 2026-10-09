@@ -16,11 +16,11 @@ import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCanc
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
+import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
-import io.github.jpicklyk.mcptask.current.domain.model.UserTrigger
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
@@ -228,10 +228,10 @@ Call to move an item between phases once its work is done — never edit status 
             if (!triggerPrim.isString || triggerPrim.content.isBlank()) {
                 throw ToolValidationException("transitions[$index].trigger must be a non-empty string")
             }
-            // Validate that the trigger is a known UserTrigger. "cascade" is system-internal
-            // and is not a valid UserTrigger — reject it here at the API boundary.
-            val validTriggers = UserTrigger.entries.joinToString { it.triggerString }
-            UserTrigger.fromString(triggerPrim.content)
+            // Validate that the trigger is a known user trigger. "cascade" is system-internal
+            // and is not a valid user trigger — reject it here at the API boundary.
+            val validTriggers = Trigger.User.entries.joinToString { it.wire }
+            Trigger.User.parse(triggerPrim.content)
                 ?: throw ToolValidationException(
                     "transitions[$index].trigger '${triggerPrim.content}' is not a valid trigger. " +
                         "Valid triggers: $validTriggers"
@@ -407,11 +407,9 @@ Call to move an item between phases once its work is done — never edit status 
                             is PreCheckResult.Ready -> preCheck
                         }
 
-                    // Shared advance pipeline (ownership → resolve → validate → gate → apply → cascade →
-                    // unblock). Built per-item (not once for the whole batch) because statusLabelService
-                    // must be bound to THIS item's rootId — a batch can mix items from different roots, each
-                    // with its own per-root status_labels override (see
-                    // ToolExecutionContext.rootAwareStatusLabelService).
+                    // Shared advance pipeline (snapshot -> policy -> apply -> cascades -> unblock, one unit).
+                    // Status labels resolve per item rootId (EffectiveConfigResolver.labelFor), so a batch
+                    // can mix items from different roots.
                     // MCP enforces claim ownership (enforceOwnership = true); the REST route passes false.
                     // A per-root config read failure anywhere in the pre-commit pipeline below (status
                     // label resolution, gate check, review-phase detection) must fail ONLY this transition
@@ -421,7 +419,7 @@ Call to move an item between phases once its work is done — never edit status 
                     // decoration below, which is handled separately per D7).
                     val outcome =
                         try {
-                            val advanceService = context.advanceServiceFactory().forItem(ready.item, ready.trigger)
+                            val advanceService = context.advanceServiceFactory().forItem(ready.item)
 
                             // Delegate the full pipeline to the per-item AdvanceService above.
                             // MCP ALWAYS enforces resource leases — there is no tool-level override. An
@@ -545,13 +543,13 @@ Call to move an item between phases once its work is done — never edit status 
         }
         val itemId = resolvedItemId!!
 
-        // Translate trigger string to UserTrigger enum at the JSON boundary.
+        // Translate trigger string to a Trigger.User at the JSON boundary.
         // validateParams already rejected unknown values, so fromString should never
         // return null here — but guard defensively.
         val triggerStr = (obj["trigger"] as JsonPrimitive).content
-        val userTrigger = UserTrigger.fromString(triggerStr)
+        val userTrigger = Trigger.User.parse(triggerStr)
         if (userTrigger == null) {
-            val validTriggers = UserTrigger.entries.joinToString { it.triggerString }
+            val validTriggers = Trigger.User.entries.joinToString { it.wire }
             return PreCheckResult.Failed(
                 buildJsonObject {
                     put("itemId", JsonPrimitive(itemId.toString()))
@@ -569,7 +567,7 @@ Call to move an item between phases once its work is done — never edit status 
             )
         }
         // Use the canonical trigger string from the enum (already lowercased/normalized).
-        val trigger = userTrigger.triggerString
+        val trigger = userTrigger.wire
 
         val summary =
             (obj["summary"] as? JsonPrimitive)?.let {
@@ -985,7 +983,7 @@ Call to move an item between phases once its work is done — never edit status 
         /** Item id in `transitions[].itemId` did not resolve to a full UUID or a known hex prefix. */
         const val ITEM_NOT_FOUND = "item_not_found"
 
-        /** `transitions[].trigger` is not a recognized [UserTrigger] value. */
+        /** `transitions[].trigger` is not a recognized [Trigger.User] value. */
         const val INVALID_TRIGGER = "invalid_trigger"
 
         /** `transitions[].actor` failed to parse (see [ActorParseResult.Invalid]). */

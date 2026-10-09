@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigSer
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -116,6 +117,7 @@ class AdvanceItemToolConfigUnavailableTest {
             tool = AdvanceItemTool()
             workItemRepo = mockk()
             depRepo = mockk()
+            AdvanceMockStores.stubReads(workItemRepo, depRepo)
             noteRepo = mockk()
             roleTransitionRepo = mockk()
             coEvery { noteRepo.findByItemId(any()) } returns emptyList()
@@ -194,7 +196,7 @@ class AdvanceItemToolConfigUnavailableTest {
         }
 
     @Test
-    fun `S2 - a cached schema survives a read failure and still gates start on the missing note`(): Unit =
+    fun `S2 - a warm cache does not mask a read failure, the start rejects as transient config_unavailable`(): Unit =
         runBlocking {
             assertNotNull(perRootConfigService.layer(rootItemId), "sanity: warm read must succeed before injecting failures")
             wrapperRepo.failFingerprint = true
@@ -206,24 +208,29 @@ class AdvanceItemToolConfigUnavailableTest {
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
             val params = buildParams(transitionObj(itemId, "start"))
-            val result = tool.execute(params, context)
-            val r = extractResults(result)[0].jsonObject
+            val r = extractResults(tool.execute(params, context))[0].jsonObject
 
-            assertEquals(false, r["applied"]?.jsonPrimitive?.boolean)
-            val missingNotes = r["missingNotes"]!!.jsonArray
-            assertEquals(1, missingNotes.size)
-            assertEquals("q1", missingNotes[0].jsonObject["key"]?.jsonPrimitive?.content)
+            // H1: the advanced item's config is resolved inside the write unit, where there is no last-known-good.
+            assertEquals(false, r["applied"]?.jsonPrimitive?.boolean, "$r")
+            assertEquals("transient", r["errorKind"]?.jsonPrimitive?.content)
+            assertEquals("config_unavailable", r["errorCode"]?.jsonPrimitive?.content)
+            assertNull(r["missingNotes"], "the stale cached schema must not be served as a gate result inside the unit: $r")
             coVerify(exactly = 0) { workItemRepo.update(any()) }
+            coVerify(exactly = 0) { roleTransitionRepo.create(any()) }
 
-            // D8: LKG has no TTL — a repeat call while reads are still failing serves the same result.
-            val result2 = tool.execute(params, context)
-            val r2 = extractResults(result2)[0].jsonObject
+            // The cache itself is untouched: outside a unit the same warm layer is still served (the fault is not masked,
+            // but it is not turned into an eviction either).
+            assertNotNull(perRootConfigService.layer(rootItemId), "outside a unit the last-known-good is still served")
+
+            // A repeat call while reads are still failing fails closed again (no TTL-based fallback).
+            val r2 = extractResults(tool.execute(params, context))[0].jsonObject
             assertEquals(false, r2["applied"]?.jsonPrimitive?.boolean)
-            assertEquals(1, r2["missingNotes"]!!.jsonArray.size)
+            assertEquals("config_unavailable", r2["errorCode"]?.jsonPrimitive?.content)
+            coVerify(exactly = 0) { workItemRepo.update(any()) }
         }
 
     @Test
-    fun `S3 - after reads recover a freshly pushed config replaces the previously served LKG`(): Unit =
+    fun `S3 - after reads recover a freshly pushed config is applied, never the previously warmed one`(): Unit =
         runBlocking {
             assertNotNull(perRootConfigService.layer(rootItemId), "sanity: warm read with q1 required")
             wrapperRepo.failFingerprint = true
@@ -234,12 +241,11 @@ class AdvanceItemToolConfigUnavailableTest {
             every { depRepo.findByToItemId(itemId) } returns emptyList()
             every { depRepo.findByFromItemId(itemId) } returns emptyList()
 
-            val duringFailure = tool.execute(buildParams(transitionObj(itemId, "start")), context)
-            val missingDuringFailure = extractResults(duringFailure)[0].jsonObject["missingNotes"]!!.jsonArray
+            val duringFailure = extractResults(tool.execute(buildParams(transitionObj(itemId, "start")), context))[0].jsonObject
             assertEquals(
-                "q1",
-                missingDuringFailure[0].jsonObject["key"]?.jsonPrimitive?.content,
-                "sanity: LKG (q1) served while reads fail"
+                "config_unavailable",
+                duringFailure["errorCode"]?.jsonPrimitive?.content,
+                "sanity: the warmed q1 schema is NOT served while reads fail: $duringFailure"
             )
 
             wrapperRepo.failFingerprint = false
@@ -264,10 +270,9 @@ class AdvanceItemToolConfigUnavailableTest {
             assertEquals(
                 "q2",
                 missingAfterRecovery[0].jsonObject["key"]?.jsonPrimitive?.content,
-                "D8: the next good read must refresh the LKG, not keep serving the stale q1 schema"
+                "the next good read must refresh the cache, not keep serving the stale q1 schema"
             )
         }
-
     // ──────────────────────────────────────────────
     // Failure (cold cache) — S4-S8
     // ──────────────────────────────────────────────
