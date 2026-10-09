@@ -1018,9 +1018,9 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                     )
                 }
             } catch (e: ValidationException) {
-                // An invalid spec (self-edge, RELATES_TO with unblockAt, bad threshold) fails atomically inside the
-                // write transaction, as before; nothing to normalize here.
-                return specs to null
+                // An invalid spec (self-edge, RELATES_TO with unblockAt, bad threshold) is rejected up front with the
+                // domain message, before any write, so valid specs never reach the V22 CHECK un-normalized.
+                return null to errorResponse(e.message ?: "Invalid dependency", ErrorCodes.VALIDATION_ERROR)
             }
         val idToRef = refToItem.entries.associate { (ref, item) -> item.id to ref }
 

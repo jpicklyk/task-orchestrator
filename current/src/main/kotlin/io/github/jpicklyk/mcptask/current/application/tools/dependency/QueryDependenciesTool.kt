@@ -278,13 +278,6 @@ a backlink row means another item has an edge with toItemId = your itemId. E.g. 
             }
 
         // Apply type filter. IS_BLOCKED_BY is the blocked-side view: the BLOCKS rows whose toItemId is itemId.
-        if (typeFilter == DependencyType.IS_BLOCKED_BY && direction == "outgoing") {
-            return errorResponse(
-                "type IS_BLOCKED_BY lists the dependencies blocking the item (incoming); " +
-                    "direction=outgoing cannot be combined with it. Use direction=incoming or all.",
-                ErrorCodes.VALIDATION_ERROR
-            )
-        }
         val filteredDeps =
             when (typeFilter) {
                 null -> allDeps
