@@ -13,10 +13,14 @@ import java.util.UUID
  * `WriteScope.events`, inside its own unit; these builders keep the payload shapes in one place.
  */
 
-/** `note.upserted` for [note] under [root]; the principal is the note's own actor claim and verification. */
+/**
+ * `note.upserted` for [note] under [root]; the principal is the note's own actor claim and verification.
+ * [bodyFromFile] is the caller-supplied path when the body came from a file (null for an inline body).
+ */
 internal fun noteUpsertedEvent(
     note: Note,
-    root: UUID
+    root: UUID,
+    bodyFromFile: String? = null
 ): DomainEvent =
     DomainEvent.NoteUpserted(
         entityId = note.id,
@@ -26,7 +30,8 @@ internal fun noteUpsertedEvent(
         role = note.role,
         bodyLength = note.body.length,
         actor = note.actorClaim,
-        verification = note.verification
+        verification = note.verification,
+        bodyFromFile = bodyFromFile
     )
 
 /** `note.deleted` for [note] under [root]. */

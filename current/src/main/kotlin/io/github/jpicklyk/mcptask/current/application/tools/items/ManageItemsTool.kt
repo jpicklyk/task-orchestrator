@@ -43,7 +43,7 @@ Unified write operations for WorkItems (create, update, delete).
 
 **delete** - Delete by `itemIds` array (UUIDs or hex prefixes 4+ chars); see `recursive` param.
 
-Creating or moving under a terminal auto-lifecycle parent fails (reopen it). Moving away or deleting re-evaluates the old parent as a child completion, reported as `cascadeEvents` on update/delete elements when non-empty.
+Creating or moving under a terminal auto-lifecycle parent fails (reopen it). Moving away or deleting re-evaluates the old parent as a child completion, reported as `cascadeEvents` when non-empty: on each update element; for delete, one top-level array.
         """.trimIndent()
 
     override val category = ToolCategory.ITEM_MANAGEMENT

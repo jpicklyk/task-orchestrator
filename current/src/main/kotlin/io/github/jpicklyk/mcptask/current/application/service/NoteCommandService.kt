@@ -21,14 +21,20 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
 import java.util.UUID
 
-/** One note write: the raw, un-normalized request. */
+/**
+ * One note write: the raw, un-normalized request. [bodyFromFile] is the server-side path the caller supplied
+ * when [body] was read from a file (recorded on the
+ote.upserted row; never the file contents); null for an
+ * inline body.
+ */
 data class NoteUpsertCommand(
     val itemId: UUID,
     val key: String,
     val role: String,
     val body: String,
     val actorClaim: ActorClaim?,
-    val verification: VerificationResult?
+    val verification: VerificationResult?,
+    val bodyFromFile: String? = null
 )
 
 /** A note that passed the write policy: the normalized [role] and [body], plus any soft-limit [warning]. */
@@ -183,7 +189,7 @@ class NoteCommandService(
                         )
                     }
                 val stored = noteRepo.upsert(note)
-                events.record(noteUpsertedEvent(stored, eventRootOf(item, repositoryProvider.workItemRepository())))
+                events.record(noteUpsertedEvent(stored, eventRootOf(item, repositoryProvider.workItemRepository()), cmd.bodyFromFile))
                 UnitResult.Commit(Outcome.Ok(NoteWriteResult(stored, existing == null, prepared.warning)))
             }
         val unavailable = configUnavailable

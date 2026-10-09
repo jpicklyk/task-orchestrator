@@ -135,14 +135,17 @@ sealed class DomainEvent {
         val role: String,
         val bodyLength: Int,
         val actor: ActorClaim? = null,
-        val verification: VerificationResult? = null
+        val verification: VerificationResult? = null,
+        /** The server-side path the caller supplied via `bodyFromFile` (never the file contents); null for an inline body. */
+        val bodyFromFile: String? = null
     ) : DomainEvent() {
         override val type: String get() = NOTE_UPSERTED
         override val entityKind: String get() = KIND_NOTE
         override val entityActor: ActorClaim? get() = actor
         override val entityVerification: VerificationResult? get() = verification
 
-        override fun payload(): Map<String, Any?> = mapOf("itemId" to itemId, "key" to key, "role" to role, "bodyLength" to bodyLength)
+        override fun payload(): Map<String, Any?> =
+            mapOf("itemId" to itemId, "key" to key, "role" to role, "bodyLength" to bodyLength, "bodyFromFile" to bodyFromFile)
     }
 
     data class NoteDeleted(

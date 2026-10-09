@@ -90,9 +90,8 @@ fun Route.searchRoutes(repositoryProvider: RepositoryProvider) {
                     else -> SearchScope(role = role, tags = tags)
                 }
 
-            // Dispatched via the WorkItemRepository interface: workItemRepo is the event-recording
-            // decorator (EventPublishingWorkItemRepository, installed always since P8), which
-            // forwards reads.
+            // Dispatched via the WorkItemRepository interface (a read; no event-recording decorator
+            // since 4.0).
             val result =
                 workItemRepo.ftsSearch(
                     sanitizedFtsQuery = sanitizedQuery,
