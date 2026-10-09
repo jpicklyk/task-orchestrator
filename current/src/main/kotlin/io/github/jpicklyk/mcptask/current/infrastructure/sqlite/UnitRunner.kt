@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.port.ActiveUnit
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.UnitElement
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallRetry
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
@@ -237,6 +238,7 @@ class UnitRunner internal constructor(
                 if (PersistenceFaults.isBusy(e) && started.elapsedNow() < deadline) {
                     lastBusy = e
                     logger.debug("Unit attempt {} hit SQLITE_BUSY; retrying: {}", attempt + 1, e.message)
+                    recordCallRetry()
                     backoff(attempt)
                     attempt++
                     continue

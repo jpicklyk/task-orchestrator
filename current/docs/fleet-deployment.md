@@ -118,14 +118,39 @@ survive coroutine dispatcher hops:
   reuse), and `actorId` when the call's top-level `arguments.actor.id` is a JSON string (this is
   self-reported and unverified — independent of `actor_authentication` verification). `actorId` is
   length-capped at 128 chars (`MdcValues.bounded`, truncated with a `...[truncated]` marker) — the
-  cap applies only to this MDC copy, never to what tools themselves receive.
+  cap applies only to this MDC copy, never to what tools themselves receive. Also `reqId`: the
+  call's 8-character correlation id (lowercase Crockford base32, 40 random bits), see "Call log and
+  `reqId`" below.
 - REST requests under `/api/v1` (`RequestCorrelation`): `transport=rest`, `requestId` (the inbound
   `X-Request-Id` header when it matches `^[A-Za-z0-9._-]{1,64}$`, else a generated UUID),
   `httpMethod`, and `httpPath` (no query string, so `?token=` never lands in a log line). `httpPath`
   is length-capped at 256 chars, same truncation rule as `actorId` above. `requestId` is NOT
   length-capped: a malformed or over-long `X-Request-Id` is rejected and replaced with a fresh UUID
   instead, since it is a correlation key and truncating it risks falsely correlating unrelated
-  requests.
+  requests. Also `reqId` (always server-generated; the inbound `X-Request-Id` never feeds it). The
+  `GET /api/v1/events` SSE stream gets no `reqId`.
+
+### Call log and `reqId`
+
+Every MCP tool call and every non-SSE `/api/v1` request gets a `reqId`. It is returned to the caller
+(`_meta.reqId` on every MCP tool result, including errors; the `X-Req-Id` response header on REST),
+set as the MDC `reqId` key, stamped as `req_id` on every `events` row the call writes, and is the
+primary key of that call's row in the `call_log` table (migration V21). A row records who called
+(principal id, kind, proof status, session), what (surface `mcp`/`rest`, tool or `METHOD /path` with
+UUID segments as `{id}`, `operation`, target ids and versions, boolean/`limit` request shape), the
+outcome (`ok`/`error`, error code, BUSY-retry `attempts`, `replayed`), `latency_ms`, UTF-8 request
+and response byte sizes, and a `bytes/4` token estimate of the response (`ceil(bytes / 4)`).
+
+Rows are written off the request path by a background writer: a bounded in-memory queue (10 000
+rows) flushed in batches of up to 100 rows or every 250 ms, one write unit per batch, and drained on
+graceful shutdown (at most 5 s). Telemetry never blocks or fails a call. When the queue overflows
+the new row is dropped and a WARN line `Call log queue full ... dropped N row(s)` is logged (at most
+one per 250 ms); a batch that fails is logged at WARN and dropped. The 8-character id has 40 bits,
+so a duplicate `req_id` is possible (about 0.45 expected collisions by a million rows); a duplicate
+row is ignored. Cancelled calls write no row.
+
+`call_log` has **no retention yet**: it grows by about 250-450 bytes per call (about 8 MB per day at
+20 000 calls a day), like `events`. Pruning arrives with W6.
 
 **File logging is opt-in** via `LOG_FILE` (unset by default — no file logging). Set it to a path,
 e.g. `-e LOG_FILE=/app/data/logs/task-orchestrator.log` (landing on the existing `/app/data`

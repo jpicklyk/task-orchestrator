@@ -384,6 +384,15 @@ other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability
 
 ---
 
+## 6a. Request correlation (`X-Req-Id`)
+
+Every `/api/v1` response except the `GET /api/v1/events` stream carries an `X-Req-Id` header: the
+call's 8-character correlation id (lowercase Crockford base32). It is always server-generated (an
+inbound `X-Request-Id` only feeds the `requestId` log field), appears on success and error responses
+alike (including `401`), is the `req_id` of every `events` row the request wrote, and keys the
+request's row in the `call_log` table. `X-Req-Id` is in the default `CORS_EXPOSE_HEADERS`. See
+`fleet-deployment.md` -> "Call log and `reqId`".
+
 ## 7. Pagination
 
 List endpoints return a `PageDto<T>`:
@@ -1285,7 +1294,7 @@ lease TTL is the backstop).
 ```
 A `Retry-After` response header accompanies the body — whole seconds, **rounded up** from
 `retryAfterMs` with a floor of 1, so a client never retries before the lease can possibly have
-expired. `CORS_EXPOSE_HEADERS` includes `Retry-After` by default (see `fleet-deployment.md`) so
+expired. `CORS_EXPOSE_HEADERS` includes `Retry-After` and `X-Req-Id` by default (see `fleet-deployment.md`) so
 browser-based dashboards behind CORS can read it directly; `details.retryAfterMs` is present as a
 fallback regardless. **No holder identity is ever disclosed** on this path — neither the holding
 item's id nor its actor. Use `GET /api/v1/resources/leases` (§14, `ADMIN` capability for actor

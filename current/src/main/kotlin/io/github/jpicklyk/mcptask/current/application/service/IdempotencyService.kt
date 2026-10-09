@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.port.IdempotencyRecord
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallReplayed
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
@@ -106,6 +107,8 @@ class IdempotencyService(
                     }
                 }
             }
+        // Read AFTER the unit returns: a BUSY retry re-runs the body, so only the final attempt's flag counts.
+        if (replayed) recordCallReplayed()
         return IdempotentOutcome(outcome, replayed)
     }
 
@@ -136,7 +139,10 @@ class IdempotencyService(
                 Outcome.Ok(Unit)
             }
         if (lookup is Outcome.Err) return IdempotentOutcome(lookup, replayed = false)
-        found?.let { return it }
+        found?.let {
+            if (it.replayed) recordCallReplayed()
+            return it
+        }
 
         val result = block()
         if (result is Outcome.Ok) {
