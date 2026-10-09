@@ -1,7 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
-import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
-
 /**
  * Provides access to all repository implementations.
  * Used for dependency injection across the application layer.
@@ -11,8 +9,7 @@ interface RepositoryProvider {
 
     /**
      * The narrow work-item stores. Defaults to the composite [workItemRepository], which implements
-     * all four, so a provider that only supplies the composite (mocks, the event-publishing decorator)
-     * needs no change and events still flow through whatever decorates the composite.
+     * all four, so a provider that only supplies the composite (mocks) needs no change.
      */
     fun itemStore(): ItemStore = workItemRepository()
 
@@ -34,10 +31,11 @@ interface RepositoryProvider {
 
     fun resourceLeaseRepository(): LeaseStore
 
-    fun workTreeExecutor(): WorkTreeExecutor
-
     fun idempotencyStore(): IdempotencyStore
 
-    /** The append-only domain-event log (`events`). Never decorated: its appends are what the decorator records. */
+    /**
+     * The append-only domain-event log (`events`). Write services append to it through the unit's
+     * [WriteScope.events] sink, never directly.
+     */
     fun eventStore(): EventStore
 }

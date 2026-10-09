@@ -37,11 +37,13 @@ class ManageItemsTool :
         """
 Unified write operations for WorkItems (create, update, delete).
 
-**create** - Each item: `{ title (required), description?, summary?, role?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags?, type?, properties?, requiresVerification? }`. Shared top-level `parentId` is the default for all items (per-item parentId overrides). Depth is auto-computed from parent (root=0, child=parent.depth+1, unbounded). Defaults: role=queue, priority=medium; complexity has no default.
+**create** - Each item: `{ title (required), description?, summary?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags?, type?, properties?, requiresVerification? }`. Shared top-level `parentId` is the default (per-item overrides). Depth = parent.depth+1 (root=0, unbounded). Items start in queue; a `role` field fails the item. Default priority=medium.
 
-**update** - Each item: `{ itemId (required, UUID or hex prefix 4+ chars), title?, description?, summary?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags?, type?, properties? }`. Role changes are not allowed — use `advance_item` instead. Only provided fields change; if parentId changes, depth is recomputed from the new parent.
+**update** - Each item: `{ itemId (required, UUID or hex prefix 4+ chars), title?, description?, summary?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags?, type?, properties? }`. Role changes go through `advance_item`. Only provided fields change.
 
 **delete** - Delete by `itemIds` array (UUIDs or hex prefixes 4+ chars); see `recursive` param.
+
+Creating or moving under a terminal auto-lifecycle parent fails (reopen it). Moving away or deleting re-evaluates the old parent as a child completion, reported as `cascadeEvents` on update/delete elements when non-empty.
         """.trimIndent()
 
     override val category = ToolCategory.ITEM_MANAGEMENT

@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.application.port.SearchScope
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
 import io.github.jpicklyk.mcptask.current.domain.model.AncestorChain
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
@@ -376,7 +375,7 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
 
     @Test
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
-    fun `recomputeDescendantDepths on a self-parent cycle terminates with Error and writes nothing`(): Unit =
+    fun `restampSubtree on a self-parent cycle terminates with an error and writes nothing`(): Unit =
         runBlocking {
             val root = createItem("S9 root")
             val a = createItem("S9 child", parentId = root.id, depth = 1)
@@ -387,14 +386,8 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
             assertNotNull(siblingBefore)
             val versionBefore = siblingBefore.version
 
-            val result =
-                ItemHierarchyValidator().recomputeDescendantDepths(
-                    itemId = a.id,
-                    delta = 1,
-                    newRootId = UUID.randomUUID(),
-                    repo = repository,
-                )
-            assertNotNull(result, "the descendant fetch inside recompute must surface the cycle, not hang")
+            val result = runCatching { repository.restampSubtree(a.id, 1, UUID.randomUUID()) }
+            assertNotNull(result.exceptionOrNull(), "the bounded walk inside the restamp must surface the cycle, not hang")
 
             val siblingAfter = repository.getById(sibling.id)
             assertNotNull(siblingAfter)

@@ -438,6 +438,30 @@ class AdvanceService(
         return runUnit { primary(request) }
     }
 
+    /**
+     * Evaluates and applies [followUps] (parent cascades a structural edit produced: a reparent or a delete
+     * re-evaluates the item's OLD parent) exactly like the cascades of an advance: the same policy with the
+     * cascade trigger, the same note gate (a rejection is a suppressed [AdvanceCascadeEvent], never an error),
+     * the same chaining through each applied cascade's own follow-ups, and a per-root config fault on a parent
+     * skipping that cascade with a WARN.
+     *
+     * JOINS the ambient unit (the caller's structural write), so the cascade's role change, its transition row
+     * and its `item.transitioned` (origin `cascade`) event commit or roll back with that write. A store fault
+     * propagates and rolls the joined unit back.
+     */
+    suspend fun cascadeInUnit(followUps: List<FollowUp>): List<AdvanceCascadeEvent> {
+        if (followUps.isEmpty()) return emptyList()
+        var events: List<AdvanceCascadeEvent> = emptyList()
+        val outcome =
+            unitOfWork.write(UNIT_OP) {
+                val now = clock.unitNow()
+                events = runCascades(viewAt(this, now), followUps, resourceLeasesEnforced, now)
+                Outcome.Ok(Unit)
+            }
+        if (outcome is Outcome.Err) throw IllegalStateException(applyFaultMessage(outcome.error))
+        return events
+    }
+
     private data class PrimaryRequest(
         val itemId: UUID,
         val trigger: Trigger.User,

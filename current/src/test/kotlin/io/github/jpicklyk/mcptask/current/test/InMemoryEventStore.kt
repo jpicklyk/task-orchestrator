@@ -13,7 +13,6 @@ import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
-import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import java.util.UUID
 
 /**
@@ -84,8 +83,6 @@ private class StoresOnlyProvider(
     override fun projectConfigRepository(): ProjectConfigStore = unsupported()
 
     override fun planDocumentRepository(): PlanDocumentStore = unsupported()
-
-    override fun workTreeExecutor(): WorkTreeExecutor = unsupported()
 
     override fun idempotencyStore(): IdempotencyStore = unsupported()
 

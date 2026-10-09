@@ -66,9 +66,8 @@ class KeyedRejectionRowsTest {
 
     private fun context(): ToolExecutionContext {
         val recorder = EventRecorder(raw.eventStore(), sqlite.db.clock)
-        val decorated = EventPublishingRepositoryProvider(raw, recorder)
-        val unitOfWork = SqliteUnitOfWork(sqlite.databaseManager, decorated, sqlite.db.clock, recorder)
-        return ToolExecutionContext(repositoryProvider = decorated, noteSchemaService = schema, unitOfWork = unitOfWork)
+        val unitOfWork = SqliteUnitOfWork(sqlite.databaseManager, raw, sqlite.db.clock, recorder)
+        return ToolExecutionContext(repositoryProvider = raw, noteSchemaService = schema, unitOfWork = unitOfWork)
     }
 
     private suspend fun rows(type: String) = raw.eventStore().readAfter(0L, null, 10_000).filter { it.type == type }

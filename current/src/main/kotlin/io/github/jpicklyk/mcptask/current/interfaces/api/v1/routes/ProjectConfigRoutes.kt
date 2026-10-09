@@ -5,9 +5,10 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushResult
 import io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushService
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
-import io.github.jpicklyk.mcptask.current.application.support.legacyWrite
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
@@ -281,13 +282,23 @@ fun Route.projectConfigRoutes(
                 }
 
                 run {
+                    // The service records project_config.deleted in the same unit as the delete.
                     val result =
-                        unitOfWork.legacyWrite("ProjectConfigRoutes.delete", {
-                            return@run run {
-                                projectConfigLogger.warn("DELETE /roots/{}/config DB error: {}", rootId, it)
-                                call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to delete project config"))
-                            }
-                        }) { projectConfigRepo.delete(rootId) }
+                        when (val outcome = service.delete(rootId)) {
+                            is Outcome.Ok -> outcome.value
+                            is Outcome.Err ->
+                                return@run run {
+                                    projectConfigLogger.warn(
+                                        "DELETE /roots/{}/config DB error: {}",
+                                        rootId,
+                                        LegacyFaults.message(outcome.error),
+                                    )
+                                    call.respond(
+                                        HttpStatusCode.InternalServerError,
+                                        ErrorDto("db_error", "Failed to delete project config")
+                                    )
+                                }
+                        }
                     if (!result) {
                         call.respond(
                             HttpStatusCode.NotFound,

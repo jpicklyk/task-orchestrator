@@ -153,6 +153,19 @@ The `lifecycle:` field on a schema controls how parent items cascade when all ch
 | `MANUAL`       | Suppress auto-cascade — parent must be completed explicitly via `advance_item` or `complete`. |
 | `PERMANENT`    | Parent never auto-terminates, regardless of child state.                                      |
 
+The lifecycle also governs tree edits (4.0):
+
+- **A closed parent takes no new children.** Creating an item under a `terminal` parent, or moving an item under
+  one, is rejected when the parent's lifecycle is `AUTO` (reopen the parent first); under `MANUAL` and `PERMANENT`
+  it is allowed. This applies to `manage_items` create and update, `create_work_tree` (its `parentId` and an
+  attach-mode `root.id`) and REST `POST /items` / `PATCH /items/{id}` (`409 invalid_transition`).
+- **Moving a child away, or deleting it, re-evaluates the old parent** exactly like a child completion: under `AUTO`
+  the parent completes when every remaining child is terminal and its gate passes (missing required notes suppress
+  it, reported with `gateBlocked`), in the same transaction as the move or delete. Nothing happens under `MANUAL` or
+  `PERMANENT`, or when no child remains (deleting the last child never completes the parent). The new parent of a
+  move is never cascaded. `manage_items` reports these cascades as `cascadeEvents` on the update or delete.
+- **Items are always created in `queue`;** use `advance_item` to move them.
+
 Set `lifecycle` at the schema level in `work_item_schemas:`:
 
 ```yaml

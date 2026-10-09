@@ -13,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsToo
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
@@ -500,7 +501,7 @@ class EventCoverageTest {
             val item = rig.seed("S16 host")
             listOf("a", "b", "c").forEach { rig.raw.noteRepository().upsert(Note(itemId = item.id, key = it, role = "work", body = it)) }
 
-            val (count, rows) = rig.written { rig.inUnit { rig.provider.noteRepository().deleteByItemId(item.id) } }
+            val (count, rows) = rig.written { (rig.ctx.noteCommandService.deleteAllForItem(item.id) as Outcome.Ok).value }
 
             assertEquals(3, count)
             assertEquals(List(3) { "note.deleted" }, rows.types())
@@ -756,13 +757,11 @@ class EventCoverageTest {
             val adopter = rig.seed("adopter", root)
             val (_, adopted) =
                 rig.written {
-                    rig.inUnit {
-                        rig.provider.planDocumentRepository().markAdopted(
-                            root.id,
-                            "p8-plan",
-                            adopter.id
-                        )
-                    }
+                    rig.ctx.planDocumentService.adoptInUnit(
+                        root.id,
+                        "p8-plan",
+                        adopter.id
+                    )
                 }
             val ad = adopted.single()
             assertEquals("plan_document.adopted", ad.type)

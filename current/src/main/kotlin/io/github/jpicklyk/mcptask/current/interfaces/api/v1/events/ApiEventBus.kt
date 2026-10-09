@@ -176,8 +176,20 @@ class ApiEventBus(
      * tail lock nor reads the table: when the lock is busy (a replay snapshot is being read) or the rows do not
      * follow the tail, it wakes the tailer, which re-reads the tail from [source] (the rows are durable, so
      * deferring loses nothing). Without a tailer (tests) it takes the lock and catches up inline.
+     *
+     * Never throws: a fan-out failure is logged at WARN and swallowed, so it can never reach the write that
+     * committed; the poll re-reads the tail from [source] (the table is the source of truth).
      */
     override suspend fun committed(records: List<EventRecord>) {
+        try {
+            committedUnguarded(records)
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            logger.warn("SSE fan-out of {} committed event row(s) failed; the poll will retry: {}", records.size, e.message)
+        }
+    }
+
+    private suspend fun committedUnguarded(records: List<EventRecord>) {
         if (records.isEmpty()) return
         if (tailerRunning && source != null && tailSeq != null) {
             if (!tailMutex.tryLock()) {

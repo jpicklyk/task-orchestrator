@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
+import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.tools.ElementOutcome
 import io.github.jpicklyk.mcptask.current.application.tools.ElementResult
 import io.github.jpicklyk.mcptask.current.application.tools.KeyedCall
@@ -9,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationExcept
 import io.github.jpicklyk.mcptask.current.application.tools.resolveWorkItemIdString
 import io.github.jpicklyk.mcptask.current.application.tools.runElement
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import kotlinx.serialization.json.*
 
 /**
@@ -17,8 +20,10 @@ import kotlinx.serialization.json.*
  * Supports both direct deletion and recursive deletion of item hierarchies.
  * When `recursive` is true, descendants are deleted leaves-first to satisfy
  * foreign key constraints. Per-id semantics (children guard, lease release before delete,
- * atomic all-or-nothing recursive subtree delete) live in [WorkItemDeletion], shared with the
- * REST `DELETE /api/v1/items/{id}` route so both surfaces behave identically.
+ * atomic all-or-nothing recursive subtree delete, the old parent's cascade re-evaluation) live in
+ * [io.github.jpicklyk.mcptask.current.application.service.ItemCommandService.delete], shared with the
+ * REST `DELETE /api/v1/items/{id}` route so both surfaces behave identically. A delete that cascades the
+ * parent reports it on the element as `cascadeEvents` (only when non-empty).
  */
 class DeleteItemHandler {
     /**
@@ -35,10 +40,10 @@ class DeleteItemHandler {
         context: ToolExecutionContext,
         keyed: KeyedCall? = null
     ): JsonElement {
-        val deletion = WorkItemDeletion(context.repositoryProvider, context.unitOfWork)
-
         val deletedIds = mutableListOf<String>()
         var descendantsDeleted = 0
+        // The delete response has no per-element array, so each element's cascades are reported in one list.
+        val cascadeEvents = mutableListOf<JsonElement>()
         val failures = mutableListOf<JsonObject>()
 
         for ((index, element) in idsArray.withIndex()) {
@@ -60,30 +65,38 @@ class DeleteItemHandler {
             // reported unrecorded, so a retry with the same key runs the delete again.
             val outcome =
                 runElement(keyed, index, element, onError = { deleteFailure(idStr, it.message, it.code) }) {
-                    when (val deleted = deletion.delete(id, recursive)) {
-                        is WorkItemDeleteOutcome.Deleted ->
+                    when (val deleted = context.itemCommandService.delete(id, recursive)) {
+                        is Outcome.Ok ->
                             ElementResult.Done(
                                 buildJsonObject {
                                     put("id", JsonPrimitive(idStr))
-                                    put("descendantsDeleted", JsonPrimitive(deleted.descendantsDeleted))
+                                    put("descendantsDeleted", JsonPrimitive(deleted.value.descendantsDeleted))
+                                    cascadeEventsJson(deleted.value.cascadeEvents)?.let { put("cascadeEvents", it) }
                                 }
                             )
-                        is WorkItemDeleteOutcome.HasChildren ->
-                            ElementResult.Failed(
-                                deleteFailure(
-                                    idStr,
-                                    "Item '$idStr' has ${deleted.childCount} child item(s). " +
-                                        "Use recursive=true to delete the item and all its descendants."
-                                )
-                            )
-                        is WorkItemDeleteOutcome.NotFound -> ElementResult.Failed(deleteFailure(idStr, "Item '$idStr' not found"))
-                        is WorkItemDeleteOutcome.Failed -> ElementResult.Failed(deleteFailure(idStr, deleted.message))
+                        is Outcome.Err -> {
+                            val error = deleted.error
+                            val childCount = ItemCommandErrors.childCount(error)
+                            when {
+                                childCount != null ->
+                                    ElementResult.Failed(
+                                        deleteFailure(
+                                            idStr,
+                                            "Item '$idStr' has $childCount child item(s). " +
+                                                "Use recursive=true to delete the item and all its descendants."
+                                        )
+                                    )
+                                error.code == ErrorCode.NOT_FOUND -> ElementResult.Failed(deleteFailure(idStr, "Item '$idStr' not found"))
+                                else -> ElementResult.Failed(deleteFailure(idStr, LegacyFaults.message(error)))
+                            }
+                        }
                     }
                 }
             when (outcome) {
                 is ElementOutcome.Succeeded -> {
                     deletedIds.add(idStr)
                     descendantsDeleted += (outcome.fragment["descendantsDeleted"] as? JsonPrimitive)?.intOrNull ?: 0
+                    (outcome.fragment["cascadeEvents"] as? JsonArray)?.let { cascadeEvents.addAll(it) }
                 }
                 is ElementOutcome.Failed -> failures.add(outcome.failure)
             }
@@ -96,6 +109,9 @@ class DeleteItemHandler {
                 put("failed", JsonPrimitive(failures.size))
                 if (descendantsDeleted > 0) {
                     put("descendantsDeleted", JsonPrimitive(descendantsDeleted))
+                }
+                if (cascadeEvents.isNotEmpty()) {
+                    put("cascadeEvents", JsonArray(cascadeEvents))
                 }
                 if (failures.isNotEmpty()) {
                     put("failures", JsonArray(failures))

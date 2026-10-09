@@ -3,9 +3,11 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
+import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
+import io.github.jpicklyk.mcptask.current.application.service.ItemPatchCommand
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
-import io.github.jpicklyk.mcptask.current.application.service.TreeDepSpec
-import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
+import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
+import io.github.jpicklyk.mcptask.current.application.service.ParentChange
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
@@ -14,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsToo
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
@@ -90,7 +93,7 @@ class EventActorRootIdTest {
 
     private fun dtoPlainA() = ActorClaimDto(id = "agent-a", kind = "subagent", parent = null)
 
-    private fun decorated(bus: ApiEventBus) = EventPublishingRepositoryProvider(repositoryProvider, bus)
+    private fun decorated(bus: ApiEventBus) = Writes(toolContext(bus))
 
     private fun toolContext(bus: ApiEventBus): ToolExecutionContext {
         // P11: item.transitioned is recorded by AdvanceService through its unit's event sink, so the unit must
@@ -142,13 +145,71 @@ class EventActorRootIdTest {
         return obj
     }
 
-    private suspend fun EventPublishingRepositoryProvider.newRoot(title: String): WorkItem =
-        workItemRepository().create(WorkItem(title = title, depth = 0))!!
+    /**
+     * The writes this suite performs, through the write services of an event-wired [ToolExecutionContext] (each
+     * service records its own rows through the recorder that feeds the bus).
+     */
+    private class Writes(
+        val ctx: ToolExecutionContext,
+    ) {
+        private fun <T> Outcome<T>.value(): T =
+            when (this) {
+                is Outcome.Ok -> value
+                is Outcome.Err -> throw IllegalStateException(error.message)
+            }
 
-    private suspend fun EventPublishingRepositoryProvider.newChild(
-        title: String,
-        parent: WorkItem,
-    ): WorkItem = workItemRepository().create(WorkItem(title = title, parentId = parent.id, depth = 1))!!
+        suspend fun newRoot(title: String): WorkItem =
+            ctx.itemCommandService.create(ItemCreateCommand(parentId = null, title = title)).value()
+
+        suspend fun newChild(
+            title: String,
+            parent: WorkItem,
+        ): WorkItem = ctx.itemCommandService.create(ItemCreateCommand(parentId = parent.id, title = title)).value()
+
+        suspend fun patch(
+            item: WorkItem,
+            parent: ParentChange = ParentChange.Keep,
+            title: String = item.title,
+        ): WorkItem =
+            ctx.itemCommandService
+                .patch(
+                    ItemPatchCommand(
+                        item.id,
+                        null,
+                        parent,
+                        title,
+                        item.description,
+                        item.summary,
+                        item.statusLabel,
+                        item.priority,
+                        item.complexity,
+                        item.requiresVerification,
+                        item.metadata,
+                        item.tags,
+                        item.type,
+                        item.properties,
+                    ),
+                ).value()
+                .item
+
+        suspend fun deleteItem(id: UUID) = ctx.itemCommandService.delete(id, recursive = false).value()
+
+        suspend fun upsertNote(note: Note): Note =
+            ctx.noteCommandService
+                .upsert(NoteUpsertCommand(note.itemId, note.key, note.role, note.body, note.actorClaim, note.verification))
+                .value()
+                .note
+
+        suspend fun deleteNote(id: UUID) = ctx.noteCommandService.deleteById(id).value()
+
+        suspend fun addDependency(dep: Dependency): Dependency =
+            ctx.dependencyCommandService
+                .create(listOf(dep))
+                .value()
+                .single()
+
+        suspend fun deleteDependency(id: UUID) = ctx.dependencyCommandService.deleteById(id).value()
+    }
 
     // -------------------------------------------------------------------------
     // S1 -- rootId per event type [AC1]
@@ -163,7 +224,7 @@ class EventActorRootIdTest {
 
             val root = provider.newRoot("R-s1a")
             val child = provider.newChild("C-s1a", root)
-            val renamed = provider.workItemRepository().update(child.copy(title = "C-s1a-renamed"))!!
+            val renamed = provider.patch(child, title = "C-s1a-renamed")
             // P11: an advance is AdvanceService's one unit (role change, transition row and the item.transitioned
             // event it records itself); that event projects as item.advanced.
             val (wired, unitOfWork) = eventWiredUnit(db.databaseManager, repositoryProvider, bus)
@@ -178,7 +239,7 @@ class EventActorRootIdTest {
                     claimService = testClaimService(wired.workItemRepository(), null, unitOfWork)
                 ).advance(renamed, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = false)
             assertTrue(outcome is AdvanceOutcome.Success, "advance failed: $outcome")
-            provider.workItemRepository().delete(child.id)
+            provider.deleteItem(child.id)
 
             val events = bus.drainDelivered("s1a", flow)
             val expectedRoot = root.id.toString()
@@ -210,8 +271,8 @@ class EventActorRootIdTest {
 
             val root = provider.newRoot("R-s1c")
             val child = provider.newChild("C-s1c", root)
-            val saved = provider.noteRepository().upsert(note(child.id, "k-s1c"))!!
-            provider.noteRepository().delete(saved.id)
+            val saved = provider.upsertNote(note(child.id, "k-s1c"))
+            provider.deleteNote(saved.id)
 
             val events = bus.drainDelivered("s1c", flow)
             assertEquals(root.id.toString(), events.one(ApiEventType.NOTE_UPSERTED, child.id).rootId)
@@ -228,8 +289,8 @@ class EventActorRootIdTest {
             val root = provider.newRoot("R-s1d")
             val a = provider.newChild("A-s1d", root)
             val b = provider.newChild("B-s1d", root)
-            val dep = provider.dependencyRepository().create(Dependency(fromItemId = a.id, toItemId = b.id, type = DependencyType.BLOCKS))
-            provider.dependencyRepository().delete(dep.id)
+            val dep = provider.addDependency(Dependency(fromItemId = a.id, toItemId = b.id, type = DependencyType.BLOCKS))
+            provider.deleteDependency(dep.id)
 
             val events = bus.drainDelivered("s1d", flow)
             assertEquals(root.id.toString(), events.one(ApiEventType.DEPENDENCY_ADDED, a.id).rootId)
@@ -250,7 +311,7 @@ class EventActorRootIdTest {
             val root1 = provider.newRoot("R1-s2")
             val root2 = provider.newRoot("R2-s2")
             val child = provider.newChild("C-s2", root1)
-            provider.workItemRepository().update(child.copy(parentId = root2.id))
+            provider.patch(child, parent = ParentChange.MoveUnder(root2.id))
 
             val events = bus.drainDelivered("s2", flow)
             assertEquals(root1.id.toString(), events.one(ApiEventType.SCOPE_LEFT, child.id).rootId, "scope.left carries the OLD root")
@@ -374,7 +435,7 @@ class EventActorRootIdTest {
             val flow = bus.subscribe("s4a", emptySet(), lastEventId = null)
 
             val item = provider.newRoot("X-s4a")
-            withEventActor(agentA) { provider.noteRepository().upsert(note(item.id, "k-s4a", author = agentB)) }
+            withEventActor(agentA) { provider.upsertNote(note(item.id, "k-s4a", author = agentB)) }
 
             val events = bus.drainDelivered("s4a", flow)
             assertEquals(dtoB(), events.one(ApiEventType.NOTE_UPSERTED, item.id).actor)
@@ -388,7 +449,7 @@ class EventActorRootIdTest {
             val flow = bus.subscribe("s4b", emptySet(), lastEventId = null)
 
             val item = provider.newRoot("X-s4b")
-            withEventActor(agentA) { provider.noteRepository().upsert(note(item.id, "k-s4b", author = null)) }
+            withEventActor(agentA) { provider.upsertNote(note(item.id, "k-s4b", author = null)) }
 
             val events = bus.drainDelivered("s4b", flow)
             assertEquals(dtoA(), events.one(ApiEventType.NOTE_UPSERTED, item.id).actor)
@@ -402,7 +463,7 @@ class EventActorRootIdTest {
             val flow = bus.subscribe("s4c", emptySet(), lastEventId = null)
 
             val item = provider.newRoot("X-s4c")
-            provider.noteRepository().upsert(note(item.id, "k-s4c", author = null))
+            provider.upsertNote(note(item.id, "k-s4c", author = null))
 
             val events = bus.drainDelivered("s4c", flow)
             assertNull(events.one(ApiEventType.NOTE_UPSERTED, item.id).actor)
@@ -418,18 +479,22 @@ class EventActorRootIdTest {
             val rootId = UUID.randomUUID()
             val c1Id = UUID.randomUUID()
             val c2Id = UUID.randomUUID()
-            val root = WorkItem(id = rootId, title = "Tree Root s4d", depth = 0)
-            val c1 = WorkItem(id = c1Id, parentId = rootId, depth = 1, title = "C1 s4d")
-            val c2 = WorkItem(id = c2Id, parentId = rootId, depth = 1, title = "C2 s4d")
-            val input =
-                WorkTreeInput(
-                    items = listOf(root, c1, c2),
-                    refToItem = mapOf("R" to root, "C1" to c1, "C2" to c2),
-                    deps = listOf(TreeDepSpec(fromRef = "C1", toRef = "C2", type = DependencyType.BLOCKS, unblockAt = null)),
-                    notes = listOf(note(c1Id, "tree-note-s4d", author = agentB)),
-                )
-
-            withEventActor(agentA) { provider.workTreeExecutor().execute(input) }
+            val treeNote = note(c1Id, "tree-note-s4d", author = agentB)
+            // The work tree's write sequence over the services, in ONE unit: items root-first, the dependency, the note.
+            val ctx = provider.ctx
+            withEventActor(agentA) {
+                ctx.unitOfWork.inUnit {
+                    ctx.itemCommandService.createInUnit(ItemCreateCommand(id = rootId, parentId = null, title = "Tree Root s4d"))
+                    ctx.itemCommandService.createInUnit(ItemCreateCommand(id = c1Id, parentId = rootId, title = "C1 s4d"))
+                    ctx.itemCommandService.createInUnit(ItemCreateCommand(id = c2Id, parentId = rootId, title = "C2 s4d"))
+                    ctx.dependencyCommandService.createInUnit(
+                        listOf(Dependency(fromItemId = c1Id, toItemId = c2Id, type = DependencyType.BLOCKS))
+                    )
+                    ctx.noteCommandService.upsert(
+                        NoteUpsertCommand(c1Id, treeNote.key, treeNote.role, treeNote.body, treeNote.actorClaim, treeNote.verification),
+                    )
+                }
+            }
 
             val events = bus.drainDelivered("s4d", flow)
             assertEquals(5, events.size, "3 item.created + 1 dependency.added + 1 note.upserted, got: $events")
@@ -457,7 +522,7 @@ class EventActorRootIdTest {
             lateinit var child: WorkItem
             // The actor scope closes BEFORE the transaction commits, so a flush-time context read
             // would see no actor: the assertion below can only pass if capture happened at enqueue.
-            db.unitOfWork().inUnit {
+            provider.ctx.unitOfWork.inUnit {
                 child = withEventActor(agentA) { provider.newChild("C-s5a", root) }
             }
 
@@ -476,7 +541,7 @@ class EventActorRootIdTest {
 
             var threw = false
             try {
-                db.unitOfWork().inUnit {
+                provider.ctx.unitOfWork.inUnit {
                     withEventActor(agentA) { provider.newRoot("X-s5b") }
                     throw IllegalStateException("forced rollback s5b")
                 }
@@ -707,7 +772,7 @@ class EventActorRootIdTest {
             val flow = bus.subscribe("s11c", emptySet(), lastEventId = null)
             val ctx = toolContext(bus)
             val item = provider.newRoot("X-s11c")
-            val saved = provider.noteRepository().upsert(note(item.id, "k-s11c"))!!
+            val saved = provider.upsertNote(note(item.id, "k-s11c"))
 
             val result =
                 ManageNotesTool().execute(
@@ -829,7 +894,7 @@ class EventActorRootIdTest {
         runBlocking {
             val store = repositoryProvider.eventStore()
             val bus = ApiEventBus(source = store)
-            val recorder = EventRecorder(store, listener = DeferredEventPublisher(bus))
+            val recorder = EventRecorder(store, listener = bus)
             val itemId = UUID.randomUUID()
             val rootId = UUID.randomUUID()
 
@@ -846,7 +911,7 @@ class EventActorRootIdTest {
         runBlocking {
             val store = repositoryProvider.eventStore()
             val bus = ApiEventBus(source = store)
-            val recorder = EventRecorder(store, listener = DeferredEventPublisher(bus))
+            val recorder = EventRecorder(store, listener = bus)
             val itemId = UUID.randomUUID()
 
             recorder.record(DomainEvent.ItemUpdated(itemId, itemId, listOf("title")))

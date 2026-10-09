@@ -21,9 +21,10 @@ import java.util.UUID
 const val MAX_TRAVERSAL_DEPTH: Int = 1000
 
 /**
- * Hierarchy walks over the `parent_id` graph: descendants, ancestor chains and child placement.
- * The store has NO write methods in P7: placement (`parent_id`, `root_id`, `depth`) is written
- * only by item create/update today, and a later item moves those writes here.
+ * Hierarchy walks over the `parent_id` graph: descendants, ancestor chains and child placement, plus
+ * the one bulk placement write, [restampSubtree]. An item's own placement (`parent_id`, `root_id`,
+ * `depth`) is still written by the item store's insert/update; the descendant restamp after a reparent
+ * lives here.
  */
 interface HierarchyStore {
     /**
@@ -77,12 +78,25 @@ interface HierarchyStore {
      * A read inside the write transaction instead makes a concurrent commit surface as a
      * transaction failure (e.g. `SQLITE_BUSY_SNAPSHOT`) rather than a silent stale write.
      *
-     * Reads only, so the event-publishing decorator needs no override: no event is published by a read.
-     * The placement is `depth = parent.depth + 1`, `rootId = parent.rootId ?: parent.id`.
+     * A read: it records no event. The placement is `depth = parent.depth + 1`, `rootId = parent.rootId ?: parent.id`.
      *
      * @return the resolved [ChildPlacement], or null when [parentId] does not resolve to an existing item.
      */
     suspend fun resolveChildPlacement(parentId: UUID): ChildPlacement?
+
+    /**
+     * Restamps every DESCENDANT of [itemId] ([itemId] itself excluded) after the item moved: `depth += depthDelta`,
+     * `root_id = newRootId`, `version += 1` and `modified_at` = the unit instant, in ONE statement over the same
+     * bounded subtree walk as [findDescendants] (fails loud at [MAX_TRAVERSAL_DEPTH]). Must run inside the write
+     * unit that moved the item. Records no event: the caller owns the `item.updated` rows.
+     *
+     * @return the number of rows restamped.
+     */
+    suspend fun restampSubtree(
+        itemId: UUID,
+        depthDelta: Int,
+        newRootId: UUID
+    ): Int
 }
 
 /**

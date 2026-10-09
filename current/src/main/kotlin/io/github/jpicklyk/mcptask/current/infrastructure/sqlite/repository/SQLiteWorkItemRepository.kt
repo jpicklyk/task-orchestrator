@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.port.HierarchyStore
 import io.github.jpicklyk.mcptask.current.application.port.ItemStore
 import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
 
@@ -28,11 +27,8 @@ class SQLiteWorkItemRepository private constructor(
     SearchIndex by search {
     constructor(databaseManager: DatabaseManager, clock: Clock = SystemClock) : this(
         SqliteItemStore(databaseManager, clock),
-        SqliteHierarchyStore(databaseManager),
+        SqliteHierarchyStore(databaseManager, clock),
         SqliteClaimStore(databaseManager, clock),
         SqliteSearchIndex(databaseManager)
     )
-
-    /** Inserts one row inside the CALLER's open transaction (the work-tree service writes whole trees in one). */
-    internal fun insertRow(item: WorkItem): WorkItem = items.insertRow(item)
 }

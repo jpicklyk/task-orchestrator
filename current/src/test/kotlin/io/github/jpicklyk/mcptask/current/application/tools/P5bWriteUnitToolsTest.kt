@@ -2,14 +2,11 @@ package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
-import io.github.jpicklyk.mcptask.current.application.service.PlacedWriteOutcome
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemPlacementService
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDeleteOutcome
-import io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDeletion
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
@@ -366,19 +363,16 @@ class P5bWriteUnitToolsTest {
     fun `S13 placement and purge services called inside an outer unit commit nothing when the outer returns Err`(): Unit =
         runBlocking {
             val uow = db.unitOfWork()
-            val placement = WorkItemPlacementService(repo)
+            val items = ToolExecutionContext(db.repositoryProvider(), unitOfWork = uow).itemCommandService
             val victim = repo.create(WorkItem(title = "S13 victim", depth = 0))
             val placedId = UUID.randomUUID()
 
             val result =
                 uow.write<Unit>("S13.outer") {
-                    val placed =
-                        placement.create(uow, placedId, null) { depth, rootId ->
-                            WorkItem(id = placedId, title = "S13 placed", depth = depth, rootId = rootId)
-                        }
-                    assertIs<PlacedWriteOutcome.Written>(placed)
-                    val purged = WorkItemDeletion(db.repositoryProvider(), uow).delete(victim.id, recursive = false)
-                    assertIs<WorkItemDeleteOutcome.Deleted>(purged)
+                    val placed = items.create(ItemCreateCommand(id = placedId, parentId = null, title = "S13 placed"))
+                    assertIs<Outcome.Ok<WorkItem>>(placed)
+                    val purged = items.delete(victim.id, recursive = false)
+                    assertIs<Outcome.Ok<*>>(purged)
                     Outcome.Err(DomainError(ErrorCode.INTERNAL, "outer decides to roll back"))
                 }
 
@@ -391,16 +385,14 @@ class P5bWriteUnitToolsTest {
     fun `S13 control - the same outer unit returning Ok commits both service writes`(): Unit =
         runBlocking {
             val uow = db.unitOfWork()
-            val placement = WorkItemPlacementService(repo)
+            val items = ToolExecutionContext(db.repositoryProvider(), unitOfWork = uow).itemCommandService
             val victim = repo.create(WorkItem(title = "S13 victim ok", depth = 0))
             val placedId = UUID.randomUUID()
 
             val result =
                 uow.write("S13.outer.ok") {
-                    placement.create(uow, placedId, null) { depth, rootId ->
-                        WorkItem(id = placedId, title = "S13 placed ok", depth = depth, rootId = rootId)
-                    }
-                    WorkItemDeletion(db.repositoryProvider(), uow).delete(victim.id, recursive = false)
+                    items.create(ItemCreateCommand(id = placedId, parentId = null, title = "S13 placed ok"))
+                    items.delete(victim.id, recursive = false)
                     Outcome.Ok(Unit)
                 }
 

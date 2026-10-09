@@ -3,6 +3,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
+import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
+import io.github.jpicklyk.mcptask.current.application.service.ParentChange
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -251,7 +253,7 @@ class EventRoutesTest {
             // Build a real SQLite-backed repository provider and wrap it with the decorator
             val baseRepo = db.repositoryProvider()
             val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
-            val decorated = EventPublishingRepositoryProvider(baseRepo, bus)
+            val context = eventWiredContext(db.databaseManager, baseRepo, bus)
 
             // Subscribe to bus BEFORE making the repo write (simulates a connected dashboard).
             // create + update produce exactly two events, so take(2) completes deterministically
@@ -261,21 +263,16 @@ class EventRoutesTest {
 
             delay(100)
 
-            // Write DIRECTLY via the decorated repository — this is the MCP-tool path.
-            // REST routes are NOT used here. This proves the decorator captures repo-level writes.
+            // Write through the item command service (the MCP-tool write path; REST routes are NOT used
+            // here). This proves the service's own event rows reach the bus.
             val itemId = UUID.randomUUID()
-            val item =
-                WorkItem(
-                    id = itemId,
-                    parentId = null,
-                    title = "MCP-path test item",
-                    depth = 0,
-                )
-            val createResult = decorated.workItemRepository().create(item)
+            val createResult =
+                context.itemCommandService
+                    .create(ItemCreateCommand(id = itemId, parentId = null, title = "MCP-path test item"))
+                    .orFail()
             assertNotNull(createResult, "Item creation should succeed: $createResult")
 
-            val updated = item.copy(title = "MCP-path test item updated")
-            val updateResult = decorated.workItemRepository().update(updated)
+            val updateResult = context.itemCommandService.patch(patchOf(createResult, title = "MCP-path test item updated")).orFail()
             assertNotNull(updateResult, "Item update should succeed: $updateResult")
 
             val collectedEvents = collectorDeferred.await()
@@ -312,7 +309,12 @@ class EventRoutesTest {
 
             val itemId = UUID.randomUUID()
             val item = WorkItem(id = itemId, parentId = null, title = "Advance test", depth = 0, role = Role.QUEUE)
-            assertTrue(decorated.workItemRepository().create(item) != null)
+            assertTrue(
+                ToolExecutionContext(decorated, unitOfWork = unitOfWork)
+                    .itemCommandService
+                    .create(ItemCreateCommand(id = itemId, parentId = null, title = "Advance test"))
+                    .orFail() != null
+            )
 
             // Change the ROLE (a phase advance) — must surface as item.advanced (carries newRole),
             // distinct from item.updated. P11: AdvanceService writes the role change, its transition row
@@ -365,8 +367,7 @@ class EventRoutesTest {
             // raw provider -> EventPublishingRepositoryProvider -> ToolExecutionContext.
             val baseRepo = db.repositoryProvider()
             val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
-            val decorated = EventPublishingRepositoryProvider(baseRepo, bus)
-            val toolContext = ToolExecutionContext(decorated, unitOfWork = db.unitOfWork())
+            val toolContext = eventWiredContext(db.databaseManager, baseRepo, bus)
             val tool = ManageItemsTool()
 
             // Subscribe BEFORE executing the tool (simulates a connected dashboard). The create
@@ -621,7 +622,8 @@ class EventRoutesTest {
         runBlocking {
             val baseRepo = db.repositoryProvider()
             val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
-            val decorated = EventPublishingRepositoryProvider(baseRepo, bus)
+            // No store is decorated any more: reads go to the provider the services share.
+            val decorated = eventWiredContext(db.databaseManager, baseRepo, bus).repositoryProvider
 
             // Create via base repo (no events)
             val item =
@@ -652,17 +654,13 @@ class EventRoutesTest {
         runBlocking {
             val baseRepo = db.repositoryProvider()
             val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
-            val decorated = EventPublishingRepositoryProvider(baseRepo, bus)
+            val context = eventWiredContext(db.databaseManager, baseRepo, bus)
+            val items = context.itemCommandService
 
             // Create two roots and a child under root1
-            val root1 = WorkItem(id = UUID.randomUUID(), title = "Root1", depth = 0)
-            val root2 = WorkItem(id = UUID.randomUUID(), title = "Root2", depth = 0)
-            val child =
-                WorkItem(id = UUID.randomUUID(), title = "Child", depth = 1, parentId = root1.id)
-
-            decorated.workItemRepository().create(root1)
-            decorated.workItemRepository().create(root2)
-            decorated.workItemRepository().create(child)
+            val root1 = items.create(ItemCreateCommand(parentId = null, title = "Root1")).orFail()
+            val root2 = items.create(ItemCreateCommand(parentId = null, title = "Root2")).orFail()
+            val child = items.create(ItemCreateCommand(parentId = root1.id, title = "Child")).orFail()
 
             // Subscribe to each root. The reparent delivers exactly one event to each root topic
             // (scope.left to root1, scope.entered to root2), so a bounded take(1) per subscriber
@@ -678,8 +676,7 @@ class EventRoutesTest {
             delay(100)
 
             // Reparent child from root1 → root2.
-            val reparented = child.copy(parentId = root2.id)
-            decorated.workItemRepository().update(reparented)
+            items.patch(patchOf(child, parent = ParentChange.MoveUnder(root2.id))).orFail()
 
             // Await the single event each subscriber should receive (bounded by withTimeout above).
             val root1Events = root1Deferred.await()

@@ -15,8 +15,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEvent
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventPublishingRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.drainDelivered
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.eventWiredUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.delete
 import io.ktor.client.request.header
@@ -43,9 +43,9 @@ import kotlin.test.assertTrue
  * calling API principal. Oracle: task-scope Amendment A1 and api-rest.md section 21 -- the actor is
  * `api:<tokenId>`, kind `external`, parent absent. The WRITE token's id is [WRITE_TOKEN_ID].
  *
- * Wiring: the REAL write route functions under the production-style bearer plugin, over an
- * [EventPublishingRepositoryProvider]-decorated SQLite provider. Fixtures are seeded through the
- * UNDECORATED provider so the only events on the bus are those the REST write under test produced.
+ * Wiring: the REAL write route functions under the production-style bearer plugin, over a SQLite provider whose
+ * unit of work records through one recorder feeding the bus. Fixtures are seeded directly through the
+ * store so the only events on the bus are those the REST write under test produced.
  * A bus subscriber is registered before each write, because the decorator skips root resolution
  * while nobody is subscribed (a rootId assertion needs a subscriber).
  */
@@ -55,7 +55,9 @@ class RestWriteEventActorTest {
 
     private val expectedActor = ActorClaimDto(id = "api:$WRITE_TOKEN_ID", kind = "external", parent = null)
 
-    private fun Application.wire(decorated: EventPublishingRepositoryProvider) {
+    private fun Application.wire(bus: ApiEventBus) {
+        // One recorder feeding the bus, shared by the unit every write service records through (ServerComposition's wiring).
+        val (decorated, unitOfWork) = eventWiredUnit(db.databaseManager, db.repositoryProvider(), bus)
         configureTestApp(makeWriteAuthConfig()) {
             val toolContext =
                 ToolExecutionContext(
@@ -63,23 +65,23 @@ class RestWriteEventActorTest {
                     NoOpNoteSchemaService,
                     statusLabelService = NoOpStatusLabelService,
                     perRootConfigService = PerRootConfigService(decorated.projectConfigRepository()),
-                    unitOfWork = db.unitOfWork()
+                    unitOfWork = unitOfWork
                 )
             itemWriteRoutes(
                 decorated,
                 DegradedModePolicy.ACCEPT_CACHED,
-                IdempotencyService(db.unitOfWork()),
+                IdempotencyService(unitOfWork),
                 toolContext.advanceServiceFactory(),
-                db.unitOfWork(),
+                unitOfWork,
             )
             noteWriteRoutes(
                 decorated,
                 DegradedModePolicy.ACCEPT_CACHED,
-                IdempotencyService(db.unitOfWork()),
-                db.unitOfWork(),
+                IdempotencyService(unitOfWork),
+                unitOfWork,
                 toolContext.noteCommandService
             )
-            dependencyWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyService(db.unitOfWork()), db.unitOfWork())
+            dependencyWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyService(unitOfWork), unitOfWork)
         }
     }
 
@@ -118,7 +120,7 @@ class RestWriteEventActorTest {
             val c = seed(repo, "C", p)
             val g = seed(repo, "G", c)
             val bus = ApiEventBus()
-            application { wire(EventPublishingRepositoryProvider(repo, bus)) }
+            application { wire(bus) }
             val flow = bus.subscribe("r1", emptySet(), lastEventId = null)
 
             val response =
@@ -157,7 +159,7 @@ class RestWriteEventActorTest {
         testApplication {
             val repo = db.repositoryProvider()
             val bus = ApiEventBus()
-            application { wire(EventPublishingRepositoryProvider(repo, bus)) }
+            application { wire(bus) }
             val flow = bus.subscribe("r2", emptySet(), lastEventId = null)
 
             val rootResp =
@@ -190,7 +192,7 @@ class RestWriteEventActorTest {
             val repo = db.repositoryProvider()
             val item = seed(repo, "R3 item")
             val bus = ApiEventBus()
-            application { wire(EventPublishingRepositoryProvider(repo, bus)) }
+            application { wire(bus) }
             val flow = bus.subscribe("r3", emptySet(), lastEventId = null)
 
             val response =
@@ -218,7 +220,7 @@ class RestWriteEventActorTest {
             val repo = db.repositoryProvider()
             val item = seed(repo, "R4 item")
             val bus = ApiEventBus()
-            application { wire(EventPublishingRepositoryProvider(repo, bus)) }
+            application { wire(bus) }
             val flow = bus.subscribe("r4", emptySet(), lastEventId = null)
 
             val response =
@@ -242,7 +244,7 @@ class RestWriteEventActorTest {
                 repo.noteRepository().upsert(Note(itemId = item.id, key = "r5-note", role = "work", body = "bye"))
             }
             val bus = ApiEventBus()
-            application { wire(EventPublishingRepositoryProvider(repo, bus)) }
+            application { wire(bus) }
             val flow = bus.subscribe("r5", emptySet(), lastEventId = null)
 
             val response =
@@ -266,7 +268,7 @@ class RestWriteEventActorTest {
             val from = seed(repo, "R6 from")
             val to = seed(repo, "R6 to")
             val bus = ApiEventBus()
-            application { wire(EventPublishingRepositoryProvider(repo, bus)) }
+            application { wire(bus) }
             val flow = bus.subscribe("r6", emptySet(), lastEventId = null)
 
             val response =
@@ -300,7 +302,7 @@ class RestWriteEventActorTest {
                     }
                 }
             val bus = ApiEventBus()
-            application { wire(EventPublishingRepositoryProvider(repo, bus)) }
+            application { wire(bus) }
             val flow = bus.subscribe("r7", emptySet(), lastEventId = null)
 
             val response =
@@ -320,7 +322,7 @@ class RestWriteEventActorTest {
         testApplication {
             val repo = db.repositoryProvider()
             val bus = ApiEventBus()
-            application { wire(EventPublishingRepositoryProvider(repo, bus)) }
+            application { wire(bus) }
             val flow = bus.subscribe("ro", emptySet(), lastEventId = null)
 
             val denied =

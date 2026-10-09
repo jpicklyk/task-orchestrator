@@ -305,7 +305,7 @@ class SseRootScopeFailClosedTest {
             delegate.workItemRepository().create(WorkItem(id = uncachedToId, title = "S11 cold to", depth = 0))
 
             val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
-            val provider = EventPublishingRepositoryProvider(delegate, bus)
+            val provider = eventWiredContext(db.databaseManager, delegate, bus)
 
             val rootScopedFlow = bus.subscribe("s11-root-scoped", setOf(UUID.randomUUID()), lastEventId = null)
             val unrestrictedFlow = bus.subscribe("s11-unrestricted", emptySet(), lastEventId = null)
@@ -313,8 +313,8 @@ class SseRootScopeFailClosedTest {
             val unrestrictedResult = async { withTimeout(5.seconds) { unrestrictedFlow.take(1).toList() } }
 
             delay(50)
-            provider.dependencyRepository().create(
-                Dependency(fromItemId = uncachedFromId, toItemId = uncachedToId, type = DependencyType.BLOCKS),
+            provider.dependencyCommandService.create(
+                listOf(Dependency(fromItemId = uncachedFromId, toItemId = uncachedToId, type = DependencyType.BLOCKS)),
             )
 
             val rootScoped = rootScopedResult.await()

@@ -34,8 +34,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.DeferredEventPublisher
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventPublishingRepositoryProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -47,21 +45,20 @@ import java.nio.file.Paths
 /**
  * Resolved REST/SSE API wiring, computed ONCE at startup by [ServerComposition].
  *
- * The same [effectiveProvider] and [eventBus] are shared between the MCP tool context and the REST
+ * The same [eventRecorder] and [eventBus] are shared between the MCP tool context and the REST
  * routes so BOTH MCP-tool writes and REST writes record to the same events table, which the SSE
- * bus projects.
+ * bus projects. Every write service records its own rows through the unit of work's sink.
  *
  * @param apiConfig The resolved API auth configuration (Disabled / Bearer / Jwks).
  * @param eventBus The SSE projection of the events table, or null when the API is disabled.
- * @param effectiveProvider The provider to use everywhere: the event-recording decorator, installed
- *   whether or not the API is enabled.
+ * @param effectiveProvider The provider to use everywhere (the raw store provider: no store is decorated).
  * @param tokenEntries Pre-loaded bearer token entries with expiry metadata (empty unless bearer mode).
  * @param allowQueryToken Whether `?token=` query-param auth is enabled for the SSE route.
  * @param jwksVerifier REST JWT verifier built from [ApiAuthConfig.Jwks] settings, or null unless the
  *   API is enabled in jwks mode. This is the REST-API verifier ([JwksApiVerifier]) — NOT the
  *   unrelated actor-authentication [JwksActorVerifier].
- * @param eventRecorder The one recorder the decorator and the unit of work's `events` append through
- *   (its commit listener feeds [eventBus] when the API is enabled); null in hand-built wirings.
+ * @param eventRecorder The one recorder the unit of work's `events` append through (its commit listener is
+ *   [eventBus] when the API is enabled); null in hand-built wirings.
  */
 data class ApiWiring(
     val apiConfig: ApiAuthConfig,
@@ -117,8 +114,7 @@ class ServerComposition(
      *
      * Ordering mirrors the previous inline construction in `CurrentMcpServer.run()`:
      * repositories → config services → actor verifier → API wiring (resolved EARLY so the SAME bus
-     * and decorated provider feed both the tool context and the REST routes) → recommender → tool
-     * context.
+     * and recorder feed both the tool context and the REST routes) → recommender → tool context.
      */
     fun build(): CompositionResult {
         // ONE clock instance for the whole graph: the stores, the unit of work and the tool context all read it.
@@ -149,10 +145,9 @@ class ServerComposition(
         val (actorVerifier, degradedModePolicy) = createActorVerifierAndPolicy(actorAuthConfigService)
 
         // Resolve the REST/SSE API wiring ONCE, EARLY, before the tool context is built, so the
-        // SAME decorated provider (and, with the API on, the SAME event bus) feeds BOTH the MCP tool
-        // context AND the REST routes. The event-recording decorator is installed whether or not
-        // the API is enabled: every write records its events rows; only the SSE projection of them
-        // needs the API.
+        // SAME recorder (and, with the API on, the SAME event bus) feeds BOTH the MCP tool context
+        // AND the REST routes. Every write service records its events rows whether or not the API is
+        // enabled; only the SSE projection of them needs the API.
         val apiWiring = resolveApiWiring(repositoryProvider, clock)
         val effectiveProvider = apiWiring.effectiveProvider
 
@@ -163,13 +158,13 @@ class ServerComposition(
             )
         // Per-root schema layer (T3.2): resolveSchema() consults this root's pushed config before
         // falling back to the global noteSchemaService above. Shares effectiveProvider so MCP tools
-        // and REST routes see the same (possibly event-publishing-decorated) project_config access.
+        // and REST routes see the same project_config access.
         val perRootConfigService = PerRootConfigService(effectiveProvider.projectConfigRepository())
         // Both MCP and REST resolve config through this ONE resolver — see O1 (task-scope f2c50e6d):
         // REST previously built its own PerRootConfigService (a separate last-known-good cache);
         // sharing this instance is the only intended observable behavior change in this item.
         val configResolver = EffectiveConfigResolver(LayerBackedGlobalLookup(globalConfigFile.layer()), perRootConfigService)
-        // The unit of work hands scopes the SAME (possibly event-publishing) provider the tools use.
+        // The unit of work hands scopes the SAME provider the tools use.
         val unitOfWork: UnitOfWork = SqliteUnitOfWork(databaseManager, effectiveProvider, clock, apiWiring.eventRecorder)
         val toolContext =
             ToolExecutionContext(
@@ -211,11 +206,11 @@ class ServerComposition(
     /**
      * Resolve the REST/SSE API wiring exactly once at startup.
      *
-     * Loads the API auth config (fail-fast on misconfiguration). Always wraps [rawProvider] with the
-     * event-recording [EventPublishingRepositoryProvider] over one [EventRecorder]. When the API is
-     * enabled, also builds a single [ApiEventBus] projecting the events table (replay window from
-     * [AppConfig.apiSseBufferSize]), makes it the recorder's commit listener and starts its
-     * cross-process poll (stopped at shutdown); when disabled, the bus is null and the recorder has no
+     * Loads the API auth config (fail-fast on misconfiguration) and builds the one [EventRecorder] over
+     * [rawProvider]'s event store. When the API is enabled, also builds a single [ApiEventBus] projecting the
+     * events table (replay window from [AppConfig.apiSseBufferSize]), makes it the recorder's commit listener
+     * (its [ApiEventBus.committed] never throws, so a fan-out failure cannot reach a committed write) and starts
+     * its cross-process poll (stopped at shutdown); when disabled, the bus is null and the recorder has no
      * listener.
      */
     private fun resolveApiWiring(
@@ -244,7 +239,7 @@ class ServerComposition(
             return ApiWiring(
                 apiConfig = apiConfig,
                 eventBus = null,
-                effectiveProvider = EventPublishingRepositoryProvider(rawProvider, recorder),
+                effectiveProvider = rawProvider,
                 tokenEntries = emptyMap(),
                 allowQueryToken = allowQueryToken,
                 jwksVerifier = null,
@@ -253,8 +248,7 @@ class ServerComposition(
         }
 
         val bus = ApiEventBus(bufferSize = appConfig.apiSseBufferSize, source = rawProvider.eventStore())
-        val recorder = EventRecorder(rawProvider.eventStore(), clock, DeferredEventPublisher(bus))
-        val decorated = EventPublishingRepositoryProvider(rawProvider, recorder)
+        val recorder = EventRecorder(rawProvider.eventStore(), clock, bus)
         val tailerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         bus.startTailer(tailerScope)
         shutdownCoordinator.addCleanupAction("Stop SSE event tail") {
@@ -294,7 +288,7 @@ class ServerComposition(
         return ApiWiring(
             apiConfig = apiConfig,
             eventBus = bus,
-            effectiveProvider = decorated,
+            effectiveProvider = rawProvider,
             tokenEntries = tokenEntries,
             allowQueryToken = allowQueryToken,
             jwksVerifier = jwksVerifier,

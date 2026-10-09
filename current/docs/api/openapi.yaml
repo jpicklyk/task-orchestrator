@@ -1682,6 +1682,10 @@ paths:
         tags_include allowlist (the new root is its own anchor, mirroring the parentId-outside-scope
         check applied to a non-root create); otherwise 403 scope_forbidden, and nothing is
         persisted.
+
+        The item is always created in queue. Its depth and rootId come from the parent row read
+        inside the write's own transaction. A terminal parent whose effective lifecycle is auto
+        takes no new children: 409 invalid_transition with details.parentId, nothing written.
       parameters:
         - $ref: "#/components/parameters/idempotencyKey"
       requestBody:
@@ -1708,7 +1712,15 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          $ref: "#/components/responses/IdempotencyMismatch"
+          description: >-
+            error="invalid_transition" — the parent is terminal under auto lifecycle and takes no
+            new children; details.parentId names it and nothing is written (reopen the parent
+            first). error="idempotency_mismatch" — the Idempotency-Key was already used with a
+            different request; nothing was executed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
         "413":
           description: >-
             Payload too large — body exceeds the shared 1 MiB write-body limit, enforced before
@@ -1728,6 +1740,14 @@ paths:
                 $ref: "#/components/schemas/ErrorDto"
         "500":
           $ref: "#/components/responses/InternalServerError"
+        "503":
+          description: >-
+            error="config_unavailable" — resolving a terminal parent's lifecycle read the per-root
+            config and it was unavailable (transient); nothing is written.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
 
   /items/roots:
     get:
@@ -1822,8 +1842,13 @@ paths:
         findAncestorChains lookup) — not bounded by the parent row's denormalized depth, so a stale
         depth value can no longer let a cycle through. Ordering: 404 not_found (unknown parent) ->
         403 scope_forbidden (parent outside scope) -> this 400 validation_error (self/descendant
-        cycle); nothing is written until all three clear. If the ancestor-chain lookup itself fails,
-        the patch returns 500 db_error rather than admitting the re-parent.
+        cycle) -> 409 invalid_transition (the new parent is terminal under auto lifecycle;
+        details.parentId names it); nothing is written until all clear. If the ancestor-chain
+        lookup itself fails, the patch returns 500 db_error rather than admitting the re-parent.
+
+        A re-parent restamps every descendant's depth and rootId in one statement (their versions
+        and ETags change) and then re-evaluates the OLD parent like a child completion, all in the
+        same transaction; the response body is unchanged.
 
         When the patch instead moves the item TO root (parentId changed from non-null to null), a
         root_ids-scoped token gets 403 scope_forbidden unless the item's own id is itself in
@@ -1876,8 +1901,10 @@ paths:
             error="version_conflict" — a concurrent writer's update won the version race between
             the If-Match check and this request's own write (optimistic-lock loss). Distinct from
             412 etag_mismatch below, which is a stale-If-Match-at-read-time guard, not a
-            concurrent-write guard. Retry with a fresh If-Match ETag. error="idempotency_mismatch" —
-            the Idempotency-Key was already used with a different request; nothing was executed.
+            concurrent-write guard. Retry with a fresh If-Match ETag. error="invalid_transition" —
+            the new parent is terminal under auto lifecycle (details.parentId); nothing is written.
+            error="idempotency_mismatch" — the Idempotency-Key was already used with a different
+            request; nothing was executed.
           content:
             application/json:
               schema:

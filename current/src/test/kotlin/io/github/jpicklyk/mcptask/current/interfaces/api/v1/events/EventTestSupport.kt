@@ -6,12 +6,17 @@ import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
+import io.github.jpicklyk.mcptask.current.application.service.ItemPatchCommand
+import io.github.jpicklyk.mcptask.current.application.service.ParentChange
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
+import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.DeleteCause
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.event.ReparentSide
 import io.github.jpicklyk.mcptask.current.domain.event.TransitionOrigin
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SqliteUnitOfWork
 import kotlinx.coroutines.flow.Flow
@@ -27,12 +32,11 @@ import java.util.UUID
  * ## Why a fixed wait is unnecessary
  *
  * [ApiEventBus.subscribe] registers the subscriber and its bounded [kotlinx.coroutines.channels.Channel]
- * synchronously, at call time, not when the returned [Flow] starts collecting. [DeferredEventPublisher.publishOnCommit]
- * publishes synchronously, before it returns, when no transaction is open; inside a transaction it
- * publishes at `afterCommit` (or discards on rollback) — and either way this happens before the
- * `inTransaction` call returns (see [DeferredEventPublisher]'s KDoc). So by the time a write under
- * test has returned, every event it produced has already reached the subscriber's channel. There is
- * nothing left to wait for.
+ * synchronously, at call time, not when the returned [Flow] starts collecting. The recorder signals
+ * [ApiEventBus.committed] synchronously, before it returns, when no unit is open; inside a unit it
+ * signals at `afterCommit` (or never, on rollback) — and either way this happens before the unit's
+ * `write` call returns. So by the time a write under test has returned, every event it produced has
+ * already reached the subscriber's channel. There is nothing left to wait for.
  *
  * ## Usage
  *
@@ -46,8 +50,8 @@ import java.util.UUID
  * ## Risk if publishing ever becomes asynchronous
  *
  * This helper (and the exact-count assertions built on it) are correct only while publishing
- * stays synchronous, per [DeferredEventPublisher]'s contract. If a future change made
- * `publishOnCommit` schedule work asynchronously instead, this helper would UNDER-count rather than
+ * stays synchronous. If a future change made the commit signal schedule work asynchronously
+ * instead, this helper would UNDER-count rather than
  * hang — it would drain and close before the async publish completed. The exact-count assertions in
  * the tests that use this helper are what catches that: a missing event fails the count assertion
  * rather than passing silently.
@@ -61,43 +65,70 @@ internal suspend fun ApiEventBus.drainDelivered(
 }
 
 /**
- * Wires the production decorator over [delegate] the way `ServerComposition` does with the API on: one
- * [EventRecorder] over [delegate]'s event store whose commit listener ([DeferredEventPublisher]) feeds [bus], and
- * [bus] projecting that same store. Construction only: tests keep calling `EventPublishingRepositoryProvider(delegate,
- * bus)` as they did when the decorator published to the bus directly.
- */
-@Suppress("ktlint:standard:function-naming")
-internal fun EventPublishingRepositoryProvider(
-    delegate: RepositoryProvider,
-    bus: ApiEventBus,
-): EventPublishingRepositoryProvider {
-    // Resolved on first use, so a mocked delegate that never records needs no event-store stub.
-    val store = LazyEventStore { delegate.eventStore() }
-    if (bus.source == null) bus.source = store
-    return EventPublishingRepositoryProvider(delegate, EventRecorder(store, listener = DeferredEventPublisher(bus)))
-}
-
-/**
- * The full `ServerComposition` wiring with the API on, over [delegate]: ONE [EventRecorder] whose commit listener feeds
- * [bus], shared by the decorator AND a [SqliteUnitOfWork] over [databaseManager]. Rows a unit records itself through
- * `WriteScope.events` (since P11, `item.transitioned` is recorded by AdvanceService, not the decorator) reach [bus] only
- * through this shared recorder.
+ * The full `ServerComposition` wiring with the API on, over [delegate]: ONE [EventRecorder] over [delegate]'s event
+ * store whose commit listener is [bus], and a [SqliteUnitOfWork] over [databaseManager] that hands its scopes that
+ * recorder. Every write service records its rows through `WriteScope.events`, so they reach [bus] only through this
+ * shared recorder. Returns [delegate] (no store is decorated) and the unit of work.
  */
 internal fun eventWiredUnit(
     databaseManager: DatabaseManager,
     delegate: RepositoryProvider,
     bus: ApiEventBus,
     clock: Clock = Clock.SYSTEM,
-): Pair<EventPublishingRepositoryProvider, UnitOfWork> {
+): Pair<RepositoryProvider, UnitOfWork> {
     val store = LazyEventStore { delegate.eventStore() }
     if (bus.source == null) bus.source = store
-    val recorder = EventRecorder(store, clock, DeferredEventPublisher(bus))
-    val provider = EventPublishingRepositoryProvider(delegate, recorder)
-    return provider to SqliteUnitOfWork(databaseManager, provider, clock, recorder)
+    val recorder = EventRecorder(store, clock, bus)
+    return delegate to SqliteUnitOfWork(databaseManager, delegate, clock, recorder)
 }
 
 /**
- * The production projection wiring without the decorator: [bus] projects [store], and [emit] records one row
+ * A [ToolExecutionContext] over [delegate] whose unit of work is [eventWiredUnit]'s: the write services it exposes
+ * (`itemCommandService`, `noteCommandService`, `dependencyCommandService`, `claimService`) record their rows through
+ * the one recorder that feeds [bus]. Tests that drove a decorated store directly drive these services instead.
+ */
+internal fun eventWiredContext(
+    databaseManager: DatabaseManager,
+    delegate: RepositoryProvider,
+    bus: ApiEventBus,
+    clock: Clock = Clock.SYSTEM,
+): ToolExecutionContext {
+    val (provider, unitOfWork) = eventWiredUnit(databaseManager, delegate, bus, clock)
+    return ToolExecutionContext(provider, clock = clock, unitOfWork = unitOfWork)
+}
+
+/** A patch of [item] keeping every field but the ones given: [parent] (default keep) and [title]. */
+internal fun patchOf(
+    item: WorkItem,
+    parent: ParentChange = ParentChange.Keep,
+    title: String = item.title,
+): ItemPatchCommand =
+    ItemPatchCommand(
+        itemId = item.id,
+        expectedVersion = null,
+        parent = parent,
+        title = title,
+        description = item.description,
+        summary = item.summary,
+        statusLabel = item.statusLabel,
+        priority = item.priority,
+        complexity = item.complexity,
+        requiresVerification = item.requiresVerification,
+        metadata = item.metadata,
+        tags = item.tags,
+        type = item.type,
+        properties = item.properties,
+    )
+
+/** The value of a write-service [Outcome], failing the test on a rejection. */
+internal fun <T> Outcome<T>.orFail(): T =
+    when (this) {
+        is Outcome.Ok -> value
+        is Outcome.Err -> throw AssertionError("write rejected: ${error.code} ${error.message}")
+    }
+
+/**
+ * The production projection wiring: [bus] projects [store], and [emit] records one row
  * through an [EventRecorder] whose commit listener feeds [bus], exactly as a committed write would. Use it where a
  * test used to inject events with `bus.publish(bus.buildEvent(...))`: a row is both streamed live and replayable.
  */
@@ -109,7 +140,7 @@ internal class EventFeed(
         if (bus.source == null) bus.source = store
     }
 
-    val recorder = EventRecorder(store, listener = DeferredEventPublisher(bus))
+    val recorder = EventRecorder(store, listener = bus)
 
     /**
      * Records one row that projects as [type] (a 3.x [ApiEventType] name) for [itemId] under [rootId], and returns
@@ -148,7 +179,7 @@ internal class EventFeed(
                 ApiEventType.SCOPE_ENTERED -> DomainEvent.ItemReparented(itemId, rootId, ReparentSide.ENTERED, null, null)
                 else -> error("EventFeed.emit: $type is not a projected data event type")
             }
-        val rec = if (at == null) recorder else EventRecorder(store, Clock { at }, DeferredEventPublisher(bus))
+        val rec = if (at == null) recorder else EventRecorder(store, Clock { at }, bus)
         val record = withEventActor(actor) { rec.record(listOf(event)).single() }
         return ApiEventBus.project(record) ?: error("row of $type did not project")
     }

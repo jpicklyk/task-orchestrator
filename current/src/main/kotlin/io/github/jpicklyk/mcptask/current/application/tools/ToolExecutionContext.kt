@@ -19,15 +19,16 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFact
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
 import io.github.jpicklyk.mcptask.current.application.service.DependencyCommandService
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
+import io.github.jpicklyk.mcptask.current.application.service.ItemCommandService
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.TransitionPreview
-import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.application.support.UnscopedUnitOfWork
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
@@ -118,6 +119,18 @@ class ToolExecutionContext(
      */
     val dependencyCommandService: DependencyCommandService by lazy { DependencyCommandService(repositoryProvider, unitOfWork) }
 
+    /**
+     * The single owner of item creates, patches and deletes (placement, structural rules, item events), shared by
+     * `manage_items`, the REST item routes and `create_work_tree`. Lazy for the same reason as
+     * [advanceServiceFactoryLazy].
+     */
+    val itemCommandService: ItemCommandService by lazy {
+        ItemCommandService(repositoryProvider, configResolver, unitOfWork, advanceServiceFactory(), claimService)
+    }
+
+    /** The plan-document write owner (stash, and the adoption `create_work_tree` runs in its unit). */
+    val planDocumentService: PlanDocumentService by lazy { PlanDocumentService(repositoryProvider, unitOfWork) }
+
     /** Access to WorkItem CRUD and query operations. */
     fun workItemRepository(): WorkItemRepository = repositoryProvider.workItemRepository()
 
@@ -138,9 +151,6 @@ class ToolExecutionContext(
 
     /** Access to the actor claim verification service. */
     fun actorVerifier(): ActorVerifier = actorVerifier
-
-    /** Access to the atomic work-tree creation executor. */
-    fun workTreeExecutor(): WorkTreeExecutor = repositoryProvider.workTreeExecutor()
 
     /** Access to per-root config (raw YAML document) CRUD operations. */
     fun projectConfigRepository(): ProjectConfigStore = repositoryProvider.projectConfigRepository()

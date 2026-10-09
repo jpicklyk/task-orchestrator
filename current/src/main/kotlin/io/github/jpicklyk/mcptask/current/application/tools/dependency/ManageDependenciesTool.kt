@@ -666,7 +666,7 @@ with `deleteAll=true` for every dependency on that item.
                 // Delete by dependency ID
                 id != null -> {
                     val deleted =
-                        when (val unit = context.unitOfWork.write("ManageDependenciesTool.delete") { Outcome.Ok(repo.delete(id)) }) {
+                        when (val unit = context.dependencyCommandService.deleteById(id)) {
                             is Outcome.Ok -> unit.value
                             is Outcome.Err -> return errorResponse(LegacyFaults.message(unit.error), ErrorCodes.INTERNAL_ERROR)
                         }
@@ -691,12 +691,7 @@ with `deleteAll=true` for every dependency on that item.
                                 ErrorCodes.VALIDATION_ERROR
                             )
                     val count =
-                        when (
-                            val unit =
-                                context.unitOfWork.write(
-                                    "ManageDependenciesTool.deleteByItemId"
-                                ) { Outcome.Ok(repo.deleteByItemId(itemId)) }
-                        ) {
+                        when (val unit = context.dependencyCommandService.deleteByItemId(itemId)) {
                             is Outcome.Ok -> unit.value
                             is Outcome.Err -> return errorResponse(LegacyFaults.message(unit.error), ErrorCodes.INTERNAL_ERROR)
                         }

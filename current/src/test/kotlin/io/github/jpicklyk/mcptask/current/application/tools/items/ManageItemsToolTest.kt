@@ -96,7 +96,6 @@ class ManageItemsToolTest {
                                         put("title", JsonPrimitive("Full item"))
                                         put("description", JsonPrimitive("A detailed description"))
                                         put("summary", JsonPrimitive("Short summary"))
-                                        put("role", JsonPrimitive("work"))
                                         put("priority", JsonPrimitive("high"))
                                         put("complexity", JsonPrimitive(8))
                                         put("tags", JsonPrimitive("backend,api"))
@@ -113,7 +112,8 @@ class ManageItemsToolTest {
 
             val item = data["items"]!!.jsonArray[0] as JsonObject
             assertEquals("Full item", item["title"]!!.jsonPrimitive.content)
-            assertEquals("work", item["role"]!!.jsonPrimitive.content)
+            // P15: every item is created in queue.
+            assertEquals("queue", item["role"]!!.jsonPrimitive.content)
             assertEquals("high", item["priority"]!!.jsonPrimitive.content)
         }
 
@@ -1978,7 +1978,7 @@ class ManageItemsToolTest {
         }
 
     @Test
-    fun `create with role field still works`(): Unit =
+    fun `create with role field is rejected and creates nothing`(): Unit =
         runBlocking {
             val result =
                 tool.execute(
@@ -1999,11 +1999,14 @@ class ManageItemsToolTest {
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean)
             val data = result["data"] as JsonObject
-            assertEquals(1, data["created"]!!.jsonPrimitive.int)
-            assertEquals(0, data["failed"]!!.jsonPrimitive.int)
-
-            val item = data["items"]!!.jsonArray[0] as JsonObject
-            assertEquals("work", item["role"]!!.jsonPrimitive.content)
+            // P15 (D1): a create role is rejected, not silently ignored; the element fails and nothing is created.
+            assertEquals(0, data["created"]!!.jsonPrimitive.int)
+            assertEquals(1, data["failed"]!!.jsonPrimitive.int)
+            val failure = data["failures"]!!.jsonArray[0] as JsonObject
+            assertEquals(
+                "Item at index 0: 'role' is not accepted on create; items are created in queue (use advance_item to move them)",
+                failure["error"]!!.jsonPrimitive.content
+            )
         }
 
     // --- Gap M6: schema returns emptyList() (not null) for matching tags ---

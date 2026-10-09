@@ -137,8 +137,6 @@ class P5bWriteUnitGuardsTest {
             infrastructure/shutdown/ShutdownCoordinator.kt 1
             interfaces/api/v1/auth/BearerTokenStore.kt 2
             interfaces/api/v1/auth/JwksApiVerifier.kt 6
-            interfaces/api/v1/events/DeferredEventPublisher.kt 2
-            interfaces/api/v1/events/EventPublishingRepositoryProvider.kt 1
             interfaces/api/v1/mapping/Mappers.kt 1
             interfaces/api/v1/routes/DependencyRoutes.kt 2
             interfaces/api/v1/routes/DependencyWriteRoutes.kt 4

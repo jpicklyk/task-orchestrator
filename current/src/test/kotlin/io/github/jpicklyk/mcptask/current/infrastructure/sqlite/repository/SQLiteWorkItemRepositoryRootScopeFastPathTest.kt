@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
@@ -22,7 +21,6 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -338,7 +336,6 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest {
     @Test
     fun `reparenting a subtree onto a different stamped root moves it on the fast path`(): Unit =
         runBlocking {
-            val validator = ItemHierarchyValidator()
             val r = createRoot("S6 R")
             val b = createChild("S6 B", r)
             val g = createChild("S6 B grandchild", b)
@@ -351,8 +348,7 @@ class SQLiteWorkItemRepositoryRootScopeFastPathTest {
             val updateResult = repository.update(movedB)
             assertNotNull(updateResult)
 
-            val cascadeResult = validator.recomputeDescendantDepths(b.id, 0, r2.id, repository)
-            assertNull(cascadeResult)
+            assertEquals(1, repository.restampSubtree(b.id, 0, r2.id), "the restamp must reach G")
 
             val underR2 = repository.findInScope(rootIds = setOf(r2.id))
             assertNotNull(underR2)

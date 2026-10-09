@@ -139,7 +139,7 @@ class SQLitePlanDocumentRepository(
      *
      * **Must be called within an existing transaction** — this function does NOT open its own.
      */
-    internal fun markAdoptedRow(
+    private fun markAdoptedRow(
         rootItemId: UUID,
         slug: String,
         adoptedByItemId: UUID

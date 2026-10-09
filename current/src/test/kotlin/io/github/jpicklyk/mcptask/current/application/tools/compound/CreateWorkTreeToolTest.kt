@@ -1,18 +1,19 @@
 package io.github.jpicklyk.mcptask.current.application.tools.compound
 
 import io.github.jpicklyk.mcptask.current.application.port.ChildPlacement
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
-import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
-import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
-import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
+import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -28,19 +29,74 @@ class CreateWorkTreeToolTest {
     private lateinit var tool: CreateWorkTreeTool
     private lateinit var context: ToolExecutionContext
     private lateinit var workItemRepo: WorkItemRepository
-    private lateinit var mockExecutor: WorkTreeExecutor
+    private lateinit var fakes: FakeTreeStores
     private lateinit var repoProvider: RepositoryProvider
+
+    /** What a tree call stored, as the old executor-mock tests captured it: items in create order, notes, refs. */
+    private class CapturedTree(
+        val items: List<WorkItem>,
+        val notes: List<Note>,
+        val refToItem: Map<String, WorkItem>
+    )
+
+    /**
+     * Stateful stand-ins for the stores the tree's write services reach (item, dependency and note command
+     * services), installed on a mocked provider: a created item becomes readable (so a child's in-unit placement
+     * read sees its just-created parent), and every stored item, dependency and note is recorded in order.
+     * [capture] rebuilds what the executor-mock tests used to capture, from those rows and the response refs.
+     */
+    private inner class FakeTreeStores {
+        val items = mutableListOf<WorkItem>()
+        val deps = mutableListOf<Dependency>()
+        val notes = mutableListOf<Note>()
+        private val depRepo: DependencyStore = mockk()
+        private val noteRepo: NoteStore = mockk()
+        private val eventStore = InMemoryEventStore()
+
+        init {
+            coEvery { workItemRepo.create(any()) } coAnswers { firstArg<WorkItem>().also { items += it } }
+            coEvery { workItemRepo.getById(any()) } coAnswers {
+                val id = firstArg<UUID>()
+                items.lastOrNull { it.id == id }
+            }
+            coEvery { depRepo.findByItemIds(any()) } returns emptyMap()
+            coEvery { depRepo.createBatch(any()) } coAnswers { firstArg<List<Dependency>>().also { deps += it } }
+            coEvery { noteRepo.findByItemIdAndKey(any(), any()) } returns null
+            coEvery { noteRepo.upsert(any()) } coAnswers { firstArg<Note>().also { notes += it } }
+        }
+
+        fun install(provider: RepositoryProvider) {
+            every { provider.itemStore() } returns workItemRepo
+            every { provider.hierarchyStore() } returns workItemRepo
+            every { provider.dependencyRepository() } returns depRepo
+            every { provider.noteRepository() } returns noteRepo
+            every { provider.eventStore() } returns eventStore
+            // The item command service's advance factory (old-parent cascades) reads the lease store; never used here.
+            every { provider.resourceLeaseRepository() } returns mockk(relaxed = true)
+        }
+
+        suspend fun capture(result: JsonElement): CapturedTree {
+            val data =
+                (result as? JsonObject)?.get("data") as? JsonObject ?: return CapturedTree(items.toList(), notes.toList(), emptyMap())
+            val refToId = LinkedHashMap<String, UUID>()
+            refToId[CreateWorkTreeTool.ROOT_REF] = UUID.fromString(data["root"]!!.jsonObject["id"]!!.jsonPrimitive.content)
+            data["children"]!!.jsonArray.forEach { child ->
+                refToId[child.jsonObject["ref"]!!.jsonPrimitive.content] = UUID.fromString(child.jsonObject["id"]!!.jsonPrimitive.content)
+            }
+            val refToItem = refToId.mapValues { (_, id) -> items.lastOrNull { it.id == id } ?: workItemRepo.getById(id)!! }
+            return CapturedTree(items.toList(), notes.toList(), refToItem)
+        }
+    }
 
     @BeforeEach
     fun setUp() {
         tool = CreateWorkTreeTool()
         workItemRepo = mockk()
-        mockExecutor = mockk()
+        fakes = FakeTreeStores()
 
-        // Construction-only fixture repair (AR-19 / 3da296d8): the tool now wraps the executor
-        // call in inTransaction and resolves parent placement inside it via
-        // resolveChildPlacement. Run the block inline and derive the placement from whatever
-        // getById stub the individual test configures — no expectation changes.
+        // Construction-only fixture repair (AR-19 / 3da296d8): the item command service resolves
+        // parent placement inside the tree's unit via resolveChildPlacement. Derive the placement
+        // from whatever getById stub the individual test configures — no expectation changes.
         coEvery { workItemRepo.resolveChildPlacement(any()) } coAnswers {
             val parentId = firstArg<UUID>()
             workItemRepo.getById(parentId)?.let { parent ->
@@ -53,7 +109,7 @@ class CreateWorkTreeToolTest {
         every { repoProvider.dependencyRepository() } returns mockk()
         every { repoProvider.noteRepository() } returns mockk()
         every { repoProvider.roleTransitionRepository() } returns mockk()
-        every { repoProvider.workTreeExecutor() } returns mockExecutor
+        fakes.install(repoProvider)
 
         context = ToolExecutionContext(repoProvider)
     }
@@ -107,24 +163,6 @@ class CreateWorkTreeToolTest {
             put("type", JsonPrimitive(type))
         }
 
-    /**
-     * Returns a WorkTreeResult that mirrors the input: items and refToId from the input,
-     * plus the provided deps and notes. Used to simulate a successful executor that echoes
-     * back what the tool built.
-     */
-    private fun echoResult(
-        input: WorkTreeInput,
-        deps: List<Dependency> = emptyList()
-    ): WorkTreeResult {
-        val refToId = input.refToItem.mapValues { (_, item) -> item.id }
-        return WorkTreeResult(
-            items = input.items,
-            refToId = refToId,
-            deps = deps,
-            notes = input.notes
-        )
-    }
-
     // ──────────────────────────────────────────────
     // 1. Basic tree creation: root + 2 children
     // ──────────────────────────────────────────────
@@ -133,10 +171,6 @@ class CreateWorkTreeToolTest {
     fun `basic tree creation returns distinct UUIDs for root and children`(): Unit =
         runBlocking {
             // Mirror the input back as the result
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                echoResult(input)
-            }
 
             val children =
                 buildJsonArray {
@@ -177,22 +211,6 @@ class CreateWorkTreeToolTest {
     @Test
     fun `dependency wiring preserves fromRef and toRef in response`(): Unit =
         runBlocking {
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                val refToId = input.refToItem.mapValues { (_, item) -> item.id }
-                // Build deps from the spec input
-                val deps =
-                    input.deps.map { spec ->
-                        Dependency(
-                            fromItemId = refToId[spec.fromRef]!!,
-                            toItemId = refToId[spec.toRef]!!,
-                            type = spec.type,
-                            unblockAt = spec.unblockAt
-                        )
-                    }
-                echoResult(input, deps)
-            }
-
             val children =
                 buildJsonArray {
                     add(makeChildSpec("c1", "Child One"))
@@ -238,19 +256,14 @@ class CreateWorkTreeToolTest {
                 }
             // Rebuild context with custom NoteSchemaService
             val provider2 = mockk<RepositoryProvider>()
-            val mockExecutor2 = mockk<WorkTreeExecutor>()
             every { provider2.workItemRepository() } returns workItemRepo
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.workTreeExecutor() } returns mockExecutor2
+            fakes.install(provider2)
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
 
             // Echo back items + notes from the input
-            coEvery { mockExecutor2.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                echoResult(input)
-            }
 
             val children =
                 buildJsonArray {
@@ -296,10 +309,6 @@ class CreateWorkTreeToolTest {
                     parentId = UUID.randomUUID() // depth=2 means it has a parent
                 )
             coEvery { workItemRepo.getById(parentItemId) } returns parentItem
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                echoResult(input)
-            }
 
             val params = buildParams(parentId = parentItemId.toString())
             val result = tool.execute(params, context)
@@ -329,10 +338,6 @@ class CreateWorkTreeToolTest {
                     parentId = UUID.randomUUID()
                 )
             coEvery { workItemRepo.getById(parentItemId) } returns parentItem
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                echoResult(input)
-            }
 
             val params = buildParams(parentId = parentItemId.toString())
             val result = tool.execute(params, context)
@@ -540,11 +545,6 @@ class CreateWorkTreeToolTest {
     @Test
     fun `root-only tree succeeds with empty children and deps arrays`(): Unit =
         runBlocking {
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                echoResult(input)
-            }
-
             val params = buildParams()
             val result = tool.execute(params, context)
 
@@ -589,10 +589,6 @@ class CreateWorkTreeToolTest {
                     depth = 0
                 )
             coEvery { workItemRepo.getById(parentItemId) } returns parentItem
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                echoResult(input)
-            }
 
             val children =
                 buildJsonArray {
@@ -624,10 +620,6 @@ class CreateWorkTreeToolTest {
                     parentId = UUID.randomUUID()
                 )
             coEvery { workItemRepo.getById(parentItemId) } returns parentItem
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                echoResult(input)
-            }
 
             val children =
                 buildJsonArray {
@@ -659,10 +651,6 @@ class CreateWorkTreeToolTest {
                     parentId = UUID.randomUUID()
                 )
             coEvery { workItemRepo.getById(parentItemId) } returns parentItem
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                echoResult(input)
-            }
 
             val children =
                 buildJsonArray {
@@ -743,21 +731,6 @@ class CreateWorkTreeToolTest {
     @Test
     fun `userSummary reflects root title and child count`(): Unit =
         runBlocking {
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                val refToId = input.refToItem.mapValues { (_, item) -> item.id }
-                val deps =
-                    input.deps.map { spec ->
-                        Dependency(
-                            fromItemId = refToId[spec.fromRef]!!,
-                            toItemId = refToId[spec.toRef]!!,
-                            type = spec.type,
-                            unblockAt = spec.unblockAt
-                        )
-                    }
-                echoResult(input, deps)
-            }
-
             val children = buildJsonArray { add(makeChildSpec("c1", "Child One")) }
             val deps = buildJsonArray { add(makeDepSpec("root", "c1")) }
             val params =
@@ -803,18 +776,12 @@ class CreateWorkTreeToolTest {
                 }
 
             val provider2 = mockk<RepositoryProvider>()
-            val mockExecutor2 = mockk<WorkTreeExecutor>()
             every { provider2.workItemRepository() } returns workItemRepo
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.workTreeExecutor() } returns mockExecutor2
+            fakes.install(provider2)
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
-
-            coEvery { mockExecutor2.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                echoResult(input)
-            }
 
             val rootSpec =
                 buildJsonObject {
@@ -872,18 +839,12 @@ class CreateWorkTreeToolTest {
                 }
 
             val provider2 = mockk<RepositoryProvider>()
-            val mockExecutor2 = mockk<WorkTreeExecutor>()
             every { provider2.workItemRepository() } returns workItemRepo
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.workTreeExecutor() } returns mockExecutor2
+            fakes.install(provider2)
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
-
-            coEvery { mockExecutor2.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                echoResult(input)
-            }
 
             // Root has no schema tag; child has "subtask" tag
             val rootSpec =
@@ -944,18 +905,12 @@ class CreateWorkTreeToolTest {
                 }
 
             val provider2 = mockk<RepositoryProvider>()
-            val mockExecutor2 = mockk<WorkTreeExecutor>()
             every { provider2.workItemRepository() } returns workItemRepo
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.workTreeExecutor() } returns mockExecutor2
+            fakes.install(provider2)
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
-
-            coEvery { mockExecutor2.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                echoResult(input)
-            }
 
             val rootSpec =
                 buildJsonObject {
@@ -1009,18 +964,12 @@ class CreateWorkTreeToolTest {
                 }
 
             val provider2 = mockk<RepositoryProvider>()
-            val mockExecutor2 = mockk<WorkTreeExecutor>()
             every { provider2.workItemRepository() } returns workItemRepo
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.workTreeExecutor() } returns mockExecutor2
+            fakes.install(provider2)
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
-
-            coEvery { mockExecutor2.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                echoResult(input)
-            }
 
             val rootSpec =
                 buildJsonObject {
@@ -1079,18 +1028,12 @@ class CreateWorkTreeToolTest {
                 }
 
             val provider2 = mockk<RepositoryProvider>()
-            val mockExecutor2 = mockk<WorkTreeExecutor>()
             every { provider2.workItemRepository() } returns workItemRepo
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.workTreeExecutor() } returns mockExecutor2
+            fakes.install(provider2)
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
-
-            coEvery { mockExecutor2.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                echoResult(input)
-            }
 
             val rootSpec =
                 buildJsonObject {
@@ -1142,12 +1085,7 @@ class CreateWorkTreeToolTest {
     @Test
     fun `type field on root item is preserved in created WorkItem`(): Unit =
         runBlocking {
-            var capturedInput: WorkTreeInput? = null
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                capturedInput = input
-                echoResult(input)
-            }
+            var capturedInput: CapturedTree? = null
 
             val rootSpec =
                 buildJsonObject {
@@ -1156,6 +1094,7 @@ class CreateWorkTreeToolTest {
                 }
             val params = buildParams(root = rootSpec)
             val result = tool.execute(params, context)
+            capturedInput = fakes.capture(result)
 
             extractData(result) // assert success
 
@@ -1166,12 +1105,7 @@ class CreateWorkTreeToolTest {
     @Test
     fun `type field on child item is preserved in created WorkItem`(): Unit =
         runBlocking {
-            var capturedInput: WorkTreeInput? = null
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                capturedInput = input
-                echoResult(input)
-            }
+            var capturedInput: CapturedTree? = null
 
             val childSpec =
                 buildJsonObject {
@@ -1181,6 +1115,7 @@ class CreateWorkTreeToolTest {
                 }
             val params = buildParams(children = JsonArray(listOf(childSpec)))
             val result = tool.execute(params, context)
+            capturedInput = fakes.capture(result)
 
             extractData(result) // assert success
 
@@ -1191,15 +1126,11 @@ class CreateWorkTreeToolTest {
     @Test
     fun `item without type field has null type`(): Unit =
         runBlocking {
-            var capturedInput: WorkTreeInput? = null
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                capturedInput = input
-                echoResult(input)
-            }
+            var capturedInput: CapturedTree? = null
 
             val params = buildParams()
             val result = tool.execute(params, context)
+            capturedInput = fakes.capture(result)
 
             extractData(result) // assert success
 
@@ -1210,12 +1141,7 @@ class CreateWorkTreeToolTest {
     @Test
     fun `traits on root item stores traits in properties JSON`(): Unit =
         runBlocking {
-            var capturedInput: WorkTreeInput? = null
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                capturedInput = input
-                echoResult(input)
-            }
+            var capturedInput: CapturedTree? = null
 
             val rootSpec =
                 buildJsonObject {
@@ -1224,6 +1150,7 @@ class CreateWorkTreeToolTest {
                 }
             val params = buildParams(root = rootSpec)
             val result = tool.execute(params, context)
+            capturedInput = fakes.capture(result)
 
             extractData(result) // assert success
 
@@ -1238,12 +1165,7 @@ class CreateWorkTreeToolTest {
     @Test
     fun `traits on child item stores traits in properties JSON`(): Unit =
         runBlocking {
-            var capturedInput: WorkTreeInput? = null
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                capturedInput = input
-                echoResult(input)
-            }
+            var capturedInput: CapturedTree? = null
 
             val childSpec =
                 buildJsonObject {
@@ -1253,6 +1175,7 @@ class CreateWorkTreeToolTest {
                 }
             val params = buildParams(children = JsonArray(listOf(childSpec)))
             val result = tool.execute(params, context)
+            capturedInput = fakes.capture(result)
 
             extractData(result)
 
@@ -1272,12 +1195,7 @@ class CreateWorkTreeToolTest {
     @Test
     fun `explicit notes persist with bodies`(): Unit =
         runBlocking {
-            var capturedInput: WorkTreeInput? = null
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                capturedInput = input
-                echoResult(input)
-            }
+            var capturedInput: CapturedTree? = null
 
             val noteEntry =
                 buildJsonObject {
@@ -1288,6 +1206,7 @@ class CreateWorkTreeToolTest {
                 }
             val params = buildParams(notes = JsonArray(listOf(noteEntry)))
             val result = tool.execute(params, context)
+            capturedInput = fakes.capture(result)
 
             val data = extractData(result)
             val notesArr = data["notes"]!!.jsonArray
@@ -1309,12 +1228,7 @@ class CreateWorkTreeToolTest {
     @Test
     fun `multiple items with notes targeting each have correct itemId binding`(): Unit =
         runBlocking {
-            var capturedInput: WorkTreeInput? = null
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                capturedInput = input
-                echoResult(input)
-            }
+            var capturedInput: CapturedTree? = null
 
             val children =
                 buildJsonArray {
@@ -1350,6 +1264,7 @@ class CreateWorkTreeToolTest {
                 }
             val params = buildParams(children = children, notes = notesArr)
             val result = tool.execute(params, context)
+            capturedInput = fakes.capture(result)
 
             extractData(result)
 
@@ -1391,20 +1306,14 @@ class CreateWorkTreeToolTest {
                         if (tags.contains("feature-task")) schemaEntries else null
                 }
             val provider2 = mockk<RepositoryProvider>()
-            val mockExecutor2 = mockk<WorkTreeExecutor>()
             every { provider2.workItemRepository() } returns workItemRepo
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.workTreeExecutor() } returns mockExecutor2
+            fakes.install(provider2)
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
 
-            var capturedInput: WorkTreeInput? = null
-            coEvery { mockExecutor2.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                capturedInput = input
-                echoResult(input)
-            }
+            var capturedInput: CapturedTree? = null
 
             val rootSpec =
                 buildJsonObject {
@@ -1434,6 +1343,7 @@ class CreateWorkTreeToolTest {
                 }
             val params = buildParams(root = rootSpec, createNotes = true, notes = notesArr)
             val result = tool.execute(params, contextWithSchema)
+            capturedInput = fakes.capture(result)
 
             extractData(result)
 
@@ -1572,12 +1482,7 @@ class CreateWorkTreeToolTest {
     @Test
     fun `body omitted in notes defaults to empty string`(): Unit =
         runBlocking {
-            var capturedInput: WorkTreeInput? = null
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                capturedInput = input
-                echoResult(input)
-            }
+            var capturedInput: CapturedTree? = null
 
             val notesArr =
                 buildJsonArray {
@@ -1592,6 +1497,7 @@ class CreateWorkTreeToolTest {
                 }
             val params = buildParams(notes = notesArr)
             val result = tool.execute(params, context)
+            capturedInput = fakes.capture(result)
 
             extractData(result)
 
@@ -1606,12 +1512,7 @@ class CreateWorkTreeToolTest {
     @Test
     fun `duplicate itemRef-key pair - last note wins`(): Unit =
         runBlocking {
-            var capturedInput: WorkTreeInput? = null
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                capturedInput = input
-                echoResult(input)
-            }
+            var capturedInput: CapturedTree? = null
 
             val notesArr =
                 buildJsonArray {
@@ -1634,6 +1535,7 @@ class CreateWorkTreeToolTest {
                 }
             val params = buildParams(notes = notesArr)
             val result = tool.execute(params, context)
+            capturedInput = fakes.capture(result)
 
             extractData(result)
 
@@ -1649,15 +1551,11 @@ class CreateWorkTreeToolTest {
     @Test
     fun `empty notes array results in no notes created`(): Unit =
         runBlocking {
-            var capturedInput: WorkTreeInput? = null
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                capturedInput = input
-                echoResult(input)
-            }
+            var capturedInput: CapturedTree? = null
 
             val params = buildParams(notes = JsonArray(emptyList()))
             val result = tool.execute(params, context)
+            capturedInput = fakes.capture(result)
 
             extractData(result)
 
@@ -1729,12 +1627,7 @@ class CreateWorkTreeToolTest {
     @Test
     fun `explicit null body in notes is accepted and treated as empty`(): Unit =
         runBlocking {
-            var capturedInput: WorkTreeInput? = null
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                capturedInput = input
-                echoResult(input)
-            }
+            var capturedInput: CapturedTree? = null
 
             val notesArr =
                 buildJsonArray {
@@ -1749,6 +1642,7 @@ class CreateWorkTreeToolTest {
                 }
             val params = buildParams(notes = notesArr)
             val result = tool.execute(params, context)
+            capturedInput = fakes.capture(result)
 
             extractData(result)
 
@@ -1779,18 +1673,14 @@ class CreateWorkTreeToolTest {
                         if (tags.contains("feature-task")) schemaEntries else null
                 }
             val provider2 = mockk<RepositoryProvider>()
-            val mockExecutor2 = mockk<WorkTreeExecutor>()
             every { provider2.workItemRepository() } returns workItemRepo
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.workTreeExecutor() } returns mockExecutor2
+            fakes.install(provider2)
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
 
             // Executor must NOT be invoked when validation rejects the request
-            coEvery { mockExecutor2.execute(any()) } answers {
-                throw IllegalStateException("Executor should not have been called for invalid role")
-            }
 
             val rootSpec =
                 buildJsonObject {
@@ -1840,20 +1730,14 @@ class CreateWorkTreeToolTest {
                         if (tags.contains("feature-task")) schemaEntries else null
                 }
             val provider2 = mockk<RepositoryProvider>()
-            val mockExecutor2 = mockk<WorkTreeExecutor>()
             every { provider2.workItemRepository() } returns workItemRepo
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.workTreeExecutor() } returns mockExecutor2
+            fakes.install(provider2)
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
 
-            var capturedInput: WorkTreeInput? = null
-            coEvery { mockExecutor2.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                capturedInput = input
-                echoResult(input)
-            }
+            var capturedInput: CapturedTree? = null
 
             val rootSpec =
                 buildJsonObject {
@@ -1873,6 +1757,7 @@ class CreateWorkTreeToolTest {
                 }
             val params = buildParams(root = rootSpec, notes = notesArr)
             val result = tool.execute(params, contextWithSchema)
+            capturedInput = fakes.capture(result)
 
             extractData(result)
 
@@ -1902,20 +1787,14 @@ class CreateWorkTreeToolTest {
                         if (tags.contains("feature-task")) schemaEntries else null
                 }
             val provider2 = mockk<RepositoryProvider>()
-            val mockExecutor2 = mockk<WorkTreeExecutor>()
             every { provider2.workItemRepository() } returns workItemRepo
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.workTreeExecutor() } returns mockExecutor2
+            fakes.install(provider2)
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
 
-            var capturedInput: WorkTreeInput? = null
-            coEvery { mockExecutor2.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                capturedInput = input
-                echoResult(input)
-            }
+            var capturedInput: CapturedTree? = null
 
             val rootSpec =
                 buildJsonObject {
@@ -1936,6 +1815,7 @@ class CreateWorkTreeToolTest {
                 }
             val params = buildParams(root = rootSpec, notes = notesArr)
             val result = tool.execute(params, contextWithSchema)
+            capturedInput = fakes.capture(result)
 
             extractData(result)
 
@@ -1953,12 +1833,7 @@ class CreateWorkTreeToolTest {
     fun `explicit note for item with no matching schema is unconstrained`(): Unit =
         runBlocking {
             // The default test context uses NoOpNoteSchemaService → no schemas exist
-            var capturedInput: WorkTreeInput? = null
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                capturedInput = input
-                echoResult(input)
-            }
+            var capturedInput: CapturedTree? = null
 
             val notesArr =
                 buildJsonArray {
@@ -1975,6 +1850,7 @@ class CreateWorkTreeToolTest {
                 }
             val params = buildParams(notes = notesArr)
             val result = tool.execute(params, context)
+            capturedInput = fakes.capture(result)
 
             extractData(result)
 
@@ -1998,12 +1874,7 @@ class CreateWorkTreeToolTest {
     @Test
     fun `top-level actor propagates to explicit notes as actorClaim and verification`(): Unit =
         runBlocking {
-            var capturedInput: WorkTreeInput? = null
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                capturedInput = input
-                echoResult(input)
-            }
+            var capturedInput: CapturedTree? = null
 
             val actorObj =
                 buildJsonObject {
@@ -2037,6 +1908,7 @@ class CreateWorkTreeToolTest {
                     put("actor", actorObj)
                 }
             val result = tool.execute(params, context)
+            capturedInput = fakes.capture(result)
 
             val obj = result as JsonObject
             assertTrue(obj["success"]!!.jsonPrimitive.boolean, "Expected success; got: $result")
@@ -2076,20 +1948,14 @@ class CreateWorkTreeToolTest {
                         if (tags.contains("feature-task")) schemaEntries else null
                 }
             val provider2 = mockk<RepositoryProvider>()
-            val mockExecutor2 = mockk<WorkTreeExecutor>()
             every { provider2.workItemRepository() } returns workItemRepo
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
-            every { provider2.workTreeExecutor() } returns mockExecutor2
+            fakes.install(provider2)
             val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
 
-            var capturedInput: WorkTreeInput? = null
-            coEvery { mockExecutor2.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                capturedInput = input
-                echoResult(input)
-            }
+            var capturedInput: CapturedTree? = null
 
             val params =
                 buildJsonObject {
@@ -2110,6 +1976,7 @@ class CreateWorkTreeToolTest {
                     )
                 }
             val result = tool.execute(params, contextWithSchema)
+            capturedInput = fakes.capture(result)
 
             val obj = result as JsonObject
             assertTrue(obj["success"]!!.jsonPrimitive.boolean, "Expected success; got: $result")
@@ -2135,12 +2002,7 @@ class CreateWorkTreeToolTest {
     @Test
     fun `notes without top-level actor have null actorClaim and verification`(): Unit =
         runBlocking {
-            var capturedInput: WorkTreeInput? = null
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                capturedInput = input
-                echoResult(input)
-            }
+            var capturedInput: CapturedTree? = null
 
             val notesArr =
                 buildJsonArray {
@@ -2155,6 +2017,7 @@ class CreateWorkTreeToolTest {
                 }
             val params = buildParams(notes = notesArr) // no actor
             val result = tool.execute(params, context)
+            capturedInput = fakes.capture(result)
 
             val obj = result as JsonObject
             assertTrue(obj["success"]!!.jsonPrimitive.boolean)
@@ -2173,12 +2036,7 @@ class CreateWorkTreeToolTest {
     @Test
     fun `notes with invalid actor block have null actorClaim and call still succeeds`(): Unit =
         runBlocking {
-            var capturedInput: WorkTreeInput? = null
-            coEvery { mockExecutor.execute(any()) } answers {
-                val input = firstArg<WorkTreeInput>()
-                capturedInput = input
-                echoResult(input)
-            }
+            var capturedInput: CapturedTree? = null
 
             val notesArr =
                 buildJsonArray {
@@ -2204,6 +2062,7 @@ class CreateWorkTreeToolTest {
                     put("actor", invalidActor)
                 }
             val result = tool.execute(params, context)
+            capturedInput = fakes.capture(result)
 
             val obj = result as JsonObject
             assertTrue(
@@ -2238,12 +2097,7 @@ class CreateWorkTreeToolTest {
         @Test
         fun `explicit parentRef=root is same as default`(): Unit =
             runBlocking {
-                var capturedInput: WorkTreeInput? = null
-                coEvery { mockExecutor.execute(any()) } answers {
-                    val input = firstArg<WorkTreeInput>()
-                    capturedInput = input
-                    echoResult(input)
-                }
+                var capturedInput: CapturedTree? = null
 
                 val children =
                     buildJsonArray {
@@ -2251,6 +2105,7 @@ class CreateWorkTreeToolTest {
                     }
                 val params = buildParams(children = children)
                 val result = tool.execute(params, context)
+                capturedInput = fakes.capture(result)
 
                 val data = extractData(result)
 
@@ -2271,12 +2126,7 @@ class CreateWorkTreeToolTest {
         @Test
         fun `sibling as parent creates correct depth and parentId`(): Unit =
             runBlocking {
-                var capturedInput: WorkTreeInput? = null
-                coEvery { mockExecutor.execute(any()) } answers {
-                    val input = firstArg<WorkTreeInput>()
-                    capturedInput = input
-                    echoResult(input)
-                }
+                var capturedInput: CapturedTree? = null
 
                 // root (depth=0) → c1 (depth=1, parentRef=root) → c1a (depth=2, parentRef=c1)
                 val children =
@@ -2286,6 +2136,7 @@ class CreateWorkTreeToolTest {
                     }
                 val params = buildParams(children = children)
                 val result = tool.execute(params, context)
+                capturedInput = fakes.capture(result)
 
                 val data = extractData(result)
 
@@ -2311,12 +2162,7 @@ class CreateWorkTreeToolTest {
         @Test
         fun `three-level chain has correct depth and parentIds`(): Unit =
             runBlocking {
-                var capturedInput: WorkTreeInput? = null
-                coEvery { mockExecutor.execute(any()) } answers {
-                    val input = firstArg<WorkTreeInput>()
-                    capturedInput = input
-                    echoResult(input)
-                }
+                var capturedInput: CapturedTree? = null
 
                 // root (depth=0) → c1 (depth=1) → c1a (depth=2)
                 val children =
@@ -2326,6 +2172,7 @@ class CreateWorkTreeToolTest {
                     }
                 val params = buildParams(children = children)
                 val result = tool.execute(params, context)
+                capturedInput = fakes.capture(result)
 
                 extractData(result)
 
@@ -2344,12 +2191,7 @@ class CreateWorkTreeToolTest {
         @Test
         fun `mixed children - some under root, some nested`(): Unit =
             runBlocking {
-                var capturedInput: WorkTreeInput? = null
-                coEvery { mockExecutor.execute(any()) } answers {
-                    val input = firstArg<WorkTreeInput>()
-                    capturedInput = input
-                    echoResult(input)
-                }
+                var capturedInput: CapturedTree? = null
 
                 // root → c1 (depth=1), root → c2 (depth=1), c1 → c1a (depth=2)
                 val children =
@@ -2360,6 +2202,7 @@ class CreateWorkTreeToolTest {
                     }
                 val params = buildParams(children = children)
                 val result = tool.execute(params, context)
+                capturedInput = fakes.capture(result)
 
                 val data = extractData(result)
 
@@ -2386,12 +2229,7 @@ class CreateWorkTreeToolTest {
         @Test
         fun `children defined out of order - topological sort produces correct result`(): Unit =
             runBlocking {
-                var capturedInput: WorkTreeInput? = null
-                coEvery { mockExecutor.execute(any()) } answers {
-                    val input = firstArg<WorkTreeInput>()
-                    capturedInput = input
-                    echoResult(input)
-                }
+                var capturedInput: CapturedTree? = null
 
                 // c1a (parentRef=c1) is listed BEFORE c1 in the array
                 val children =
@@ -2401,6 +2239,7 @@ class CreateWorkTreeToolTest {
                     }
                 val params = buildParams(children = children)
                 val result = tool.execute(params, context)
+                capturedInput = fakes.capture(result)
 
                 extractData(result) // assert success
 
@@ -2818,19 +2657,7 @@ class CreateWorkTreeToolTest {
                     )
                 coEvery { workItemRepo.getById(existingRootId) } returns existingRoot
 
-                var capturedInput: WorkTreeInput? = null
-                coEvery { mockExecutor.execute(any()) } answers {
-                    val input = firstArg<WorkTreeInput>()
-                    capturedInput = input
-                    // In attach mode items only contains children — reflect them back
-                    val refToId = input.refToItem.mapValues { (_, item) -> item.id }
-                    WorkTreeResult(
-                        items = input.items,
-                        refToId = refToId,
-                        deps = emptyList(),
-                        notes = emptyList()
-                    )
-                }
+                var capturedInput: CapturedTree? = null
 
                 val params =
                     buildJsonObject {
@@ -2844,6 +2671,7 @@ class CreateWorkTreeToolTest {
                         )
                     }
                 val result = tool.execute(params, context)
+                capturedInput = fakes.capture(result)
                 val data = extractData(result)
 
                 // Response root reflects the existing item

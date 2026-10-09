@@ -12,7 +12,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors.configureCors
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventPublishingRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -73,7 +72,8 @@ abstract class FullApiWiringSmokeScenarios(
         install(SSE)
 
         val bus = ApiEventBus()
-        val decorated = EventPublishingRepositoryProvider(repo, bus)
+        // No store is decorated: every write service records its own events rows through the unit of work.
+        val decorated = repo
         val authConfig = makeWriteAuthConfig() // TEST_TOKEN=read, WRITE_TOKEN=all-write, ADMIN_TOKEN=admin
         val tokenEntries = authConfig.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) }
 

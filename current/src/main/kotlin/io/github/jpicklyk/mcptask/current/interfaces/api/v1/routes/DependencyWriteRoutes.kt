@@ -284,7 +284,7 @@ fun Route.dependencyWriteRoutes(
             val deleteOutcome =
                 withContext(
                     Dispatchers.IO + EventActor(ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey]))
-                ) { unitOfWork.write("dependency.delete") { Outcome.Ok(depRepo.delete(id)) } }
+                ) { dependencyCommandService.deleteById(id) }
             val deleted: Boolean =
                 when (deleteOutcome) {
                     is Outcome.Ok -> deleteOutcome.value

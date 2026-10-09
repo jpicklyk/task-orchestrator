@@ -72,8 +72,15 @@ class QueryItemsOverviewTerminalRetentionTest {
             buildJsonObject {
                 put("title", JsonPrimitive(title))
                 parentId?.let { put("parentId", JsonPrimitive(it)) }
-                role?.let { put("role", JsonPrimitive(it)) }
             }
+        // Fixture-only: a terminal (auto lifecycle) parent takes no new children since P15, so a fixture that nests
+        // under a terminal parent opens it for the create and closes it again.
+        val terminalParent =
+            parentId?.takeIf {
+                context.workItemRepository().getById(java.util.UUID.fromString(it))?.role ==
+                    io.github.jpicklyk.mcptask.current.domain.model.Role.TERMINAL
+            }
+        terminalParent?.let { forceRole(it, "queue") }
         val result =
             manageTool.execute(
                 params(
@@ -82,10 +89,33 @@ class QueryItemsOverviewTerminalRetentionTest {
                 ),
                 context
             ) as JsonObject
-        return (result["data"] as JsonObject)["items"]!!
-            .jsonArray[0]
-            .jsonObject["id"]!!
-            .jsonPrimitive.content
+        terminalParent?.let { forceRole(it, "terminal") }
+        val createdId =
+            (result["data"] as JsonObject)["items"]!!
+                .jsonArray[0]
+                .jsonObject["id"]!!
+                .jsonPrimitive.content
+        role?.let { forceRole(createdId, it) }
+        return createdId
+    }
+
+    /**
+     * Fixture-only: sets [role] on the stored row. Items are always created in queue (manage_items rejects a create
+     * role since P15), so a fixture that needs another role writes it straight to the store.
+     */
+    private suspend fun forceRole(
+        id: String,
+        role: String
+    ) {
+        val repo = context.workItemRepository()
+        val item = repo.getById(java.util.UUID.fromString(id))!!
+        repo.update(
+            item.copy(
+                role =
+                    io.github.jpicklyk.mcptask.current.domain.model.Role
+                        .fromString(role)!!
+            )
+        )
     }
 
     /**
@@ -97,8 +127,10 @@ class QueryItemsOverviewTerminalRetentionTest {
      */
     private suspend fun buildMixedFixture(): String {
         val rootId = createItem("Root", role = "queue")
-        val doneContainerId = createItem("Done Container", parentId = rootId, role = "terminal")
+        // Created open, closed after its child: a terminal (auto lifecycle) parent takes no new children since P15.
+        val doneContainerId = createItem("Done Container", parentId = rootId)
         createItem("Open Grandchild", parentId = doneContainerId, role = "queue")
+        forceRole(doneContainerId, "terminal")
         createItem("Fully Done", parentId = rootId, role = "terminal")
         createItem("Live Child", parentId = rootId, role = "work")
         return rootId

@@ -14,7 +14,6 @@ import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaServ
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
-import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.mockk.*
 
@@ -30,7 +29,6 @@ class MockRepositoryProvider {
     val projectConfigRepo: ProjectConfigStore = mockk()
     val planDocumentRepo: PlanDocumentStore = mockk()
     val resourceLeaseRepo: LeaseStore = mockk()
-    val workTreeExecutor: WorkTreeExecutor = mockk()
     val idempotencyRepo = InMemoryIdempotencyStore()
     val eventStore = InMemoryEventStore()
     val provider: RepositoryProvider = mockk()
@@ -43,7 +41,6 @@ class MockRepositoryProvider {
         every { provider.projectConfigRepository() } returns projectConfigRepo
         every { provider.planDocumentRepository() } returns planDocumentRepo
         every { provider.resourceLeaseRepository() } returns resourceLeaseRepo
-        every { provider.workTreeExecutor() } returns workTreeExecutor
         every { provider.idempotencyStore() } returns idempotencyRepo
         every { provider.eventStore() } returns eventStore
         // The narrow work-item stores are the same mock as the composite (the interface defaults do the same).

@@ -11,9 +11,11 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFact
 import io.github.jpicklyk.mcptask.current.application.service.BlockerInfo
 import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
-import io.github.jpicklyk.mcptask.current.application.service.PlacedWriteOutcome
-import io.github.jpicklyk.mcptask.current.application.service.ReparentCheck
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemPlacementService
+import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
+import io.github.jpicklyk.mcptask.current.application.service.ItemCommandService
+import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
+import io.github.jpicklyk.mcptask.current.application.service.ItemPatchCommand
+import io.github.jpicklyk.mcptask.current.application.service.ParentChange
 import io.github.jpicklyk.mcptask.current.application.service.rest.MergePatchApplier
 import io.github.jpicklyk.mcptask.current.application.service.rest.WorkItemPatchProjection
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
@@ -21,15 +23,15 @@ import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
-import io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDeleteOutcome
-import io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDeletion
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers
+import io.github.jpicklyk.mcptask.current.domain.error.DomainError
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.model.ClaimState
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -221,6 +223,29 @@ private fun advanceConfigUnavailableCaptured(
     return errorCaptured(HttpStatusCode.ServiceUnavailable, PerRootConfigUnavailableException.CODE, e.message)
 }
 
+/** 409 `invalid_transition` for a create or reparent under a TERMINAL parent whose lifecycle is AUTO (D2). */
+private fun closedParentCaptured(
+    parentId: UUID?,
+    message: String,
+): CachedHttpResponse =
+    detailedErrorCaptured(
+        HttpStatusCode.Conflict,
+        ErrorDto("invalid_transition", message, buildJsonObject { put("parentId", JsonPrimitive(parentId?.toString())) }),
+    )
+
+/** 503 `config_unavailable` for a per-root config fault resolving a parent's lifecycle inside an item write. */
+private fun itemConfigUnavailableCaptured(
+    route: String,
+    e: PerRootConfigUnavailableException,
+): CachedHttpResponse {
+    writeLogger.warn("{}: per-root config unavailable: {}", route, e.message)
+    return errorCaptured(HttpStatusCode.ServiceUnavailable, PerRootConfigUnavailableException.CODE, e.message)
+}
+
+/** The parent id an `invalid_transition` (closed-parent) error names. */
+private fun closedParentId(error: DomainError): UUID? =
+    (error.detail as? io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail.InvalidTransition)?.itemId
+
 /** Builds the `details` object for a [AdvanceFailure.GateBlocked] 422 response. */
 private fun buildGateBlockedDetails(failure: AdvanceFailure.GateBlocked): JsonObject =
     buildJsonObject {
@@ -310,8 +335,7 @@ private data class ParsedAdvanceRequest(
  * - `PATCH  /items/{id}`         — JSON Merge Patch update; requires `If-Match` ([ApiCapability.WRITE_ITEMS])
  * - `DELETE /items/{id}`         — delete; a parent refuses with 409 `has_children` unless
  *   `?recursive=true`, which cascades (matching the MCP `manage_items` delete operation's
- *   semantics via [io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDeletion])
- *   ([ApiCapability.WRITE_ITEMS])
+ *   semantics via [ItemCommandService.delete]) ([ApiCapability.WRITE_ITEMS])
  * - `POST   /items/{id}/advance` — role transition ([ApiCapability.ADVANCE])
  *
  * **Audit:** every write synthesizes an [ActorClaim] server-side from the [ApiPrincipal];
@@ -328,6 +352,9 @@ private data class ParsedAdvanceRequest(
  *   never applied labels at all) and share MCP's per-root config cache. The advance reads that config
  *   inside its unit, where the last-known-good fallback is disabled: a per-root read fault answers 503
  *   `config_unavailable` even when the cache is warm.
+ * @param itemCommandService the owner of item creates, patches and deletes — the SAME instance the MCP
+ *   `manage_items` tool uses (`ToolExecutionContext.itemCommandService`), so placement, the closed-parent rule,
+ *   the old-parent cascade and the item events are identical on both surfaces.
  */
 fun Route.itemWriteRoutes(
     repositoryProvider: RepositoryProvider,
@@ -335,6 +362,7 @@ fun Route.itemWriteRoutes(
     idempotency: IdempotencyService,
     advanceServiceFactory: AdvanceServiceFactory,
     unitOfWork: UnitOfWork,
+    itemCommandService: ItemCommandService,
     warnOnClaimedAdvance: Boolean = defaultWarnOnClaimedAdvance,
     clock: Clock = Clock.SYSTEM,
 ) {
@@ -442,10 +470,8 @@ fun Route.itemWriteRoutes(
                 // Parent existence / scope pre-checks (and the root-create scope check) run BEFORE
                 // the priority parse below, matching base error precedence: a bad parentId or an
                 // out-of-scope caller must surface before a merely malformed priority value.
-                // Placement (depth/rootId) itself is intentionally NOT read here — it is resolved
-                // fresh inside the write transaction further down (via resolveChildPlacement) so a
-                // concurrent reparent/delete of the parent between this check and that write cannot
-                // leave the new item stamped with stale placement (AR-19).
+                // Placement (depth/rootId) itself is intentionally NOT read here — ItemCommandService
+                // resolves it from the parent row read inside the write unit (AR-19).
                 if (parentId != null) {
                     val parentResult =
                         legacyRead(
@@ -473,57 +499,57 @@ fun Route.itemWriteRoutes(
                             ?: return payloadRejection("Invalid priority: $pStr")
                     } ?: Priority.MEDIUM
 
-                val propertiesStr = dto.properties?.toString()
-
-                fun buildItem(
-                    depth: Int,
-                    rootId: UUID
-                ): WorkItem =
-                    WorkItem(
+                val command =
+                    ItemCreateCommand(
                         id = itemId,
+                        parentId = parentId,
                         title = dto.title,
                         description = dto.description,
                         summary = dto.summary ?: "",
-                        parentId = parentId,
-                        rootId = rootId,
-                        depth = depth,
-                        type = dto.type,
+                        statusLabel = dto.statusLabel,
                         priority = priority,
                         complexity = dto.complexity,
                         requiresVerification = dto.requiresVerification ?: false,
-                        tags = tagsStr,
-                        statusLabel = dto.statusLabel,
-                        properties = propertiesStr,
                         metadata = dto.metadata,
+                        tags = tagsStr,
+                        type = dto.type,
+                        properties = dto.properties?.toString(),
                     )
 
-                // depth/rootId are resolved from the CURRENT parent state INSIDE the same
-                // transaction as the insert (inside WorkItemPlacementService.create) so a concurrent
-                // reparent/delete of the parent between the pre-checks above and this write
-                // cannot leave the new item stamped with stale placement (AR-19).
-                return when (
-                    val outcome =
-                        withEventActor(actorClaim) {
-                            WorkItemPlacementService(workItemRepo)
-                                .create(unitOfWork, itemId, parentId) { depth, rootId -> buildItem(depth, rootId) }
-                        }
-                ) {
-                    is PlacedWriteOutcome.ParentNotFound ->
-                        errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item ${outcome.parentId} not found")
-                    is PlacedWriteOutcome.BuildFailed ->
-                        errorCaptured(HttpStatusCode.BadRequest, "validation_error", outcome.message)
-                    is PlacedWriteOutcome.WriteFailed -> {
-                        writeLogger.warn("POST /items DB error: {}", outcome.error.message)
-                        errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to create item")
+                // The item is always created in QUEUE; its depth/rootId come from the parent row read
+                // INSIDE the write unit, and a TERMINAL parent under auto lifecycle rejects the create.
+                val outcome =
+                    try {
+                        withEventActor(actorClaim) { itemCommandService.create(command) }
+                    } catch (e: PerRootConfigUnavailableException) {
+                        return itemConfigUnavailableCaptured("POST /items", e)
                     }
-                    is PlacedWriteOutcome.CascadeFailed ->
-                        errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to create item")
-                    is PlacedWriteOutcome.Written ->
+                return when (outcome) {
+                    is Outcome.Ok ->
                         CachedHttpResponse(
                             statusCode = HttpStatusCode.Created.value,
-                            bodyJson = writeJson.encodeToString(ItemDto.serializer(), outcome.item.toDto()),
-                            etag = etagFor(outcome.item.modifiedAt),
+                            bodyJson = writeJson.encodeToString(ItemDto.serializer(), outcome.value.toDto()),
+                            etag = etagFor(outcome.value.modifiedAt),
                         )
+                    is Outcome.Err -> {
+                        val error = outcome.error
+                        when {
+                            error.code == ErrorCode.NOT_FOUND ->
+                                errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $parentId not found")
+                            ItemCommandErrors.isClosedParent(error) ->
+                                closedParentCaptured(
+                                    closedParentId(error) ?: parentId,
+                                    "Parent item ${closedParentId(error) ?: parentId} is terminal under auto lifecycle; " +
+                                        "reopen it before adding children",
+                                )
+                            error.code == ErrorCode.INVALID_REQUEST ->
+                                errorCaptured(HttpStatusCode.BadRequest, "validation_error", error.message)
+                            else -> {
+                                writeLogger.warn("POST /items DB error: {}", error.message)
+                                errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to create item")
+                            }
+                        }
+                    }
                 }
             }
 
@@ -685,11 +711,8 @@ fun Route.itemWriteRoutes(
                     } ?: existing.priority
 
                 // parentId: patchDto.parentId is the FINAL parent (null = move to root). Depth is
-                // server-owned and, when the parent actually changes, is resolved fresh INSIDE the
-                // write transaction below (via resolveChildPlacement) rather than from a pre-write
-                // read here — a concurrent reparent/delete of the new parent between a pre-write
-                // read and this write would otherwise leave this item stamped with stale placement
-                // (AR-19).
+                // server-owned and, when the parent actually changes, ItemCommandService resolves it
+                // from the new parent row read inside the write unit (AR-19).
                 val newParentId =
                     patchDto.parentId?.let { pid ->
                         runCatchingNonCancellation { UUID.fromString(pid) }.getOrNull()
@@ -697,10 +720,10 @@ fun Route.itemWriteRoutes(
                     }
                 val parentChanged = newParentId != existing.parentId
 
-                // Guard/authorization checks that do not need to be co-transactional with the
-                // placement read: existence, scope, self-parent, and ancestor-cycle. A parent that
-                // passes these but is reparented/deleted before the transaction below runs simply
-                // fails resolveChildPlacement there (surfaced as the same not_found error).
+                // Authorization checks that do not need to be co-transactional with the placement
+                // read: existence and scope. The self-parent, ancestor-cycle and closed-parent rules run
+                // inside the write unit (ItemCommandService); a parent that vanishes before it runs is
+                // surfaced as the same not_found error.
                 if (parentChanged) {
                     if (newParentId == null) {
                         // Move to root — the item becomes its own root. After the move its chain is
@@ -726,107 +749,90 @@ fun Route.itemWriteRoutes(
                         if (!enforceScopeForItem(call, newParentId, workItemRepo)) {
                             return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for parent $newParentId")
                         }
+                    }
+                }
 
-                        // Cycle guard (self-parent / own-descendant), fail CLOSED on a lookup error — see
-                        // WorkItemPlacementService.checkReparent. Ordered after the existence and
-                        // scope checks so not_found / scope_forbidden precedence is unchanged.
-                        when (val check = WorkItemPlacementService(workItemRepo).checkReparent(id, newParentId)) {
-                            ReparentCheck.Ok -> {}
-                            ReparentCheck.SelfParent ->
-                                return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "An item cannot be its own parent")
-                            ReparentCheck.DescendantCycle ->
-                                return errorCaptured(
+                val command =
+                    ItemPatchCommand(
+                        itemId = id,
+                        // The row the If-Match matched: another writer that commits in between loses this
+                        // patch the version race (409 version_conflict), exactly as the store's own check did.
+                        expectedVersion = existing.version,
+                        parent =
+                            when {
+                                !parentChanged -> ParentChange.Keep
+                                newParentId == null -> ParentChange.MoveToRoot
+                                else -> ParentChange.MoveUnder(newParentId)
+                            },
+                        title = patchDto.title ?: existing.title,
+                        description = patchDto.description,
+                        summary = patchDto.summary ?: existing.summary,
+                        statusLabel = patchDto.statusLabel,
+                        priority = newPriority,
+                        complexity = patchDto.complexity,
+                        requiresVerification = patchDto.requiresVerification ?: existing.requiresVerification,
+                        metadata = patchDto.metadata,
+                        tags = patchDto.tags,
+                        type = patchDto.type,
+                        properties = patchDto.properties,
+                    )
+
+                // One unit: the guards (self-parent, own-descendant, closed parent), the placement read,
+                // the item's own row, the one-statement descendant restamp and the old parent's cascade
+                // re-evaluation commit together or not at all.
+                val outcome =
+                    try {
+                        withEventActor(actorClaim) { itemCommandService.patch(command) }
+                    } catch (e: PerRootConfigUnavailableException) {
+                        return itemConfigUnavailableCaptured("PATCH /items/$id", e)
+                    }
+
+                return when (outcome) {
+                    is Outcome.Ok ->
+                        CachedHttpResponse(
+                            statusCode = HttpStatusCode.OK.value,
+                            bodyJson = writeJson.encodeToString(ItemDto.serializer(), outcome.value.item.toDto()),
+                            etag = etagFor(outcome.value.item.modifiedAt),
+                        )
+                    is Outcome.Err -> {
+                        val error = outcome.error
+                        when {
+                            error.code == ErrorCode.NOT_FOUND && ItemCommandErrors.notFoundId(error) != id.toString() ->
+                                errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $newParentId not found")
+                            // Optimistic-lock loss is a distinct, retryable condition from a genuine DB failure, and
+                            // distinct from an If-Match precondition failure (412 above): If-Match matched, but
+                            // another writer won the version race in between. 409 so a client retries with a fresh
+                            // GET + If-Match.
+                            LegacyFaults.isVersionConflict(error) -> {
+                                writeLogger.debug("PATCH /items/{} optimistic-lock conflict: {}", id, error.message)
+                                errorCaptured(
+                                    HttpStatusCode.Conflict,
+                                    "version_conflict",
+                                    "Item was modified by another request; retry with a fresh If-Match ETag",
+                                )
+                            }
+                            ItemCommandErrors.isSelfParent(error) ->
+                                errorCaptured(HttpStatusCode.BadRequest, "validation_error", "An item cannot be its own parent")
+                            error.code == ErrorCode.CYCLE_DETECTED ->
+                                errorCaptured(
                                     HttpStatusCode.BadRequest,
                                     "validation_error",
                                     "Cannot re-parent an item under its own descendant",
                                 )
-                            is ReparentCheck.LookupFailed -> {
-                                writeLogger.warn(
-                                    "PATCH /items/{} ancestor-chain lookup failed for proposed parent {}: {}",
-                                    id,
-                                    newParentId,
-                                    check.message,
+                            ItemCommandErrors.isClosedParent(error) ->
+                                closedParentCaptured(
+                                    closedParentId(error) ?: newParentId,
+                                    "Parent item ${closedParentId(error) ?: newParentId} is terminal under auto lifecycle; " +
+                                        "reopen it before moving items under it",
                                 )
-                                return errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to update item")
+                            error.code == ErrorCode.INVALID_REQUEST ->
+                                errorCaptured(HttpStatusCode.BadRequest, "validation_error", error.message)
+                            else -> {
+                                writeLogger.warn("PATCH /items/{} DB error: {}", id, error.message)
+                                errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to update item")
                             }
-                            is ReparentCheck.ParentNotFound ->
-                                return errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $newParentId not found")
                         }
                     }
-                }
-
-                fun buildUpdated(
-                    depth: Int,
-                    rootId: UUID?
-                ): WorkItem =
-                    existing.update { item ->
-                        item.copy(
-                            title = patchDto.title ?: item.title,
-                            description = patchDto.description,
-                            summary = patchDto.summary ?: item.summary,
-                            statusLabel = patchDto.statusLabel,
-                            priority = newPriority,
-                            complexity = patchDto.complexity,
-                            requiresVerification = patchDto.requiresVerification ?: item.requiresVerification,
-                            tags = patchDto.tags,
-                            type = patchDto.type,
-                            properties = patchDto.properties,
-                            metadata = patchDto.metadata,
-                            parentId = newParentId,
-                            rootId = rootId,
-                            depth = depth,
-                        )
-                    }
-
-                // When the parent actually changes, resolving the new placement (depth/rootId),
-                // writing the item's own row, and cascading descendant depth/rootId must all
-                // happen inside ONE transaction: resolving placement inside the same transaction
-                // as the write protects against a concurrent reparent/delete of the new parent
-                // (AR-19), and a cascade failure (e.g. a version-mismatch conflict on a descendant)
-                // must roll back the parent's own write too, rather than leaving the tree
-                // half-updated. Gated on parentId change rather than depthDelta != 0: moving an
-                // item between two different root subtrees at the same depth leaves depth
-                // unchanged but still requires a rootId cascade over every descendant.
-                val outcome =
-                    withEventActor(actorClaim) {
-                        WorkItemPlacementService(workItemRepo)
-                            .update(unitOfWork, existing, newParentId, parentChanged) { depth, rootId -> buildUpdated(depth, rootId) }
-                    }
-
-                return when (outcome) {
-                    is PlacedWriteOutcome.ParentNotFound ->
-                        errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item ${outcome.parentId} not found")
-                    is PlacedWriteOutcome.BuildFailed ->
-                        errorCaptured(HttpStatusCode.BadRequest, "validation_error", outcome.message)
-                    is PlacedWriteOutcome.CascadeFailed -> {
-                        writeLogger.warn("PATCH /items/{} descendant depth cascade failed: {}", id, outcome.message)
-                        errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to update item")
-                    }
-                    is PlacedWriteOutcome.WriteFailed -> {
-                        // Optimistic-lock loss (WorkItemRepository.update's version-mismatch branch)
-                        // is a distinct, retryable condition from a genuine DB failure — and distinct
-                        // from an If-Match precondition failure (handled above as 412 before update()
-                        // is ever called: If-Match matched here, but another writer's update() won the
-                        // version race in between). Map it to 409 so REST clients can safely retry with
-                        // a fresh GET + If-Match, instead of treating it as an opaque server error.
-                        if (LegacyFaults.isVersionConflict(outcome.error)) {
-                            writeLogger.debug("PATCH /items/{} optimistic-lock conflict: {}", id, outcome.error.message)
-                            errorCaptured(
-                                HttpStatusCode.Conflict,
-                                "version_conflict",
-                                "Item was modified by another request; retry with a fresh If-Match ETag",
-                            )
-                        } else {
-                            writeLogger.warn("PATCH /items/{} DB error: {}", id, outcome.error.message)
-                            errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to update item")
-                        }
-                    }
-                    is PlacedWriteOutcome.Written ->
-                        CachedHttpResponse(
-                            statusCode = HttpStatusCode.OK.value,
-                            bodyJson = writeJson.encodeToString(ItemDto.serializer(), outcome.item.toDto()),
-                            etag = etagFor(outcome.item.modifiedAt),
-                        )
                 }
             }
 
@@ -896,50 +902,52 @@ fun Route.itemWriteRoutes(
                 return@delete
             }
 
-            // Delegate to the shared helper (see WorkItemDeletion's KDoc) — release-before-delete,
-            // the non-recursive children guard, and the recursive all-or-nothing subtree delete are
-            // all identical to the MCP `manage_items` delete operation (DeleteItemHandler).
-            val deletion = WorkItemDeletion(repositoryProvider, unitOfWork)
+            // The shared delete (ItemCommandService.delete): release-before-delete, the non-recursive
+            // children guard, the recursive all-or-nothing subtree delete and the old parent's cascade
+            // re-evaluation are identical to the MCP `manage_items` delete operation (DeleteItemHandler).
             val actorClaim = ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey])
-            when (
-                val outcome =
-                    withEventActor(actorClaim) { deletion.delete(id, recursive) }
-            ) {
-                is WorkItemDeleteOutcome.Deleted -> {
+            when (val outcome = withEventActor(actorClaim) { itemCommandService.delete(id, recursive) }) {
+                is Outcome.Ok -> {
+                    val result = outcome.value
                     if (recursive) {
                         call.respond(
                             HttpStatusCode.OK,
                             ItemDeleteResultDto(
-                                id = outcome.id.toString(),
-                                deleted = 1 + outcome.descendantsDeleted,
-                                descendantsDeleted = outcome.descendantsDeleted,
+                                id = result.id.toString(),
+                                deleted = 1 + result.descendantsDeleted,
+                                descendantsDeleted = result.descendantsDeleted,
                             ),
                         )
                     } else {
                         call.respond(HttpStatusCode.NoContent)
                     }
                 }
-                is WorkItemDeleteOutcome.HasChildren -> {
-                    val details =
-                        buildJsonObject {
-                            put("childCount", JsonPrimitive(outcome.childCount))
+                is Outcome.Err -> {
+                    val error = outcome.error
+                    val childCount = ItemCommandErrors.childCount(error)
+                    when {
+                        childCount != null -> {
+                            val details =
+                                buildJsonObject {
+                                    put("childCount", JsonPrimitive(childCount))
+                                }
+                            call.respond(
+                                HttpStatusCode.Conflict,
+                                ErrorDto(
+                                    "has_children",
+                                    "Item $id has $childCount child item(s). " +
+                                        "Use ?recursive=true to delete the item and all its descendants.",
+                                    details,
+                                ),
+                            )
                         }
-                    call.respond(
-                        HttpStatusCode.Conflict,
-                        ErrorDto(
-                            "has_children",
-                            "Item $id has ${outcome.childCount} child item(s). " +
-                                "Use ?recursive=true to delete the item and all its descendants.",
-                            details,
-                        ),
-                    )
-                }
-                is WorkItemDeleteOutcome.NotFound -> {
-                    call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
-                }
-                is WorkItemDeleteOutcome.Failed -> {
-                    writeLogger.warn("DELETE /items/{} DB error: {}", id, outcome.message)
-                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to delete item"))
+                        error.code == ErrorCode.NOT_FOUND ->
+                            call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
+                        else -> {
+                            writeLogger.warn("DELETE /items/{} DB error: {}", id, error.message)
+                            call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to delete item"))
+                        }
+                    }
                 }
             }
         }
