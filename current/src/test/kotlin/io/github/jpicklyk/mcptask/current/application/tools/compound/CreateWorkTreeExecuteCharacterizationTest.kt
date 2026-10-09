@@ -285,11 +285,11 @@ class CreateWorkTreeExecuteCharacterizationTest {
         }
 
     // ─────────────────────────────────────────────────────────────────────
-    // S7 — in-transaction rollback: RELATES_TO + unblockAt violates the domain invariant
+    // S7 — RELATES_TO + unblockAt violates the domain invariant: rejected as a validation error before any write
     // ─────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `S7 RELATES_TO with unblockAt fails atomically inside the write transaction`() =
+    fun `S7 RELATES_TO with unblockAt fails as a validation error before any write`() =
         runBlocking {
             val params =
                 buildJsonObject {
@@ -310,9 +310,8 @@ class CreateWorkTreeExecuteCharacterizationTest {
             val result = db.assertNoOutsideUnitWrites { tool.execute(params, context) } as JsonObject
             assertFalse(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val error = errorOf(result)
-            assertEquals("INTERNAL_ERROR", error["code"]!!.jsonPrimitive.content)
+            assertEquals("VALIDATION_ERROR", error["code"]!!.jsonPrimitive.content)
             val msg = error["message"]!!.jsonPrimitive.content
-            assertTrue(msg.startsWith("Work tree creation failed: "), "actual: $msg")
             assertTrue(
                 msg.contains("RELATES_TO dependencies cannot have an unblockAt threshold (no blocking semantics)"),
                 "actual: $msg"
