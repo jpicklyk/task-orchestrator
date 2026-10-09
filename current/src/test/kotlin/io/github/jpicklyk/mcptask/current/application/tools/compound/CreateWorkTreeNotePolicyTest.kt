@@ -459,6 +459,120 @@ class CreateWorkTreeNotePolicyTest {
     // S16 invalid roles
     // ---------------------------------------------------------------------------------------------
 
+    // ---------------------------------------------------------------------------------------------
+    // noteAnchors slices get the same write policy as inline notes (oracle: inline siblings S4, S15, S9/S11)
+    // ---------------------------------------------------------------------------------------------
+
+    private suspend fun anchorParams(
+        title: String,
+        planText: String,
+        tags: String?,
+        noteKey: String,
+        role: String
+    ): Pair<JsonObject, UUID> {
+        val repos = db.repositoryProvider()
+        val projectRoot = repos.workItemRepository().create(WorkItem(title = "Project $title", type = "project"))
+        repos.planDocumentRepository().stash(projectRoot.id, "anchor-plan", planText)
+        val params =
+            buildJsonObject {
+                put("root", buildJsonObject { put("title", JsonPrimitive(title)) })
+                put("parentId", JsonPrimitive(projectRoot.id.toString()))
+                put("docRef", buildJsonObject { put("slug", JsonPrimitive("anchor-plan")) })
+                put(
+                    "children",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("ref", JsonPrimitive("c1"))
+                                put("title", JsonPrimitive("$title C1"))
+                                if (tags != null) put("tags", JsonPrimitive(tags))
+                                put(
+                                    "noteAnchors",
+                                    buildJsonArray {
+                                        add(
+                                            buildJsonObject {
+                                                put("noteKey", JsonPrimitive(noteKey))
+                                                put("role", JsonPrimitive(role))
+                                                put("anchor", JsonPrimitive("task-1"))
+                                            }
+                                        )
+                                    }
+                                )
+                            }
+                        )
+                    }
+                )
+            }
+        return params to projectRoot.id
+    }
+
+    private suspend fun planStatus(projectRoot: UUID) =
+        assertNotNull(db.repositoryProvider().planDocumentRepository().get(projectRoot, "anchor-plan")).status
+
+    @Test
+    fun `anchored slice with role WORK is stored with role work like an inline WORK note`(): Unit =
+        runBlocking {
+            val ctx = context("warn")
+            val (params, projectRoot) = anchorParams("AnchorCase", planBody, null, "free", "WORK")
+
+            val result = run(ctx, params)
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
+            assertEquals("work", assertNotNull(stored(childId(result), "free")).role)
+            val entry =
+                result
+                    .data()["notes"]!!
+                    .jsonArray
+                    .single()
+                    .jsonObject
+            assertEquals("work", entry["role"]!!.jsonPrimitive.content)
+            assertEquals(PlanDocumentStatus.ADOPTED, planStatus(projectRoot))
+        }
+
+    @Test
+    fun `anchored slice from a CRLF document is stored with LF only like an inline CRLF note`(): Unit =
+        runBlocking {
+            val ctx = context("warn")
+            val crlfPlan = "# Overview\r\nO.\r\n# Task 1\r\nline one\r\nline two\r\n"
+            val (params, _) = anchorParams("AnchorCrlf", crlfPlan, null, "free", "work")
+
+            val result = run(ctx, params)
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
+            val body = assertNotNull(stored(childId(result), "free")).body
+            assertFalse(body.contains('\r'), "stored body must contain no CR: ${body.replace("\r", "\\r")}")
+            assertTrue(body.contains("line one\nline two"), "stored body: $body")
+        }
+
+    @Test
+    fun `anchored slice over the 64 KiB cap fails the whole call and the plan document stays PENDING`(): Unit =
+        runBlocking {
+            val ctx = context("warn")
+            val bigPlan = "# Overview\nO.\n# Task 1\n" + "a".repeat(65537)
+            val (params, projectRoot) = anchorParams("AnchorBig", bigPlan, null, "big", "work")
+
+            val result = run(ctx, params)
+
+            assertFalse(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
+            assertEquals("VALIDATION_ERROR", result.error()["code"]!!.jsonPrimitive.content)
+            assertTrue(titlesInDb().none { it.startsWith("AnchorBig") }, "nothing may be persisted")
+            assertEquals(PlanDocumentStatus.PENDING, planStatus(projectRoot))
+        }
+
+    @Test
+    fun `anchored slice whose role disagrees with the schema role fails the whole call and the plan document stays PENDING`(): Unit =
+        runBlocking {
+            val ctx = context("warn")
+            val (params, projectRoot) = anchorParams("AnchorRole", planBody, "lim-type", "lim", "queue")
+
+            val result = run(ctx, params)
+
+            assertFalse(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
+            assertEquals("VALIDATION_ERROR", result.error()["code"]!!.jsonPrimitive.content)
+            assertTrue(titlesInDb().none { it.startsWith("AnchorRole") }, "nothing may be persisted")
+            assertEquals(PlanDocumentStatus.PENDING, planStatus(projectRoot))
+        }
+
     @Test
     fun `S16 roles done and padded work are rejected by validateParams as an invalid role and persist no item`(): Unit =
         runBlocking {
