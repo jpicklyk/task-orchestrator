@@ -1097,7 +1097,8 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                                     "off-schema keys may use any valid role."
                             }
                 }
-            prepared.warning?.let { warnings[targetItem.id to key] = it }
+            // Last-wins: the warning follows the note that is finally written for this (item, key).
+            prepared.warning?.let { warnings[targetItem.id to key] = it } ?: warnings.remove(targetItem.id to key)
 
             val note =
                 Note(
@@ -1188,6 +1189,19 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
 
             val schema = itemSchemas[anchor.itemRef]
 
+            // Schema-role mismatch is reported before a missing anchor (original precedence).
+            schema?.notes?.firstOrNull { it.key == anchor.noteKey }?.role?.toJsonString()?.let { expectedRole ->
+                if (anchor.role.lowercase() != expectedRole) {
+                    return null to
+                        errorResponse(
+                            "noteAnchors: key '${anchor.noteKey}' is declared in the schema for itemRef " +
+                                "'${anchor.itemRef}' with role '$expectedRole', but the anchor has role " +
+                                "'${anchor.role}'. Schema-declared keys must use the schema role.",
+                            ErrorCodes.VALIDATION_ERROR
+                        )
+                }
+            }
+
             val sliced =
                 MarkdownSectionSplitter.slice(doc.body, anchor.anchor)
                     ?: return null to
@@ -1212,7 +1226,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                                     "'${anchor.role}'. Schema-declared keys must use the schema role."
                             }
                 }
-            prepared.warning?.let { warnings[targetItem.id to anchor.noteKey] = it }
+            prepared.warning?.let { warnings[targetItem.id to anchor.noteKey] = it } ?: warnings.remove(targetItem.id to anchor.noteKey)
 
             val note =
                 Note(

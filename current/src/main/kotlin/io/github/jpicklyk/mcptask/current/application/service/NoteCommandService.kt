@@ -13,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.Note
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
@@ -136,41 +137,54 @@ class NoteCommandService(
 
     /** Looks up the item, applies the write policy, and upserts the note in one write unit. */
     suspend fun upsert(cmd: NoteUpsertCommand): Outcome<NoteWriteResult> {
-        val item =
-            repositoryProvider.workItemRepository().getById(cmd.itemId)
-                ?: return Outcome.Err(notFound(EntityKind.ITEM, cmd.itemId.toString(), "WorkItem '${cmd.itemId}' not found"))
-
-        val prepared =
-            when (val p = prepare(item, cmd.key, cmd.role, cmd.body)) {
-                is Outcome.Ok -> p.value
-                is Outcome.Err -> return p
-            }
-
         val noteRepo = repositoryProvider.noteRepository()
-        return unitOfWork.writeUnit<Outcome<NoteWriteResult>>(
-            "NoteCommandService.upsert",
-            onFault = { Outcome.Err(it) }
-        ) {
-            val existing = noteRepo.findByItemIdAndKey(cmd.itemId, cmd.key)
-            val note =
-                try {
-                    Note(
-                        id = existing?.id ?: UUID.randomUUID(),
-                        itemId = cmd.itemId,
-                        key = cmd.key,
-                        role = prepared.role,
-                        body = prepared.body,
-                        actorClaim = cmd.actorClaim,
-                        verification = cmd.verification
-                    )
-                } catch (e: ValidationException) {
-                    return@writeUnit UnitResult.Rollback(
-                        Outcome.Err(invalidRequest("key", e.message ?: "Invalid note", cmd.key))
-                    )
-                }
-            val stored = noteRepo.upsert(note)
-            UnitResult.Commit(Outcome.Ok(NoteWriteResult(stored, existing == null, prepared.warning)))
-        }
+        // writeUnit maps any thrown exception to a store fault; config-unavailable must still propagate (not an Outcome).
+        var configUnavailable: PerRootConfigUnavailableException? = null
+        val result =
+            unitOfWork.writeUnit<Outcome<NoteWriteResult>>(
+                "NoteCommandService.upsert",
+                onFault = { Outcome.Err(it) }
+            ) {
+                val item =
+                    repositoryProvider.workItemRepository().getById(cmd.itemId)
+                        ?: return@writeUnit UnitResult.Rollback(
+                            Outcome.Err(notFound(EntityKind.ITEM, cmd.itemId.toString(), "WorkItem '${cmd.itemId}' not found"))
+                        )
+                val prepared =
+                    try {
+                        when (val p = prepare(item, cmd.key, cmd.role, cmd.body)) {
+                            is Outcome.Ok -> p.value
+                            is Outcome.Err -> return@writeUnit UnitResult.Rollback(p)
+                        }
+                    } catch (e: PerRootConfigUnavailableException) {
+                        configUnavailable = e
+                        return@writeUnit UnitResult.Rollback(
+                            Outcome.Err(notFound(EntityKind.ITEM, cmd.itemId.toString(), "config unavailable"))
+                        )
+                    }
+                val existing = noteRepo.findByItemIdAndKey(cmd.itemId, cmd.key)
+                val note =
+                    try {
+                        Note(
+                            id = existing?.id ?: UUID.randomUUID(),
+                            itemId = cmd.itemId,
+                            key = cmd.key,
+                            role = prepared.role,
+                            body = prepared.body,
+                            actorClaim = cmd.actorClaim,
+                            verification = cmd.verification
+                        )
+                    } catch (e: ValidationException) {
+                        return@writeUnit UnitResult.Rollback(
+                            Outcome.Err(invalidRequest("key", e.message ?: "Invalid note", cmd.key))
+                        )
+                    }
+                val stored = noteRepo.upsert(note)
+                UnitResult.Commit(Outcome.Ok(NoteWriteResult(stored, existing == null, prepared.warning)))
+            }
+        val unavailable = configUnavailable
+        if (unavailable != null) throw unavailable
+        return result
     }
 
     /** Deletes the note [id]; `Ok(false)` when it does not exist. */
