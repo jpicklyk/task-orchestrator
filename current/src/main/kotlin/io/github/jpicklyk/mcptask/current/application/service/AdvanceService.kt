@@ -455,14 +455,27 @@ class AdvanceService(
      * (its rejection row survives through `recordRejection`); a store fault, a poisoned unit or an
      * [ApplyAbort] becomes [AdvanceFailure.ApplyFailed]. A per-root config fault is rethrown for the
      * caller's `config_unavailable` mapping; cancellation is rethrown.
+     *
+     * The config fault is caught INSIDE the unit block, the unit is rolled back with an [Outcome.Err],
+     * and the exception is rethrown only after the unit returns: thrown out of the block, the outermost
+     * unit runner would translate it by its SQL cause into a store fault (`apply_failed`) instead.
      */
     private suspend fun runUnit(block: suspend WriteScope.() -> AdvanceOutcome): AdvanceOutcome {
         var rejected: AdvanceOutcome.Failure? = null
+        var configFault: PerRootConfigUnavailableException? = null
         val outcome =
             try {
                 unitOfWork.write(UNIT_OP) {
                     rejected = null
-                    when (val result = block()) {
+                    configFault = null
+                    val result =
+                        try {
+                            block()
+                        } catch (e: PerRootConfigUnavailableException) {
+                            configFault = e
+                            return@write Outcome.Err(DomainError(ErrorCode.INTERNAL, "Unit '$UNIT_OP' rolled back: ${e.message}"))
+                        }
+                    when (result) {
                         is AdvanceOutcome.Success -> Outcome.Ok(result)
                         is AdvanceOutcome.Failure -> {
                             rejected = result
@@ -480,6 +493,7 @@ class AdvanceService(
                 e.rethrowIfCancellation()
                 return AdvanceOutcome.Failure(AdvanceFailure.ApplyFailed(applyFaultMessage(LegacyFaults.fault(e))))
             }
+        configFault?.let { throw it }
         return when (outcome) {
             is Outcome.Ok -> outcome.value
             is Outcome.Err -> rejected ?: AdvanceOutcome.Failure(AdvanceFailure.ApplyFailed(applyFaultMessage(outcome.error)))
