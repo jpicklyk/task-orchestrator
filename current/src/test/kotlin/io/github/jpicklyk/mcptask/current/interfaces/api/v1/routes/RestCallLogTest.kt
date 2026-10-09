@@ -227,24 +227,87 @@ class RestCallLogTest {
 
             val a = UUID.randomUUID()
             val b = UUID.randomUUID()
-            client.getWith("/items/$a/zzz/$b")
-            client.getWith("/items/$a/notes/my-key")
-            client.getWith("/items?limit=5&includeChildren=true&title=x")
+            val deep = client.getWith("/items/$a/zzz/$b")
+            val keyed = client.getWith("/items/$a/notes/my-key")
+            val listingResponse = client.getWith("/items?limit=5&includeChildren=true&title=x")
+            val schema = client.getWith("/items/$a/schema")
 
             writer.flushNow()
-            val byTool = callLogRows().associateBy { it["tool"] }
-            // F1: no route resolved, so the tool is path-derived: UUID -> {id}, any non-vocabulary segment -> {param}.
-            val two = byTool.getValue("GET /api/v1/items/{id}/{param}/{id}")
+            val byReq = callLogRows().associateBy { it["req_id"] }
+            // G1: no route resolves for /items/<id>/zzz/<id>, so the tool collapses to the first segment only.
+            val two = byReq.getValue(deep.headers["X-Req-Id"])
+            assertEquals("GET /api/v1/items", two["tool"])
             assertEquals(listOf(a.toString(), b.toString()), ids(two["target_ids"]))
-            val keyed = callLogRows().single { (it["tool"] as String).startsWith("GET /api/v1/items/{id}/notes/") }
-            assertTrue(!(keyed["tool"] as String).contains("my-key"), "the raw key is never stored: ${keyed["tool"]}")
-            assertEquals(listOf(a.toString()), ids(keyed["target_ids"]), "a non-UUID segment is not a target")
-            val listing = byTool.getValue("GET /api/v1/items")
+            val keyedRow = byReq.getValue(keyed.headers["X-Req-Id"])
+            assertTrue(!(keyedRow["tool"] as String).contains("my-key"), "the raw key is never stored: ${keyedRow["tool"]}")
+            assertTrue((keyedRow["tool"] as String).startsWith("GET /api/v1/items"), "${keyedRow["tool"]}")
+            assertEquals(listOf(a.toString()), ids(keyedRow["target_ids"]), "a non-UUID segment is not a target")
+            val listing = byReq.getValue(listingResponse.headers["X-Req-Id"])
+            assertEquals("GET /api/v1/items", listing["tool"])
             val shape = Json.parseToJsonElement(listing["request_shape"] as String).jsonObject
             assertEquals(listOf("includeChildren", "limit"), shape.keys.toList())
             assertNull(listing["target_ids"])
+            // G1: a matched multi-literal route keeps its declared template.
+            assertEquals("GET /api/v1/items/{id}/schema", byReq.getValue(schema.headers["X-Req-Id"])["tool"])
         }
 
+    @Test
+    fun `G1 a matched multi-literal route keeps its literal as the declared template`() =
+        testApplication {
+            val rig = EventLogRig.build(db.db, dir)
+            val writer = newWriter(rig.composition)
+            application { configureApp(rig.composition, writer) }
+            val id = UUID.randomUUID()
+            val matched = client.getWith("/items/$id/schema")
+            val plain = client.getWith("/items/$id")
+            writer.flushNow()
+            val byReq = callLogRows().associateBy { it["req_id"] }
+            assertEquals("GET /api/v1/items/{id}/schema", byReq.getValue(matched.headers["X-Req-Id"])["tool"])
+            assertEquals("GET /api/v1/items/{id}", byReq.getValue(plain.headers["X-Req-Id"])["tool"])
+        }
+
+    @Test
+    fun `G1 cardinality of unauthenticated junk calls is bounded by methods times served resources plus one`() =
+        testApplication {
+            val rig = EventLogRig.build(db.db, dir)
+            val writer = newWriter(rig.composition)
+            application { configureApp(rig.composition, writer) }
+
+            val random = kotlin.random.Random(20261009)
+            val chars = ('a'..'z') + ('0'..'9')
+
+            fun junk(): String = (0 until random.nextInt(3, 40)).map { chars[random.nextInt(chars.size)] }.joinToString("")
+            val resources =
+                listOf(
+                    "config",
+                    "dependencies",
+                    "events",
+                    "health",
+                    "info",
+                    "items",
+                    "notes",
+                    "resources",
+                    "roots",
+                    "search",
+                    "transitions"
+                )
+            repeat(200) { n ->
+                // Eight segments never resolve a declared route; the first is a resource name or random junk.
+                val first = if (n % 3 == 0) resources[random.nextInt(resources.size)] else junk()
+                val path = "/" + (listOf(first) + (0 until 7).map { junk() }).joinToString("/")
+                if (n % 2 == 0) client.getWith(path, token = null) else client.post("/api/v1$path")
+            }
+            writer.flushNow()
+            val rows = callLogRows()
+            assertEquals(200, rows.size)
+            val tools = rows.map { it["tool"] as String }.toSet()
+            val methods = 2
+            assertTrue(
+                tools.size <= methods * (resources.size + 1),
+                "at most methods x (resources + 1) distinct tool values, got ${tools.size}: $tools"
+            )
+            assertTrue(tools.all { t -> t.endsWith(" unmatched") || resources.any { t.endsWith("/api/v1/$it") } }, "$tools")
+        }
     // ------------------------------------------------------------------ S19
 
     @Test
@@ -287,10 +350,12 @@ class RestCallLogTest {
             assertEquals(HttpStatusCode.Unauthorized, outside.status)
             val inside = client.getWith("/items/$junk", token = null)
             assertEquals(HttpStatusCode.Unauthorized, inside.status)
+            val insideDeep = client.getWith("/items/$junk/$junk/x/y", token = null)
+            assertEquals(HttpStatusCode.Unauthorized, insideDeep.status)
 
             writer.flushNow()
             val rows = callLogRows()
-            assertEquals(2, rows.size)
+            assertEquals(3, rows.size)
             for (row in rows) {
                 row.forEach { (column, value) ->
                     if (value is String) {
@@ -309,14 +374,11 @@ class RestCallLogTest {
                 }
             }
             val byReq = rows.associateBy { it["req_id"] }
-            assertEquals("GET unmatched", byReq.getValue(outside.headers["X-Req-Id"])["tool"], "unknown first segment")
-            assertEquals(
-                "GET /api/v1/items/{param}",
-                byReq.getValue(inside.headers["X-Req-Id"])["tool"],
-                "vocabulary first segment, then a non-UUID segment becomes {param}"
-            )
+            assertEquals("GET unmatched", byReq.getValue(outside.headers["X-Req-Id"])["tool"], "junk in the first segment")
+            // G1: auth runs after routing, so /items/<anything> resolves the declared /items/{id} route.
+            assertEquals("GET /api/v1/items/{id}", byReq.getValue(inside.headers["X-Req-Id"])["tool"])
+            assertEquals("GET /api/v1/items", byReq.getValue(insideDeep.headers["X-Req-Id"])["tool"], "no route: first segment only")
         }
-
     // ------------------------------------------------------------------ S16
 
     @Test

@@ -184,11 +184,11 @@ class RequestCorrelationCallLogTest {
                 probeRoutes()
             }
             for (code in listOf(200, 204, 304, 399, 400, 401, 404, 422, 503)) client.get("/api/v1/status/$code")
-            // /status is outside the REST vocabulary (F1), so every row is "GET unmatched"; requests are sequential, so
+            // G1: /status/{code} is a declared route, so every row is its template; requests are sequential, so
             // the records are in request order.
             val codes = listOf(200, 204, 304, 399, 400, 401, 404, 422, 503)
             assertEquals(codes.size, sink.records.size)
-            assertTrue(sink.records.all { it.tool == "GET unmatched" }, "F1: ${sink.records.map { it.tool }}")
+            assertTrue(sink.records.all { it.tool == "GET /api/v1/status/{code}" }, "G1: ${sink.records.map { it.tool }}")
             val byCode = codes.zip(sink.records).toMap()
             for (code in listOf(200, 204, 304, 399)) {
                 assertEquals(CallLogRecord.OUTCOME_OK, byCode.getValue(code).outcome, "status $code is not an error")
