@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ResourceL
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ResourceLeasesTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.UtcTimestamp
 import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
+import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.VarCharColumnType
@@ -374,6 +375,62 @@ class SQLiteResourceLeaseRepository(
         }
     }
 
+    override suspend fun findLapsed(
+        keys: List<String>?,
+        holderItemIds: Set<UUID>?
+    ): List<ResourceLease> {
+        if (keys != null && keys.isEmpty()) return emptyList()
+        if (holderItemIds != null && holderItemIds.isEmpty()) return emptyList()
+        val now = clock.unitNow()
+        return databaseManager.readTx {
+            val rows = mutableListOf<ResourceLease>()
+            // Chunked on the holder set so the IN list never exceeds the bound-variable limit.
+            val holderChunks = holderItemIds?.chunked(SQL_IN_CHUNK_SIZE - 1) ?: listOf(null)
+            for (holders in holderChunks) {
+                ResourceLeasesTable
+                    .selectAll()
+                    .where {
+                        var cond: Op<Boolean> = ResourceLeasesTable.expiresAt lessEq now
+                        if (keys != null) cond = cond and (ResourceLeasesTable.resourceKey inList keys)
+                        if (holders != null) cond = cond and (ResourceLeasesTable.holderItemId inList holders)
+                        cond
+                    }.mapTo(rows) { toLapsedLease(it) }
+            }
+            rows
+        }
+    }
+
+    override suspend fun deleteLapsed(leaseIds: Set<UUID>): Int {
+        if (leaseIds.isEmpty()) return 0
+        val now = clock.unitNow()
+        return databaseManager.writeTx("LeaseStore.deleteLapsed") {
+            var removed = 0
+            for (chunk in leaseIds.chunked(SQL_IN_CHUNK_SIZE - 1)) {
+                val lapsed =
+                    ResourceLeasesTable
+                        .selectAll()
+                        .where { (ResourceLeasesTable.id inList chunk) and (ResourceLeasesTable.expiresAt lessEq now) }
+                        .toList()
+                for (row in lapsed) {
+                    val key = row[ResourceLeasesTable.resourceKey]
+                    val holder = row[ResourceLeasesTable.holderItemId]
+                    val expiresAt = row[ResourceLeasesTable.expiresAt]
+                    // The hold ended at its own expiry, not at the instant the sweep noticed.
+                    ResourceLeaseHistoryTable.update({
+                        (ResourceLeaseHistoryTable.resourceKey eq key) and
+                            (ResourceLeaseHistoryTable.holderItemId eq holder) and
+                            ResourceLeaseHistoryTable.releasedAt.isNull()
+                    }) {
+                        it[releasedAt] = expiresAt
+                        it[releaseReason] = "expired"
+                    }
+                    removed += ResourceLeasesTable.deleteWhere { ResourceLeasesTable.id eq row[ResourceLeasesTable.id] }
+                }
+            }
+            removed
+        }
+    }
+
     override suspend fun findActiveByKeys(keys: List<String>): List<ResourceLease> {
         if (keys.isEmpty()) return emptyList()
         val now = clock.unitNow()
@@ -454,6 +511,26 @@ class SQLiteResourceLeaseRepository(
             originalAcquiredAt = row[ResourceLeasesTable.originalAcquiredAt],
             version = row[ResourceLeasesTable.version],
         )
+
+    /**
+     * A lapsed row as a [ResourceLease]. A row whose expiry was moved before its acquisition (hand-edited data; the
+     * store itself never writes one) would fail the domain invariants and wedge every expiry pass, so its timestamps
+     * are clamped to the expiry instead.
+     */
+    private fun toLapsedLease(row: ResultRow): ResourceLease {
+        val expiresAt = row[ResourceLeasesTable.expiresAt]
+        val acquiredAt = minOf(row[ResourceLeasesTable.acquiredAt], expiresAt)
+        return ResourceLease(
+            id = row[ResourceLeasesTable.id].value,
+            resourceKey = row[ResourceLeasesTable.resourceKey],
+            holderItemId = row[ResourceLeasesTable.holderItemId],
+            acquiredByActorId = row[ResourceLeasesTable.acquiredByActorId],
+            acquiredAt = acquiredAt,
+            expiresAt = expiresAt,
+            originalAcquiredAt = minOf(row[ResourceLeasesTable.originalAcquiredAt], acquiredAt),
+            version = row[ResourceLeasesTable.version],
+        )
+    }
 
     private fun toInterval(row: ResultRow): ResourceLeaseInterval =
         ResourceLeaseInterval(

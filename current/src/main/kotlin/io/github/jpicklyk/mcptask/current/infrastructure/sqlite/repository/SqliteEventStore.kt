@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.EventsTab
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.max
@@ -70,6 +71,33 @@ class SqliteEventStore(
                 }.orderBy(EventsTable.seq to SortOrder.ASC)
                 .limit(limit)
                 .map(::toRecord)
+        }
+    }
+
+    override suspend fun latestOfType(
+        type: String,
+        entityIds: Set<UUID>
+    ): Map<UUID, EventRecord> {
+        if (entityIds.isEmpty()) return emptyMap()
+        return databaseManager.readTx {
+            val latest = HashMap<UUID, EventRecord>()
+            val maxSeq = EventsTable.seq.max()
+            for (chunk in entityIds.chunked(SQL_IN_CHUNK_SIZE - 1)) {
+                // Select only each entity's newest seq, then load just those rows, rather than every row of the type.
+                val newestSeqs =
+                    EventsTable
+                        .select(EventsTable.entityId, maxSeq)
+                        .where { (EventsTable.type eq type) and (EventsTable.entityId inList chunk) }
+                        .groupBy(EventsTable.entityId)
+                        .map { it[maxSeq] }
+                        .filterNotNull()
+                if (newestSeqs.isEmpty()) continue
+                EventsTable
+                    .selectAll()
+                    .where { EventsTable.seq inList newestSeqs }
+                    .forEach { row -> toRecord(row).let { latest[it.entityId] = it } }
+            }
+            latest
         }
     }
 

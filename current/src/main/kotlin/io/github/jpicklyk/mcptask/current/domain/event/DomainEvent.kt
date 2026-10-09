@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.domain.event
 
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
+import java.time.Instant
 import java.util.UUID
 
 /**
@@ -13,7 +14,7 @@ import java.util.UUID
  * [entityVerification] are the actor and verification the entity itself carries (a note's or a transition's
  * claim); when absent the recorder falls back to the ambient event actor.
  *
- * `claim.expired` and `lease.expired` are declared for P14, which produces them.
+ * `claim.expired` and `lease.expired` are produced by `ClaimService` (lazy detection plus the hourly sweep).
  */
 sealed class DomainEvent {
     abstract val type: String
@@ -225,15 +226,21 @@ sealed class DomainEvent {
         override fun payload(): Map<String, Any?> = mapOf("retryAfterMs" to retryAfterMs)
     }
 
-    /** Declared for P14 (lazy expiry); not produced in P8. */
+    /**
+     * A claim whose TTL ran out ([expiresAt] <= the detecting unit's instant), held by [holder]. Recorded exactly once
+     * per lapsed claim instance (item + holder + expiresAt) by `ClaimService`; the claim columns are left as they were.
+     * Both fields default to null so a bare marker row stays constructible.
+     */
     data class ClaimExpired(
         override val entityId: UUID,
-        override val rootId: UUID
+        override val rootId: UUID,
+        val holder: String? = null,
+        val expiresAt: Instant? = null
     ) : DomainEvent() {
         override val type: String get() = CLAIM_EXPIRED
         override val entityKind: String get() = KIND_ITEM
 
-        override fun payload(): Map<String, Any?> = emptyMap()
+        override fun payload(): Map<String, Any?> = mapOf("holder" to holder, "expiresAt" to expiresAt)
     }
 
     // ---- leases (entity = the holder item) ----
@@ -275,16 +282,20 @@ sealed class DomainEvent {
         override fun payload(): Map<String, Any?> = mapOf("contendedKeys" to contendedKeys, "retryAfterMs" to retryAfterMs)
     }
 
-    /** Declared for P14 (lazy expiry); not produced in P8. */
+    /**
+     * A lease whose TTL ran out ([expiresAt] <= the detecting unit's instant) on [key], held by the entity item.
+     * Recorded exactly once per lapsed lease row by `ClaimService`, which removes the row; the one exception is the holder's own lapsed re-take, where the row is refreshed in place instead of removed.
+     */
     data class LeaseExpired(
         override val entityId: UUID,
         override val rootId: UUID,
-        val key: String
+        val key: String,
+        val expiresAt: Instant? = null
     ) : DomainEvent() {
         override val type: String get() = LEASE_EXPIRED
         override val entityKind: String get() = KIND_ITEM
 
-        override fun payload(): Map<String, Any?> = mapOf("key" to key)
+        override fun payload(): Map<String, Any?> = mapOf("key" to key, "expiresAt" to expiresAt)
     }
 
     // ---- per-root config and plan documents (root = the project root item) ----

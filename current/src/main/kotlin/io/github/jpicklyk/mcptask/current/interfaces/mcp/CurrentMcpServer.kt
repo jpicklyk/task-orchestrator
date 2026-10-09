@@ -23,6 +23,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextT
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.infrastructure.ExpirySweeper
 import io.github.jpicklyk.mcptask.current.infrastructure.IdempotencyPruner
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
@@ -212,6 +213,14 @@ class CurrentMcpServer(
             idempotencyPruner.start()
             shutdownCoordinator.addCleanupAction("Stop Idempotency Pruner") {
                 runBlocking { idempotencyPruner.stop() }
+            }
+
+            // Expired claims are reported and lapsed leases removed once now and then hourly. Registered after the
+            // pruner (and so after Close Database): the LIFO drain stops it before the database closes.
+            val expirySweeper = ExpirySweeper(toolContext.claimService)
+            expirySweeper.start()
+            shutdownCoordinator.addCleanupAction("Stop Expiry Sweeper") {
+                runBlocking { expirySweeper.stop() }
             }
 
             // The call log is written off the request path in batches. Registered AFTER the pruner (and so after

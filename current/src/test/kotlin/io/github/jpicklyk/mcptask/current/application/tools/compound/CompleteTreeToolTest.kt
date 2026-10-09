@@ -1501,6 +1501,7 @@ class CompleteTreeToolTest {
 
             val leaseRepo = mockk<LeaseStore>()
             coEvery { leaseRepo.releaseAllForItem(itemId) } returns LeaseReleaseResult.Success(1)
+            AdvanceMockStores.stubClaimServiceReads(workItemRepo, leaseRepo)
 
             val leaseRepoProvider = mockk<RepositoryProvider>()
             every { leaseRepoProvider.workItemRepository() } returns workItemRepo

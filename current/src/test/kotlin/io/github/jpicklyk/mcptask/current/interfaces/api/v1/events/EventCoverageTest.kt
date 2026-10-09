@@ -610,7 +610,12 @@ class EventCoverageTest {
             val rig = rig(dir)
             val item = rig.seed("S10 claim item")
 
-            val (first, acquiredRows) = rig.written { rig.inUnit { rig.provider.workItemRepository().claim(item.id, "agent-a", 120) } }
+            val (first, acquiredRows) =
+                rig.written {
+                    rig.ctx.claimService
+                        .claim(item.id, "agent-a", 120)
+                        .getOrNull()
+                }
             assertIs<ClaimResult.Success>(first)
             val acquired = acquiredRows.single()
             assertEquals("claim.acquired", acquired.type)
@@ -623,7 +628,12 @@ class EventCoverageTest {
             )
             assertEquals("agent-a", acquired.str("holder"))
 
-            val (second, rejectedRows) = rig.written { rig.inUnit { rig.provider.workItemRepository().claim(item.id, "agent-b", 120) } }
+            val (second, rejectedRows) =
+                rig.written {
+                    rig.ctx.claimService
+                        .claim(item.id, "agent-b", 120)
+                        .getOrNull()
+                }
             assertIs<ClaimResult.AlreadyClaimed>(second)
             assertEquals(
                 listOf("claim.rejected"),
@@ -640,8 +650,13 @@ class EventCoverageTest {
                 "control: agent-a still holds the item"
             )
 
-            val (cleared, clearedRows) = rig.written { rig.inUnit { rig.provider.workItemRepository().clear(item.id) } }
-            assertTrue(cleared)
+            val (cleared, clearedRows) =
+                rig.written {
+                    rig.ctx.claimService
+                        .clearClaim(item.id)
+                        .getOrNull()
+                }
+            assertTrue(cleared == true)
             assertEquals(listOf("claim.released"), clearedRows.types())
             assertEquals("cleared", clearedRows.single().str("reason"))
         }
@@ -654,9 +669,9 @@ class EventCoverageTest {
             val rig = rig(dir)
             val holder = rig.seed("lease holder")
             val other = rig.seed("lease other")
-            val leases = rig.provider.resourceLeaseRepository()
+            val claims = rig.ctx.claimService
 
-            val (acq, acquired) = rig.written { rig.inUnit { leases.acquireAll(holder.id, "actor-1", listOf("res-a" to 600)) } }
+            val (acq, acquired) = rig.written { claims.acquireLeases(holder.id, "actor-1", listOf("res-a" to 600)).getOrNull() }
             assertIs<LeaseAcquireResult.Success>(acq)
             val a = acquired.single()
             assertEquals("lease.acquired", a.type)
@@ -670,14 +685,14 @@ class EventCoverageTest {
                     .toInt()
             )
 
-            val (contended, rejected) = rig.written { rig.inUnit { leases.acquireAll(other.id, "actor-2", listOf("res-a" to 600)) } }
+            val (contended, rejected) = rig.written { claims.acquireLeases(other.id, "actor-2", listOf("res-a" to 600)).getOrNull() }
             assertIs<LeaseAcquireResult.Contended>(contended)
             assertEquals(listOf("lease.rejected"), rejected.types(), "contention commits its unit and records exactly one rejection row")
             val rej = rejected.single()
             assertEquals(other.id, rej.entityId)
             assertEquals(listOf("res-a"), rej.payload()["contendedKeys"]!!.jsonArray.map { it.jsonPrimitive.content })
 
-            val (_, released) = rig.written { rig.inUnit { leases.releaseAllForItem(holder.id) } }
+            val (_, released) = rig.written { claims.releaseLeases(setOf(holder.id)).getOrNull() }
             val rel = released.single()
             assertEquals("lease.released", rel.type)
             assertEquals("res-a", rel.str("key"))
@@ -690,8 +705,8 @@ class EventCoverageTest {
                     .toInt()
             )
 
-            rig.inUnit { leases.acquireAll(holder.id, "actor-1", listOf("res-b" to 600)) }
-            val (_, forced) = rig.written { rig.inUnit { leases.forceReleaseByKey("res-b", "operator") } }
+            claims.acquireLeases(holder.id, "actor-1", listOf("res-b" to 600))
+            val (_, forced) = rig.written { claims.forceReleaseLease("res-b", "operator").getOrNull() }
             val f = forced.single()
             assertEquals("lease.released", f.type)
             assertEquals("res-b", f.str("key"))

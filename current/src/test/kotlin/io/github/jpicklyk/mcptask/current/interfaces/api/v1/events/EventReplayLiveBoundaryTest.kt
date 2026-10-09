@@ -57,6 +57,11 @@ class EventReplayLiveBoundaryTest {
 
         override suspend fun append(records: List<EventRecord>): List<EventRecord> = delegate.append(records)
 
+        override suspend fun latestOfType(
+            type: String,
+            entityIds: Set<UUID>,
+        ): Map<UUID, EventRecord> = delegate.latestOfType(type, entityIds)
+
         override suspend fun maxSeq(): Long = delegate.maxSeq()
 
         override suspend fun readAfter(

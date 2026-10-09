@@ -415,6 +415,10 @@ class ClaimItemToolSelectorOutcomeTest {
                         originalClaimedAt = now,
                     )
                 )
+            // ClaimService reads the target, the agent's other claims and the roots behind its event rows.
+            coEvery { mockWorkItemRepo.getById(any()) } returns null
+            coEvery { mockWorkItemRepo.findHeldBy(any()) } returns emptyList()
+            coEvery { mockWorkItemRepo.findAncestorChains(any()) } returns emptyMap()
             val mockProvider = mockk<RepositoryProvider>()
             every { mockProvider.workItemRepository() } returns mockWorkItemRepo
 

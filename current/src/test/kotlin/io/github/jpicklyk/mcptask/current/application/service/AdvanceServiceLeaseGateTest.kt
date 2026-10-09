@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
 import io.github.jpicklyk.mcptask.current.test.advanceSeeded
+import io.github.jpicklyk.mcptask.current.test.testClaimService
 import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
 import io.mockk.Called
 import io.mockk.coEvery
@@ -111,7 +112,8 @@ class AdvanceServiceLeaseGateTest {
             },
             resourceRegistryResolver = { registry },
             resourceLeasesEnforced = resourceLeasesEnforced,
-            unitOfWork = unscopedUnitOfWork()
+            unitOfWork = unscopedUnitOfWork(),
+            claimService = testClaimService(workItemRepo, leaseRepository, unscopedUnitOfWork())
         )
 
     /** Captures the [RoleTransition] audit row written by the primary transition. */

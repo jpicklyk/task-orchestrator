@@ -1,13 +1,14 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.application.service.ClaimService
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.UnitResult
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.writeUnit
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import java.util.UUID
 
@@ -57,6 +58,8 @@ class WorkItemDeletion(
     private val repositoryProvider: RepositoryProvider,
     private val unitOfWork: UnitOfWork
 ) {
+    private val claimService = ClaimService(repositoryProvider, unitOfWork)
+
     /**
      * @param id The item to delete.
      * @param recursive When `false` and [id] has one or more direct children, returns
@@ -70,18 +73,16 @@ class WorkItemDeletion(
         recursive: Boolean
     ): WorkItemDeleteOutcome {
         val repo = repositoryProvider.workItemRepository()
-        val leaseRepo = repositoryProvider.resourceLeaseRepository()
 
         return if (recursive) {
-            deleteRecursive(repo, leaseRepo, id)
+            deleteRecursive(repo, id)
         } else {
-            deleteNonRecursive(repo, leaseRepo, id)
+            deleteNonRecursive(repo, id)
         }
     }
 
     private suspend fun deleteNonRecursive(
         repo: WorkItemRepository,
-        leaseRepo: LeaseStore,
         id: UUID
     ): WorkItemDeleteOutcome {
         val children = legacyRead({ return WorkItemDeleteOutcome.Failed(id, "Failed to check children: $it") }) { repo.findChildren(id) }
@@ -93,14 +94,13 @@ class WorkItemDeletion(
         // (false) delete both roll the unit back, so the lease release never commits while the row
         // survives, or for an item that was never there.
         return deleteUnit(id, "WorkItemDeletion.delete") {
-            releaseLeases(leaseRepo, id)?.let { return@deleteUnit UnitResult.Rollback(it) }
+            releaseLeases(id)?.let { return@deleteUnit UnitResult.Rollback(it) }
             rootDelete(repo, id, descendantsDeleted = 0)
         }
     }
 
     private suspend fun deleteRecursive(
         repo: WorkItemRepository,
-        leaseRepo: LeaseStore,
         id: UUID
     ): WorkItemDeleteOutcome {
         return deleteUnit(id, "WorkItemDeletion.deleteRecursive") {
@@ -112,7 +112,7 @@ class WorkItemDeletion(
                     return@deleteUnit UnitResult.Rollback(WorkItemDeleteOutcome.Failed(id, "Failed to find descendants: $it"))
                 }) { repo.findDescendants(id) }
             if (descendants.isNotEmpty()) {
-                releaseLeasesBulk(leaseRepo, id, descendants.map { it.id }.toSet())?.let {
+                releaseLeasesBulk(id, descendants.map { it.id }.toSet())?.let {
                     return@deleteUnit UnitResult.Rollback(it)
                 }
                 // Group by traversal level computed from the parentId links, NOT the stored
@@ -127,7 +127,7 @@ class WorkItemDeletion(
                 }
             }
 
-            releaseLeases(leaseRepo, id)?.let { return@deleteUnit UnitResult.Rollback(it) }
+            releaseLeases(id)?.let { return@deleteUnit UnitResult.Rollback(it) }
             // Root not-found (false) must ALSO roll back, not just fall through:
             // the descendant deletes and releases above are in this SAME unit, so committing here
             // would keep them even though the root itself was never there to delete, breaking the
@@ -207,13 +207,14 @@ class WorkItemDeletion(
      * release throws (same fail-closed contract as [releaseLeases]), or null.
      */
     private suspend fun releaseLeasesBulk(
-        leaseRepo: LeaseStore,
         rootId: UUID,
         itemIds: Set<UUID>
     ): WorkItemDeleteOutcome.Failed? {
-        legacyRead({
-            return WorkItemDeleteOutcome.Failed(rootId, "Failed to release resource leases for ${itemIds.size} descendants: $it")
-        }) { leaseRepo.releaseAllForItems(itemIds) }
+        val released = claimService.releaseLeases(itemIds)
+        if (released is Outcome.Err) {
+            val reason = LegacyFaults.message(released.error)
+            return WorkItemDeleteOutcome.Failed(rootId, "Failed to release resource leases for ${itemIds.size} descendants: $reason")
+        }
         return null
     }
 
@@ -224,13 +225,14 @@ class WorkItemDeletion(
      * release throws (see this class's KDoc for why a release failure must abort rather than
      * continue), or null.
      */
-    private suspend fun releaseLeases(
-        leaseRepo: LeaseStore,
-        itemId: UUID
-    ): WorkItemDeleteOutcome.Failed? {
-        legacyRead({
-            return WorkItemDeleteOutcome.Failed(itemId, "Failed to release resource leases for '$itemId': $it")
-        }) { leaseRepo.releaseAllForItem(itemId) }
+    private suspend fun releaseLeases(itemId: UUID): WorkItemDeleteOutcome.Failed? {
+        val released = claimService.releaseLeases(setOf(itemId))
+        if (released is Outcome.Err) {
+            return WorkItemDeleteOutcome.Failed(
+                itemId,
+                "Failed to release resource leases for '$itemId': ${LegacyFaults.message(released.error)}"
+            )
+        }
         return null
     }
 }

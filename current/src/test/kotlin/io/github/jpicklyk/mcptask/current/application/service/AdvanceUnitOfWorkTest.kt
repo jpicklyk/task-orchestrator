@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.arr
 import io.github.jpicklyk.mcptask.current.test.flag
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.testClaimService
 import io.github.jpicklyk.mcptask.current.test.text
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
@@ -75,6 +76,7 @@ class AdvanceUnitOfWorkTest {
                         schemaResolver = { null },
                         unitOfWork = counting,
                         clock = clock,
+                        claimService = testClaimService(provider.workItemRepository(), null, counting)
                     )
 
                 val outcome =

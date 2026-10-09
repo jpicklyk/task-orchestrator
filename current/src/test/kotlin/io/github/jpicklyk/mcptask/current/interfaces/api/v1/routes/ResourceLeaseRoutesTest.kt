@@ -4,14 +4,17 @@ import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.support.UnscopedUnitOfWork
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
+import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
@@ -132,6 +135,13 @@ private class FakeResourceLeaseRepository : LeaseStore {
         return LeaseReleaseResult.Success(before - leases.size)
     }
 
+    override suspend fun findLapsed(
+        keys: List<String>?,
+        holderItemIds: Set<UUID>?
+    ): List<ResourceLease> = emptyList()
+
+    override suspend fun deleteLapsed(leaseIds: Set<UUID>): Int = 0
+
     override suspend fun findActiveByKeys(keys: List<String>): List<ResourceLease> = leases.filter { it.resourceKey in keys }
 
     override suspend fun findActiveForItem(holderItemId: UUID): List<ResourceLease> = leases.filter { it.holderItemId == holderItemId }
@@ -164,6 +174,12 @@ private class FakeResourceLeaseRepository : LeaseStore {
 private fun leaseTestProvider(fake: FakeResourceLeaseRepository): RepositoryProvider {
     val provider = mockk<RepositoryProvider>()
     every { provider.resourceLeaseRepository() } returns fake
+    // ClaimService records the lease rows of a force-release: it reads the holder's root and appends to the log.
+    val items = mockk<WorkItemRepository>()
+    coEvery { items.getById(any()) } returns null
+    coEvery { items.findAncestorChains(any()) } returns emptyMap()
+    every { provider.workItemRepository() } returns items
+    every { provider.eventStore() } returns InMemoryEventStore()
     return provider
 }
 

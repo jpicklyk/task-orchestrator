@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelS
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
 import io.github.jpicklyk.mcptask.current.test.advanceSeeded
+import io.github.jpicklyk.mcptask.current.test.testClaimService
 import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
 import io.mockk.coEvery
 import io.mockk.every
@@ -112,6 +113,7 @@ class AdvanceServiceFactoryTest {
                     configResolver = resolver,
                     resourceLeasesEnforced = { false },
                     unitOfWork = unscopedUnitOfWork(),
+                    claimService = testClaimService(workItemRepo, null, unscopedUnitOfWork())
                 )
 
             val prItem = makeItem(role = Role.QUEUE, rootId = prRoot)
@@ -170,6 +172,7 @@ class AdvanceServiceFactoryTest {
                         false
                     },
                     unitOfWork = unscopedUnitOfWork(),
+                    claimService = testClaimService(workItemRepo, null, unscopedUnitOfWork())
                 )
             val item = makeItem(role = Role.QUEUE, rootId = null)
 

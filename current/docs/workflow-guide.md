@@ -1004,7 +1004,7 @@ Consequently `reopen` always starts the item **unclaimed** — there is no resid
 
 ### Crash Recovery via Passive Expiry
 
-There is no background reaper process. When an agent crashes or is killed, its claim expires naturally within the configured TTL (default 900s). Expired claims are filtered at read time:
+When an agent crashes or is killed, its claim expires naturally within the configured TTL (default 900s); no process clears it. Expired claims are filtered at read time, and the server records one `claim.expired` audit event per lapsed claim (hourly sweep, a transition of the item, or a contender's claim; the claim columns are left as they were):
 - `get_next_item()` (default `includeClaimed=false`) excludes items with live claims but includes items with expired claims.
 - `query_items(claimStatus="expired")` surfaces items with elapsed TTLs for operator inspection.
 
@@ -1148,8 +1148,10 @@ invariant, and not fairness. Read this section before relying on it for anything
   that.** If a holder crashes mid-WORK, the lease sits until its TTL elapses (default 3600s,
   operator-configurable up to a max of 86400s per resource) or an operator calls
   `DELETE /api/v1/resources/leases/{key}` (ADMIN capability — see
-  [`fleet-deployment.md`](./fleet-deployment.md)). There is no background reaper/sweeper process
-  actively watching for crashed holders.
+  [`fleet-deployment.md`](./fleet-deployment.md)). A lapsed lease row is treated as absent by every
+  read and is stolen by the next acquirer; an hourly sweep (also run once at server start) additionally removes lapsed rows
+  and records one `lease.expired` event for each, closing the history interval as `expired`. The sweep does not change
+  exclusion semantics: it only tidies rows that already no longer exclude anyone.
 - **Identity governs early release, not exclusion.** Because leases are item-keyed (not
   actor-keyed), *any* successful transition that moves the holding item out of WORK releases the
   lease — there is no per-actor "only the acquiring actor can release" check. This is a deliberate
