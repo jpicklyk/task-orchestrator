@@ -1,0 +1,1 @@
+{"roles":["queue","work","review","blocked","terminal"],"triggers":["block","cancel","complete","hold","reopen","resume","start"],"types":[]}
