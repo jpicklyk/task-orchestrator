@@ -158,15 +158,17 @@ class ClaimService(
     // -------------------------------------------------------------------------
 
     /**
-     * Acquires (or refreshes) a lease on every key of [requirements], all or nothing. Lapsed rows on those keys are
+     * Acquires (or refreshes) a lease on every distinct key of [requested], all or nothing. Lapsed rows on those keys are
      * reported as `lease.expired`; other holders' lapsed rows are removed, the holder's own is refreshed in place.
      */
     suspend fun acquireLeases(
         holderItemId: UUID,
         actorId: String?,
-        requirements: List<Pair<String, Int>>
+        requested: List<Pair<String, Int>>
     ): Outcome<LeaseAcquireResult> =
         unitOfWork.writeOutcome("ClaimService.acquireLeases") {
+            // One lease and one event per key: the first declaration's TTL wins (first-trait-wins merge order).
+            val requirements = requested.distinctBy { it.first }
             val leases = repositoryProvider.resourceLeaseRepository()
             // Read before the acquire: it refreshes the holder's own lapsed row and the rows would no longer qualify.
             val lapsed = if (requirements.isEmpty()) emptyList() else leases.findLapsed(keys = requirements.map { it.first }.distinct())
