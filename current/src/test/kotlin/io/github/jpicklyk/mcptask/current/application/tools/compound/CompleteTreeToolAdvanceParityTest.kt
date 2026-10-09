@@ -34,7 +34,7 @@ import kotlin.test.*
  * (S1, S2, S5-S7, S9-S11 + probes) match that note; do not renumber.
  *
  * Per the test-author blindness rule this file was written against public signatures and
- * declarations only (AdvanceService, AdvanceFailure, AdvanceResult, RoleTransitionHandler,
+ * declarations only (AdvanceService, AdvanceFailure, AdvanceResult,
  * ToolExecutionContext, ActorParsing, existing test harnesses) plus CompleteTreeTool's own public
  * `description`/`parameterSchema` contract text — never the implementer's changed function bodies.
  */

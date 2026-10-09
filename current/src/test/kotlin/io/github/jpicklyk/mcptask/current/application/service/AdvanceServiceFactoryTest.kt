@@ -33,7 +33,7 @@ import kotlin.test.assertIs
  * Independently authored against the frozen `task-scope`/`test-plan` notes on item `f2c50e6d` —
  * scenarios S1 and S2 map to this file per the test-plan's file list. Oracle for S1:
  * `task-scope`'s Part A `AdvanceServiceFactory.forItem` body, `statusLabelService =
- * configResolver.rootBoundStatusLabels(item.rootId, trigger)` — a rooted item must see the
+ * the per-root-then-global label lookup (now configResolver.labelFor(item.rootId, trigger, target))` — a rooted item must see the
  * PER-ROOT status label for the trigger, and a rootless item must fall through to the global
  * label, exactly as [io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolverTest]
  * already characterizes for `resolveStatusLabels`/Q11. Oracle for S2: the same body assigns

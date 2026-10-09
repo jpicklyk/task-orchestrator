@@ -2773,7 +2773,7 @@ class AdvanceItemToolTest {
         }
 
     // ──────────────────────────────────────────────
-    // UserTrigger enum boundary enforcement
+    // User-trigger vocabulary boundary enforcement (Trigger.User)
     // ──────────────────────────────────────────────
 
     @Test
@@ -2825,7 +2825,7 @@ class AdvanceItemToolTest {
     }
 
     @Test
-    fun `all valid UserTrigger strings pass validateParams`() {
+    fun `all valid user trigger strings pass validateParams`() {
         val validTriggers = listOf("start", "complete", "block", "hold", "resume", "cancel", "reopen")
         for (triggerStr in validTriggers) {
             val params =

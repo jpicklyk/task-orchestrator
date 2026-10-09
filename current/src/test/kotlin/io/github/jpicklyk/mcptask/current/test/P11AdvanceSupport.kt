@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.test
 
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
+import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
@@ -307,4 +308,63 @@ internal suspend fun P11Driver.cleanup(
 ) {
     freeLease(item)
     if (holder != null) freeLease(holder)
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Config-fault fixtures (r1, H1): a per-root config is pushed and warmed, then the project_config table is renamed away so
+// every later config read raises a real store fault.
+// ---------------------------------------------------------------------------------------------------------------------
+
+private const val P11_ROOT_YAML =
+    "work_item_schemas:\n" +
+        "  p11-gated:\n" +
+        "    notes:\n" +
+        "      - key: spec\n        role: queue\n        required: true\n"
+
+/** A rooted item whose only start gate (the queue note `spec`) is open, under a pushed and warmed per-root config. */
+internal data class P11ConfigFixture(
+    val root: WorkItem,
+    val item: WorkItem,
+)
+
+/** What an advance must leave untouched when it fails closed: role, label, previous role, role-change instant, rows, events. */
+internal data class P11Snapshot(
+    val role: Role,
+    val previousRole: Role?,
+    val statusLabel: String?,
+    val roleChangedAt: java.time.Instant?,
+    val transitionRows: Int,
+    val eventRows: Int,
+)
+
+internal suspend fun P11Driver.snapshot(item: WorkItem): P11Snapshot {
+    val current = reload(item)
+    return P11Snapshot(
+        role = current.role,
+        previousRole = current.previousRole,
+        statusLabel = current.statusLabel,
+        roleChangedAt = current.roleChangedAt,
+        transitionRows = transitions(item).size,
+        eventRows = rig.rows().size,
+    )
+}
+
+/**
+ * Creates root + rooted item (type p11-gated, `spec` filled so a healthy `start` is allowed), pushes the per-root config and
+ * warms the shared config cache through a successful get_context (asserted: canAdvance is true, so the fixture is healthy).
+ */
+internal suspend fun P11Driver.configFaultFixture(): P11ConfigFixture {
+    val root = item("config root", Role.WORK)
+    val child = item("config item", Role.QUEUE, type = "p11-gated", parent = root)
+    note(child, "spec", "queue")
+    raw.projectConfigRepository().upsert(root.id, P11_ROOT_YAML)
+    val warm = rig.callOk(GetContextTool(), "itemId" to JsonPrimitive(child.id.toString()))
+    val gate = warm["data"]!!.jsonObject["gateStatus"]!!.jsonObject
+    check(gate.flag("canAdvance") == true) { "fixture: a healthy warm read must report canAdvance=true: $gate" }
+    return P11ConfigFixture(root, child)
+}
+
+/** Every later per-root config read now fails with a real SQL error (the cache stays warm). */
+internal fun P11Driver.breakConfigReads() {
+    rawExec(jdbcUrl, "ALTER TABLE project_config RENAME TO project_config_gone")
 }
