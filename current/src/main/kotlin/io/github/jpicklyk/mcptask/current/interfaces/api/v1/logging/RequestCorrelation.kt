@@ -72,7 +72,7 @@ internal fun Application.installRequestCorrelation(
 ) {
     intercept(ApplicationCallPipeline.Monitoring) {
         val path = call.request.path()
-        if (!path.startsWith("/api/v1")) {
+        if (path != API_ROOT && !path.startsWith("$API_ROOT/")) {
             proceed()
             return@intercept
         }
@@ -131,7 +131,69 @@ internal fun Application.installRequestCorrelation(
 }
 
 internal const val REQ_ID_HEADER = "X-Req-Id"
+private const val API_ROOT = "/api/v1"
 private const val EVENT_STREAM_PATH = "/api/v1/events"
+private const val MAX_TOOL_SEGMENTS = 6
+
+/** The top-level REST resources the API serves; any other first segment is recorded as unmatched. */
+private val REST_RESOURCES =
+    setOf("config", "dependencies", "events", "health", "info", "items", "notes", "resources", "roots", "search", "transitions")
+
+/** Literal (non-parameter) path segments the REST routes declare below the first segment. */
+private val REST_STATIC_SEGMENTS =
+    setOf(
+        "advance",
+        "backlinks",
+        "breadcrumbs",
+        "children",
+        "config",
+        "dependencies",
+        "effective",
+        "events",
+        "gate",
+        "history",
+        "items",
+        "leases",
+        "notes",
+        "plans",
+        "resources",
+        "roots",
+        "rules",
+        "schemas",
+        "search",
+        "status-graph",
+        "traits",
+        "transitions",
+        "tree",
+        "types"
+    )
+
+private val STANDARD_METHODS = setOf("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
+
+/**
+ * The bounded `tool` value of a REST row: `<METHOD> /api/v1/<segments>` where every UUID is `{id}`, every literal
+ * route word is kept and every other segment is `{param}`, at most [MAX_TOOL_SEGMENTS] segments. A path whose first
+ * segment is not a served top-level resource (a 404, or a 401 before routing) is `<METHOD> unmatched`. The raw
+ * request path is never stored.
+ */
+internal fun restToolName(
+    method: String,
+    path: String
+): String {
+    val verb = if (method in STANDARD_METHODS) method else "OTHER"
+    val segments = path.removePrefix(API_ROOT).split('/').filter { it.isNotEmpty() }
+    if (segments.isEmpty() || segments[0] !in REST_RESOURCES) return "$verb unmatched"
+    val template =
+        segments.take(MAX_TOOL_SEGMENTS).mapIndexed { index, segment ->
+            when {
+                index == 0 -> segment
+                UUID_SEGMENT.matches(segment) -> "{id}"
+                segment in REST_STATIC_SEGMENTS -> segment
+                else -> "{param}"
+            }
+        }
+    return "$verb $API_ROOT/" + template.joinToString("/")
+}
 
 private val CAPTURED_ERROR_CODE = AttributeKey<String>("CallLogErrorCode")
 private val CAPTURED_RESPONSE_BYTES = AttributeKey<Long>("CallLogResponseBytes")
@@ -144,7 +206,19 @@ private val UUID_SEGMENT = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-
 private fun captureResponse(call: io.ktor.server.application.ApplicationCall) {
     val pipeline = (call.response as? PipelineResponse)?.pipeline ?: return
     pipeline.intercept(ApplicationSendPipeline.Before) { body ->
-        if (body is ErrorDto) call.attributes.put(CAPTURED_ERROR_CODE, body.error)
+        if (body is ErrorDto) {
+            if (!call.attributes.contains(CAPTURED_ERROR_CODE)) call.attributes.put(CAPTURED_ERROR_CODE, body.error)
+        } else if (body is Map<*, *>) {
+            // The auth plugin answers 401 with a plain map carrying the same `error` code (invalid_token, ...).
+            (body["error"] as? String)?.let {
+                if (!call.attributes.contains(
+                        CAPTURED_ERROR_CODE
+                    )
+                ) {
+                    call.attributes.put(CAPTURED_ERROR_CODE, it)
+                }
+            }
+        }
     }
     pipeline.intercept(ApplicationSendPipeline.After) { body ->
         if (body is OutgoingContent) body.contentLength?.let { call.attributes.put(CAPTURED_RESPONSE_BYTES, it) }
@@ -176,7 +250,7 @@ private fun submitRestCall(
         val errorCode = if (isError) call.attributes.getOrNull(CAPTURED_ERROR_CODE) ?: "http_$status" else null
         val segments = path.split('/').filter { it.isNotEmpty() }
         val uuidSegments = segments.filter { UUID_SEGMENT.matches(it) }
-        val tool = "${call.request.httpMethod.value} /" + segments.joinToString("/") { if (UUID_SEGMENT.matches(it)) "{id}" else it }
+        val tool = restToolName(call.request.httpMethod.value, path)
         val requestBytes =
             call.request.header(HttpHeaders.ContentLength)?.toLongOrNull()
                 ?: if (call.request.header(HttpHeaders.TransferEncoding) == null) 0L else null

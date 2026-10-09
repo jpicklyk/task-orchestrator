@@ -48,10 +48,23 @@ object CallLogFields {
         return bytes
     }
 
-    /** The string value of top-level `operation`, else null. */
+    private val OPERATION_PATTERN = Regex("^[a-z_]{1,64}$")
+    private val SHAPE_KEY_PATTERN = Regex("^[A-Za-z0-9_.-]{1,64}$")
+
+    /** Marker stored for a supplied `operation` that is not a plain operation name. */
+    const val INVALID_OPERATION = "invalid"
+
+    /** Most flags kept in `request_shape`. */
+    const val MAX_SHAPE_KEYS = 16
+
+    /**
+     * The top-level `operation` when it is a plain name (`^[a-z_]{1,64}$`), [INVALID_OPERATION] for any other
+     * supplied string value, else null. Client text beyond that is never stored.
+     */
     fun operation(arguments: JsonObject?): String? {
         val op = arguments?.get("operation") as? JsonPrimitive ?: return null
-        return if (op.isString) op.content else null
+        if (!op.isString) return null
+        return if (OPERATION_PATTERN.matches(op.content)) op.content else INVALID_OPERATION
     }
 
     /**
@@ -110,13 +123,15 @@ object CallLogFields {
     }
 
     /**
-     * JSON object text, keys sorted, of every top-level boolean param plus a numeric `limit`; null if empty.
-     * Only the param SHAPE is kept, never a string or an id.
+     * JSON object text, keys sorted, of the top-level boolean params plus a numeric `limit`; null if empty.
+     * Only the param SHAPE is kept, never a string or an id. A key must match `^[A-Za-z0-9_.-]{1,64}$` (others are
+     * dropped silently) and at most [MAX_SHAPE_KEYS] keys (the first in sorted order) are kept.
      */
     fun requestShapeJson(arguments: JsonObject?): String? {
         if (arguments == null) return null
         val shape = sortedMapOf<String, JsonElement>()
         for ((key, value) in arguments) {
+            if (!SHAPE_KEY_PATTERN.matches(key)) continue
             val primitive = value as? JsonPrimitive ?: continue
             if (primitive.isString) continue
             if (primitive.content == "true" || primitive.content == "false") {
@@ -126,7 +141,7 @@ object CallLogFields {
             }
         }
         if (shape.isEmpty()) return null
-        return JsonObject(shape).toString()
+        return JsonObject(shape.entries.take(MAX_SHAPE_KEYS).associate { it.key to it.value }).toString()
     }
 
     /** Length of the first present top-level array among the batch keys, else null. */

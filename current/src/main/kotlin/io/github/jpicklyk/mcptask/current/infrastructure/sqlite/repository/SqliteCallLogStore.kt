@@ -1,10 +1,13 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.CallLogAppendResult
 import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.CallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.CallLogTable
+import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.insertIgnore
+import org.jetbrains.exposed.v1.jdbc.selectAll
 
 /**
  * SQLite implementation of [CallLogStore] over [CallLogTable].
@@ -15,10 +18,13 @@ import org.jetbrains.exposed.v1.jdbc.insertIgnore
 class SqliteCallLogStore(
     private val databaseManager: DatabaseManager
 ) : CallLogStore {
-    override suspend fun append(records: List<CallLogRecord>): Int {
-        if (records.isEmpty()) return 0
+    override suspend fun append(records: List<CallLogRecord>): Int = appendCounted(records).inserted
+
+    override suspend fun appendCounted(records: List<CallLogRecord>): CallLogAppendResult {
+        if (records.isEmpty()) return CallLogAppendResult(0)
         return databaseManager.writeTx("CallLogStore.append") {
             var inserted = 0
+            var rejected = 0
             for (record in records) {
                 val stmt =
                     CallLogTable.insertIgnore {
@@ -51,9 +57,12 @@ class SqliteCallLogStore(
                         it[resultCount] = record.resultCount
                         it[eligibleCount] = record.eligibleCount
                     }
-                inserted += stmt.insertedCount
+                val count = stmt.insertedCount
+                inserted += count
+                // INSERT OR IGNORE also skips CHECK / NOT NULL violations: only a req_id conflict is a duplicate.
+                if (count == 0 && CallLogTable.selectAll().where { CallLogTable.reqId eq record.reqId }.empty()) rejected++
             }
-            inserted
+            CallLogAppendResult(inserted, rejected)
         }
     }
 }

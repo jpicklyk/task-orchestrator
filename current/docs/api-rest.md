@@ -390,7 +390,11 @@ Every `/api/v1` response except the `GET /api/v1/events` stream carries an `X-Re
 call's 8-character correlation id (lowercase Crockford base32). It is always server-generated (an
 inbound `X-Request-Id` only feeds the `requestId` log field), appears on success and error responses
 alike (including `401`), is the `req_id` of every `events` row the request wrote, and keys the
-request's row in the `call_log` table. `X-Req-Id` is in the default `CORS_EXPOSE_HEADERS`. See
+request's row in the `call_log` table. Only `/api/v1` and paths under `/api/v1/` are covered (not
+`/api/v10`). A `401` from the auth layer records its body's `error` code (`invalid_request`,
+`invalid_token`, ...) as the row's `error_code`; `http_<status>` is the fallback. The row's `tool` is
+the bounded route template (unknown routes are `<METHOD> unmatched`). `X-Req-Id` is in the default
+`CORS_EXPOSE_HEADERS`. See
 `fleet-deployment.md` -> "Call log and `reqId`".
 
 ## 7. Pagination

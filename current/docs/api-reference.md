@@ -2642,7 +2642,8 @@ Retry the same call with the same `requestId` whenever the outcome is unknown or
 Every tool result, success or error (validation, per-root config, database and internal failures
 included), carries `_meta.reqId`: the call's 8-character correlation id (lowercase Crockford base32,
 for example `k7f3q9ab`). It is the `req_id` of every event row the call wrote, the MDC `reqId` log
-key, and the primary key of the call's row in the `call_log` table. It is not part of
+key, and the primary key of the call's row in the `call_log` table (whose `operation` column holds
+the `operation` argument only when it is a plain name, else `invalid`). It is not part of
 `structuredContent`, so tool payloads are unchanged. `tools/list` and `initialize` have none. See
 `fleet-deployment.md` -> "Call log and `reqId`".
 

@@ -50,8 +50,7 @@ import kotlin.time.TimeSource
  * - Returns clean single-line error messages (no multi-line recommendation blocks)
  * - Leverages v3 [ResponseUtil] for response envelope inspection
  *
- * Every call gets a [ReqId] that is stamped on the result (_meta.reqId), the MDC (
-eqId), the per-call
+ * Every call gets a [ReqId] that is stamped on the result (_meta.reqId), the MDC `reqId`, the per-call
  * [CallTelemetry] (so events rows carry it) and the call_log record handed to [callLog] when the result is built.
  * A telemetry failure never changes the result, and a cancelled call writes no record.
  */

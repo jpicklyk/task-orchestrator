@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.port
 
 import java.time.Instant
 import java.util.UUID
-import kotlin.math.ceil
 
 /**
  * One row of the `call_log` table (plan section 3.8): one MCP tool call or one REST request.
@@ -53,7 +52,7 @@ data class CallLogRecord(
 object TokenEstimate {
     const val METHOD = "bytes/4"
 
-    fun of(bytes: Long): Long = ceil(bytes / 4.0).toLong()
+    fun of(bytes: Long): Long = bytes / 4 + (if (bytes % 4 == 0L) 0L else 1L)
 }
 
 /**
@@ -66,6 +65,12 @@ object TokenEstimate {
 interface CallLogStore {
     /** Inserts [records] and returns how many rows were actually inserted (duplicates excluded). */
     suspend fun append(records: List<CallLogRecord>): Int
+
+    /**
+     * Like [append], but also reports rows refused for a reason other than a primary-key (`req_id`) conflict.
+     * Defaults to [append] with no rejections.
+     */
+    suspend fun appendCounted(records: List<CallLogRecord>): CallLogAppendResult = CallLogAppendResult(append(records))
 }
 
 /**
@@ -80,3 +85,9 @@ fun interface CallLogSink {
         val NONE: CallLogSink = CallLogSink { }
     }
 }
+
+/** Outcome of [CallLogStore.appendCounted]: rows inserted, and rows refused for a reason other than a duplicate `req_id`. */
+data class CallLogAppendResult(
+    val inserted: Int,
+    val rejected: Int = 0
+)
