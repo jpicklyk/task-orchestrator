@@ -2,14 +2,9 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
-import io.github.jpicklyk.mcptask.current.application.port.EventRecord
-import io.github.jpicklyk.mcptask.current.application.port.EventStore
-import io.github.jpicklyk.mcptask.current.application.port.IdempotencyStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
-import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
-import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.ReadScope
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
@@ -321,15 +316,10 @@ class AdvanceService(
     private val independencePolicyResolver: suspend (WorkItem) -> IndependencePolicy = { IndependencePolicy.DEFAULT },
     private val clock: Clock = Clock.SYSTEM,
     private val policy: TransitionPolicy = TransitionPolicy(),
-    /**
-     * The owner of claim and lease writes and their events. Production (via [AdvanceServiceFactory]) always passes the
-     * shared instance. When null, one is built over the given stores, for callers that wire individual stores only.
-     */
-    claimService: ClaimService? = null
+    /** The owner of claim and lease writes and their events: always the shared instance wired by [AdvanceServiceFactory]. */
+    claimService: ClaimService
 ) {
-    private val claims: ClaimService by lazy {
-        claimService ?: ClaimService(StoresProvider(workItemRepository, resourceLeaseRepository), unitOfWork)
-    }
+    private val claims: ClaimService = claimService
 
     private val loader =
         TransitionSnapshotLoader(
@@ -1162,53 +1152,4 @@ sealed class AdvanceOutcome {
     data class Failure(
         val failure: AdvanceFailure
     ) : AdvanceOutcome()
-}
-
-/**
- * A [RepositoryProvider] over the individual stores an [AdvanceService] was built with, so its default
- * [ClaimService] can reach them. Only the item and lease stores exist; there is no event log to deduplicate against,
- * so expiry rows are never suppressed here (production passes the shared [ClaimService] instead).
- */
-private class StoresProvider(
-    private val items: WorkItemRepository,
-    private val leases: LeaseStore?
-) : RepositoryProvider {
-    override fun workItemRepository(): WorkItemRepository = items
-
-    override fun resourceLeaseRepository(): LeaseStore = leases ?: error("No lease store was supplied")
-
-    override fun eventStore(): EventStore = NoEventLog
-
-    override fun noteRepository(): NoteStore = unsupported()
-
-    override fun dependencyRepository(): DependencyStore = unsupported()
-
-    override fun roleTransitionRepository(): TransitionStore = unsupported()
-
-    override fun projectConfigRepository(): ProjectConfigStore = unsupported()
-
-    override fun planDocumentRepository(): PlanDocumentStore = unsupported()
-
-    override fun workTreeExecutor(): WorkTreeExecutor = unsupported()
-
-    override fun idempotencyStore(): IdempotencyStore = unsupported()
-
-    private fun unsupported(): Nothing = error("Not available to the default ClaimService")
-
-    private object NoEventLog : EventStore {
-        override suspend fun append(records: List<EventRecord>): List<EventRecord> = error("No event log")
-
-        override suspend fun readAfter(
-            afterSeq: Long,
-            rootIds: Set<UUID>?,
-            limit: Int
-        ): List<EventRecord> = emptyList()
-
-        override suspend fun latestOfType(
-            type: String,
-            entityIds: Set<UUID>
-        ): Map<UUID, EventRecord> = emptyMap()
-
-        override suspend fun maxSeq(): Long = EventStore.SEQ_FLOOR
-    }
 }

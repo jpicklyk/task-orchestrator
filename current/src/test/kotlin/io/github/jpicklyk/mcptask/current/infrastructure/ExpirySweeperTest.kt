@@ -68,7 +68,7 @@ class ExpirySweeperTest {
             rig.service.claim(i.id, "agent-a", 60).ok()
             rig.service.acquireLeases(h.id, "actor-1", listOf("res-k" to 60)).ok()
             clock.set(CLAIM_T.plusSeconds(60))
-            val sweeper = ExpirySweeper(rig.uow, rig.service)
+            val sweeper = ExpirySweeper(rig.service)
 
             sweeper.start()
             try {
@@ -87,7 +87,7 @@ class ExpirySweeperTest {
             val i = rig.seed("S15 once")
             rig.service.claim(i.id, "agent-a", 60).ok()
             clock.set(CLAIM_T.plusSeconds(60))
-            val sweeper = ExpirySweeper(rig.uow, rig.service)
+            val sweeper = ExpirySweeper(rig.service)
 
             val first = sweeper.sweepOnce()
             val second = sweeper.sweepOnce()
@@ -105,7 +105,7 @@ class ExpirySweeperTest {
             val rig = rig()
             val i = rig.seed("S15 periodic")
             rig.service.claim(i.id, "agent-a", 60).ok()
-            val sweeper = ExpirySweeper(rig.uow, rig.service, interval = Duration.ofMillis(50))
+            val sweeper = ExpirySweeper(rig.service, interval = Duration.ofMillis(50))
 
             sweeper.start() // the startup pass finds nothing: the claim is active at T
             try {
@@ -147,7 +147,6 @@ class ExpirySweeperTest {
             val failing = FailingWrites(rig.uow, attempts)
             val sweeper =
                 ExpirySweeper(
-                    unitOfWork = failing,
                     claimService = ClaimService(rig.provider, failing),
                     interval = Duration.ofMillis(50)
                 )

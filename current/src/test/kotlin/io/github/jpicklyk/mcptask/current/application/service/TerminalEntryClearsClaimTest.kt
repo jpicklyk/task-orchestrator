@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.testClaimService
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -40,7 +41,8 @@ class TerminalEntryClearsClaimTest {
                     dependencyRepository = provider.dependencyRepository(),
                     noteRepository = provider.noteRepository(),
                     schemaResolver = { null },
-                    unitOfWork = sqliteDb.unitOfWork()
+                    unitOfWork = sqliteDb.unitOfWork(),
+                    claimService = testClaimService(repository, null, sqliteDb.unitOfWork())
                 )
             // REST-style (ownership not enforced): the late claim does not block the operator's complete.
             val outcome =

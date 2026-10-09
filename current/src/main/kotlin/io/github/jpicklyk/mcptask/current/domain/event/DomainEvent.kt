@@ -284,7 +284,7 @@ sealed class DomainEvent {
 
     /**
      * A lease whose TTL ran out ([expiresAt] <= the detecting unit's instant) on [key], held by the entity item.
-     * Recorded exactly once per lapsed lease row by `ClaimService`, which also removes the row.
+     * Recorded exactly once per lapsed lease row by `ClaimService`, which removes the row; the one exception is the holder's own lapsed re-take, where the row is refreshed in place instead of removed.
      */
     data class LeaseExpired(
         override val entityId: UUID,

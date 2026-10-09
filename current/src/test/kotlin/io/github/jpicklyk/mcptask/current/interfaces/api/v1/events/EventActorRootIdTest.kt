@@ -27,6 +27,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
 import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.testClaimService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -174,6 +175,7 @@ class EventActorRootIdTest {
                     noteRepository = wired.noteRepository(),
                     schemaResolver = { null },
                     unitOfWork = unitOfWork,
+                    claimService = testClaimService(wired.workItemRepository(), null, unitOfWork)
                 ).advance(renamed, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = false)
             assertTrue(outcome is AdvanceOutcome.Success, "advance failed: $outcome")
             provider.workItemRepository().delete(child.id)

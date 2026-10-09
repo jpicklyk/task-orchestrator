@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.infrastructure
 
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
 import io.github.jpicklyk.mcptask.current.application.service.ExpirySweep
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
@@ -22,12 +21,8 @@ import java.time.Duration
  * Each pass is ONE write unit ([ClaimService.sweepExpired]), so it runs under the production outside-unit policy and
  * takes its time from the unit. A failed pass is logged at WARN and never fatal. Its rows carry no actor. The loop runs
  * on its own scope, which [stop] cancels and joins, so nothing runs after shutdown.
- *
- * [unitOfWork] is the boundary the sweep's service was built over; it is accepted so the sweeper can be constructed from
- * the same pair of collaborators as the other background loops.
  */
 class ExpirySweeper(
-    @Suppress("unused") private val unitOfWork: UnitOfWork,
     private val claimService: ClaimService,
     private val interval: Duration = Duration.ofHours(1)
 ) {

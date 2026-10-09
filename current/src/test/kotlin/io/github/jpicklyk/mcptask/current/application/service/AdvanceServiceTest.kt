@@ -18,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
 import io.github.jpicklyk.mcptask.current.test.advanceSeeded
+import io.github.jpicklyk.mcptask.current.test.testClaimService
 import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -100,6 +101,7 @@ class AdvanceServiceTest {
             noteRepository = noteRepo,
             schemaResolver = { schema },
             unitOfWork = unscopedUnitOfWork(),
+            claimService = testClaimService(workItemRepo, null, unscopedUnitOfWork())
         )
 
     private fun schema(vararg entries: NoteSchemaEntry): WorkItemSchema = WorkItemSchema(type = "test", notes = entries.toList())
@@ -286,6 +288,7 @@ class AdvanceServiceTest {
                     AdvanceService.DEFAULT_LABEL_FOR,
                     schemaResolver = { it -> if (it.id == parentId) sc else null },
                     unitOfWork = unscopedUnitOfWork(),
+                    claimService = testClaimService(workItemRepo, null, unscopedUnitOfWork())
                 )
             val outcome = service.advanceSeeded(advanceStores, child, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
@@ -491,6 +494,7 @@ class AdvanceServiceTest {
                     labelFor = { trigger, target -> nullBlockLabelService.resolveLabel(statusLabelKey(trigger, target)) },
                     schemaResolver = { null },
                     unitOfWork = unscopedUnitOfWork(),
+                    claimService = testClaimService(workItemRepo, null, unscopedUnitOfWork())
                 )
             val item = makeItem(role = Role.WORK).copy(statusLabel = "in-progress")
             val outcome = service.advanceSeeded(advanceStores, item, "block", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)

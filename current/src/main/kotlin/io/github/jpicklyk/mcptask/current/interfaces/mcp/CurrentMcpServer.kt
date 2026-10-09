@@ -217,7 +217,7 @@ class CurrentMcpServer(
 
             // Expired claims are reported and lapsed leases removed once now and then hourly. Registered after the
             // pruner (and so after Close Database): the LIFO drain stops it before the database closes.
-            val expirySweeper = ExpirySweeper(composition.unitOfWork, toolContext.claimService)
+            val expirySweeper = ExpirySweeper(toolContext.claimService)
             expirySweeper.start()
             shutdownCoordinator.addCleanupAction("Stop Expiry Sweeper") {
                 runBlocking { expirySweeper.stop() }

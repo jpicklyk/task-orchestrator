@@ -16,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.test.arr
 import io.github.jpicklyk.mcptask.current.test.flag
 import io.github.jpicklyk.mcptask.current.test.rawExec
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.testClaimService
 import io.github.jpicklyk.mcptask.current.test.text
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.jsonArray
@@ -422,6 +423,7 @@ class AdvanceGateOrderTest {
                     noteRepository = provider.noteRepository(),
                     schemaResolver = { null },
                     unitOfWork = db.unitOfWork(),
+                    claimService = testClaimService(provider.workItemRepository(), null, db.unitOfWork())
                 )
 
             val outcome = service.advance(item, "bogus", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = false)

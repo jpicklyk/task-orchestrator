@@ -19,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
 import io.github.jpicklyk.mcptask.current.test.advanceSeeded
+import io.github.jpicklyk.mcptask.current.test.testClaimService
 import io.github.jpicklyk.mcptask.current.test.unscopedUnitOfWork
 import io.mockk.coEvery
 import io.mockk.every
@@ -103,6 +104,7 @@ class AdvanceResultCascadeErrorDtoTest {
             resourceRegistryResolver = { emptyMap() },
             resourceLeasesEnforced = true,
             unitOfWork = unscopedUnitOfWork(),
+            claimService = testClaimService(workItemRepo, leaseRepo, unscopedUnitOfWork())
         )
 
     private fun exclusive(key: String): ResourceRequirement = ResourceRequirement(key, ResourceMode.EXCLUSIVE, null)

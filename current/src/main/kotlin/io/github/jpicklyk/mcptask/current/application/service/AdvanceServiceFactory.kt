@@ -33,7 +33,7 @@ class AdvanceServiceFactory(
     /** The one time source every built [AdvanceService] reads (the ambient unit instant wins inside a unit). */
     private val clock: Clock = Clock.SYSTEM,
     /** Where every built [AdvanceService] routes its claim and lease writes (and their events). */
-    private val claimService: ClaimService? = null,
+    private val claimService: ClaimService
 ) {
     private val previewLazy by lazy {
         TransitionPreview(
