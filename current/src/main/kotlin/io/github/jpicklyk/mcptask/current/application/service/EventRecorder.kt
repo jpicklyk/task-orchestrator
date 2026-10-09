@@ -11,6 +11,8 @@ import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetry
+import io.github.jpicklyk.mcptask.current.application.telemetry.currentCallTelemetry
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -34,7 +36,7 @@ import kotlin.coroutines.coroutineContext
  * one unit carries the same time), and the principal: the entity's own actor claim when the event carries one
  * (a note, a transition), else the ambient [currentEventActor], else none. `proof_status` is the entity's
  * verification status when it has one. The actor's `parent`, when present, goes into the JSON `data` as
- * `actorParent`. `req_id`, `host`, `session_id`, `run_id` and `seat` stay null until P10/W4/W5 capture them.
+ * `actorParent`. `req_id` and `session_id` come from the ambient [CallTelemetry] (null outside a transport call); `host`, `run_id` and `seat` stay null until W4/W5 capture them.
  *
  * Appends join the ambient unit of work, so they commit or roll back with the change. Once the unit commits,
  * [listener] is told about the rows (the SSE projection's wake-up); an append made outside any unit (tests over
@@ -49,7 +51,8 @@ class EventRecorder(
         if (events.isEmpty()) return emptyList()
         val now = clock.unitNow()
         val ambientActor = currentEventActor()
-        val appended = store.append(events.map { toRecord(it, now, ambientActor) })
+        val call = currentCallTelemetry()
+        val appended = store.append(events.map { toRecord(it, now, ambientActor, call) })
         if (listener !== EventCommitListener.NONE) {
             val unit = coroutineContext[UnitElement]?.unit
             if (unit != null) unit.addCommit { listener.committed(appended) } else listener.committed(appended)
@@ -74,7 +77,8 @@ class EventRecorder(
     private fun toRecord(
         event: DomainEvent,
         now: Instant,
-        ambientActor: ActorClaim?
+        ambientActor: ActorClaim?,
+        call: CallTelemetry?
     ): EventRecord {
         val actor = event.entityActor ?: ambientActor
         val data = LinkedHashMap<String, JsonElement>()
@@ -90,6 +94,8 @@ class EventRecorder(
             principalId = actor?.id,
             principalKind = actor?.kind?.toJsonString(),
             proofStatus = event.entityVerification?.status?.toJsonString(),
+            reqId = call?.reqId,
+            sessionId = call?.sessionId,
             data = JsonObject(data).toString()
         )
     }

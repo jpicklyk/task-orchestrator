@@ -118,14 +118,58 @@ survive coroutine dispatcher hops:
   reuse), and `actorId` when the call's top-level `arguments.actor.id` is a JSON string (this is
   self-reported and unverified — independent of `actor_authentication` verification). `actorId` is
   length-capped at 128 chars (`MdcValues.bounded`, truncated with a `...[truncated]` marker) — the
-  cap applies only to this MDC copy, never to what tools themselves receive.
+  cap applies only to this MDC copy, never to what tools themselves receive. Also `reqId`: the
+  call's 8-character correlation id (lowercase Crockford base32, 40 random bits), see "Call log and
+  `reqId`" below.
 - REST requests under `/api/v1` (`RequestCorrelation`): `transport=rest`, `requestId` (the inbound
   `X-Request-Id` header when it matches `^[A-Za-z0-9._-]{1,64}$`, else a generated UUID),
   `httpMethod`, and `httpPath` (no query string, so `?token=` never lands in a log line). `httpPath`
   is length-capped at 256 chars, same truncation rule as `actorId` above. `requestId` is NOT
   length-capped: a malformed or over-long `X-Request-Id` is rejected and replaced with a fresh UUID
   instead, since it is a correlation key and truncating it risks falsely correlating unrelated
-  requests.
+  requests. Also `reqId` (always server-generated; the inbound `X-Request-Id` never feeds it). The
+  `GET /api/v1/events` SSE stream gets no `reqId`.
+
+### Call log and `reqId`
+
+Every MCP tool call and every non-SSE `/api/v1` request gets a `reqId`. It is returned to the caller
+(`_meta.reqId` on every MCP tool result, including errors; the `X-Req-Id` response header on REST),
+set as the MDC `reqId` key, stamped as `req_id` on every `events` row the call writes, and is the
+primary key of that call's row in the `call_log` table (migration V21). A row records who called
+(principal id, kind, proof status, session), what (surface `mcp`/`rest`, tool or the REST route
+template `METHOD /api/v1/<route>` exactly as declared in routing (for example `GET /api/v1/items/{id}/schema`), `operation`,
+target ids and versions, boolean/`limit` request shape), the
+outcome (`ok`/`error`, error code, BUSY-retry `attempts`, `replayed`), `latency_ms`, UTF-8 request
+and response byte sizes, and a `bytes/4` token estimate of the response (`ceil(bytes / 4)`).
+
+Rows are written off the request path by a background writer: a bounded in-memory queue (10 000
+rows) flushed in batches of up to 100 rows or every 250 ms, one write unit per batch, and drained on
+graceful shutdown (drain timeout 5 s; on timeout the write loop is cancelled and joined, and unwritten rows
+count as dropped. `stop()` returns after the drain timeout plus at most one in-flight batch write, because JDBC
+inserts are not interruptible. A cancel that lands after a batch committed may count its already-written rows
+as dropped, so `dropped` can over-count in that edge; it is a counter only, with no effect on stored data). Telemetry never blocks or fails a call. When the queue overflows the new row is
+dropped; a WARN line `Call log dropped N row(s) since the last notice` reports the count dropped since
+the previous notice (at most one per 250 ms, plus a final one at shutdown); a batch that fails is
+logged at WARN and dropped. The 8-character id has 40 bits,
+so a duplicate `req_id` is possible (about 0.45 expected collisions by a million rows); a primary-key
+duplicate is ignored, any other constraint refusal is counted as failed and logged at WARN. Cancelled
+calls write no row.
+
+Client-derived text in a row is bounded: the REST `tool` of a call that resolved a route is
+`<METHOD> <matched route template>` exactly as declared (captured from Ktor's routing event, so there is one
+value per declared route). A call that resolved no route (a 404 or 405, or a 401 on a path no route matches; a 401 on a declared route records that route's template, because the auth check does not stop routing) is
+`<METHOD> /api/v1/<first segment>` when that first segment is a top-level resource the routing tree declares
+(derived from the declared routes, not a hand-kept list), else `<METHOD> unmatched`: never more than the first
+segment, and the raw request path is never stored; `operation` is kept only when it matches `^[a-z_]{1,64}$`
+(any other supplied value is stored as `invalid`); `request_shape` keeps at most 16 flags whose key
+matches `^[A-Za-z0-9_.-]{1,64}$`. Only paths equal to `/api/v1` or under `/api/v1/` are logged.
+
+On MCP rows the `principal_id` column holds the caller's self-reported actor id, up to the 500-character
+`ActorClaim` cap (the same bound as actor ids already stored in notes and `role_transitions`); `proof_status` says
+whether the id was verified. On REST rows it holds the authenticated API principal (`api:<tokenId>`), never client text.
+
+`call_log` has **no retention yet**: it grows by about 250-450 bytes per call (about 8 MB per day at
+20 000 calls a day), like `events`. Pruning arrives with W6.
 
 **File logging is opt-in** via `LOG_FILE` (unset by default — no file logging). Set it to a path,
 e.g. `-e LOG_FILE=/app/data/logs/task-orchestrator.log` (landing on the existing `/app/data`

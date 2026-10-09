@@ -87,7 +87,7 @@ data class AppConfig(
         // Default lists for CORS — mirror CorsConfig.configureCors.
         internal val DEFAULT_CORS_METHODS = listOf("GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS")
         internal val DEFAULT_CORS_HEADERS = listOf("Authorization", "Content-Type", "If-Match")
-        internal val DEFAULT_CORS_EXPOSE_HEADERS = listOf("ETag", "Last-Event-ID", "Retry-After")
+        internal val DEFAULT_CORS_EXPOSE_HEADERS = listOf("ETag", "Last-Event-ID", "Retry-After", "X-Req-Id")
 
         /**
          * Reads the environment once and returns a typed snapshot.

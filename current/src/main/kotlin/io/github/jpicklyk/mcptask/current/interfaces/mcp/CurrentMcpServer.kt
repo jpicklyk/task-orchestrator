@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
+import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
@@ -28,6 +29,8 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocume
 import io.github.jpicklyk.mcptask.current.infrastructure.health.ReadinessMarker
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
+import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
@@ -211,6 +214,15 @@ class CurrentMcpServer(
                 runBlocking { idempotencyPruner.stop() }
             }
 
+            // The call log is written off the request path in batches. Registered AFTER the pruner (and so after
+            // Close Database), so the LIFO drain runs: stop HTTP, close MCP, drain this writer, stop the pruner, close
+            // the database. In-flight calls finish before the drain, and the drain finishes before the database closes.
+            val callLogWriter = CallLogWriter(composition.unitOfWork, SqliteCallLogStore(databaseManager))
+            callLogWriter.start()
+            shutdownCoordinator.addCleanupAction("Stop Call Log Writer") {
+                runBlocking { callLogWriter.stop() }
+            }
+
             // Build tool list (shared with tests via buildMcpTools())
             val tools = buildMcpTools()
 
@@ -221,7 +233,7 @@ class CurrentMcpServer(
             mcpSdkServer = server
 
             // Register MCP tools
-            val adapter = McpToolAdapter()
+            val adapter = McpToolAdapter(callLog = callLogWriter)
             adapter.registerToolsWithServer(server, tools, toolContext)
             logger.info("Registered ${tools.size} MCP tools")
 
@@ -255,7 +267,8 @@ class CurrentMcpServer(
                             toolContext,
                             degradedModePolicy,
                             composition.actorAuthEnabled,
-                            readinessMarker
+                            readinessMarker,
+                            callLogWriter
                         )
                     else -> {
                         logger.error("Unknown MCP_TRANSPORT: '$transportType'. Valid values: stdio, http")
@@ -358,6 +371,7 @@ class CurrentMcpServer(
         degradedModePolicy: DegradedModePolicy,
         actorAuthEnabled: Boolean,
         readinessMarker: ReadinessMarker,
+        callLog: CallLogSink = CallLogSink.NONE,
     ): StartupOutcome {
         val host = appConfig.mcpHttpHost
         val port = appConfig.mcpHttpPort
@@ -436,6 +450,7 @@ class CurrentMcpServer(
                     degradedModePolicy = degradedModePolicy,
                     jwksVerifier = jwksVerifier,
                     appConfig = appConfig,
+                    callLog = callLog,
                 )
             }
 
@@ -637,10 +652,11 @@ internal fun Application.installRestApiRoutes(
     degradedModePolicy: DegradedModePolicy,
     jwksVerifier: JwksApiVerifier? = null,
     appConfig: AppConfig = AppConfig.fromEnv(),
+    callLog: CallLogSink = CallLogSink.NONE,
 ) {
     if (apiConfig is ApiAuthConfig.Disabled) return
 
-    installRequestCorrelation()
+    installRequestCorrelation(callLog, toolContext.clock)
 
     routing {
         // Authenticated routes under /api/v1 — auth plugin enforces bearer/JWKS

@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
+import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.ClaimState
 import io.github.jpicklyk.mcptask.current.domain.model.ClaimStatus
@@ -724,6 +725,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                     }
             )
 
+        recordCallTargetVersion(item.id, item.version)
         val itemJson = item.toFullJson(includeTimestamps = includeTimestamps)
 
         return if (includeAncestors) {

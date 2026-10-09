@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.application.service.computeMissingBySe
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
+import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.ClaimState
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
@@ -218,6 +219,7 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
                 ErrorCodes.RESOURCE_NOT_FOUND
             )
 
+        recordCallTargetVersion(item.id, item.version)
         val resolvedSchema = context.resolveSchema(item)
 
         // Dispatch routing profile for the item's CURRENT role, using the already-resolved schema
