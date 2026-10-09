@@ -128,6 +128,23 @@ interface LeaseStore {
         actorId: String? = null
     ): LeaseReleaseResult
 
+    /**
+     * Returns the lease rows that have lapsed at the bound instant (`expires_at <= now`), optionally restricted to
+     * [keys] and/or to [holderItemIds] (a null filter does not restrict; an empty non-null one matches nothing).
+     * The rows are not touched.
+     */
+    suspend fun findLapsed(
+        keys: List<String>? = null,
+        holderItemIds: Set<UUID>? = null
+    ): List<ResourceLease>
+
+    /**
+     * Removes the lapsed lease rows with the given [leaseIds] (rows no longer lapsed or already gone are skipped)
+     * and closes their open history interval with `release_reason = 'expired'` at the row's own `expires_at`.
+     * Returns the number of rows removed.
+     */
+    suspend fun deleteLapsed(leaseIds: Set<UUID>): Int
+
     /** Returns the active (non-expired) leases among [keys], across all holders. */
     suspend fun findActiveByKeys(keys: List<String>): List<ResourceLease>
 

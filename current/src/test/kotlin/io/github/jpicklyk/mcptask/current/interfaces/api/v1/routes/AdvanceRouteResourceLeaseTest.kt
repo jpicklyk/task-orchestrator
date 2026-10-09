@@ -156,6 +156,13 @@ private class LeaseGateFakeRepository : LeaseStore {
         return LeaseReleaseResult.Success(before - leases.size)
     }
 
+    override suspend fun findLapsed(
+        keys: List<String>?,
+        holderItemIds: Set<UUID>?
+    ): List<ResourceLease> = emptyList()
+
+    override suspend fun deleteLapsed(leaseIds: Set<UUID>): Int = 0
+
     override suspend fun findActiveByKeys(keys: List<String>): List<ResourceLease> = leases.filter { it.resourceKey in keys }
 
     override suspend fun findActiveForItem(holderItemId: UUID): List<ResourceLease> = leases.filter { it.holderItemId == holderItemId }

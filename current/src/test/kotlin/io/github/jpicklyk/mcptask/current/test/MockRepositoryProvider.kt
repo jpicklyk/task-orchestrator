@@ -62,6 +62,16 @@ class MockRepositoryProvider {
             firstArg<Set<java.util.UUID>>().mapNotNull { id -> runCatching { workItemRepo.getById(id) }.getOrNull() }
         }
         coEvery { resourceLeaseRepo.findActiveByKeys(any()) } returns emptyList()
+        // P14: ClaimService reads the item before a claim write, the agent's other claims, the roots of its event
+        // rows, and the lapsed lease rows. Defaults: nothing held, nothing lapsed, items are their own root.
+        coEvery { workItemRepo.getById(any()) } returns null
+        coEvery { workItemRepo.findHeldBy(any()) } returns emptyList()
+        coEvery { workItemRepo.findLapsedClaims() } returns emptyList()
+        coEvery { workItemRepo.findAncestorChains(any()) } returns emptyMap()
+        coEvery { resourceLeaseRepo.findLapsed(any(), any()) } returns emptyList()
+        coEvery { resourceLeaseRepo.deleteLapsed(any()) } returns 0
+        coEvery { resourceLeaseRepo.findActiveForItem(any()) } returns emptyList()
+        coEvery { resourceLeaseRepo.findAllActive() } returns emptyList()
     }
 
     /** Build a ToolExecutionContext with optional schema, status label, and actor verifier services. */

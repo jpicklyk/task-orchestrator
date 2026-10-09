@@ -2155,7 +2155,7 @@ Both `sync.lost` and `auth.expired` are **control events** — they always bypas
 
 **Bulk-write note:** `create_work_tree` emits `item.created` for each newly created item (root first; an attach-mode pre-existing root emits nothing), then `dependency.added` per edge and `note.upserted` per note, all after the enclosing transaction commits -- a rolled-back tree emits nothing. Deleting all of an item's notes at once emits one `note.deleted` per note (since 4.0; was one per call); removing all of an item's dependencies emits one `dependency.removed` per edge. Deleting an item also emits one `note.deleted` per note and one `dependency.removed` per edge the database cascade removes, before the `item.deleted`.
 
-**Table-only events:** the `events` table also records rejections (`transition.rejected`, `claim.rejected`, `lease.rejected`), resource-lease acquire/release, per-root config pushes and plan-document stash/adopt. These are audit rows and are not streamed; the stream carries only the event types listed above.
+**Table-only events:** the `events` table also records rejections (`transition.rejected`, `claim.rejected`, `lease.rejected`), expiry (`claim.expired`, `lease.expired`), resource-lease acquire/release, per-root config pushes and plan-document stash/adopt. These are audit rows and are not streamed; the stream carries only the event types listed above.
 
 ---
 

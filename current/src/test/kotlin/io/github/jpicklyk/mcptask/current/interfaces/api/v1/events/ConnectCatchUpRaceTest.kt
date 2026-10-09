@@ -68,6 +68,11 @@ class ConnectCatchUpRaceTest {
             return page
         }
 
+        override suspend fun latestOfType(
+            type: String,
+            entityIds: Set<UUID>,
+        ): Map<UUID, EventRecord> = inner.latestOfType(type, entityIds)
+
         override suspend fun maxSeq(): Long {
             if (armed == Hook.MAX_SEQ) race()
             return inner.maxSeq()

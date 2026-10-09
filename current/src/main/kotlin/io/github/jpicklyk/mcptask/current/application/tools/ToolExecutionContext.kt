@@ -16,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
+import io.github.jpicklyk.mcptask.current.application.service.ClaimService
 import io.github.jpicklyk.mcptask.current.application.service.DependencyCommandService
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
@@ -96,9 +97,13 @@ class ToolExecutionContext(
             repositoryProvider.resourceLeaseRepository(),
             configResolver,
             unitOfWork,
-            clock = clock
+            clock = clock,
+            claimService = claimService
         )
     }
+
+    /** The single owner of claim and resource-lease writes and their events. Lazy for the same reason as [advanceServiceFactoryLazy]. */
+    val claimService: ClaimService by lazy { ClaimService(repositoryProvider, unitOfWork) }
 
     /**
      * The single owner of the note write policy, shared by `manage_notes`, the REST note routes and

@@ -16,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.SettableClock
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.testClaimService
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -311,7 +312,8 @@ class P7ClaimClockStoreTest {
                     dependencyRepository = provider.dependencyRepository(),
                     noteRepository = provider.noteRepository(),
                     schemaResolver = { null },
-                    unitOfWork = sqliteDb.unitOfWork()
+                    unitOfWork = sqliteDb.unitOfWork(),
+                    claimService = testClaimService(provider.workItemRepository(), null, sqliteDb.unitOfWork())
                 )
 
             val outcome =

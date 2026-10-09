@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.test.P11_LABELS_YAML
 import io.github.jpicklyk.mcptask.current.test.arr
 import io.github.jpicklyk.mcptask.current.test.flag
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.testClaimService
 import io.github.jpicklyk.mcptask.current.test.text
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.jsonObject
@@ -55,6 +56,7 @@ class AdvanceLabelPolicyTest {
             labelFor = labelFor,
             schemaResolver = { null },
             unitOfWork = db.unitOfWork(),
+            claimService = testClaimService(provider.workItemRepository(), null, db.unitOfWork())
         )
     }
 

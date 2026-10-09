@@ -315,8 +315,12 @@ class AdvanceService(
     private val resourceLeasesEnforced: Boolean = true,
     private val independencePolicyResolver: suspend (WorkItem) -> IndependencePolicy = { IndependencePolicy.DEFAULT },
     private val clock: Clock = Clock.SYSTEM,
-    private val policy: TransitionPolicy = TransitionPolicy()
+    private val policy: TransitionPolicy = TransitionPolicy(),
+    /** The owner of claim and lease writes and their events: always the shared instance wired by [AdvanceServiceFactory]. */
+    claimService: ClaimService
 ) {
+    private val claims: ClaimService = claimService
+
     private val loader =
         TransitionSnapshotLoader(
             workItemRepository,
@@ -445,6 +449,13 @@ class AdvanceService(
         val credentialRefs: List<String>
     )
 
+    /** The value of a claim-service call; a fault aborts the advance (the unit rolls back, `apply_failed`). */
+    private fun <T> Outcome<T>.orAbort(): T =
+        when (this) {
+            is Outcome.Ok -> value
+            is Outcome.Err -> throw ApplyAbort(applyFaultMessage(error))
+        }
+
     /** An apply step aborted by a missing row: rolls the unit back and becomes [AdvanceFailure.ApplyFailed]. */
     private class ApplyAbort(
         message: String
@@ -521,6 +532,10 @@ class AdvanceService(
                 ?: return AdvanceOutcome.Failure(
                     AdvanceFailure.ApplyFailed("Failed to update item: WorkItem not found with id: ${request.itemId}")
                 )
+
+        // An advance that evaluates a lapsed claim reports it (deduped); a rejected advance rolls the row back and
+        // the hourly sweep backstops it.
+        if (item.claimedBy != null) claims.detectExpiry(item).orAbort()
 
         val loaded = loader.loadDetailed(view, item, trigger, request.ownership, LeaseInput(request.leaseGateActive))
         val snapshot = loaded.snapshot
@@ -841,7 +856,7 @@ class AdvanceService(
                     .distinctBy { it.key }
                     .map { it.key to resolveTtlSeconds(it, resolvedRegistry) }
             // Actor id is audit metadata only: exclusivity is keyed on the holder ITEM.
-            when (val acquired = leaseRepo.acquireAll(item.id, actorClaim?.id, requests)) {
+            when (val acquired = claims.acquireLeases(item.id, actorClaim?.id, requests).orAbort()) {
                 is LeaseAcquireResult.Success -> {}
                 is LeaseAcquireResult.Contended -> return ApplyResult.Contended(acquired.contendedKeys, acquired.retryAfterMs)
             }
@@ -891,7 +906,7 @@ class AdvanceService(
             workItemRepository.update(updatedItem)
                 ?: throw ApplyAbort("Failed to update item: WorkItem not found with id: ${item.id}")
         // update() never writes the claim columns: release the claim explicitly, in this unit.
-        if (clearsClaim) workItemRepository.clear(item.id)
+        if (clearsClaim) claims.clearClaim(item.id).orAbort()
 
         val transition =
             RoleTransition(
@@ -925,7 +940,7 @@ class AdvanceService(
         // Release on EVERY exit from WORK, in this unit, regardless of the kill switch (a lease acquired
         // while enforcement was on must still be released after it is turned off). A fault fails the advance.
         if (previousRole == Role.WORK && targetRole != Role.WORK && leaseRepo != null) {
-            leaseRepo.releaseAllForItem(item.id)
+            claims.releaseLeases(setOf(item.id)).orAbort()
         }
         return ApplyResult.Applied(updated)
     }

@@ -16,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.testClaimService
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -325,6 +326,7 @@ class EventRoutesTest {
                     noteRepository = decorated.noteRepository(),
                     schemaResolver = { null },
                     unitOfWork = unitOfWork,
+                    claimService = testClaimService(decorated.workItemRepository(), null, unitOfWork)
                 )
             val outcome = service.advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, enforceOwnership = false)
             assertTrue(outcome is AdvanceOutcome.Success, "advance failed: $outcome")

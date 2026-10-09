@@ -1,19 +1,15 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
-import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.EventSink
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.application.port.IdempotencyStore
-import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentAdoptOutcome
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStashOutcome
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
-import io.github.jpicklyk.mcptask.current.application.port.ReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
@@ -21,7 +17,6 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
 import io.github.jpicklyk.mcptask.current.application.service.eventRootOf
-import io.github.jpicklyk.mcptask.current.domain.event.ClaimReleaseReason
 import io.github.jpicklyk.mcptask.current.domain.event.DeleteCause
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.event.ReparentSide
@@ -30,7 +25,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.ProjectConfig
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import java.time.Duration
 import java.util.UUID
 
 /**
@@ -48,10 +42,11 @@ import java.util.UUID
  *
  * ## Coverage
  *
- * Every mutating method of the work-item, note, dependency, transition, lease, project-config and plan-document
- * stores, plus the work-tree executor, is overridden (guarded by `EventPublishingDecoratorGuardTest`). The
- * [IdempotencyStore] is an explicit pass-through: its rows are request bookkeeping, and replays belong to the
- * per-call log (P10). The [EventStore] is never decorated.
+ * Every mutating method of the work-item, note, dependency, project-config and plan-document stores, plus the
+ * work-tree executor, is overridden or explicitly classified (guarded by `EventPublishingDecoratorGuardTest`). The
+ * claim, release and clear methods of the work-item store are recorded by `ClaimService`, and the lease store is an
+ * explicit pass-through for the same reason. The [IdempotencyStore] is an explicit pass-through: its rows are request
+ * bookkeeping, and replays belong to the per-call log (P10). The [EventStore] is never decorated.
  *
  * ## Roots
  *
@@ -139,50 +134,6 @@ class EventPublishingRepositoryProvider(
             val pending = cascadeRows(items)
             val result = inner.deleteAll(ids)
             if (result > 0) record(pending)
-            return result
-        }
-
-        override suspend fun claim(
-            itemId: UUID,
-            agentId: String,
-            ttlSeconds: Int,
-        ): ClaimResult {
-            val result = inner.claim(itemId, agentId, ttlSeconds)
-            when (result) {
-                is ClaimResult.Success -> {
-                    val events =
-                        mutableListOf<DomainEvent>(DomainEvent.ClaimAcquired(result.item.id, rootOf(result.item), agentId, ttlSeconds))
-                    // Every OTHER item this agent held was auto-released as part of this claim.
-                    for (releasedId in result.releasedItemIds) {
-                        events += DomainEvent.ClaimReleased(releasedId, rootOfItem(releasedId), ClaimReleaseReason.SUPERSEDED)
-                    }
-                    record(events)
-                }
-                // A rejection row must survive the caller's unit (a keyed claim rolls back on it): see recordRejection.
-                is ClaimResult.AlreadyClaimed ->
-                    recorder.recordRejection(DomainEvent.ClaimRejected(itemId, rootOfItem(itemId), result.retryAfterMs))
-                else -> Unit
-            }
-            return result
-        }
-
-        override suspend fun release(
-            itemId: UUID,
-            agentId: String,
-        ): ReleaseResult {
-            val result = inner.release(itemId, agentId)
-            if (result is ReleaseResult.Success) {
-                record(DomainEvent.ClaimReleased(result.item.id, rootOf(result.item), ClaimReleaseReason.RELEASED))
-            }
-            return result
-        }
-
-        override suspend fun clear(itemId: UUID): Boolean {
-            // clear() reports true for any existing row (every terminal transition calls it), so a row is recorded
-            // only when a claim was actually held.
-            val held = inner.getById(itemId)?.claimedBy != null
-            val result = inner.clear(itemId)
-            if (result && held) record(DomainEvent.ClaimReleased(itemId, rootOfItem(itemId), ClaimReleaseReason.CLEARED))
             return result
         }
     }
@@ -309,97 +260,6 @@ class EventPublishingRepositoryProvider(
         DomainEvent.DependencyRemoved(dep.id, root, dep.fromItemId, dep.toItemId, dep.type.name.lowercase(), dep.unblockAt, cause)
 
     // -------------------------------------------------------------------------
-    // Lease store decorator (entity = the holder item)
-    // -------------------------------------------------------------------------
-
-    private inner class EventPublishingLeaseStore(
-        private val inner: LeaseStore,
-    ) : LeaseStore by inner {
-        override suspend fun acquireAll(
-            holderItemId: UUID,
-            actorId: String?,
-            requirements: List<Pair<String, Int>>,
-        ): LeaseAcquireResult {
-            val result = inner.acquireAll(holderItemId, actorId, requirements)
-            when (result) {
-                is LeaseAcquireResult.Success ->
-                    if (result.leases.isNotEmpty()) {
-                        val root = rootOfItem(holderItemId)
-                        record(
-                            result.leases.map {
-                                DomainEvent.LeaseAcquired(
-                                    holderItemId,
-                                    root,
-                                    it.resourceKey,
-                                    Duration.between(it.acquiredAt, it.expiresAt).seconds
-                                )
-                            },
-                        )
-                    }
-                is LeaseAcquireResult.Contended ->
-                    recorder.recordRejection(
-                        DomainEvent.LeaseRejected(holderItemId, rootOfItem(holderItemId), result.contendedKeys, result.retryAfterMs),
-                    )
-            }
-            return result
-        }
-
-        override suspend fun releaseAllForItem(holderItemId: UUID): LeaseReleaseResult {
-            val active = inner.findActiveForItem(holderItemId)
-            val result = inner.releaseAllForItem(holderItemId)
-            recordReleases(holderItemId, active.map { it.resourceKey }, result)
-            return result
-        }
-
-        /**
-         * Set-based, like the store it wraps: ONE pre-read of the active leases (filtered to [holderItemIds]) and ONE
-         * bulk release, then one `lease.released` row per active (holder, key) found. Lapsed rows the bulk release
-         * also removes are expiries, not releases, and record nothing (expiry rows are P14's).
-         */
-        override suspend fun releaseAllForItems(holderItemIds: Set<UUID>): LeaseReleaseResult {
-            if (holderItemIds.isEmpty()) return inner.releaseAllForItems(holderItemIds)
-            val active = inner.findAllActive().filter { it.holderItemId in holderItemIds }
-            val result = inner.releaseAllForItems(holderItemIds)
-            val released = (result as? LeaseReleaseResult.Success)?.releasedCount ?: 0
-            if (released > 0 && active.isNotEmpty()) {
-                val events = mutableListOf<DomainEvent>()
-                for ((holderItemId, leases) in active.groupBy { it.holderItemId }) {
-                    val root = rootOfItem(holderItemId)
-                    for (lease in leases) events += DomainEvent.LeaseReleased(holderItemId, root, lease.resourceKey, 1, forced = false)
-                }
-                record(events)
-            }
-            return result
-        }
-
-        override suspend fun forceReleaseByKey(
-            resourceKey: String,
-            actorId: String?,
-        ): LeaseReleaseResult {
-            val holders = inner.findActiveByKeys(listOf(resourceKey)).map { it.holderItemId }.distinct()
-            val result = inner.forceReleaseByKey(resourceKey, actorId)
-            val released = (result as? LeaseReleaseResult.Success)?.releasedCount ?: 0
-            if (released > 0 && holders.isNotEmpty()) {
-                record(holders.map { DomainEvent.LeaseReleased(it, rootOfItem(it), resourceKey, 1, forced = true) })
-            }
-            return result
-        }
-
-        private suspend fun recordReleases(
-            holderItemId: UUID,
-            keys: List<String>,
-            result: LeaseReleaseResult,
-        ) {
-            // One row per ACTIVE (holder, key) released. Lapsed rows the release also removes are expiries, not
-            // releases, and record nothing (expiry rows are P14's), the same rule as releaseAllForItems.
-            val released = (result as? LeaseReleaseResult.Success)?.releasedCount ?: 0
-            if (released <= 0 || keys.isEmpty()) return
-            val root = rootOfItem(holderItemId)
-            record(keys.map { DomainEvent.LeaseReleased(holderItemId, root, it, 1, forced = false) })
-        }
-    }
-
-    // -------------------------------------------------------------------------
     // Project-config and plan-document decorators (root = the project root item)
     // -------------------------------------------------------------------------
 
@@ -499,7 +359,6 @@ class EventPublishingRepositoryProvider(
     private val wrappedWorkItemRepo by lazy { EventPublishingWorkItemRepository(delegate.workItemRepository()) }
     private val wrappedNoteRepo by lazy { EventPublishingNoteRepository(delegate.noteRepository()) }
     private val wrappedDependencyRepo by lazy { EventPublishingDependencyRepository(delegate.dependencyRepository()) }
-    private val wrappedLeaseStore by lazy { EventPublishingLeaseStore(delegate.resourceLeaseRepository()) }
     private val wrappedProjectConfigStore by lazy { EventPublishingProjectConfigStore(delegate.projectConfigRepository()) }
     private val wrappedPlanDocumentStore by lazy { EventPublishingPlanDocumentStore(delegate.planDocumentRepository()) }
     private val wrappedWorkTreeExecutor by lazy { EventPublishingWorkTreeExecutor(delegate.workTreeExecutor()) }
@@ -520,7 +379,11 @@ class EventPublishingRepositoryProvider(
 
     override fun planDocumentRepository(): PlanDocumentStore = wrappedPlanDocumentStore
 
-    override fun resourceLeaseRepository(): LeaseStore = wrappedLeaseStore
+    /**
+     * Explicit pass-through: `lease.*` rows (and the lease expiry rows) are recorded by
+     * [io.github.jpicklyk.mcptask.current.application.service.ClaimService], not here.
+     */
+    override fun resourceLeaseRepository(): LeaseStore = delegate.resourceLeaseRepository()
 
     override fun workTreeExecutor(): WorkTreeExecutor = wrappedWorkTreeExecutor
 

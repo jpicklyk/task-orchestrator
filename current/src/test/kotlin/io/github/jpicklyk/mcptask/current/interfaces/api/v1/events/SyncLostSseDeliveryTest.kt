@@ -26,10 +26,12 @@ import io.ktor.server.sse.SSE
 import io.ktor.server.testing.testApplication
 import io.ktor.sse.ServerSentEvent
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
@@ -277,11 +279,18 @@ class SyncLostSseDeliveryTest {
             val collected = mutableListOf<ApiEvent>()
             withTimeout(10.seconds) {
                 coroutineScope {
+                    val warmUpDelivered = CompletableDeferred<Unit>()
                     launch {
-                        // Deterministic overflow: wait until the connection is registered, then commit all ten rows
-                        // under ONE commit signal. The bus fans a signal out without suspending, so the 4-slot queue
-                        // overflows however fast the client drains it (one emit per row lets the client keep up).
+                        // Handshake: a new subscriber registers BEFORE it reads its tail cursor, so rows committed in
+                        // that gap are skipped and never overflow. Emit warm-up events until the client has RECEIVED
+                        // one -- that proves the cursor is set and delivery is live. Only then commit the burst.
                         while (bus.subscriberCount() == 0) delay(10)
+                        while (!warmUpDelivered.isCompleted) {
+                            bus.emit(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID())
+                            delay(25)
+                        }
+                        // Deterministic overflow: commit all ten rows under ONE commit signal. The bus fans a signal
+                        // out without suspending, so the 4-slot queue overflows however fast the client drains it.
                         val item = UUID.randomUUID()
                         val rows =
                             EventRecorder(bus.source!!).record(
@@ -293,7 +302,14 @@ class SyncLostSseDeliveryTest {
                         urlString = "/events?types=${ApiEventType.ITEM_CREATED}",
                         request = { header(HttpHeaders.Authorization, "Bearer $TOKEN") },
                     ) {
-                        collected.addAll(collectWithin(incoming))
+                        // Collect until the sentinel arrives (bounded by the withTimeout), not for a fixed window.
+                        incoming
+                            .takeWhile { sse ->
+                                val ev = decode(sse.data)
+                                collected.add(ev)
+                                if (ev.event == ApiEventType.ITEM_CREATED) warmUpDelivered.complete(Unit)
+                                ev.event != ApiEventType.SYNC_LOST
+                            }.collect {}
                     }
                 }
             }

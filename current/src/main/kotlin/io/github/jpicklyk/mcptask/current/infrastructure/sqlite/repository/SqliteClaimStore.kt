@@ -51,6 +51,12 @@ internal object ClaimPredicates {
         WorkItemsTable.claimedBy.isNotNull() and
             (WorkItemsTable.claimedAt.isNull() or WorkItemsTable.claimExpiresAt.isNull() or (WorkItemsTable.claimExpiresAt lessEq at))
 
+    /** `claimed_by` is set with a recorded expiry that is at or before [at]: a claim that ran out. */
+    fun lapsed(at: Instant): Op<Boolean> =
+        WorkItemsTable.claimedBy.isNotNull() and
+            WorkItemsTable.claimExpiresAt.isNotNull() and
+            (WorkItemsTable.claimExpiresAt lessEq at)
+
     /** Nobody holds the item. */
     fun unclaimed(): Op<Boolean> = WorkItemsTable.claimedBy.isNull()
 
@@ -194,6 +200,24 @@ class SqliteClaimStore(
         databaseManager.writeTx("WorkItemRepository.clearClaim") {
             WorkItemsTable.update({ WorkItemsTable.id eq itemId }) { clearClaimColumns(it) } > 0
         }
+
+    override suspend fun findHeldBy(agentId: String): List<WorkItem> =
+        databaseManager.readTx {
+            WorkItemsTable
+                .selectAll()
+                .where { WorkItemsTable.claimedBy eq agentId }
+                .map { WorkItemRows.toWorkItem(it) }
+        }
+
+    override suspend fun findLapsedClaims(): List<WorkItem> {
+        val now = clock.unitNow()
+        return databaseManager.readTx {
+            WorkItemsTable
+                .selectAll()
+                .where { ClaimPredicates.lapsed(now) }
+                .map { WorkItemRows.toWorkItem(it) }
+        }
+    }
 
     private fun clearClaimColumns(stmt: org.jetbrains.exposed.v1.core.statements.UpdateStatement) {
         stmt[WorkItemsTable.claimedBy] = null

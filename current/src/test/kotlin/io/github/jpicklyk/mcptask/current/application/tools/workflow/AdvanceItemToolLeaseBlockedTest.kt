@@ -95,6 +95,7 @@ class AdvanceItemToolLeaseBlockedTest {
         coEvery { workItemRepo.update(any()) } answers { firstArg() }
         coEvery { roleTransitionRepo.create(any()) } returns mockk()
         coEvery { leaseRepo.releaseAllForItem(any()) } returns LeaseReleaseResult.Success(0)
+        AdvanceMockStores.stubClaimServiceReads(workItemRepo, leaseRepo)
         // P11: the policy's lease gate reads current holders first; contention in these tests is forced at acquireAll.
         coEvery { leaseRepo.findActiveByKeys(any()) } returns emptyList()
         every { depRepo.findByToItemId(any()) } returns emptyList()

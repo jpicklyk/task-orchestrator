@@ -51,6 +51,15 @@ interface EventStore {
         limit: Int = DEFAULT_PAGE
     ): List<EventRecord>
 
+    /**
+     * For each id of [entityIds], the row of [type] with the highest seq, if any. Ids with no such row are absent.
+     * Used to deduplicate `claim.expired` rows (one per lapsed claim instance).
+     */
+    suspend fun latestOfType(
+        type: String,
+        entityIds: Set<UUID>
+    ): Map<UUID, EventRecord>
+
     /** The highest committed seq, or [SEQ_FLOOR] when the table is empty. */
     suspend fun maxSeq(): Long
 

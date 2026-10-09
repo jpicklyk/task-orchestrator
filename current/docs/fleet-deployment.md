@@ -1258,7 +1258,7 @@ This outcome means `degradedModePolicy=reject` is configured and the caller's ac
 | Hours/days old, `claimExpiresAt` in the past | Agent crashed mid-work. Claim is passively expired; any agent can now claim it. |
 | Hours/days old, `claimExpiresAt` still being refreshed | Agent is alive but stuck in a long-running operation, or the heartbeat cadence is too aggressive. Investigate the holder's logs. |
 
-There is no background reaper. Expired claims are filtered at read time — `get_next_item()` will surface items whose holders crashed once their TTL has elapsed.
+Expired claims are filtered at read time — `get_next_item()` will surface items whose holders crashed once their TTL has elapsed. Nothing is cleared: the claim columns stay as they were (so `claimStatus=expired` and the health-check expired counts keep their meaning), and an hourly sweep, an advance that evaluates the item and a contender's claim each record one `claim.expired` event for the lapsed claim (see [Fleet-wide expired-claim sweep](#fleet-wide-expired-claim-sweep)).
 
 ### Heartbeat scheduling — implementation patterns
 
@@ -1274,11 +1274,11 @@ The recommended cadence is **TTL/2** (450s for the 900s default). This matches t
 
 ### Does completing or cancelling release the claim?
 
-**No.** `advance_item(trigger="complete" | "cancel")` transitions the role but does **not** clear `claimedBy`, `claimedAt`, `claimExpiresAt`, or `originalClaimedAt` on the work item. The claim record remains in place until either the TTL elapses or `claim_item(releases=[...])` is called explicitly.
+**Yes.** `advance_item(trigger="complete" | "cancel")` — and any other transition, path or cascade that lands the item in TERMINAL — clears `claimedBy`, `claimedAt`, `claimExpiresAt` and `originalClaimedAt` as part of the same transition (`complete_tree` and the REST advance route behave the same). A terminal item therefore carries no claim, and `reopen` always starts it unclaimed.
 
-This is harmless in practice: terminal items cannot be claimed by anyone (the `terminal_item` outcome blocks new claims), so a leftover claim record on a completed item is data noise, not a correctness problem. `reopen` triggers go through the same ownership check as any other transition — if the original claim has not expired, only the original holder can reopen.
+The clear is recorded as a `claim.released` event with reason `cleared`; if the claim had already lapsed it is recorded as `claim.expired` instead (a lapsed claim is never reported as released).
 
-**Recommendation:** Well-behaved agents call `claim_item(releases=[{itemId}])` after completing work. Required only if you want the audit trail to show explicit release rather than passive expiry.
+Calling `claim_item(releases=[{itemId}])` before completing is not needed for claim hygiene; it only makes an early release explicit in the audit trail.
 
 ### Fleet-wide expired-claim sweep
 
@@ -1291,3 +1291,5 @@ query_items(operation="search", claimStatus="expired")
 Results include only `isClaimed: boolean` per item — identity remains hidden. To get holder identity for a specific stuck item, drill in with `get_context(itemId)`, which is the only surface that exposes `claimDetail.claimedBy`.
 
 No cleanup action is required for correctness. The data is informational — it tells you which agents likely crashed and which work items are now available for re-claim.
+
+**Expiry events.** The server reports expiry in the `events` table (audit rows; they are not streamed over SSE). A claim whose TTL has elapsed (`claimExpiresAt <= now`) gets exactly one `claim.expired` row (`holder`, `expiresAt`), written by whichever of these notices it first: an agent that claims, releases or re-claims over it, a transition (`advance_item`, `complete_tree`, REST advance) of that item that commits, or the hourly sweep that also runs once at server start. The claim columns are **not** cleared by this, so the inventory above is unchanged. Lapsed resource leases are different: the sweep, or a contender's acquire, removes the lapsed row (its history interval closes as `expired`) and records one `lease.expired` row (`key`, `expiresAt`). When a lapsed claim or lease is overwritten, cleared or removed, the row is `*.expired` rather than `claim.released` / `lease.released`. Read-only tools never write, so they never record expiry; the sweep covers items nobody touches. The detector is whoever runs the sweep: rows written by the scheduled sweeper carry no principal, while a `sweepExpired` call made inside a request records that request's principal as the detector (the event is still `*.expired`, never `released`). A sweep failure is logged at WARN and never stops the server.

@@ -3,9 +3,9 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.service.ClaimService
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
-import io.github.jpicklyk.mcptask.current.application.support.UnitResult
-import io.github.jpicklyk.mcptask.current.application.support.writeUnit
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.hasCapability
@@ -76,6 +76,7 @@ fun Route.resourceLeaseRoutes(
     unitOfWork: UnitOfWork,
 ) {
     val leaseRepo = repositoryProvider.resourceLeaseRepository()
+    val claimService = ClaimService(repositoryProvider, unitOfWork)
 
     route("/resources/leases") {
         // ─── GET /resources/leases ─────────────────────────────────────────────
@@ -109,11 +110,9 @@ fun Route.resourceLeaseRoutes(
 
                 val principal = call.attributes.getOrNull(ApiPrincipalKey)
                 val released: Any =
-                    unitOfWork.writeUnit<Any>(
-                        "ResourceLeaseRoutes.forceRelease",
-                        onFault = { LegacyFaults.message(it) }
-                    ) {
-                        UnitResult.Commit(leaseRepo.forceReleaseByKey(key, principal?.tokenId))
+                    when (val outcome = claimService.forceReleaseLease(key, principal?.tokenId)) {
+                        is Outcome.Ok -> outcome.value
+                        is Outcome.Err -> LegacyFaults.message(outcome.error)
                     }
                 when (val result = released) {
                     is LeaseReleaseResult.Success -> {

@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.testClaimService
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -50,6 +51,7 @@ class SQLiteTerminalClaimClearTest {
             noteRepository = repositoryProvider.noteRepository(),
             schemaResolver = { null },
             unitOfWork = sqliteDb.unitOfWork(),
+            claimService = testClaimService(repositoryProvider.workItemRepository(), null, sqliteDb.unitOfWork())
         )
 
     /** Persists a WORK-role item already claimed by [claimedBy], via `create()`. */
