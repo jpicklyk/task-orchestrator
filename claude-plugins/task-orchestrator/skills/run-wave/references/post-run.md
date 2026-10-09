@@ -269,6 +269,8 @@ at planning time (unowned required note, unavailable schema config) — each wit
 reason, not a bare count. Then return to `SKILL.md` Step 9: re-run Step 2 (a fresh snapshot),
 letting the items surfaced in Step 4's `unblockedItems` join the new frontier.
 
+Cleanup: once an item's seats have committed, delete its recovery snapshots with `git for-each-ref --format=%(refname) refs/wip/<short>` piped to `git update-ref -d` for each ref (`refs/wip/<short>` and `refs/wip/<short>-<seat>`). Leave a snapshot in place for any item that stopped without committing.
+
 A `closed` run's state document and pointer line are left in place (`manage_plan_documents` has
 no delete) — Step 0 F7's `phase != "closed"` filter is what keeps a finished run from being
 mistaken for an open one on the next invocation.
