@@ -43,7 +43,7 @@ work_item_schemas:
         description: "..."     # Short label — fetch via query_items(operation="schema"), not in expectedNotes
         guidance: "..."        # Optional — fetch via query_items(operation="schema"); get_context/advance_item return guidanceKey (a reference)
         skill: "review-quality" # Optional — skill to invoke when filling this note (shown as skillPointer)
-        maxLength: 4000         # Optional — max body length (chars); enforced by manage_notes upsert per note_limits.mode
+        maxLength: 4000         # Optional — max body length (chars); enforced on every note write path per note_limits.mode
 
 traits:
 
@@ -108,7 +108,7 @@ When using `note_schemas`, the `lifecycle` field is not available — all schema
 | `description` | no | string | Parser defaults to `""` if omitted (recommended in practice). Keep under 80 chars — quick label; fetched via `query_items(operation="schema")`, not in `expectedNotes` |
 | `guidance` | no | string | Project-specific authoring instructions — fetched via `query_items(operation="schema")`; `get_context`/`advance_item` return `guidanceKey` (a reference) |
 | `skill` | no | string | Reusable evaluation framework — shown as `skillPointer` in `get_context` |
-| `maxLength` | no | integer | Max note body length (chars). Enforced by `manage_notes` upsert (inline `body` or `bodyFromFile`) per top-level `note_limits.mode` |
+| `maxLength` | no | integer | Max note body length (chars). Enforced on every note write path (`manage_notes` inline `body` or `bodyFromFile`, REST `PUT /items/{id}/notes/{key}`, `create_work_tree` notes) per top-level `note_limits.mode` |
 
 ### `guidance` vs `skill` — when to use which
 
@@ -1296,7 +1296,7 @@ root. The global default is the floor these cases fall back to.
 
 ## Note Body Length Limits
 
-Top-level `note_limits.mode` (`warn`, default, or `reject`) governs what happens when a note body exceeds its schema `maxLength`, checked at `manage_notes` upsert time against the resolved body (inline `body` or file-read via `bodyFromFile`): `warn` accepts the note with a `warning` field on its result; `reject` fails that note with `code: NOTE_BODY_TOO_LONG`.
+Top-level `note_limits.mode` (`warn`, default, or `reject`) governs what happens when a note body exceeds its schema `maxLength`, checked on every note write path (`manage_notes` upsert, REST `PUT /items/{id}/notes/{key}`, and `create_work_tree` notes) against the resolved body after CRLF-to-LF normalization (inline `body` or file-read via `bodyFromFile`): `warn` accepts the note with a `warning` field on its result; `reject` fails that note with `code: NOTE_BODY_TOO_LONG` (`manage_notes`), `422 note_body_too_long` (REST), or fails the whole `create_work_tree` call. Independently of `note_limits`, a note body over 65536 UTF-8 bytes is always rejected, and a key the schema declares must be written with the schema's role on every path.
 
 ```yaml
 note_limits:

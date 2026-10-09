@@ -21,6 +21,7 @@ import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommende
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
+import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
@@ -96,6 +97,12 @@ class ToolExecutionContext(
             clock = clock
         )
     }
+
+    /**
+     * The single owner of the note write policy, shared by `manage_notes`, the REST note routes and
+     * `create_work_tree`. Lazy for the same reason as [advanceServiceFactoryLazy].
+     */
+    val noteCommandService: NoteCommandService by lazy { NoteCommandService(repositoryProvider, configResolver, unitOfWork) }
 
     /** Access to WorkItem CRUD and query operations. */
     fun workItemRepository(): WorkItemRepository = repositoryProvider.workItemRepository()
