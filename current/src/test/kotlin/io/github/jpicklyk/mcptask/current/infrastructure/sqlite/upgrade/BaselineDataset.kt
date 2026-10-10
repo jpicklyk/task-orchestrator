@@ -457,8 +457,8 @@ object BaselineDataset {
             "fingerprint_history" to "[\"baseline-fingerprint-0000\"]"
         )
 
-        // V24: the versioned config store. Absent below V24, so insert drops these rows there; project_config is
-        // gone from V24 on, so the insert above is dropped there. The golden V17 stays byte-stable.
+        // V25: the versioned config store. Absent below V25, so insert drops these rows there; project_config is
+        // gone from V25 on, so the insert above is dropped there. The golden V17 stays byte-stable.
         insert(
             conn,
             "config_versions",

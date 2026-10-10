@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.test.configFaultFixture
 import io.github.jpicklyk.mcptask.current.test.createCommand
 import io.github.jpicklyk.mcptask.current.test.rawCount
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -91,7 +92,7 @@ class ItemTypeRuleTest {
         root: WorkItem,
         yaml: String,
     ) {
-        raw.projectConfigRepository().upsert(root.id, yaml)
+        raw.configStore().upsert(root.id, yaml)
     }
 
     private suspend fun EventLogRig.reload(item: WorkItem): WorkItem = raw.workItemRepository().getById(item.id)!!

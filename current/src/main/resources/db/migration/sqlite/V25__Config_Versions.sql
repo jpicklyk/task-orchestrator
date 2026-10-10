@@ -1,4 +1,4 @@
--- V24: Versioned per-root config (plan section 3.5, U21). Immutable version rows, a head pointer per
+-- V25: Versioned per-root config (plan section 3.5, U21). Immutable version rows, a head pointer per
 -- scope, and the V11 fingerprint history as a side table. Every project_config row is copied to
 -- version 1 (source 'migration', same id) and project_config is dropped.
 --

@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -88,7 +89,7 @@ class ItemWriteRoutesTypeTest {
         val response = send("/api/v1/items", """{"type":"alpha-type","title":"Root"}""")
         assertEquals(HttpStatusCode.Created, response.status, response.bodyAsText())
         val rootId = idOf(response.bodyAsText())
-        repo.projectConfigRepository().upsert(UUID.fromString(rootId), rootYaml)
+        repo.configStore().upsert(UUID.fromString(rootId), rootYaml)
         return rootId
     }
 

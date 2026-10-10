@@ -5,7 +5,7 @@ import org.jetbrains.exposed.v1.core.Table
 
 /**
  * The head pointer of each config scope: one row per root (and at most one for the server scope), pointing at the
- * current [ConfigVersionsTable] row. Mirrors `V24__Config_Versions.sql`; uniqueness is carried by partial unique
+ * current [ConfigVersionsTable] row. Mirrors `V25__Config_Versions.sql`; uniqueness is carried by partial unique
  * indexes there. [updatedAt] is the canonical 23-character UTC text.
  */
 object ConfigHeadsTable : Table("config_heads") {

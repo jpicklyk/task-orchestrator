@@ -7,7 +7,7 @@ import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepKind
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepPhase
 
 /**
- * Fills `canonical_json` / `model_version` on the config versions the V24 migration copied from `project_config`
+ * Fills `canonical_json` / `model_version` on the config versions the V25 migration copied from `project_config`
  * (SQL cannot parse YAML). Runs once, in the [DataStepPhase.CONFIG_CANONICALIZE] phase; readiness waits for it.
  */
 class ConfigCanonicalizeStep(

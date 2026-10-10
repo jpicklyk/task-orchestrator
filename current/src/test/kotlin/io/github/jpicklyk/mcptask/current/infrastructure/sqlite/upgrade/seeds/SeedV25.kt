@@ -124,6 +124,8 @@ object SeedV25 : MigrationSeed(25) {
         "complexity" to 5,
         "requires_verification" to 0,
         "depth" to 0,
+        // Typed like every baseline row: a NULL type would be filled by the production type-backfill step.
+        "type" to "feature-task",
         "created_at" to BaselineDataset.TS,
         "modified_at" to BaselineDataset.TS_PLUS_1,
         "role_changed_at" to BaselineDataset.TS_PLUS_2,

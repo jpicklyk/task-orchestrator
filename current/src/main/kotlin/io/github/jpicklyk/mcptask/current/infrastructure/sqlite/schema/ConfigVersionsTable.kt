@@ -7,7 +7,7 @@ import org.jetbrains.exposed.v1.core.dao.id.IdTable
 import java.util.UUID
 
 /**
- * Immutable config versions (one row per version per scope). Mirrors `V24__Config_Versions.sql`.
+ * Immutable config versions (one row per version per scope). Mirrors `V25__Config_Versions.sql`.
  *
  * [rootId] is NULL only for the server scope. [canonicalJson] / [modelVersion] are NULL until the
  * `config-canonicalize` data step fills them on rows copied by the migration. [createdAt] is persisted as the

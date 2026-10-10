@@ -21,8 +21,8 @@ import java.nio.file.Path
  * tag step resolved it to ([LegacyTypeInference]), or `untyped` when none matched, so a 4.0 server that resolves by
  * type alone keeps every item on the schema it had.
  *
- * Reads the global config file at [globalConfigPath] (absent = no global layer) and every `project_config` row for the
- * layers; only each document's `schema_resolution` and schema KEYS are read, with its own SnakeYAML scan, so it needs no
+ * Reads the global config file at [globalConfigPath] (absent = no global layer) and each root's head `config_versions` row
+ * (via `config_heads`; a reset head counts as no layer) for the layers; only each document's `schema_resolution` and schema KEYS are read, with its own SnakeYAML scan, so it needs no
  * schema validation and does not depend on the config parsers a later work item reshapes. A document that does not parse
  * counts as no layer (WARN), never a startup failure. Writes the `type` column only (no version bump, no modified_at, no
  * events): a backfill is not an edit, and the `data_steps` ledger row is the record. Idempotent: it only touches rows whose
@@ -40,9 +40,13 @@ class TypeBackfillStep(
         val tx = TransactionManager.current()
 
         val perRoot = mutableMapOf<String, LegacyTypeInference.Layer>()
-        tx.exec("SELECT lower(hex(root_item_id)) AS root, config_yaml FROM project_config") { rs ->
+        // Each root's head version (a reset head means the root has no per-root config, so no layer).
+        tx.exec(
+            "SELECT lower(hex(h.root_id)) AS root, v.yaml AS config_yaml FROM config_heads h " +
+                "JOIN config_versions v ON v.id = h.version_id WHERE h.scope = 'root' AND v.source <> 'reset'"
+        ) { rs ->
             while (rs.next()) {
-                val layer = layerOf(rs.getString("config_yaml"), "project_config row for root ${rs.getString("root")}")
+                val layer = layerOf(rs.getString("config_yaml"), "head config version for root ${rs.getString("root")}")
                 if (layer != null) perRoot[rs.getString("root")] = layer
             }
         }

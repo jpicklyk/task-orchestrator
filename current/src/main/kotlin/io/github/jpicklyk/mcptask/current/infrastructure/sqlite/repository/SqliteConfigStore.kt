@@ -259,7 +259,7 @@ class SqliteConfigStore(
 
     /**
      * CURRENT when [fingerprint] is the head's; SUPERSEDED when a version after the last reset has it, or (no reset
-     * yet) the root's pre-V24 history knew it; otherwise UNKNOWN. A reset starts a new epoch.
+     * yet) the root's pre-V25 history knew it; otherwise UNKNOWN. A reset starts a new epoch.
      */
     private fun classify(
         rootId: UUID,

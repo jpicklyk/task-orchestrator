@@ -315,7 +315,7 @@ class ConfigService(
 
     /**
      * Body of the `config-canonicalize` data step: fills `canonical_json` / `model_version` of every version still
-     * missing them (rows copied by the V24 migration). A row whose YAML fails to parse is left NULL and logged;
+     * missing them (rows copied by the V25 migration). A row whose YAML fails to parse is left NULL and logged;
      * that root's head then loads fail-closed. Returns the number of rows filled. Runs inside the step's write unit.
      */
     suspend fun canonicalizeMissing(): Int {
