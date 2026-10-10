@@ -117,10 +117,14 @@ class RequestDecoder {
 
         return try {
             Outcome.Ok(json.decodeFromJsonElement(serializer, body))
+        } catch (e: SerializationException) {
+            // Reached only for a fault the walks cannot see (a custom serializer of a member type they do
+            // not know); its text names serializer internals, so it stays generic.
+            Outcome.Err(invalidRequest(listOf(FieldViolation(ROOT, DECODE_FAILED))))
         } catch (e: IllegalArgumentException) {
-            // SerializationException extends IllegalArgumentException. Reached only for a fault the walks
-            // cannot see (a custom serializer of a member type they do not know).
-            Outcome.Err(invalidRequest(listOf(FieldViolation(ROOT, "could not be decoded"))))
+            // A require() failure thrown while constructing the request (e.g. a DTO init block): its message
+            // is the reason. Request DTOs should validate in their handlers instead.
+            Outcome.Err(invalidRequest(listOf(FieldViolation(ROOT, e.message?.takeIf { it.isNotBlank() } ?: DECODE_FAILED))))
         }
     }
 
@@ -298,6 +302,8 @@ class RequestDecoder {
         const val ROOT = "$"
 
         const val MAX_RECEIVED = 100
+
+        const val DECODE_FAILED = "could not be decoded"
 
         val INTEGER = Regex("^-?(0|[1-9][0-9]*)$")
 

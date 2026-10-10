@@ -227,6 +227,20 @@ val serialTest by tasks.registering(Test::class) {
     }
 }
 
+// Rewrites the per-tool 4.0 schema goldens (src/test/resources/golden/tools/<tool>.<profile>.json) from the
+// ToolSpec registry and deletes stale ones. Run after any intentional tool-schema change, then commit the files.
+tasks.register<Test>("regenerateToolGoldens") {
+    description = "Regenerates the 4.0 tool schema goldens from the ToolSpec registry."
+    group = "verification"
+    val testTask = tasks.test.get()
+    testClassesDirs = testTask.testClassesDirs
+    classpath = testTask.classpath
+    useJUnitPlatform()
+    environment("REGENERATE_TOOL_GOLDENS", "true")
+    filter { includeTestsMatching("*ToolGoldenGenerator*") }
+    outputs.upToDateWhen { false }
+}
+
 kotlin {
     jvmToolchain(21)
 }
