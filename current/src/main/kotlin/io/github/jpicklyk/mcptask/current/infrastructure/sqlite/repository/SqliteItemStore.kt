@@ -1,31 +1,31 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.ItemFetchResult
+import io.github.jpicklyk.mcptask.current.application.port.ItemFilter
+import io.github.jpicklyk.mcptask.current.application.port.ItemPage
+import io.github.jpicklyk.mcptask.current.application.port.ItemSort
 import io.github.jpicklyk.mcptask.current.application.port.ItemStore
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.domain.error.VersionConflictException
-import io.github.jpicklyk.mcptask.current.domain.model.ClaimStatus
-import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
-import org.jetbrains.exposed.v1.core.CustomFunction
-import org.jetbrains.exposed.v1.core.LowerCase
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.SortOrder
-import org.jetbrains.exposed.v1.core.VarCharColumnType
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.like
 import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.core.or
-import org.jetbrains.exposed.v1.jdbc.Query
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.select
@@ -233,93 +233,6 @@ class SqliteItemStore(
                 .map { WorkItemRows.toWorkItem(it) }
         }
 
-    override suspend fun findByFilters(
-        parentId: UUID?,
-        depth: Int?,
-        role: Role?,
-        priority: Priority?,
-        tags: List<String>?,
-        query: String?,
-        createdAfter: Instant?,
-        createdBefore: Instant?,
-        modifiedAfter: Instant?,
-        modifiedBefore: Instant?,
-        roleChangedAfter: Instant?,
-        roleChangedBefore: Instant?,
-        sortBy: String?,
-        sortOrder: String?,
-        limit: Int,
-        offset: Int,
-        type: String?,
-        claimStatus: ClaimStatus?
-    ): ItemFetchResult {
-        // The text `query` filter was removed with FTS5 (query_items search routes through SearchIndex).
-        val at = if (claimStatus != null) clock.unitNow() else null
-        val spec =
-            ItemQuerySpec(
-                parentId = parentId,
-                depth = depth,
-                role = role,
-                priority = priority,
-                tags = tags,
-                type = type,
-                createdAfter = createdAfter,
-                createdBefore = createdBefore,
-                modifiedAfter = modifiedAfter,
-                modifiedBefore = modifiedBefore,
-                roleChangedAfter = roleChangedAfter,
-                roleChangedBefore = roleChangedBefore,
-                claimStatus = claimStatus
-            )
-        return databaseManager.readTx {
-            val items =
-                ItemQueries
-                    .applySort(selectBySpec(spec, null, at), sortBy, sortOrder)
-                    .limit(limit)
-                    .offset(offset.coerceAtLeast(0).toLong()) // No upper bound needed: absurd values safely return empty results
-                    .map { WorkItemRows.toWorkItem(it) }
-            ItemFetchResult(items, skipped = 0)
-        }
-    }
-
-    override suspend fun countByFilters(
-        parentId: UUID?,
-        depth: Int?,
-        role: Role?,
-        priority: Priority?,
-        tags: List<String>?,
-        query: String?,
-        createdAfter: Instant?,
-        createdBefore: Instant?,
-        modifiedAfter: Instant?,
-        modifiedBefore: Instant?,
-        roleChangedAfter: Instant?,
-        roleChangedBefore: Instant?,
-        type: String?,
-        claimStatus: ClaimStatus?
-    ): Int {
-        val at = if (claimStatus != null) clock.unitNow() else null
-        val spec =
-            ItemQuerySpec(
-                parentId = parentId,
-                depth = depth,
-                role = role,
-                priority = priority,
-                tags = tags,
-                type = type,
-                createdAfter = createdAfter,
-                createdBefore = createdBefore,
-                modifiedAfter = modifiedAfter,
-                modifiedBefore = modifiedBefore,
-                roleChangedAfter = roleChangedAfter,
-                roleChangedBefore = roleChangedBefore,
-                claimStatus = claimStatus
-            )
-        return databaseManager.readTx {
-            selectBySpec(spec, null, at).count().toInt()
-        }
-    }
-
     override suspend fun countChildrenByRole(parentId: UUID): Map<Role, Int> =
         databaseManager.readTx {
             countByRole(WorkItemsTable.parentId eq parentId)
@@ -373,114 +286,6 @@ class SqliteItemStore(
         }
     }
 
-    override suspend fun findByIdPrefix(
-        prefix: String,
-        limit: Int
-    ): List<WorkItem> {
-        val normalizedPrefix = prefix.lowercase()
-        return databaseManager.readTx {
-            // UUIDs are BLOBs: HEX(id) yields uppercase hex without dashes, so lower-case it for a prefix match.
-            val hexId = LowerCase(CustomFunction("HEX", VarCharColumnType(32), WorkItemsTable.id))
-            WorkItemsTable
-                .selectAll()
-                .where { hexId like "$normalizedPrefix%" }
-                .limit(limit)
-                .map { WorkItemRows.toWorkItem(it) }
-        }
-    }
-
-    override suspend fun findInScope(
-        rootIds: Set<UUID>,
-        parentId: UUID?,
-        depth: Int?,
-        role: Role?,
-        priority: Priority?,
-        tags: List<String>?,
-        query: String?,
-        createdAfter: Instant?,
-        createdBefore: Instant?,
-        modifiedAfter: Instant?,
-        modifiedBefore: Instant?,
-        roleChangedAfter: Instant?,
-        roleChangedBefore: Instant?,
-        sortBy: String?,
-        sortOrder: String?,
-        limit: Int,
-        offset: Int,
-        type: String?,
-        claimStatus: ClaimStatus?,
-    ): List<WorkItem> {
-        if (rootIds.isEmpty()) return emptyList()
-        val at = if (claimStatus != null) clock.unitNow() else null
-        val spec =
-            ItemQuerySpec(
-                parentId = parentId,
-                depth = depth,
-                role = role,
-                priority = priority,
-                tags = tags,
-                type = type,
-                createdAfter = createdAfter,
-                createdBefore = createdBefore,
-                modifiedAfter = modifiedAfter,
-                modifiedBefore = modifiedBefore,
-                roleChangedAfter = roleChangedAfter,
-                roleChangedBefore = roleChangedBefore,
-                claimStatus = claimStatus
-            )
-        return databaseManager.readTx {
-            val scope = ScopeResolver.resolve(rootIds)
-            if (scope == ResolvedScope.Empty) return@readTx emptyList()
-            ItemQueries
-                .applySort(selectBySpec(spec, scope, at), sortBy, sortOrder)
-                .limit(limit)
-                .offset(offset.coerceAtLeast(0).toLong())
-                .map { WorkItemRows.toWorkItem(it) }
-        }
-    }
-
-    override suspend fun countInScope(
-        rootIds: Set<UUID>,
-        parentId: UUID?,
-        depth: Int?,
-        role: Role?,
-        priority: Priority?,
-        tags: List<String>?,
-        query: String?,
-        createdAfter: Instant?,
-        createdBefore: Instant?,
-        modifiedAfter: Instant?,
-        modifiedBefore: Instant?,
-        roleChangedAfter: Instant?,
-        roleChangedBefore: Instant?,
-        type: String?,
-        claimStatus: ClaimStatus?,
-    ): Int {
-        if (rootIds.isEmpty()) return 0
-        val at = if (claimStatus != null) clock.unitNow() else null
-        val spec =
-            ItemQuerySpec(
-                parentId = parentId,
-                depth = depth,
-                role = role,
-                priority = priority,
-                tags = tags,
-                type = type,
-                createdAfter = createdAfter,
-                createdBefore = createdBefore,
-                modifiedAfter = modifiedAfter,
-                modifiedBefore = modifiedBefore,
-                roleChangedAfter = roleChangedAfter,
-                roleChangedBefore = roleChangedBefore,
-                claimStatus = claimStatus
-            )
-        return databaseManager.readTx {
-            val scope = ScopeResolver.resolve(rootIds)
-            if (scope == ResolvedScope.Empty) return@readTx 0
-            selectBySpec(spec, scope, at).count().toInt()
-        }
-    }
-
     override suspend fun countInScopeByRole(rootIds: Set<UUID>): Map<Role, Int> {
         if (rootIds.isEmpty()) return emptyMap()
         return databaseManager.readTx {
@@ -505,18 +310,130 @@ class SqliteItemStore(
         return counts
     }
 
-    /** The SELECT for [spec] under an optional [scope]; an empty scope yields a query that matches nothing. */
-    private fun selectBySpec(
-        spec: ItemQuerySpec,
-        scope: ResolvedScope?,
-        at: Instant?
-    ): Query {
-        val conditions = ItemQueries.conditions(spec, scope, at) ?: return WorkItemsTable.selectAll().where { Op.FALSE }
-        return if (conditions.isEmpty()) {
+    override suspend fun find(
+        filter: ItemFilter,
+        scope: AccessScope,
+        page: ItemPage,
+        sort: ItemSort,
+    ): List<WorkItem> {
+        if (scope.rootIds?.isEmpty() == true) return emptyList()
+        val at = if (filter.claimStatus != null) clock.unitNow() else null
+        return databaseManager.readTx {
+            val conditions = conditionsFor(filter, scope, at) ?: return@readTx emptyList()
+            ItemQueries
+                .applySort(selectWhere(conditions), sort)
+                .limit(page.limit)
+                .offset(page.offset.toLong())
+                .map { WorkItemRows.toWorkItem(it) }
+        }
+    }
+
+    override suspend fun count(
+        filter: ItemFilter,
+        scope: AccessScope,
+    ): Int {
+        if (scope.rootIds?.isEmpty() == true) return 0
+        val at = if (filter.claimStatus != null) clock.unitNow() else null
+        return databaseManager.readTx {
+            val conditions = conditionsFor(filter, scope, at) ?: return@readTx 0
+            selectWhere(conditions).count().toInt()
+        }
+    }
+
+    /**
+     * The AND-ed WHERE conditions of [find]/[count], or null when nothing can match (an empty scope or ancestor subtree).
+     * Must run inside a transaction: resolving a root set may probe or walk the hierarchy.
+     *
+     * The access scope's roots and the filter's ancestor are two AND-ed subtree conditions. When the ancestor is
+     * itself a listed scope root, its subtree lies inside the scope and the scope condition is dropped (one
+     * resolution instead of two). The `tags_include` allowlist is [TagAllowlistOp], the same SQL the search
+     * engine applies.
+     */
+    private fun conditionsFor(
+        filter: ItemFilter,
+        scope: AccessScope,
+        at: Instant?,
+    ): List<Op<Boolean>>? {
+        val ancestorId = filter.ancestorId
+        val scopeRoots = scope.rootIds?.takeUnless { ancestorId != null && ancestorId in it }
+        val accessScope = scopeRoots?.let { ScopeResolver.resolve(it) }
+        val conditions = ItemQueries.conditions(ItemQueries.specOf(filter), accessScope, at) ?: return null
+        if (ancestorId != null) {
+            val ancestorScope = ScopeResolver.resolve(setOf(ancestorId))
+            if (ancestorScope == ResolvedScope.Empty) return null
+            conditions.add(ancestorScope.toCondition())
+        }
+        if (scope.tagsInclude.isNotEmpty()) conditions.add(TagAllowlistOp(WorkItemsTable.tags, scope.tagsInclude))
+        return conditions
+    }
+
+    /** SELECT * with [conditions] AND-ed (no WHERE when there are none). */
+    private fun selectWhere(conditions: List<Op<Boolean>>) =
+        if (conditions.isEmpty()) {
             WorkItemsTable.selectAll()
         } else {
             val combined = conditions.reduce { acc, op -> acc and op }
             WorkItemsTable.selectAll().where { combined }
         }
+
+    /**
+     * A range scan on the BLOB primary key: ids are stored as 16 big-endian bytes, so "hex starts with p" is
+     * `lo <= id < hi` with lo = p padded with `0` to 32 digits and hi = (p + 1) padded the same way. An odd-length
+     * prefix pads its last byte's low nibble; an all-`f` prefix has no upper bound.
+     */
+    override suspend fun findByIdPrefix(
+        prefix: String,
+        limit: Int
+    ): List<WorkItem> {
+        val bounds = IdPrefixRange.of(prefix) ?: return emptyList()
+        return databaseManager.readTx {
+            val lower = WorkItemsTable.id greaterEq bounds.lower
+            val condition = bounds.upper?.let { lower and (WorkItemsTable.id less it) } ?: lower
+            WorkItemsTable
+                .selectAll()
+                .where { condition }
+                .orderBy(WorkItemsTable.id, SortOrder.ASC)
+                .limit(limit)
+                .map { WorkItemRows.toWorkItem(it) }
+        }
+    }
+}
+
+/** The id range a hex prefix selects: `lower <= id < upper`, [upper] null when unbounded. */
+internal data class IdPrefixRange(
+    val lower: UUID,
+    val upper: UUID?,
+) {
+    companion object {
+        private const val HEX_DIGITS = 32
+        private val HEX = Regex("^[0-9a-f]+$")
+
+        /** The range for [prefix] (any case), or null when it is empty, not hex, or longer than an id. */
+        fun of(prefix: String): IdPrefixRange? {
+            val p = prefix.lowercase()
+            if (p.isEmpty() || p.length > HEX_DIGITS || !HEX.matches(p)) return null
+            val lower = uuidOfHex(p.padEnd(HEX_DIGITS, '0'))
+            val upper = increment(p)?.let { uuidOfHex(it.padEnd(HEX_DIGITS, '0')) }
+            return IdPrefixRange(lower, upper)
+        }
+
+        /** [hex] plus one at its own length, or null when it is all `f` (the carry overflows). */
+        private fun increment(hex: String): String? {
+            val digits = hex.toCharArray()
+            var i = digits.size - 1
+            while (i >= 0) {
+                val d = Character.digit(digits[i], 16)
+                if (d < 15) {
+                    digits[i] = Character.forDigit(d + 1, 16)
+                    return String(digits)
+                }
+                digits[i] = '0'
+                i--
+            }
+            return null
+        }
+
+        private fun uuidOfHex(hex: String): UUID =
+            UUID(java.lang.Long.parseUnsignedLong(hex.substring(0, 16), 16), java.lang.Long.parseUnsignedLong(hex.substring(16), 16))
     }
 }

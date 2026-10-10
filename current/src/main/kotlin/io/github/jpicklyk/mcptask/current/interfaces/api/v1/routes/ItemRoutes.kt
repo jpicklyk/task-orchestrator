@@ -2,8 +2,12 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
-import io.github.jpicklyk.mcptask.current.application.port.ItemSortFields
+import io.github.jpicklyk.mcptask.current.application.port.ItemFilter
+import io.github.jpicklyk.mcptask.current.application.port.ItemPage
+import io.github.jpicklyk.mcptask.current.application.port.ItemSort
+import io.github.jpicklyk.mcptask.current.application.port.ItemSortField
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.SortDirection
 import io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView
 import io.github.jpicklyk.mcptask.current.application.service.TransitionPreview
 import io.github.jpicklyk.mcptask.current.application.service.blockedByWire
@@ -25,6 +29,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeFor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.filterByTagScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.hasTagScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.toAccessScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependenciesDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.GateStatusDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemDto
@@ -51,13 +56,14 @@ import java.util.UUID
 private val logger = LoggerFactory.getLogger("ItemRoutes")
 
 /**
- * Candidate-row cap for the list endpoints that must post-filter by `tags_include`.
+ * Candidate-row cap for the list endpoints that still post-filter by `tags_include` in memory
+ * (`GET /items/{id}/children`; `GET /items` applies the tag scope in SQL instead).
  *
- * `tags_include` has no SQL representation, so a tag-scoped list request fetches a wider
- * candidate window, drops the out-of-scope rows in memory and paginates the survivors — the
- * same shape `GET /items/{id}/tree` already uses. Paginating in SQL first would hand the
- * caller short (or empty) pages whose `totalItems` counted rows they may not see. Only
- * tag-scoped principals take this path; every other caller keeps SQL-level pagination.
+ * A tag-scoped request on such an endpoint fetches a wider candidate window, drops the
+ * out-of-scope rows in memory and paginates the survivors — the same shape
+ * `GET /items/{id}/tree` already uses. Paginating in SQL first would hand the caller short (or
+ * empty) pages whose `totalItems` counted rows they may not see. Only tag-scoped principals take
+ * this path; every other caller keeps SQL-level pagination.
  */
 private const val TAG_SCOPE_SCAN_LIMIT = 1000
 
@@ -86,15 +92,14 @@ private fun pageOfVisible(
  * - `GET /items/{id}/breadcrumbs`   — ancestor chain root→item
  * - `GET /items/{id}/children`      — direct children only (paginated)
  *
- * All endpoints require [ApiCapability.READ]. `root_ids` scope filtering is applied at the SQL
- * level via `findInScope` / `countInScope` when the principal has a non-null `rootIds` set.
+ * All endpoints require [ApiCapability.READ]. On `GET /items` the whole token scope (`root_ids`
+ * and `tags_include`) is applied in SQL by the item store, before paging.
  *
- * `tags_include` scope has no SQL representation and is applied in memory by the shared
- * [filterByTagScope] predicate to EVERY item a response carries — list rows, root rows,
- * breadcrumb ancestors, tree descendants, direct children and `?include=children` inlines —
- * not just the one item [enforceScopeForItem] authorizes at the entry point. Where the filter
- * runs on a list, the list is filtered before it is paginated, so `totalItems` counts only
- * items the caller may read (see [TAG_SCOPE_SCAN_LIMIT]).
+ * Elsewhere `tags_include` is applied in memory by the shared [filterByTagScope] predicate to
+ * EVERY item a response carries — root rows, breadcrumb ancestors, tree descendants, direct
+ * children and `?include=children` inlines — not just the one item [enforceScopeForItem]
+ * authorizes at the entry point. Where the filter runs on a list, the list is filtered before it
+ * is paginated, so `totalItems` counts only items the caller may read (see [TAG_SCOPE_SCAN_LIMIT]).
  */
 fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
     val workItemRepo = repositoryProvider.workItemRepository()
@@ -127,148 +132,51 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             val orderBy = params["orderBy"]?.takeIf { it.isNotBlank() }
             val orderDir = params["orderDir"]?.takeIf { it.isNotBlank() }
 
-            // Validate against the same vocabulary the repository maps (ItemSortFields) so an
-            // unsupported value fails fast with a structured 400 instead of silently falling
-            // back to createdAt/desc (AR-46).
-            if (orderBy != null && ItemSortFields.canonicalField(orderBy) == null) {
+            // Validate against the same vocabulary the store maps (ItemSort) so an unsupported value
+            // fails fast with a structured 400 instead of silently falling back to createdAt/desc (AR-46).
+            if (orderBy != null && ItemSortField.parse(orderBy) == null) {
                 call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid orderBy: $orderBy")
                 return@get
             }
-            if (orderDir != null && orderDir.lowercase() !in ItemSortFields.ORDERS) {
+            if (orderDir != null && SortDirection.parse(orderDir) == null) {
                 call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid orderDir: $orderDir")
                 return@get
             }
+            val sort = ItemSort.parse(orderBy, orderDir) ?: ItemSort.DEFAULT
 
-            val scopeRootIds = principal?.scope?.rootIds
-
-            // Merge rootId query param with principal scope
-            val effectiveScopeRootIds: Set<UUID>? =
-                when {
-                    scopeRootIds != null && rootIdFilter != null ->
-                        scopeRootIds.intersect(setOf(rootIdFilter)).takeIf { it.isNotEmpty() }
-                            ?: emptySet()
-                    scopeRootIds != null -> scopeRootIds
-                    rootIdFilter != null -> setOf(rootIdFilter)
-                    else -> null
-                }
-
-            // Populated only by the unscoped findByFilters branch below — findInScope has no
-            // ItemFetchResult/skipped-row tracking, so scoped requests always report null.
-            var skippedCount: Int? = null
-
-            // tags_include cannot be expressed in SQL, so a tag-scoped caller reads a wider
-            // candidate window and is paginated in memory after the filter (see
-            // TAG_SCOPE_SCAN_LIMIT). Callers without a tag scope keep SQL LIMIT/OFFSET exactly
-            // as before.
-            val tagScoped = principal.hasTagScope()
-            val fetchLimit = if (tagScoped) TAG_SCOPE_SCAN_LIMIT else pp.pageSize
-            val fetchOffset = if (tagScoped) 0 else pp.offset
-
-            if (effectiveScopeRootIds != null && effectiveScopeRootIds.isEmpty()) {
-                val total = 0L
-                call.respond(HttpStatusCode.OK, buildPageDto(emptyList<ItemDto>(), pp, total))
+            // rootId narrows to that subtree; it is AND-ed with the token's own scope (root_ids and
+            // tags_include), which the store applies in SQL before paging, so totalItems counts only
+            // rows the caller may read and every page is full.
+            val filter =
+                ItemFilter(
+                    parentId = parentId,
+                    ancestorId = rootIdFilter,
+                    role = role,
+                    priority = priority,
+                    tagsAny = effectiveTags,
+                    type = type,
+                    createdAfter = createdAfter,
+                    createdBefore = createdBefore,
+                    modifiedAfter = modifiedAfter,
+                    modifiedBefore = modifiedBefore,
+                    claimStatus = claimStatus,
+                )
+            filter.validate().firstOrNull()?.let { violation ->
+                call.respondError(LegacyRestCode.VALIDATION_ERROR, "${violation.field} ${violation.reason}")
                 return@get
             }
+            val scope = principal.toAccessScope()
+
             val items: List<WorkItem> =
                 legacyRead({
                     logger.warn("GET /items DB error: {}", it)
                     call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@get
                 }) {
-                    if (effectiveScopeRootIds != null) {
-                        workItemRepo.findInScope(
-                            rootIds = effectiveScopeRootIds,
-                            parentId = parentId,
-                            role = role,
-                            priority = priority,
-                            tags = effectiveTags,
-                            createdAfter = createdAfter,
-                            createdBefore = createdBefore,
-                            modifiedAfter = modifiedAfter,
-                            modifiedBefore = modifiedBefore,
-                            sortBy = orderBy,
-                            sortOrder = orderDir,
-                            limit = fetchLimit,
-                            offset = fetchOffset,
-                            type = type,
-                            claimStatus = claimStatus,
-                        )
-                    } else {
-                        // Unwrap ItemFetchResult to List<WorkItem> here so both branches of this
-                        // if/else agree on List<WorkItem>; skippedCount above carries the
-                        // dropped-row count forward for the response DTO.
-                        run {
-                            val r =
-                                workItemRepo.findByFilters(
-                                    parentId = parentId,
-                                    role = role,
-                                    priority = priority,
-                                    tags = effectiveTags,
-                                    createdAfter = createdAfter,
-                                    createdBefore = createdBefore,
-                                    modifiedAfter = modifiedAfter,
-                                    modifiedBefore = modifiedBefore,
-                                    sortBy = orderBy,
-                                    sortOrder = orderDir,
-                                    limit = fetchLimit,
-                                    offset = fetchOffset,
-                                    type = type,
-                                    claimStatus = claimStatus,
-                                )
-                            skippedCount = r.skipped
-                            r.items
-                        }
-                    }
+                    workItemRepo.find(filter, scope, ItemPage(pp.pageSize, pp.offset), sort)
                 }
-
-            run {
-                run {
-                    if (tagScoped) {
-                        // Filter first, paginate second: the surviving rows ARE the caller's
-                        // universe, so totalItems is their count — never a DB count that
-                        // includes items this token may not read.
-                        call.respond(HttpStatusCode.OK, pageOfVisible(items.filterByTagScope(principal), pp, skippedCount))
-                        return@get
-                    }
-                    val total =
-                        if (effectiveScopeRootIds != null) {
-                            legacyReadOrNull {
-                                workItemRepo
-                                    .countInScope(
-                                        rootIds = effectiveScopeRootIds,
-                                        parentId = parentId,
-                                        role = role,
-                                        priority = priority,
-                                        tags = effectiveTags,
-                                        createdAfter = createdAfter,
-                                        createdBefore = createdBefore,
-                                        modifiedAfter = modifiedAfter,
-                                        modifiedBefore = modifiedBefore,
-                                        type = type,
-                                        claimStatus = claimStatus,
-                                    ).toLong()
-                            }
-                        } else {
-                            legacyReadOrNull {
-                                workItemRepo
-                                    .countByFilters(
-                                        parentId = parentId,
-                                        role = role,
-                                        priority = priority,
-                                        tags = effectiveTags,
-                                        createdAfter = createdAfter,
-                                        createdBefore = createdBefore,
-                                        modifiedAfter = modifiedAfter,
-                                        modifiedBefore = modifiedBefore,
-                                        type = type,
-                                        claimStatus = claimStatus,
-                                    ).toLong()
-                            }
-                        }
-                    val dtos = items.map { it.toDto() }
-                    call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, total, skippedCount))
-                }
-            }
+            val total = legacyReadOrNull { workItemRepo.count(filter, scope).toLong() }
+            call.respond(HttpStatusCode.OK, buildPageDto(items.map { it.toDto() }, pp, total))
         }
 
         // ─── GET /items/roots ────────────────────────────────────────────────
@@ -569,9 +477,9 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             // tags_include has no SQL representation, so a tag-scoped caller reads a wider
             // candidate window (TAG_SCOPE_SCAN_LIMIT, same bound GET /items uses), filters it in
             // memory, and is paginated from the SURVIVING set — filter before paging, matching the
-            // file KDoc above. countByFilters would count children the token cannot see, so it is
+            // file KDoc above. An unscoped count would count children the token cannot see, so it is
             // not used on this branch; totalItems is the filtered count instead. Callers without a
-            // tag scope keep the original SQL LIMIT/OFFSET + countByFilters path unchanged.
+            // tag scope keep the original SQL LIMIT/OFFSET + count path unchanged.
             val tagScoped = principalForChildren.hasTagScope()
             val fetchLimit = if (tagScoped) TAG_SCOPE_SCAN_LIMIT else pp.pageSize
             val fetchOffset = if (tagScoped) 0 else pp.offset
@@ -582,11 +490,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                     call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@get
                 }) {
-                    workItemRepo.findByFilters(
-                        parentId = id,
-                        limit = fetchLimit,
-                        offset = fetchOffset,
-                    )
+                    workItemRepo.find(ItemFilter(parentId = id), page = ItemPage(fetchLimit, fetchOffset))
                 }
             run {
                 run {
@@ -598,13 +502,13 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                         // this token may not read.
                         call.respond(
                             HttpStatusCode.OK,
-                            pageOfVisible(childrenResult.items.filterByTagScope(principalForChildren), pp),
+                            pageOfVisible(childrenResult.filterByTagScope(principalForChildren), pp),
                         )
                         return@get
                     }
 
-                    val total = legacyReadOrNull { workItemRepo.countByFilters(parentId = id) }?.toLong()
-                    val dtos = childrenResult.items.map { it.toDto() }
+                    val total = legacyReadOrNull { workItemRepo.count(ItemFilter(parentId = id)) }?.toLong()
+                    val dtos = childrenResult.map { it.toDto() }
                     call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, total))
                 }
             }

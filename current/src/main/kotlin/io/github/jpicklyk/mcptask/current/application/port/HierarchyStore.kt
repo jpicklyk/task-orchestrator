@@ -13,7 +13,7 @@ import java.util.UUID
  * The value sits far above any plausible real tree, so hitting it means the data is cyclic, not deep.
  *
  * Traversals that feed destructive or whole-subtree work ([HierarchyStore.findDescendants],
- * scope resolution behind [ItemStore.findInScope] / [ItemStore.countInScope])
+ * scope resolution behind [ItemStore.find] / [ItemStore.count])
  * fail loud (throw) when the bound is hit — a silently short list is
  * worse than an error there. Search-scope traversals are merely bounded, since degraded results
  * beat failing every search on a corrupt database.
