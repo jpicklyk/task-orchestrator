@@ -250,8 +250,10 @@ class McpToolAdapter(
                                 structuredContent = ResponseUtil.extractErrorPayload(dbEnvelope)
                             )
                         }
-                        val message = "Internal error in '${toolDefinition.name}' (session ${clientConnection.sessionId}): ${e.message}"
-                        logger.error(message, e)
+                        // The client sees a fixed text (no exception text, no session id: they can carry secrets or
+                        // another caller's data); the server log keeps both, with the exception.
+                        val message = "Internal error in '${toolDefinition.name}'"
+                        logger.error("$message (session ${clientConnection.sessionId}): ${e.message}", e)
                         try {
                             clientConnection.sendLoggingMessage(
                                 LoggingMessageNotification(
@@ -266,7 +268,7 @@ class McpToolAdapter(
                             ignored.rethrowIfCancellation()
                         }
                         logResponseSize(toolDefinition.name, success = false, responseChars = message.length)
-                        // The text is unchanged; the structured payload now carries {code, message, kind} too.
+                        // The structured payload carries {code, message, kind}; its message is the same fixed text.
                         val internalEnvelope = LegacyMcpErrorMapper.envelope(message, LegacyMcpCode.INTERNAL_ERROR)
                         CallToolResult(
                             content = listOf(TextContent(text = message)),

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Changed: an unexpected exception that escapes an MCP tool no longer leaks its text.** The `INTERNAL_ERROR` result text, the `notifications/message` log notification and `structuredContent.error.message` are now the fixed `Internal error in '<tool>'`, without the exception message or the session id (they were `Internal error in '<tool>' (session <id>): <exception message>`). The server log keeps the full text and the exception. The code (`INTERNAL_ERROR`), the kind (`transient`) and the `{code, message, kind}` key set are unchanged; `DATABASE_ERROR` keeps its SQL text.
 - **Changed: one search core serves `query_items` / `query_notes` search and REST `GET /search` / `GET /notes/search`.** A `SearchService` validates, tokenizes, retrieves candidates through a dialect-free `SearchIndex` port (one corpus-driven SQLite engine; FTS5 quoting lives only there), fuses them with RRF (k=60, the single constant behind `explain.rrfK`), orders by score, then kind, then id, caps at 100 and slices the page. Wire changes:
   - Every hit carries `title`: the item's own title for an item hit, the owning item's title for a note hit (REST `SearchHitDto.title`, optional).
   - An FTS-mode `limit` above 100 is now rejected with `VALIDATION_ERROR` on both tools (it was silently capped). List-mode `query_items` still caps at 100; an `offset` past the end still returns an empty page.

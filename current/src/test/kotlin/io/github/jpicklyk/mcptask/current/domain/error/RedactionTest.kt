@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.domain.error
 
+import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
+import kotlinx.serialization.json.jsonObject
 import java.lang.reflect.Field
 import java.lang.reflect.Modifier
 import java.lang.reflect.ParameterizedType
@@ -8,6 +10,7 @@ import java.time.Instant
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -204,5 +207,36 @@ class RedactionTest {
     fun `S15 claim_held detail carries exactly itemId expiresAt and retryAfterMs`() {
         val names = dataFields(ErrorDetail.ClaimHeld::class.java).map { it.name }.toSet()
         assertEquals(setOf("itemId", "expiresAt", "retryAfterMs"), names)
+    }
+
+    // S5 (item f1b003a6): the internal error can carry no cause text, no detail and no fix
+    @Test
+    fun `S5 internal defines no detail class`() {
+        assertNull(ErrorCode.INTERNAL.detailClass)
+    }
+
+    @Test
+    fun `S5 the internal envelope encoder takes only a request id - no cause and no text parameter`() {
+        val methods = EnvelopeEncoder::class.java.declaredMethods.filter { it.name == "internal" }
+        assertTrue(methods.isNotEmpty(), "EnvelopeEncoder.internal must exist")
+        for (method in methods) {
+            assertEquals(
+                listOf<Class<*>>(String::class.java),
+                method.parameterTypes.toList(),
+                "internal must accept the request id only: $method"
+            )
+        }
+    }
+
+    @Test
+    fun `S5 the internal envelope body carries no detail and no fix`() {
+        val error =
+            EnvelopeEncoder
+                .internal("k7f3q9ab")
+                .body
+                .getValue("error")
+                .jsonObject
+        assertEquals(setOf("code", "kind", "message"), error.keys)
+        assertTrue("detail" !in error && "fix" !in error)
     }
 }

@@ -2780,8 +2780,10 @@ now follows the fault (it was always `permanent` when it escaped a tool): `shedd
 timeout, `permanent` for a duplicate or foreign-key fault, `transient` for any other store fault.
 An `advance_item` `apply_failed` takes its kind from its cause the same way (a vanished row or a
 version conflict is `permanent`, a busy database `shedding`, anything else `transient`).
-An unexpected exception that escapes a tool keeps its `Internal error in '<tool>' ...` text and now
-also carries `structuredContent.error` `{code: "INTERNAL_ERROR", message: <same text>, kind: "transient"}`.
+An unexpected exception that escapes a tool returns the fixed text `Internal error in '<tool>'`: the exception
+message and the session id are never sent to the client (in the text, the `notifications/message` log
+notification or the structured error); the server log keeps both. The result also carries
+`structuredContent.error` `{code: "INTERNAL_ERROR", message: <same text>, kind: "transient"}`.
 
 **Storage faults.** A database fault keeps the 3.x `DATABASE_ERROR` code on both reads and writes, and
 is never reported as `RESOURCE_NOT_FOUND` (not-found means only that the row does not exist). A tool
