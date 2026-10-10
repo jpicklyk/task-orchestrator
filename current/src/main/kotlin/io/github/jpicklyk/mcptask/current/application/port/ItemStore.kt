@@ -1,10 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
-import io.github.jpicklyk.mcptask.current.domain.model.ClaimStatus
-import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import java.time.Instant
 import java.util.UUID
 
 /**
@@ -40,7 +37,7 @@ interface ItemStore {
      * @param rootIds Optional subtree scope. When null (default), unscoped — behavior is
      *   identical to omitting the parameter. When non-null, results are additionally restricted
      *   to items within the subtree(s) rooted at [rootIds] (roots included), resolved the same
-     *   way as [findInScope]. An empty (non-null) set yields an empty result — no matching rows.
+     *   way as [find]'s [AccessScope.rootIds]. An empty (non-null) set yields an empty result.
      */
     suspend fun findByRole(
         role: Role,
@@ -72,69 +69,25 @@ interface ItemStore {
     suspend fun findChildren(parentId: UUID): List<WorkItem>
 
     /**
-     * Find work items matching multiple filter criteria.
-     * All non-null filters are combined with AND logic. Tags use OR logic within the list.
+     * One page of the items [filter] selects that [scope] lets the caller see, in [sort] order.
      *
-     * Returns an [ItemFetchResult]. Every matching row is returned: a row that fails domain
-     * validation carries its violations in [WorkItem.diagnostics] instead of being dropped, so
-     * [ItemFetchResult.skipped] is always 0 (kept only for wire compatibility).
-     *
-     * @param claimStatus Optional [ClaimStatus] filter, evaluated at the bound unit instant:
-     *   [ClaimStatus.CLAIMED] — an active claim (expiry strictly after now); [ClaimStatus.UNCLAIMED] —
-     *   no `claimed_by`; [ClaimStatus.EXPIRED] — a `claimed_by` whose claim is not active.
-     * @param sortBy One of [ItemSortFields.FIELDS] (`title`, `priority`, `complexity`,
-     *   `createdAt`, `modifiedAt`), case-insensitive, plus the legacy `created`/`modified`
-     *   aliases; see [ItemSortFields.canonicalField]. `priority` sorts by rank
-     *   (high/medium/low), not the raw column. `complexity` sorts NULLs last regardless of
-     *   direction. Null or unresolved falls back to `createdAt`. Callers should validate
-     *   against [ItemSortFields] before calling so an invalid value surfaces as a client
-     *   error rather than silently falling back.
-     * @param sortOrder One of [ItemSortFields.ORDERS] (`asc`, `desc`); null or unresolved
-     *   defaults to `desc`. Every sort applies a secondary `id ASC` tiebreak for stable
-     *   pagination.
+     * [scope] is applied in the query, before [page]: [AccessScope.rootIds] restricts to those
+     * subtrees (roots included; an empty set selects nothing) and is AND-ed with
+     * [ItemFilter.ancestorId]; [AccessScope.tagsInclude] keeps an item only when one of its
+     * trimmed, non-empty tags equals a listed tag exactly (case-sensitive). Every sort ends with
+     * an `id` ascending tiebreak, so offset pages are disjoint.
      */
-    suspend fun findByFilters(
-        parentId: UUID? = null,
-        depth: Int? = null,
-        role: Role? = null,
-        priority: Priority? = null,
-        tags: List<String>? = null,
-        query: String? = null,
-        createdAfter: Instant? = null,
-        createdBefore: Instant? = null,
-        modifiedAfter: Instant? = null,
-        modifiedBefore: Instant? = null,
-        roleChangedAfter: Instant? = null,
-        roleChangedBefore: Instant? = null,
-        sortBy: String? = null,
-        sortOrder: String? = null,
-        limit: Int = 50,
-        offset: Int = 0,
-        type: String? = null,
-        claimStatus: ClaimStatus? = null
-    ): ItemFetchResult
+    suspend fun find(
+        filter: ItemFilter,
+        scope: AccessScope = AccessScope.unrestricted(),
+        page: ItemPage,
+        sort: ItemSort = ItemSort.DEFAULT,
+    ): List<WorkItem>
 
-    /**
-     * Count work items matching multiple filter criteria (same filters as findByFilters, no pagination).
-     * Returns the total number of matching rows regardless of any limit/offset.
-     *
-     * @param claimStatus Optional [ClaimStatus] filter (see [findByFilters]).
-     */
-    suspend fun countByFilters(
-        parentId: UUID? = null,
-        depth: Int? = null,
-        role: Role? = null,
-        priority: Priority? = null,
-        tags: List<String>? = null,
-        query: String? = null,
-        createdAfter: Instant? = null,
-        createdBefore: Instant? = null,
-        modifiedAfter: Instant? = null,
-        modifiedBefore: Instant? = null,
-        roleChangedAfter: Instant? = null,
-        roleChangedBefore: Instant? = null,
-        type: String? = null,
-        claimStatus: ClaimStatus? = null
+    /** The number of items [find] selects for [filter] and [scope] across all pages. */
+    suspend fun count(
+        filter: ItemFilter,
+        scope: AccessScope = AccessScope.unrestricted(),
     ): Int
 
     /**
@@ -187,77 +140,15 @@ interface ItemStore {
     suspend fun deleteAll(ids: Set<UUID>): Int
 
     /**
-     * Find work items whose ID starts with the given hex prefix.
-     * Used for short UUID prefix resolution.
+     * The items whose id, as 32 lower-case hex digits without dashes, starts with [prefix]
+     * (compared ignoring case), in ascending id order, at most [limit] of them. Backs short-id
+     * resolution (`IdResolver`); a prefix that is not hex, or longer than 32 digits, matches
+     * nothing.
      */
     suspend fun findByIdPrefix(
         prefix: String,
         limit: Int = 10
     ): List<WorkItem>
-
-    /**
-     * Find work items that are within the subtree rooted at any of [rootIds] (roots included).
-     *
-     * When [rootIds] is empty, returns an empty list immediately (no implicit fallback to
-     * [findByFilters] — an empty scope set is an unambiguous empty result).
-     *
-     * The subtree is computed via a single recursive CTE.
-     *
-     * All filter parameters mirror [findByFilters] exactly and are AND-combined on top of the
-     * scope constraint.
-     *
-     * @param rootIds Set of item UUIDs whose full subtrees (inclusive) are included in scope.
-     *   Must be non-empty; pass `emptySet()` only when you want an empty result.
-     * @param sortBy Same vocabulary and semantics as [findByFilters]'s `sortBy`.
-     * @param sortOrder Same vocabulary and semantics as [findByFilters]'s `sortOrder`.
-     */
-    suspend fun findInScope(
-        rootIds: Set<UUID>,
-        parentId: UUID? = null,
-        depth: Int? = null,
-        role: Role? = null,
-        priority: Priority? = null,
-        tags: List<String>? = null,
-        query: String? = null,
-        createdAfter: Instant? = null,
-        createdBefore: Instant? = null,
-        modifiedAfter: Instant? = null,
-        modifiedBefore: Instant? = null,
-        roleChangedAfter: Instant? = null,
-        roleChangedBefore: Instant? = null,
-        sortBy: String? = null,
-        sortOrder: String? = null,
-        limit: Int = 50,
-        offset: Int = 0,
-        type: String? = null,
-        claimStatus: ClaimStatus? = null,
-    ): List<WorkItem>
-
-    /**
-     * Count work items within the subtree rooted at any of [rootIds] (roots included).
-     *
-     * Mirrors [findInScope] exactly (same scope semantics and filter parameters) but returns
-     * the total row count without pagination.
-     *
-     * When [rootIds] is empty, returns 0 immediately.
-     */
-    suspend fun countInScope(
-        rootIds: Set<UUID>,
-        parentId: UUID? = null,
-        depth: Int? = null,
-        role: Role? = null,
-        priority: Priority? = null,
-        tags: List<String>? = null,
-        query: String? = null,
-        createdAfter: Instant? = null,
-        createdBefore: Instant? = null,
-        modifiedAfter: Instant? = null,
-        modifiedBefore: Instant? = null,
-        roleChangedAfter: Instant? = null,
-        roleChangedBefore: Instant? = null,
-        type: String? = null,
-        claimStatus: ClaimStatus? = null,
-    ): Int
 
     /**
      * Count work items within the subtree rooted at any of [rootIds] (roots included), grouped by

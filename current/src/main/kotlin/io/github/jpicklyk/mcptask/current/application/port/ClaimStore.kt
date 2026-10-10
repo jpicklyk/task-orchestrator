@@ -153,7 +153,7 @@ interface ClaimStore {
      * @param rootIds Optional subtree scope. When null (default), unscoped — behavior is
      *   identical to the pre-scoping contract. When non-null, results are additionally
      *   restricted to items within the subtree(s) rooted at [rootIds] (roots included),
-     *   resolved the same way as [findInScope]. An empty (non-null) set yields an empty result.
+     *   resolved the same way as [ItemStore.find]'s `AccessScope.rootIds`. An empty (non-null) set yields an empty result.
      */
     suspend fun findForNextItem(
         role: Role,
@@ -165,7 +165,7 @@ interface ClaimStore {
 
     /**
      * Find work items that are eligible to be claimed, combining the filter flexibility of
-     * [findByFilters] with the active-claim exclusion logic of [findForNextItem].
+     * [ItemStore.find] with the active-claim exclusion logic of [findForNextItem].
      *
      * Active-claim exclusion (`claimed_by IS NULL OR claim_expires_at <= now`) is **always** applied —
      * it is not a parameter because claim-eligibility by definition means the item is unclaimed or
@@ -217,7 +217,7 @@ interface ClaimStore {
      * @param rootIds Optional subtree scope. When null (default), unscoped — behavior is
      *   identical to the pre-scoping contract. When non-null, candidates are additionally
      *   restricted to items within the subtree(s) rooted at [rootIds] (roots included),
-     *   resolved the same way as [findInScope]. An empty (non-null) set yields an empty result.
+     *   resolved the same way as [ItemStore.find]'s `AccessScope.rootIds`. An empty (non-null) set yields an empty result.
      * @return the list of matching, claimable items (may be empty); a database failure is thrown.
      */
     suspend fun findClaimable(
@@ -256,7 +256,7 @@ interface ClaimStore {
      * @param rootIds Optional subtree scope. When null (default), unscoped — behavior is
      *   identical to the pre-scoping contract. When non-null, counts are additionally restricted
      *   to items within the subtree(s) rooted at [rootIds] (roots included), resolved the same
-     *   way as [findInScope]. [rootIds] and [parentId] compose with AND. An empty (non-null)
+     *   way as [ItemStore.find]'s `AccessScope.rootIds`. [rootIds] and [parentId] compose with AND. An empty (non-null)
      *   [rootIds] set yields all-zero counts.
      */
     suspend fun countByClaimStatus(
