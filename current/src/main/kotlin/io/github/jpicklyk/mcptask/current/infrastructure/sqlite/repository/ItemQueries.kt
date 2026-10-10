@@ -79,16 +79,18 @@ internal object ItemQueries {
 
     /**
      * Matches tags at word boundaries within a comma-separated string: alone ("bug"), at the start
-     * ("bug,feature"), in the middle ("alpha,bug,beta") or at the end ("alpha,bug"). OR across the list.
+     * ("bug,feature"), in the middle ("alpha,bug,beta") or at the end ("alpha,bug"). OR across the list. The tag
+     * is a literal: `%`, `_` and the escape character in it are escaped ([LikeLiteral]), never pattern characters.
      */
     fun tagFilter(tags: List<String>): Op<Boolean> =
         tags
             .map { tag ->
                 val t = tag.trim().lowercase()
+                val e = LikeLiteral.escape(t)
                 (WorkItemsTable.tags eq t) or
-                    (WorkItemsTable.tags like "$t,%") or
-                    (WorkItemsTable.tags like "%,$t,%") or
-                    (WorkItemsTable.tags like "%,$t")
+                    (WorkItemsTable.tags like LikeLiteral.pattern("$e,%")) or
+                    (WorkItemsTable.tags like LikeLiteral.pattern("%,$e,%")) or
+                    (WorkItemsTable.tags like LikeLiteral.pattern("%,$e"))
             }.reduce { acc, op -> acc or op }
 
     /** Priority rank HIGH=0, MEDIUM=1, LOW=2 (anything else 99), the single definition behind every priority sort. */

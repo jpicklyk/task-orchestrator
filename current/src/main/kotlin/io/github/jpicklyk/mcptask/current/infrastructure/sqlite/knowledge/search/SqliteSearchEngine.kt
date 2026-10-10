@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.port.ScopeFilter
 import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
 import io.github.jpicklyk.mcptask.current.application.port.TextQuery
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.LikeLiteral
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.TagAllowlistSql
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.rawQuery
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.readTx
@@ -186,16 +187,20 @@ class SqliteSearchEngine(
                     ?.filter { it.isNotEmpty() }
                     .orEmpty()
             if (requestTags.isNotEmpty()) {
-                // 3.x semantics, unchanged: case-insensitive membership of the comma-separated list.
+                // 3.x semantics: case-insensitive membership of the comma-separated list. The tag is a literal:
+                // LIKE metacharacters in it are escaped (LikeLiteral), never wildcards.
+                val esc = LikeLiteral.ESCAPE_CLAUSE
                 where +=
                     requestTags.joinToString(" OR ", prefix = "(", postfix = ")") {
-                        "(LOWER(wi.tags) = ? OR LOWER(wi.tags) LIKE ? OR LOWER(wi.tags) LIKE ? OR LOWER(wi.tags) LIKE ?)"
+                        "(LOWER(wi.tags) = ? OR LOWER(wi.tags) LIKE ? $esc OR LOWER(wi.tags) LIKE ? $esc" +
+                            " OR LOWER(wi.tags) LIKE ? $esc)"
                     }
                 for (t in requestTags) {
+                    val e = LikeLiteral.escape(t)
                     whereArgs += textType to t
-                    whereArgs += textType to "$t,%"
-                    whereArgs += textType to "%,$t,%"
-                    whereArgs += textType to "%,$t"
+                    whereArgs += textType to "$e,%"
+                    whereArgs += textType to "%,$e,%"
+                    whereArgs += textType to "%,$e"
                 }
                 needsItemRow = true
             }

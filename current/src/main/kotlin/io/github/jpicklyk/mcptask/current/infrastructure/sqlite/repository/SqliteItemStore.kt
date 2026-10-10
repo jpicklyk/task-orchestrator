@@ -212,7 +212,8 @@ class SqliteItemStore(
         limit: Int
     ): List<WorkItem> =
         databaseManager.readTx {
-            val pattern = "%$query%"
+            // The query is a literal substring: LIKE metacharacters in it are escaped, not wildcards.
+            val pattern = LikeLiteral.pattern("%${LikeLiteral.escape(query)}%")
             WorkItemsTable
                 .selectAll()
                 .where { (WorkItemsTable.title like pattern) or (WorkItemsTable.summary like pattern) }
