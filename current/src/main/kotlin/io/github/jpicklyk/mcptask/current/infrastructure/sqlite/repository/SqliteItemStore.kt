@@ -311,6 +311,17 @@ class SqliteItemStore(
         }
     }
 
+    override suspend fun findByIdSet(ids: Set<UUID>): List<WorkItem> {
+        if (ids.isEmpty()) return emptyList()
+        return databaseManager.readTx {
+            // One statement for any number of ids (a JSON id set, not a chunked IN list).
+            WorkItemsTable
+                .selectAll()
+                .where { WorkViewSql.inIdSet(WorkItemsTable.id, ids) }
+                .map { WorkItemRows.toWorkItem(it) }
+        }
+    }
+
     override suspend fun countByParentAndRole(parentIds: Set<UUID>): Map<UUID, Map<Role, Int>> {
         if (parentIds.isEmpty()) return emptyMap()
         return databaseManager.readTx {

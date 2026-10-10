@@ -14,8 +14,8 @@ import java.util.UUID
 
 /**
  * The read model: the four work views (`next`, `blocked`, `overview`, `context`), each served by ONE read unit
- * with a constant number of statements, whatever the number of rows, children, dependency edges or claims behind
- * it. Lists are paged ([PageRequest]) with a stable order ending in an `id` tiebreak; each page's `total` is
+ * with a bounded number of statements (at most a fixed N per view; an empty id set skips its statement), whatever
+ * the number of rows, children, dependency edges or claims behind it. Lists are paged ([PageRequest]) with a stable order ending in an `id` tiebreak; each page's `total` is
  * counted in the same unit as its items. Views return plain data ([OverviewView], [BlockedEntry], ...); the
  * tools and routes that serve them render it.
  *
@@ -57,7 +57,7 @@ class WorkViewQueries(
             val slice = stores.itemStore().findBlocked(scope.parentId, scope.ancestorId, page.limit, page.offset)
             val ids = slice.items.map { it.id }.toSet()
             val edges = stores.dependencyRepository().blockingEdgesFor(ids)
-            val blockers = stores.itemStore().findByIds(edges.map { it.blocker }.toSet()).associateBy { it.id }
+            val blockers = stores.itemStore().findByIdSet(edges.map { it.blocker }.toSet()).associateBy { it.id }
             val edgesByBlocked = edges.groupBy { it.blocked }
             val entries =
                 slice.items.map { item ->

@@ -161,9 +161,10 @@ interface ItemStore {
 
     // ---------------------------------------------------------------------------------------------
     // Batched read primitives (the read model's building blocks, used by WorkViewQueries). Each is
-    // ONE statement for an id set of up to 500 ids (a larger set is chunked inside the same
-    // transaction), however many rows, children or descendants lie behind the ids. An empty id set
-    // returns an empty result without touching the database.
+    // ONE statement for an id set of any size (the ids are bound as one JSON-array parameter),
+    // however many rows, children or descendants lie behind the ids; the exception is [rolesOf],
+    // which is one statement per 500 ids (a larger set is chunked inside the same transaction). An
+    // empty id set returns an empty result without touching the database.
     // ---------------------------------------------------------------------------------------------
 
     /**
@@ -171,6 +172,12 @@ interface ItemStore {
      * that evaluate blockers treat an absent role as unsatisfied (fail-closed).
      */
     suspend fun rolesOf(ids: Set<UUID>): Map<UUID, Role>
+
+    /**
+     * The items with the ids in [ids], in no particular order, as ONE statement for any number of
+     * ids (unlike [findByIds], which chunks its IN list). An id with no row is absent.
+     */
+    suspend fun findByIdSet(ids: Set<UUID>): List<WorkItem>
 
     /**
      * Direct-children counts grouped by role, per parent in [parentIds]. Every requested id is a

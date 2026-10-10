@@ -338,7 +338,7 @@ interface ClaimStore {
 
     /**
      * Claim-status counts over the DIRECT children of each parent in [parentIds], in ONE grouped
-     * `SUM(CASE ...)` statement for up to 500 parents. Every requested id is a key (all zeros when
+     * `SUM(CASE ...)` statement for any number of parents. Every requested id is a key (all zeros when
      * it has no children). An empty [parentIds] returns an empty map without touching the database.
      */
     suspend fun claimSummaryByParent(parentIds: Set<UUID>): Map<UUID, ClaimStatusCounts>
