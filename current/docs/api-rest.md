@@ -298,6 +298,8 @@ form `"cfg-<fingerprint>"` (a SHA-256 over the stored `configYaml`'s UTF-8 bytes
 a client holding an old ETag keeps working until the new envelope lands; such a legacy `If-Match` is compared
 against the head's fingerprint.
 
+A write whose `If-Match` is stale is rejected with `412` before the identical-content check: re-pushing the head's own content with a stale ETag is `412`, not an idempotent `200`.
+
 The per-root effective config endpoint (§18, `GET /roots/{rootId}/config/effective`) uses a DIFFERENT
 prefix, `"eff-<fingerprint>"`, where the fingerprint is a SHA-256 over BOTH layers' fingerprints (global
 and per-root), so it changes when either layer changes. It supports `If-None-Match` → `304` like the
