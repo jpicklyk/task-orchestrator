@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory
 import org.sqlite.SQLiteConfig
 import org.sqlite.SQLiteDataSource
 import java.io.File
+import java.io.IOException
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
 import java.nio.channels.OverlappingFileLockException
@@ -40,12 +41,17 @@ import java.util.UUID
  *   keeps the prior behavior.
  * @param busyTimeoutMs busy_timeout for Flyway's own connection and the integrity connection.
  * @param schemaMode [SchemaMode.MIGRATE] (default) or [SchemaMode.VALIDATE].
+ * @param lockTimeoutMs how long to wait for the migration lock before failing startup (default [LOCK_TIMEOUT_MS]).
+ * @param lockAttempt one non-blocking lock attempt on the lock file's channel (default [FileChannel.tryLock]); a seam
+ *   so the IOException policy can be exercised.
  */
 class FlywayDatabaseSchemaManager(
     private val jdbcUrl: String,
     private val repair: Boolean = EnvBoolean.parse("FLYWAY_REPAIR", System.getenv("FLYWAY_REPAIR"), default = false),
     private val busyTimeoutMs: Long = 5000L,
-    private val schemaMode: SchemaMode = SchemaMode.MIGRATE
+    private val schemaMode: SchemaMode = SchemaMode.MIGRATE,
+    private val lockTimeoutMs: Long = LOCK_TIMEOUT_MS,
+    private val lockAttempt: (FileChannel) -> FileLock? = { it.tryLock() }
 ) : DatabaseSchemaManager {
     private val logger = LoggerFactory.getLogger(FlywayDatabaseSchemaManager::class.java)
 
@@ -311,8 +317,9 @@ class FlywayDatabaseSchemaManager(
     /**
      * Runs [block] under the `<dbfile>.migrate.lock` OS file lock (no lock for in-memory URLs).
      * Polls `tryLock`; [OverlappingFileLockException] (this JVM already holds it) counts as held.
-     * Logs INFO every 10 s while waiting and gives up after [LOCK_TIMEOUT_MS]. The lock file is
-     * never deleted.
+     * Any other [IOException] from the attempt (for example ENOLCK on an NFS mount without lockd) fails
+     * closed: startup fails with a message naming the lock file. Logs INFO every 10 s while waiting and
+     * gives up after [lockTimeoutMs]. The lock file is never deleted.
      */
     private fun <T> withMigrationLock(block: () -> T): T {
         val dbFile = StartupCompaction.resolveDbFile(jdbcUrl) ?: return block()
@@ -326,14 +333,21 @@ class FlywayDatabaseSchemaManager(
             while (lock == null) {
                 lock =
                     try {
-                        channel.tryLock()
+                        lockAttempt(channel)
                     } catch (e: OverlappingFileLockException) {
                         null
+                    } catch (e: IOException) {
+                        throw IllegalStateException(
+                            "Could not acquire the migration lock ${lockFile.path}: ${e.message}. " +
+                                "Startup fails closed: the database is not migrated without the lock. " +
+                                "Check that the filesystem holding the database supports file locks.",
+                            e
+                        )
                     }
                 if (lock != null) break
                 val now = System.nanoTime()
                 val waitedMs = (now - start) / 1_000_000
-                if (waitedMs >= LOCK_TIMEOUT_MS) {
+                if (waitedMs >= lockTimeoutMs) {
                     throw IllegalStateException(
                         "Timed out after ${waitedMs / 1000}s waiting for the migration lock ${lockFile.path}; " +
                             "another process is migrating this database. The lock file is never deleted; " +

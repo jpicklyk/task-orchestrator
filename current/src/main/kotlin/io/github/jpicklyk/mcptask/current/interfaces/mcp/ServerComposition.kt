@@ -102,12 +102,14 @@ class CompositionResult(
  * @param appConfig The single startup environment snapshot.
  * @param databaseManager An already-initialized [DatabaseManager] (schema applied).
  * @param shutdownCoordinator Coordinator used to register cleanup of JWKS key providers.
+ * @param clock The one clock bound into the whole graph; production uses [SystemClock], tests inject a settable one.
  */
 class ServerComposition(
     private val appConfig: AppConfig,
     private val databaseManager: DatabaseManager,
     private val shutdownCoordinator: ShutdownCoordinator,
     private val logger: Logger = LoggerFactory.getLogger(ServerComposition::class.java),
+    private val clock: Clock = SystemClock,
 ) {
     /**
      * Wires the object graph and returns a [CompositionResult].
@@ -118,7 +120,6 @@ class ServerComposition(
      */
     fun build(): CompositionResult {
         // ONE clock instance for the whole graph: the stores, the unit of work and the tool context all read it.
-        val clock = SystemClock
         val repositoryProvider: RepositoryProvider = DefaultRepositoryProvider(databaseManager, clock)
 
         // Resolve the single, server-wide global config path ONCE from the typed AppConfig snapshot

@@ -10,20 +10,17 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 /**
- * Concurrency tests for [LeaseStore.acquireAll], mirroring the real-thread race
- * pattern in [SQLiteWorkItemRepositoryClaimTest] (`concurrent claim race with two real threads`).
+ * Isolation tests for claims and leases on the same item. The contention races (N holders racing one key, N agents racing
+ * one claim) live in the `contention` package, which runs them through the unit of work over a file-backed WAL database
+ * and asserts every loser's exact result.
  *
- * Also covers the gap-#1 regression: a claim ([WorkItemRepository.claim]) and a resource lease
+ * Covers the gap-#1 regression: a claim ([WorkItemRepository.claim]) and a resource lease
  * ([LeaseStore.acquireAll]) on the SAME item are independent lifecycles — acquiring a
  * lease must never disturb an existing claim, and refreshing a claim must never disturb existing
  * leases (see the "Isolation from claims" section of [LeaseStore]'s KDoc).
@@ -45,58 +42,6 @@ class SQLiteResourceLeaseRepositoryConcurrencyTest {
         assertNotNull(result)
         return result.id
     }
-
-    @Test
-    fun `N threads race one key — exactly one Success`(): Unit =
-        runBlocking {
-            org.jetbrains.exposed.v1.jdbc.transactions.transaction(db = database) {
-                exec("PRAGMA busy_timeout = 15000")
-            }
-
-            val threadCount = 5
-            val holders = (1..threadCount).map { createHolder("Racer $it") }
-            val executor = Executors.newFixedThreadPool(threadCount)
-            val startGate = CountDownLatch(1)
-            val results = List(threadCount) { AtomicReference<Any?>() }
-
-            val futures =
-                (0 until threadCount).map { i ->
-                    executor.submit {
-                        startGate.await()
-                        try {
-                            results[i].set(
-                                runBlocking {
-                                    leaseRepository().acquireAll(holders[i], "agent-$i", listOf("contended-key" to 900))
-                                }
-                            )
-                        } catch (e: Exception) {
-                            results[i].set(e)
-                        }
-                    }
-                }
-
-            startGate.countDown()
-            futures.forEach { it.get(30, TimeUnit.SECONDS) }
-            executor.shutdown()
-
-            val outcomes = results.map { it.get() }
-            outcomes.forEach { assertNotNull(it, "Every thread must produce an outcome (result or exception)") }
-
-            val successes = outcomes.filterIsInstance<LeaseAcquireResult.Success>()
-            assertEquals(1, successes.size, "Exactly one thread may win the lease race; got outcomes: $outcomes")
-
-            // The final DB row must be atomically consistent — held by exactly the single winner.
-            val active = leaseRepository().findActiveByKeys(listOf("contended-key"))
-            assertEquals(1, active.size)
-            assertEquals(
-                successes
-                    .single()
-                    .leases
-                    .single()
-                    .holderItemId,
-                active.single().holderItemId
-            )
-        }
 
     // -----------------------------------------------------------------------
     // Gap-#1 regression: claim and lease acquisition are independent lifecycles
