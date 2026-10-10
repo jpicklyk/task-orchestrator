@@ -98,8 +98,8 @@ the security fix and the silent-exit fix, the two whose defects mattered most.
 
 The plan author assigns these labels, not the test author: the test author is blind to the
 implementation by design (§4) and therefore cannot tell which surfaces are new. Where a dispatch
-contract's planning seat returns a `red-proof-shape` field, it carries this same labelling, set
-before the author is dispatched. The shape actually obtained is recorded in `test-manifest` (§10).
+contract's planning seat returns a `red-proof-shape` field, it carries this same labelling plus the
+item's red-proof budget (section 5), set before the author is dispatched. The shape actually obtained is recorded in `test-manifest` (section 10).
 
 ---
 
@@ -248,29 +248,36 @@ unchanged. A disclosed breach costs a re-dispatch. An undisclosed one costs the 
 
 ---
 
-## 5. Red-First Check
+## 5. Red-First Check and the Red-Proof Budget
 
-Where red is achievable before the fix exists, the test must actually observe it.
+The red-proof policy is stated once, in the served `test-author` rule, section 5; read it there.
+In short: a bug-fix regression test is always seen red against the pre-fix code (one revert run,
+waiver only with a stated reason); new behaviour in guards, gates, transitions, classification,
+boundaries and security predicates gets a capped budget of about 5 mutations per item (one per
+decision point, one batched round; concurrency items aim them at each write and the lock seam);
+test-only, refactor, migration and glue items are skipped; a clean budget stops there, a real gap
+expands to the item's other scenarios; and a surviving mutation is triaged (weak test, equivalent,
+unreachable, covered elsewhere) rather than failed outright. Coupled authorship (the author read
+the implementation, or one agent wrote both) is the exception: every scenario asserting new
+behaviour gets a red check. You list at most the budget's decision-point recipes, not one per
+scenario.
 
-**Which scenarios "red is achievable" covers is decided by the §2 surface labels, not here.** An
-`EXISTING-SURFACE` scenario can reach behavioural red by a plain revert. A `NEW-SURFACE` one
-cannot — reverting the fix removes the declaration the test binds to, so the run is compile-red,
-which proves only that the test references new code. For those, red-first means executing the
-plan's narrowest-revert recipe (keep the new type or parameter, revert its call sites) or, where
-the plan declared no revert can work, the substitute verification it named instead. Read §2's
-label definitions before deciding a scenario's red evidence; the shape actually obtained is a
-`test-manifest` field (§10).
+**Which surfaces a red run can reach is decided by the section 2 labels.** An `EXISTING-SURFACE`
+scenario reaches behavioural red by a plain revert. A `NEW-SURFACE` one cannot: reverting the fix
+removes the declaration the test binds to, so the run is compile-red, which proves only that the
+test references new code. For a scenario the budget covers, use the plan's narrowest-revert recipe
+(keep the new type or parameter, revert its call sites) or the substitute verification it named.
+The shape actually obtained is a `test-manifest` field (section 10).
 
 **Bug-fix regression tests**: write the test from the `diagnosis` note's reproduction steps and
-confirm it fails against the pre-fix code — actually run it red, don't assume the reproduction
-description implies a failing assertion. A regression test that was never seen red proves nothing
-about whether it would have caught the bug; this is exactly how `assumeTrue` wrapping neutralizes
-a would-be regression test without anyone noticing, because the wrapped test never fails at all,
-pre-fix or post-fix.
+confirm it fails against the pre-fix code; never assume the reproduction description implies a
+failing assertion. A regression test that was never seen red proves nothing about whether it
+would have caught the bug; this is exactly how `assumeTrue` wrapping neutralizes a would-be
+regression test without anyone noticing.
 
 **Feature suites (test-after)**: since implementation already exists by the time the test author
 writes code, true red-before-fix isn't available. Substitute a mandatory per-scenario line in the
-manifest: *"what specific wrong behavior would this assertion catch?"* — name a plausible bug
+manifest: *"what specific wrong behavior would this assertion catch?"* - name a plausible bug
 this test would fail against (wrong value, wrong exception, silently-accepted invalid input). If
 you cannot state one, the assertion is not adding coverage; strengthen it or mark the scenario
 `not-covered: <reason>` rather than writing an assertion that would pass against almost anything.
@@ -446,8 +453,8 @@ Fill every field — an omitted field reads as "not done," not as "not applicabl
 - **Invariants respected** — for each fixture, the domain invariant it satisfies by construction
   (§7 Fixture invariants): the `validate()` clause and the derivation used. Record any invariant
   that forced an escalation rather than a fixture.
-- **Red-proof shape obtained** — for every scenario the plan labelled `NEW-SURFACE` (§2), which
-  shape was actually obtained: `behavioral-red (narrowest revert: <what was reverted>)`, or
+- **Red-proof shape obtained** - for every `NEW-SURFACE` scenario the item's budget (section 5) covers,
+  which shape was actually obtained: `behavioral-red (narrowest revert: <what was reverted>)`, or
   `compile-red only — substitute verification: <what the reviewer does instead>`. Where the revert
   is orchestrator-run rather than author-run, record `red evidence: orchestrator-run` together with
   the recipe you expect it to use. State WHERE the revert ran (the scratch-copy path) and at WHICH
