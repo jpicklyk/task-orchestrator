@@ -323,7 +323,7 @@ entirely, unchanged.
 
 This is the **only** place that returns full note text (`description`, `guidance`, `skill`, `maxLength`) in one shot for an entire schema. Use it to resolve the keys-only `expectedNotes` and the reference-only `guidanceKey`/`skillPointer` fields returned elsewhere. `guidance`, `skill`, and `maxLength` are omitted per-entry when unset. `configFingerprint` reports the fingerprint of whichever config layer actually supplied the schema (per-root or global) and is `null` when unavailable; cache schema responses per fingerprint to avoid re-fetching unchanged config. `configSource` is `"per-root"` when a per-root pushed config supplied the schema (via `rootId` on the `type` path, or the item's own `rootId` on the `itemId` path) and `"global"` otherwise. Errors with `RESOURCE_NOT_FOUND` when no schema matches the given `type` or the item is schema-free.
 
-`dispatch` (object, optional) is `{"queue"|"work"|"review": {agent?, model?, effort?}}` — one entry per phase with a resolved profile, from the `dispatch` trait dimension (see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension) → "Dispatch (Trait Dimension)"). Omitted entirely (never `{}`) when no resolved trait declares a profile for any phase. The `itemId` path resolves each phase from the item's per-item `traits` first, then its type's `default_traits` (the reverse of the note-merge order); the `type` path has no item, so it resolves from `default_traits` only. `resources` (array, optional) is `[{key, mode, ttlSeconds?}]`, the trait-declared shared-resource requirements — omitted entirely (never `[]`) when none resolve.
+`dispatch` (object, optional) is `{"queue"|"work"|"review": {agent?, model?, effort?}}` — one entry per phase with a resolved profile, from the `dispatch` trait dimension (see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension) → "Dispatch (Trait Dimension)"). Omitted entirely (never `{}`) when no resolved trait declares a profile for any phase. The `itemId` path resolves each phase from the item's per-item `traits` first, then its type's `default_traits` (the same item-first order as every other trait dimension); the `type` path has no item, so it resolves from `default_traits` only. `resources` (array, optional) is `[{key, mode, ttlSeconds?}]`, the trait-declared shared-resource requirements — omitted entirely (never `[]`) when none resolve.
 
 **Seats (A1).** Each `notes[]` entry gains a `seat` field (string, or JSON `null` when unowned) whenever the resolved schema is seat-aware (declares `seats:` on itself or a merged trait, after trait merging) — omitted entirely for a seat-less schema, never emitted as `null` on one. An entry with a non-empty `independent_of` also gains `independentOf` (array of seat names), independent of seat-awareness. `seats` (array, optional) is `[{name, phase, enters?, after?, readsExclude?}]`, in merged order (base schema seats, then surviving trait seats — see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension) → "Seats"); `enters` appears only when `true`, `after`/`readsExclude` only when non-empty. `dispatchBySeat` (object, optional) is `{"queue"|"work"|"review": {<seat>: {agent?, model?, effort?}}}`, phases in that order, each phase present only when at least one of its seats has a resolved profile. Both `seats` and `dispatchBySeat` are omitted entirely (never `[]`/`{}`) for a seat-less schema. `features` (array) is **always** present — see "Server feature advertisement" below.
 
@@ -1283,16 +1283,19 @@ When provided, the response includes an `actor` object on each successful transi
 | `cancel` | Any non-terminal → TERMINAL with the `cancel` status label (default `"cancelled"`); never dependency-gated |
 | `reopen` | TERMINAL → QUEUE (clears statusLabel, bypasses gate enforcement, cascades parent TERMINAL → WORK) |
 
-**Gate enforcement.** The schema used for gate checks is resolved in this order:
-1. `type` field → direct lookup in `work_item_schemas` (highest priority)
-2. Tag fallback → first tag in the item's `tags` that matches a schema key
-3. `default` schema fallback (if configured)
+**Gate enforcement.** The schema used for gate checks is resolved by one precedence rule over the item's `type`:
+1. the root's per-root config declares the type;
+2. the server config declares the type;
+3. the root's per-root `default` schema;
+4. the server `default` schema.
+
+Tags never select a schema, and there are no `schema_resolution` modes (a config that still sets the key loads with a removal warning).
 
 When a schema is resolved:
 - `start`: required notes for the current phase must exist and be filled.
 - `complete`: all required notes across all phases must be filled.
 
-Trait notes are merged into the resolved schema: `default_traits` from config apply globally, and per-item traits (stored in `properties` JSON) add their note requirements on top. The `dispatch` trait dimension (below) resolves in the **reverse** order — per-item `traits` first, then `default_traits` — and a per-root trait's `dispatch` map replaces the global trait's map wholesale (no per-role fall-through within a trait); see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension) → "Dispatch (Trait Dimension)" for the full precedence and layering rules.
+Trait notes are merged into the resolved schema from the item's per-item traits first, then the type's `default_traits`, in every dimension (notes, dispatch, seats, resources). A note's `required` flag is OR'd across the base schema and every trait, EXCLUSIVE beats ADVISORY for a resource, and a per-root trait replaces the server trait of the same name as a whole (no per-dimension fall-through within a trait); see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension) → "Dispatch (Trait Dimension)" for the full precedence and layering rules.
 
 **Lifecycle modes** (set on the schema via `work_item_schemas`):
 - `AUTO` (default) — cascades (terminal, start and reopen) apply automatically
