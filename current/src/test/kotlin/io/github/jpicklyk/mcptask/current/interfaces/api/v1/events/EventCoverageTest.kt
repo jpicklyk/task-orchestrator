@@ -91,6 +91,7 @@ class EventCoverageTest {
                     buildJsonArray {
                         add(
                             buildJsonObject {
+                                put("type", "test-item")
                                 put("title", title)
                                 if (parentId != null) put("parentId", parentId.toString())
                             },
@@ -751,8 +752,8 @@ class EventCoverageTest {
                     )
                 }
             val stashed = plans.single()
-            assertEquals("plan_document.stashed", stashed.type)
-            assertEquals("plan_document", stashed.entityKind)
+            assertEquals("document.created", stashed.type)
+            assertEquals("document", stashed.entityKind)
             assertEquals("p8-plan", stashed.str("slug"))
             assertEquals(root.id, stashed.rootId)
 
@@ -766,7 +767,7 @@ class EventCoverageTest {
                     )
                 }
             val ad = adopted.single()
-            assertEquals("plan_document.adopted", ad.type)
+            assertEquals("document.adopted", ad.type)
             assertEquals("p8-plan", ad.str("slug"))
             assertEquals(adopter.id.toString(), ad.str("adoptedByItemId"))
             assertEquals(stashed.entityId, ad.entityId, "the adoption row is about the same document id")
@@ -783,18 +784,24 @@ class EventCoverageTest {
                 rig.written {
                     rig.callOk(
                         CreateWorkTreeTool(),
-                        "root" to buildJsonObject { put("title", "tree root") },
+                        "root" to
+                            buildJsonObject {
+                                put("type", "test-item")
+                                put("title", "tree root")
+                            },
                         "children" to
                             buildJsonArray {
                                 add(
                                     buildJsonObject {
                                         put("ref", "c1")
+                                        put("type", "test-item")
                                         put("title", "tree c1")
                                     },
                                 )
                                 add(
                                     buildJsonObject {
                                         put("ref", "c2")
+                                        put("type", "test-item")
                                         put("title", "tree c2")
                                     },
                                 )
@@ -969,19 +976,24 @@ class EventCoverageTest {
                         "body" to JsonPrimitive("# Overview - a plan body."),
                     )
                 }
-            val stashed = stashRows.single { it.type == "plan_document.stashed" }
+            val stashed = stashRows.single { it.type == "document.created" }
 
             val (result, rows) =
                 rig.written {
                     rig.callOk(
                         CreateWorkTreeTool(),
-                        "root" to buildJsonObject { put("title", "adopting root") },
+                        "root" to
+                            buildJsonObject {
+                                put("type", "test-item")
+                                put("title", "adopting root")
+                            },
                         "parentId" to JsonPrimitive(project.id.toString()),
                         "children" to
                             buildJsonArray {
                                 add(
                                     buildJsonObject {
                                         put("ref", "c1")
+                                        put("type", "test-item")
                                         put("title", "adopting child")
                                     },
                                 )
@@ -999,7 +1011,7 @@ class EventCoverageTest {
                     .jsonObject["id"]!!
                     .jsonPrimitive.content
 
-            val adopted = rows.ofType("plan_document.adopted")
+            val adopted = rows.ofType("document.adopted")
             assertEquals(1, adopted.size, "exactly one adoption row: $rows")
             assertEquals(2, rows.ofType("item.created").size, "root and child created rows: $rows")
             assertEquals(3, rows.size, "nothing else is recorded for the adoption call: $rows")
@@ -1179,7 +1191,14 @@ class EventCoverageTest {
                             "requestId" to JsonPrimitive(UUID.randomUUID().toString()),
                         ),
                     "complete_tree" to arrayOf("rootId" to JsonPrimitive(treeRoot.id.toString()), "trigger" to JsonPrimitive("complete")),
-                    "create_work_tree" to arrayOf("root" to buildJsonObject { put("title", "S17 tree") }),
+                    "create_work_tree" to
+                        arrayOf(
+                            "root" to
+                                buildJsonObject {
+                                    put("type", "test-item")
+                                    put("title", "S17 tree")
+                                }
+                        ),
                     "manage_project_config" to
                         arrayOf(
                             "operation" to JsonPrimitive("push"),
@@ -1264,7 +1283,7 @@ class EventCoverageTest {
                 "complete_tree" to setOf("item.transitioned"),
                 "create_work_tree" to setOf("item.created"),
                 "manage_project_config" to setOf("config.version_created"),
-                "manage_plan_documents" to setOf("plan_document.stashed"),
+                "manage_plan_documents" to setOf("document.created", "document.updated"),
             )
 
         /** Tools that never mutate store state; each is exercised and must leave the log untouched. */

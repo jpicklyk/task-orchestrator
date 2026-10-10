@@ -25,7 +25,8 @@ import java.sql.DriverManager
  * production startup path), then check:
  * - every pre-existing row is still there with unchanged values in every column present before and after,
  *   compared exactly, where a [MigrationSeed.expected] transform (when a seed's migration rewrites a column)
- *   supplies the exact post-migration value instead of the pre-migration one;
+ *   supplies the exact post-migration value instead of the pre-migration one; a row of a table the chain dropped
+ *   must be found where a seed's [MigrationSeed.relocated] says it went, with the values it names;
  * - `PRAGMA foreign_key_check` is empty;
  * - per FTS table: the indexed-document count equals the backing table, `integrity-check` (rank=1) passes
  *   and a seeded token is found by MATCH. This runs BEFORE any production startup, because
@@ -206,27 +207,7 @@ object UpgradeHarness {
         for ((table, rows) in before) {
             val afterRows = after[table]
             if (afterRows == null) {
-                val relocation = transforms.firstNotNullOfOrNull { it.relocations()[table] }
-                val targetRows = relocation?.let { after[it.table] }
-                if (relocation == null || targetRows == null) {
-                    failures += "table $table disappeared"
-                    continue
-                }
-                for ((id, beforeRow) in rows) {
-                    val row = expectedRow(table, beforeRow, transforms)
-                    val moved = targetRows[id]
-                    if (moved == null) {
-                        failures += "$table row $id was lost (expected in ${relocation.table})"
-                        continue
-                    }
-                    for ((oldColumn, newColumn) in relocation.columns) {
-                        if (oldColumn !in row) continue
-                        if (moved[newColumn] != row[oldColumn]) {
-                            failures +=
-                                "$table row $id column $oldColumn moved to ${relocation.table}.$newColumn changed: '${row[oldColumn]}' to '${moved[newColumn]}'"
-                        }
-                    }
-                }
+                failures += relocationFailures(table, rows, after, transforms)
                 continue
             }
             for ((id, beforeRow) in rows) {
@@ -255,6 +236,45 @@ object UpgradeHarness {
     }
 
     /**
+     * The failures for [table], present in [before] but missing after the chain: unless a seed relocates its rows
+     * ([MigrationSeed.relocated]) the table "disappeared"; otherwise every row must be found at its relocation with
+     * exactly the expected values.
+     */
+    private fun relocationFailures(
+        table: String,
+        rows: Map<String, Map<String, Any?>>,
+        after: Dump,
+        transforms: List<MigrationSeed>
+    ): List<String> {
+        val ordered = transforms.sortedBy { it.version }
+        val moves =
+            rows.mapValues { (_, beforeRow) ->
+                val row = expectedRow(table, beforeRow, ordered)
+                ordered.firstNotNullOfOrNull { it.relocated(table, row) }
+            }
+        if (rows.isEmpty() || moves.values.all { it == null }) return listOf("table $table disappeared")
+        val failures = mutableListOf<String>()
+        for ((id, move) in moves) {
+            if (move == null) {
+                failures += "table $table was dropped and its row $id was not relocated"
+                continue
+            }
+            val now = after[move.table]?.get(move.id)
+            if (now == null) {
+                failures += "$table row $id was not found at its relocation ${move.table} row ${move.id}"
+                continue
+            }
+            for ((col, value) in move.expected) {
+                if (col !in now) continue
+                if (now[col] != value) {
+                    failures += "$table row $id relocated to ${move.table} column $col: expected '$value' but found '${now[col]}'"
+                }
+            }
+        }
+        return failures
+    }
+
+    /**
      * A once step that is registered (or that the run reported as applied or skipped) but has no `data_steps` row
      * means the readiness gate would have refused this database. Vacuous while no production step exists.
      */
@@ -275,15 +295,15 @@ object UpgradeHarness {
 
     private fun ftsFailures(conn: Connection): List<String> {
         val failures = mutableListOf<String>()
-        for (fts in StartupIntegrity.FTS_TABLES) {
-            val backing = if (fts.startsWith("work_items")) "work_items" else "notes"
+        for ((fts, backing) in StartupIntegrity.FTS_BACKING) {
             try {
                 val indexed = scalar(conn, "SELECT count(*) FROM ${fts}_docsize")
                 val actual = scalar(conn, "SELECT count(*) FROM $backing")
                 if (indexed != actual) failures += "$fts indexes $indexed documents but $backing has $actual rows"
                 conn.createStatement().use { it.execute("INSERT INTO $fts($fts, rank) VALUES('integrity-check', 1)") }
-                val token = if (backing == "work_items") BaselineDataset.ITEM_FTS_TOKEN else BaselineDataset.NOTE_FTS_TOKEN
-                if (scalar(conn, "SELECT count(*) FROM $fts WHERE $fts MATCH '$token'") < 1) {
+                val token = BaselineDataset.FTS_TOKENS.getValue(backing)
+                // A MATCH can only find the token when the backing table holds a row (documents are empty below V12).
+                if (actual > 0 && scalar(conn, "SELECT count(*) FROM $fts WHERE $fts MATCH '$token'") < 1) {
                     failures += "$fts does not find the seeded token '$token'"
                 }
             } catch (e: Exception) {

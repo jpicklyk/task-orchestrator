@@ -157,7 +157,7 @@ class RestCallLogTest {
             val writer = newWriter(rig.composition)
             application { configureApp(rig.composition, writer) }
 
-            val body = """{"title":"S4 café write"}"""
+            val body = """{"title":"S4 café write","type":"test-item"}"""
             val response =
                 client.post("/api/v1/items") {
                     header(HttpHeaders.Authorization, "Bearer $WRITE_TOKEN")

@@ -195,7 +195,7 @@ class WriteRouteAuthInvariantTest {
                 client.post("/api/v1/items") {
                     header(HttpHeaders.Authorization, "Bearer s16-write-jwt")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"S16 Item A"}""")
+                    setBody("""{"type":"test-item","title":"S16 Item A"}""")
                 }
             assertEquals(
                 HttpStatusCode.Created,
@@ -209,7 +209,7 @@ class WriteRouteAuthInvariantTest {
                 client.post("/api/v1/items") {
                     header(HttpHeaders.Authorization, "Bearer s16-write-jwt")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"S16 Item B"}""")
+                    setBody("""{"type":"test-item","title":"S16 Item B"}""")
                 }
             assertEquals(HttpStatusCode.Created, itemBResponse.status)
             val itemBId = extractId(itemBResponse.bodyAsText())
@@ -219,7 +219,7 @@ class WriteRouteAuthInvariantTest {
                 client.post("/api/v1/items") {
                     header(HttpHeaders.Authorization, "Bearer s16-write-jwt")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"S16 Item C - to delete"}""")
+                    setBody("""{"type":"test-item","title":"S16 Item C - to delete"}""")
                 }
             assertEquals(HttpStatusCode.Created, itemCResponse.status)
             val itemCId = extractId(itemCResponse.bodyAsText())
@@ -261,7 +261,7 @@ class WriteRouteAuthInvariantTest {
             val response =
                 client.post("/api/v1/items") {
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"Should Not Create"}""")
+                    setBody("""{"type":"test-item","title":"Should Not Create"}""")
                 }
             assertEquals(
                 HttpStatusCode.Unauthorized,
@@ -284,7 +284,7 @@ class WriteRouteAuthInvariantTest {
                 client.post("/api/v1/items") {
                     header(HttpHeaders.Authorization, "Bearer s16-read-jwt")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"Should Not Create"}""")
+                    setBody("""{"type":"test-item","title":"Should Not Create"}""")
                 }
             assertEquals(
                 HttpStatusCode.Forbidden,

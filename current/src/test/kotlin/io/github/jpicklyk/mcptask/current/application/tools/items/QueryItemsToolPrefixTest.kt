@@ -34,6 +34,7 @@ class QueryItemsToolPrefixTest {
     ): String {
         val itemObj =
             buildJsonObject {
+                put("type", JsonPrimitive("test-item"))
                 put("title", JsonPrimitive(title))
                 summary?.let { put("summary", JsonPrimitive(it)) }
             }

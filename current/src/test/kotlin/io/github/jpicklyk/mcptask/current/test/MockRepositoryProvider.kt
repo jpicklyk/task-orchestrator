@@ -2,7 +2,9 @@ package io.github.jpicklyk.mcptask.current.test
 
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.DocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.application.port.LinkStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
@@ -29,6 +31,8 @@ class MockRepositoryProvider {
     val roleTransitionRepo: TransitionStore = mockk()
     val projectConfigRepo: ConfigStore = mockk()
     val planDocumentRepo: PlanDocumentStore = mockk()
+    val documentStore: DocumentStore = mockk()
+    val linkStore: LinkStore = mockk()
     val resourceLeaseRepo: LeaseStore = mockk()
     val idempotencyRepo = InMemoryIdempotencyStore()
     val eventStore = InMemoryEventStore()
@@ -44,6 +48,8 @@ class MockRepositoryProvider {
         every { provider.roleTransitionRepository() } returns roleTransitionRepo
         every { provider.configStore() } returns projectConfigRepo
         every { provider.planDocumentRepository() } returns planDocumentRepo
+        every { provider.documentStore() } returns documentStore
+        every { provider.linkStore() } returns linkStore
         every { provider.resourceLeaseRepository() } returns resourceLeaseRepo
         every { provider.idempotencyStore() } returns idempotencyRepo
         every { provider.eventStore() } returns eventStore

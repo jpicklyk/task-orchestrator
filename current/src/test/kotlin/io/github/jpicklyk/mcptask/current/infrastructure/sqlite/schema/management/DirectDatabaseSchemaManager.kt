@@ -1,8 +1,10 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management
 
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.DependenciesTable
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.DocumentVersionsTable
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.DocumentsTable
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.LinksTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.NotesTable
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.PlanDocumentsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ResourceLeaseHistoryTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ResourceLeasesTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.RoleTransitionsTable
@@ -32,7 +34,8 @@ import java.util.UUID
  *    FK-less so the audit trail survives holder deletion; see V16__Resource_Lease_History.sql.
  *    Positioned after ResourceLeasesTable for readability only, not FK ordering.)
  * 4. LegacyProjectConfigTable (the V17 shape of project_config, kept here; depends on WorkItemsTable)
- * 5. PlanDocumentsTable (depends on WorkItemsTable, two FKs — root_item_id and adopted_by_item_id)
+ * 5. DocumentsTable (depends on WorkItemsTable, root_item_id), DocumentVersionsTable (depends on
+ *    DocumentsTable, document_id), LinksTable (depends on WorkItemsTable, root_item_id; its ends carry no FK)
  * 6. NotesTable (depends on WorkItemsTable)
  * 7. DependenciesTable (depends on WorkItemsTable)
  * 8. RoleTransitionsTable (depends on WorkItemsTable)
@@ -60,7 +63,9 @@ class DirectDatabaseSchemaManager(
             ResourceLeasesTable,
             ResourceLeaseHistoryTable,
             LegacyProjectConfigTable,
-            PlanDocumentsTable,
+            DocumentsTable,
+            DocumentVersionsTable,
+            LinksTable,
             NotesTable,
             DependenciesTable,
             RoleTransitionsTable,
@@ -237,7 +242,7 @@ class DirectDatabaseSchemaManager(
 }
 
 /**
- * The V17 shape of `project_config`, owned by this test helper because V24 replaced the production table. It only exists
+ * The V17 shape of `project_config`, owned by this test helper because V25 replaced the production table. It only exists
  * so the helper can rebuild the V17 schema the Direct-mode refusal and baseline tests need.
  */
 private object LegacyProjectConfigTable : IdTable<UUID>("project_config") {

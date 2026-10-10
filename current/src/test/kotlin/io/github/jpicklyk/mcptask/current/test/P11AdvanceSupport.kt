@@ -33,6 +33,10 @@ internal const val P11_LEASE_KEY = "p11-db"
 
 private const val P11_SCHEMAS_YAML =
     "work_item_schemas:\n" +
+        // The type the sweep gives items that are not about schema selection: no notes, auto lifecycle, so it resolves
+        // exactly like the schema-free items those tests created before `type` became required.
+        "  test-item:\n" +
+        "    notes: []\n" +
         "  p11-plain:\n" +
         "    notes:\n" +
         "      - key: spec\n        role: queue\n        required: true\n" +

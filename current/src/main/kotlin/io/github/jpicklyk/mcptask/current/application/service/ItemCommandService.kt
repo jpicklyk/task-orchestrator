@@ -171,6 +171,8 @@ class ItemCommandService(
         val parentId = cmd.parentId
         val depth: Int
         val rootId: UUID
+        // A missing type needs no config read; the undeclared check below needs the placement's root.
+        if (cmd.type.isNullOrBlank()) return Outcome.Err(ItemCommandErrors.typeRequired(configResolver.availableTypes(rootOfCreate(cmd))))
         if (parentId == null) {
             depth = 0
             rootId = cmd.id
@@ -183,6 +185,7 @@ class ItemCommandService(
             depth = placement.depth
             rootId = placement.rootId
         }
+        undeclaredTypeError(cmd.type, rootId)?.let { return Outcome.Err(it) }
         val item =
             try {
                 WorkItem(
@@ -209,6 +212,25 @@ class ItemCommandService(
         val created = items.create(item)
         events.record(DomainEvent.ItemCreated(created.id, eventRootOf(created, hierarchy), created.parentId))
         return Outcome.Ok(created)
+    }
+
+    /** The root a create lands in, for the missing-type rejection's `availableTypes` (parent row read, no policy). */
+    private suspend fun WriteScope.rootOfCreate(cmd: ItemCreateCommand): UUID {
+        val parentId = cmd.parentId ?: return cmd.id
+        return hierarchy.resolveChildPlacement(parentId)?.rootId ?: cmd.id
+    }
+
+    /**
+     * The U7 undeclared-type rejection: [type] (non-blank) must be one of the root's declared schema keys whenever any
+     * is declared; an empty set accepts any type (nothing can validate it). Exact, case-sensitive match.
+     */
+    private suspend fun undeclaredTypeError(
+        type: String?,
+        rootId: UUID?
+    ): DomainError? {
+        if (type == null) return null
+        val available = configResolver.availableTypes(rootId)
+        return if (available.isNotEmpty() && type !in available) ItemCommandErrors.undeclaredType(type, available) else null
     }
 
     // -------------------------------------------------------------------------
@@ -268,6 +290,15 @@ class ItemCommandService(
             }
         }
         val reparented = change != ParentChange.Keep
+
+        // The type rule applies only when the patch changes or clears the type (D2): `untyped` and stale pre-4.0
+        // values stay editable. Rejection precedes the write, so version and modifiedAt are untouched.
+        if (cmd.type != existing.type) {
+            if (cmd.type.isNullOrBlank()) {
+                return Outcome.Err(ItemCommandErrors.typeRequired(configResolver.availableTypes(newRootId ?: existing.id)))
+            }
+            undeclaredTypeError(cmd.type, newRootId ?: existing.id)?.let { return Outcome.Err(it) }
+        }
 
         val updated =
             try {
@@ -566,7 +597,8 @@ class ItemCommandService(
  * Builds and classifies the [DomainError]s [ItemCommandService] returns, so each adapter can map them to its 3.x
  * wire text without parsing messages. Codes: `not_found` (item or parent: compare [ErrorDetail.NotFound.id]),
  * `version_conflict`, `cycle_detected`, `invalid_transition` (closed parent; its detail's `itemId` is the parent),
- * `invalid_request` (self-parent, has-children, a domain validation failure), `internal` (a store fault).
+ * `invalid_request` (self-parent, has-children, a domain validation failure), `schema_violation` (a missing, cleared or
+ * undeclared `type`: [ItemCommandErrors.isTypeViolation]), `internal` (a store fault).
  */
 object ItemCommandErrors {
     private const val FIELD_PARENT = "parentId"
@@ -638,6 +670,33 @@ object ItemCommandErrors {
             message = message,
             detail = ErrorDetail.InvalidRequest(listOf(FieldViolation(FIELD_ITEM, message)))
         )
+
+    /** A create without a type, or a patch that clears it. [availableTypes] is the root's declared set (maybe empty). */
+    fun typeRequired(availableTypes: List<String>): DomainError = typeViolation(null, "type is required", availableTypes)
+
+    /** A create or retype to [type], which the root's non-empty declared set [availableTypes] does not contain. */
+    fun undeclaredType(
+        type: String,
+        availableTypes: List<String>
+    ): DomainError = typeViolation(type, "type '$type' is not declared", availableTypes)
+
+    private fun typeViolation(
+        type: String?,
+        reason: String,
+        availableTypes: List<String>
+    ): DomainError =
+        DomainError(
+            code = ErrorCode.SCHEMA_VIOLATION,
+            message = if (availableTypes.isEmpty()) reason else "$reason; available types: ${availableTypes.joinToString(", ")}",
+            detail = ErrorDetail.SchemaViolation(type = type, reason = reason, availableTypes = availableTypes.takeIf { it.isNotEmpty() })
+        )
+
+    /** True when [error] is a type rule rejection (missing, cleared or undeclared `type`). */
+    fun isTypeViolation(error: DomainError): Boolean =
+        error.code == ErrorCode.SCHEMA_VIOLATION && error.detail is ErrorDetail.SchemaViolation
+
+    /** The declared types a type rejection lists, or null when it carries none (schema-free) or [error] is another error. */
+    fun availableTypes(error: DomainError): List<String>? = (error.detail as? ErrorDetail.SchemaViolation)?.availableTypes
 
     fun hierarchyLookupFailed(
         parentId: UUID,

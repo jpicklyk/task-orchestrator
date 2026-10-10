@@ -140,7 +140,7 @@ class ItemCreateRouteTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"New Task","priority":"high"}""")
+                    setBody("""{"type":"test-item","title":"New Task","priority":"high"}""")
                 }
 
             assertEquals(HttpStatusCode.Created, response.status)
@@ -167,7 +167,7 @@ class ItemCreateRouteTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $READ_ONLY_TOKEN")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"Should Not Create"}""")
+                    setBody("""{"type":"test-item","title":"Should Not Create"}""")
                 }
             assertEquals(HttpStatusCode.Forbidden, response.status)
 
@@ -190,7 +190,7 @@ class ItemCreateRouteTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":""}""") // blank title — validation error
+                    setBody("""{"type":"test-item","title":""}""") // blank title — validation error
                 }
             assertEquals(HttpStatusCode.BadRequest, response.status)
             val body = response.bodyAsText()
@@ -213,7 +213,7 @@ class ItemCreateRouteTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"Child","parentId":"${parent.id}"}""")
+                    setBody("""{"type":"test-item","title":"Child","parentId":"${parent.id}"}""")
                 }
             assertEquals(HttpStatusCode.Created, response.status)
             val childId = extractId(response.bodyAsText())
@@ -234,7 +234,7 @@ class ItemCreateRouteTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"New Root"}""")
+                    setBody("""{"type":"test-item","title":"New Root"}""")
                 }
             assertEquals(HttpStatusCode.Created, response.status)
             val itemId = extractId(response.bodyAsText())
@@ -1660,7 +1660,7 @@ class IdempotencyTest {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     header("Idempotency-Key", idempotencyKey)
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"Idempotent Item"}""")
+                    setBody("""{"type":"test-item","title":"Idempotent Item"}""")
                 }
             }
 
@@ -1686,13 +1686,13 @@ class IdempotencyTest {
                 header("Authorization", "Bearer $WRITE_TOKEN")
                 header("Idempotency-Key", UUID.randomUUID().toString())
                 contentType(ContentType.Application.Json)
-                setBody("""{"title":"Separate Item"}""")
+                setBody("""{"type":"test-item","title":"Separate Item"}""")
             }
             client.post("/api/v1/items") {
                 header("Authorization", "Bearer $WRITE_TOKEN")
                 header("Idempotency-Key", UUID.randomUUID().toString()) // different key
                 contentType(ContentType.Application.Json)
-                setBody("""{"title":"Separate Item"}""")
+                setBody("""{"type":"test-item","title":"Separate Item"}""")
             }
 
             // Hard assertion: two items created (different keys = different operations)
@@ -1712,7 +1712,7 @@ class IdempotencyTest {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     header("Idempotency-Key", "not-a-uuid")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"Should Not Create"}""")
+                    setBody("""{"type":"test-item","title":"Should Not Create"}""")
                 }
             assertEquals(HttpStatusCode.BadRequest, response.status)
         }

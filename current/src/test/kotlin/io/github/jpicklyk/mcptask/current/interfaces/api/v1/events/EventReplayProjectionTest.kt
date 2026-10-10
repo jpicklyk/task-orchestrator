@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.domain.event.ReparentSide
 import io.github.jpicklyk.mcptask.current.domain.event.TransitionOrigin
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersionSource
+import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
@@ -411,8 +412,8 @@ class EventReplayProjectionTest {
                     DomainEvent.LeaseRejected(itemId, rootId, listOf("k"), 10L),
                     DomainEvent.LeaseExpired(itemId, rootId, "k"),
                     DomainEvent.ConfigVersionCreated(rootId, UUID.randomUUID(), ConfigScope.ROOT, 1, "fp", ConfigVersionSource.PUSH, 0),
-                    DomainEvent.PlanDocumentStashed(noteId, rootId, "slug"),
-                    DomainEvent.PlanDocumentAdopted(noteId, rootId, "slug", itemId),
+                    DomainEvent.DocumentCreated(noteId, rootId, DocumentKind.PLAN, "slug", 1),
+                    DomainEvent.DocumentAdopted(noteId, rootId, "slug", itemId),
                 )
             for (event in tableOnly) {
                 assertNull(projectedOf(event), "${event.type} stays table-only until W2/W6 (F7)")

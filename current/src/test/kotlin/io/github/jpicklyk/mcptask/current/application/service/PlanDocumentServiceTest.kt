@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLitePlanDocumentRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.every
@@ -19,7 +19,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Exercises [PlanDocumentService] against a real SQLite-backed [SQLitePlanDocumentRepository] and
+ * Exercises [PlanDocumentService] against a real SQLite-backed [PlanDocumentStore] and
  * [SQLiteWorkItemRepository] — mirrors [ConfigServiceTest]'s DB-backed style. Validation
  * (root existence, depth-0, size cap) depends on real WorkItem rows.
  */
@@ -29,18 +29,20 @@ class PlanDocumentServiceTest {
 
     private lateinit var service: PlanDocumentService
     private lateinit var workItemRepository: SQLiteWorkItemRepository
-    private lateinit var planDocumentRepository: SQLitePlanDocumentRepository
+    private lateinit var planDocumentRepository: PlanDocumentStore
     private lateinit var rootId: UUID
 
     @BeforeEach
     fun setUp() =
         runBlocking {
             workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
-            planDocumentRepository = db.repositoryProvider().planDocumentRepository() as SQLitePlanDocumentRepository
+            planDocumentRepository = db.repositoryProvider().planDocumentRepository()
 
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository
             every { repositoryProvider.planDocumentRepository() } returns planDocumentRepository
+            every { repositoryProvider.documentStore() } returns db.repositoryProvider().documentStore()
+            every { repositoryProvider.linkStore() } returns db.repositoryProvider().linkStore()
 
             service = PlanDocumentService(repositoryProvider, db.unitOfWork())
 

@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentAdoptOutcome
-import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStashOutcome
+import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService
+import io.github.jpicklyk.mcptask.current.application.knowledge.document.PlanSlugs
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
@@ -12,14 +12,14 @@ import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
-import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocument
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentSummary
 import java.util.UUID
 
 /**
- * Transport-agnostic validation + persist pipeline for plan document stashes.
+ * The 3.x plan-document surface, kept byte-for-byte for `manage_plan_documents`, the REST plan routes and
+ * `create_work_tree` adoption, and delegating every write to the knowledge [DocumentService].
  *
  * Extracted the same way [ConfigService] is: so the exact SAME pipeline can be driven
  * by both the MCP `manage_plan_documents` `stash` operation and the REST
@@ -27,16 +27,19 @@ import java.util.UUID
  * ([io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.planDocumentRoutes]) — both callers
  * must converge on identical DB state (and identical `contentHash`) for the same payload.
  *
- * Pipeline, in order: size cap -> root exists -> root is depth-0 ->
- * [io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore.stash] (which itself
- * guards the ADOPTED-slug case). The pipeline stops at the first failing step; nothing is written
- * on failure.
+ * A 3.x slug maps to a document address through [PlanSlugs] (`rule/<key>` is the RULE document `<key>`, every other
+ * slug the PLAN document of the same slug). Pipeline for [stash], in order: size cap -> root exists -> root is
+ * depth-0 -> [DocumentService.write] (unconditional, which normalizes CRLF to LF, appends a version, records
+ * `document.created` or `document.updated`, and refuses an adopted document). The pipeline stops at the first failing
+ * step; nothing is written on failure.
  */
 class PlanDocumentService(
     private val repositoryProvider: RepositoryProvider,
     /** The transaction boundary: the root check and the stash run in ONE write unit. */
     private val unitOfWork: UnitOfWork,
 ) {
+    private val documents = DocumentService(repositoryProvider, unitOfWork)
+
     /**
      * Validates and persists [body] as the PENDING document at `(rootItemId, slug)`. See
      * [PlanDocumentStashResult] for the possible outcomes.
@@ -59,6 +62,7 @@ class PlanDocumentService(
         if (sizeBytes > maxBytes) {
             return PlanDocumentStashResult.TooLarge(sizeBytes, maxBytes)
         }
+        val address = PlanSlugs.toKindAndSlug(slug)
 
         return unitOfWork.writeUnit(
             "PlanDocumentService.stash",
@@ -72,22 +76,33 @@ class PlanDocumentService(
                 return@writeUnit UnitResult.Rollback(PlanDocumentStashResult.NotDepthZero(rootItemId, item.depth))
             }
 
-            when (val outcome = repositoryProvider.planDocumentRepository().stash(rootItemId, slug, body)) {
-                is PlanDocumentStashOutcome.Stored -> {
-                    events.record(DomainEvent.PlanDocumentStashed(outcome.document.id, rootItemId, slug))
-                    UnitResult.Commit(PlanDocumentStashResult.Success(outcome.document))
+            when (val written = documents.write(rootItemId, address.kind, address.slug, body)) {
+                is Outcome.Ok -> {
+                    val stored =
+                        repositoryProvider.planDocumentRepository().get(rootItemId, slug)
+                            ?: return@writeUnit UnitResult.Rollback(PlanDocumentStashResult.RepositoryError(vanished(slug)))
+                    UnitResult.Commit(PlanDocumentStashResult.Success(stored))
                 }
-                is PlanDocumentStashOutcome.AdoptedConflict ->
-                    UnitResult.Rollback(PlanDocumentStashResult.AdoptedConflict(outcome.existing))
+                is Outcome.Err -> {
+                    val existing =
+                        written.error
+                            .takeIf { it.code == ErrorCode.DUPLICATE }
+                            ?.let { repositoryProvider.planDocumentRepository().get(rootItemId, slug) }
+                    if (existing != null) {
+                        UnitResult.Rollback(PlanDocumentStashResult.AdoptedConflict(existing))
+                    } else {
+                        UnitResult.Rollback(PlanDocumentStashResult.RepositoryError(written.error))
+                    }
+                }
             }
         }
     }
 
     /**
-     * Marks the PENDING document at `(rootItemId, slug)` ADOPTED by [adoptedByItemId] and records
-     * `plan_document.adopted`, JOINING the caller's unit (an atomic composite such as `create_work_tree`, which adopts
-     * as its last step so the adoption commits or rolls back with the tree). A document already adopted (a concurrent
-     * adopt won) is `duplicate`; a vanished one is `not_found`.
+     * Records that [adoptedByItemId] adopted the PENDING document at `(rootItemId, slug)` (an `adopted_by` link, and
+     * `document.adopted`), JOINING the caller's unit (an atomic composite such as `create_work_tree`, which adopts as its
+     * last step so the adoption commits or rolls back with the tree). A document already adopted (a concurrent adopt
+     * won) is `duplicate`; a vanished one is `not_found`.
      */
     suspend fun adoptInUnit(
         rootItemId: UUID,
@@ -95,29 +110,29 @@ class PlanDocumentService(
         adoptedByItemId: UUID,
     ): Outcome<PlanDocument> =
         unitOfWork.write("PlanDocumentService.adoptInUnit") {
-            when (val outcome = repositoryProvider.planDocumentRepository().markAdopted(rootItemId, slug, adoptedByItemId)) {
-                is PlanDocumentAdoptOutcome.Adopted -> {
-                    val doc = outcome.document
-                    events.record(DomainEvent.PlanDocumentAdopted(doc.id, rootItemId, slug, doc.adoptedByItemId))
-                    Outcome.Ok(doc)
-                }
-                is PlanDocumentAdoptOutcome.AlreadyAdopted ->
+            val address = PlanSlugs.toKindAndSlug(slug)
+            val adopted = documents.adopt(rootItemId, address.slug, adoptedByItemId, address.kind)
+            val current = repositoryProvider.planDocumentRepository().get(rootItemId, slug)
+            when {
+                adopted is Outcome.Ok && current != null -> Outcome.Ok(current)
+                adopted is Outcome.Err && adopted.error.code == ErrorCode.DUPLICATE && current != null ->
                     Outcome.Err(
                         DomainError(
                             code = ErrorCode.DUPLICATE,
                             message =
                                 "Plan document '$slug' (root $rootItemId) was concurrently adopted by item " +
-                                    "${outcome.existing.adoptedByItemId}; aborting work tree creation",
+                                    "${current.adoptedByItemId}; aborting work tree creation",
                             detail =
                                 ErrorDetail.Duplicate(
                                     kind = EntityKind.DOCUMENT,
                                     id = slug,
-                                    existingId = outcome.existing.id.toString()
+                                    existingId = current.id.toString()
                                 ),
-                            fixArgs = mapOf("kind" to "document", "existingId" to outcome.existing.id.toString())
+                            fixArgs = mapOf("kind" to "document", "existingId" to current.id.toString())
                         )
                     )
-                PlanDocumentAdoptOutcome.NotFound ->
+                adopted is Outcome.Err && adopted.error.code != ErrorCode.NOT_FOUND -> Outcome.Err(adopted.error)
+                else ->
                     Outcome.Err(
                         DomainError(
                             code = ErrorCode.NOT_FOUND,
@@ -143,21 +158,25 @@ class PlanDocumentService(
 
     /**
      * Computes the SHA-256 hex digest [body] would be stored under — the exact algorithm [stash]
-     * uses when persisting. Exposed as a pure, non-persisting method for dual-ingestion parity
-     * checks (REST PUT vs MCP stash) without requiring a round-trip write.
+     * uses when persisting (CRLF normalized to LF first, then hashed). Exposed as a pure,
+     * non-persisting method for dual-ingestion parity checks (REST PUT vs MCP stash) without
+     * requiring a round-trip write.
      */
-    fun computeContentHash(body: String): String = repositoryProvider.planDocumentRepository().computeContentHash(body)
+    fun computeContentHash(body: String): String = DocumentService.contentHash(DocumentService.normalize(body))
+
+    private fun vanished(slug: String): DomainError =
+        DomainError(
+            code = ErrorCode.INTERNAL,
+            message = "Plan document '$slug' was written but could not be read back in the same unit"
+        )
 
     companion object {
-        /** `body` size limit for `stash`, in KiB — see [MAX_BODY_BYTES]. */
-        private const val MAX_BODY_KIB = 64
-
         /**
          * Hard cap on a stashed document body's UTF-8 byte size (CWE-770: uncontrolled resource
          * consumption), mirroring `ManageNotesTool.MAX_BODY_FILE_BYTES`. Enforced before any
          * repository call.
          */
-        const val MAX_BODY_BYTES = MAX_BODY_KIB * 1024
+        const val MAX_BODY_BYTES = DocumentService.MAX_PLAN_BODY_BYTES
     }
 }
 

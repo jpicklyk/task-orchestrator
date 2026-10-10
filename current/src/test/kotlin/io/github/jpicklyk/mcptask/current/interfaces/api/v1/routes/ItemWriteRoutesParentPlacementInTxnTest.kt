@@ -202,7 +202,7 @@ class ItemWriteRoutesParentPlacementInTxnTest {
                     client.post("/api/v1/items") {
                         header("Authorization", "Bearer $WRITE_TOKEN")
                         contentType(ContentType.Application.Json)
-                        setBody("""{"title":"Child of P S4","parentId":"${p.id}"}""")
+                        setBody("""{"type":"test-item","title":"Child of P S4","parentId":"${p.id}"}""")
                     }
                 }
 
@@ -295,7 +295,7 @@ class ItemWriteRoutesParentPlacementInTxnTest {
                     client.post("/api/v1/items") {
                         header("Authorization", "Bearer $WRITE_TOKEN")
                         contentType(ContentType.Application.Json)
-                        setBody("""{"title":"Orphan Child S10","parentId":"${p.id}"}""")
+                        setBody("""{"type":"test-item","title":"Orphan Child S10","parentId":"${p.id}"}""")
                     }
                 }
 
@@ -342,7 +342,7 @@ class ItemWriteRoutesParentPlacementInTxnTest {
                         header("Authorization", "Bearer $WRITE_TOKEN")
                         header("Idempotency-Key", idempotencyKey)
                         contentType(ContentType.Application.Json)
-                        setBody("""{"title":"Orphan Child Probe","parentId":"${p.id}"}""")
+                        setBody("""{"type":"test-item","title":"Orphan Child Probe","parentId":"${p.id}"}""")
                     }
                 }
             }

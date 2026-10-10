@@ -9,16 +9,20 @@ import kotlin.test.assertTrue
 
 /**
  * Store-write confinement guard (item 947f0230, task-scope AC6, test-plan S15; the P14 ClaimWriteConfinementTest shape):
- * every write to the item, note, dependency, project-config and plan-document stores belongs to the application services
- * that record the matching event rows in the same unit, so a new store method cannot opt out of events silently (AR-02).
+ * every write to the item, note, dependency, project-config, plan-document, document and link stores belongs to the
+ * application services that record the matching event rows in the same unit, so a new store method cannot opt out of
+ * events silently (AR-02).
  *
- * In production code OUTSIDE `application/service/`, the port declarations (`application/port/`) and the SQLite store
- * implementations (`infrastructure/sqlite/repository/`) there must be no call to
+ * In production code OUTSIDE the owning services (`application/service/` and the knowledge kernel `application/knowledge/`),
+ * the port declarations (`application/port/`) and the SQLite store implementations (`infrastructure/sqlite/repository/`)
+ * there must be no call to
  *  - ItemStore / WorkItemRepository: create, update, delete, deleteAll
  *  - NoteStore: upsert, delete, deleteByItemId
  *  - DependencyStore: create, createBatch, delete, deleteByItemId
  *  - ConfigStore: append, fillCanonical
  *  - PlanDocumentStore: stash, markAdopted
+ *  - DocumentStore: insert, updateCurrent, appendVersion, setArchived, delete
+ *  - LinkStore: insert, deleteTouching
  * on a receiver that is one of those stores. A receiver is recognised two ways: an accessor chain
  * (`provider.workItemRepository().create(...)`, however the chain is wrapped across lines) or a name declared with a store
  * type (`repo: WorkItemRepository`, `val notes = provider.noteRepository()`). The scan is zero-tolerance (no baseline).
@@ -40,11 +44,14 @@ class StoreWriteConfinementTest {
         NOTE(setOf("upsert", "delete", "deleteByItemId")),
         DEPENDENCY(setOf("create", "createBatch", "delete", "deleteByItemId")),
         CONFIG(setOf("append", "fillCanonical")),
-        PLAN(setOf("stash", "markAdopted"))
+        PLAN(setOf("stash", "markAdopted")),
+        DOCUMENT(setOf("insert", "updateCurrent", "appendVersion", "setArchived", "delete")),
+        LINK(setOf("insert", "deleteTouching"))
     }
 
     companion object {
         const val OWNER_DIR = "application/service/"
+        const val KNOWLEDGE_OWNER_DIR = "application/knowledge/"
         const val PORT_DIR = "application/port/"
         const val SQLITE_STORES_DIR = "infrastructure/sqlite/repository/"
 
@@ -58,7 +65,9 @@ class StoreWriteConfinementTest {
                 "dependencyStore" to Family.DEPENDENCY,
                 "configStore" to Family.CONFIG,
                 "planDocumentRepository" to Family.PLAN,
-                "planDocumentStore" to Family.PLAN
+                "planDocumentStore" to Family.PLAN,
+                "documentStore" to Family.DOCUMENT,
+                "linkStore" to Family.LINK
             )
 
         private val TYPES =
@@ -68,7 +77,9 @@ class StoreWriteConfinementTest {
                 "NoteStore" to Family.NOTE,
                 "DependencyStore" to Family.DEPENDENCY,
                 "ConfigStore" to Family.CONFIG,
-                "PlanDocumentStore" to Family.PLAN
+                "PlanDocumentStore" to Family.PLAN,
+                "DocumentStore" to Family.DOCUMENT,
+                "LinkStore" to Family.LINK
             )
 
         private val TYPE_ALTERNATIVES: String = TYPES.keys.joinToString(separator = "|")
@@ -82,7 +93,10 @@ class StoreWriteConfinementTest {
             Regex("""\b(?:val|var)\s+(\w+)\s*=\s*[^\n=]*?\b($ACCESSOR_ALTERNATIVES)\s*\(\s*\)(?!\s*\??\s*\.)""")
 
         fun inScope(path: String): Boolean =
-            !path.startsWith(OWNER_DIR) && !path.startsWith(PORT_DIR) && !path.startsWith(SQLITE_STORES_DIR)
+            !path.startsWith(OWNER_DIR) &&
+                !path.startsWith(KNOWLEDGE_OWNER_DIR) &&
+                !path.startsWith(PORT_DIR) &&
+                !path.startsWith(SQLITE_STORES_DIR)
 
         private fun codeOf(text: String): String =
             text
@@ -174,7 +188,17 @@ class StoreWriteConfinementTest {
             "val notes = provider.noteRepository()\nnotes.upsert(n)",
             "val planRepo = ctx.repositoryProvider.planDocumentRepository()\nplanRepo.stash(a, b, c)",
             "fun f(items: ItemStore) { items?.deleteAll(ids) }",
-            "provider.noteRepository().upsert(note) // a trailing comment does not hide the call before it"
+            "provider.noteRepository().upsert(note) // a trailing comment does not hide the call before it",
+            "provider.documentStore().insert(doc)",
+            "provider.documentStore().updateCurrent(id, 1, body, hash, null, now)",
+            "provider.documentStore().appendVersion(v)",
+            "provider.documentStore().setArchived(id, now)",
+            "provider.documentStore().delete(id)",
+            "provider.linkStore().insert(link)",
+            "provider.linkStore().deleteTouching(ref)",
+            "class C(private val docs: DocumentStore) { fun f() { docs.updateCurrent(id, 1, b, h, null, t) } }",
+            "fun f(links: LinkStore) { links.deleteTouching(ref) }",
+            "val docs = ctx.repositoryProvider.documentStore()\ndocs.appendVersion(v)"
         ).forEach { assertEquals(1, violations(it), "not flagged: $it") }
     }
 
@@ -192,6 +216,10 @@ class StoreWriteConfinementTest {
             "provider.resourceLeaseRepository().acquireAll(id, a, r)",
             "provider.eventStore().append(rows)",
             "provider.planDocumentRepository().get(root, slug)",
+            "provider.documentStore().get(root, kind, slug)",
+            "provider.documentStore().listVersions(id)",
+            "provider.linkStore().findFrom(ref)",
+            "provider.linkStore().findToAny(refs, relation)",
             "private val repo: WorkItemRepository\nfun f() { repo.getById(x) }",
             "fun f(store: NoteStore) { store.findByItemId(id) }",
             "fun f(notes: NoteStore) { notes.update(x) }",
@@ -224,6 +252,7 @@ class StoreWriteConfinementTest {
             "application/service/DependencyCommandService.kt",
             "application/service/PlanDocumentService.kt",
             "application/service/ConfigService.kt",
+            "application/knowledge/document/DocumentService.kt",
             "application/port/ItemStore.kt",
             "infrastructure/sqlite/repository/SqliteItemStore.kt",
             "infrastructure/sqlite/repository/SQLiteNoteRepository.kt",

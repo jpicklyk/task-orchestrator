@@ -25,8 +25,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -70,7 +68,7 @@ class CreateItemConfigUnavailableTest {
             buildJsonObject {
                 put("title", JsonPrimitive(title))
                 if (parentId != null) put("parentId", JsonPrimitive(parentId))
-                if (type != null) put("type", JsonPrimitive(type))
+                put("type", JsonPrimitive(type ?: "test-item"))
             }
         val result =
             tool.execute(
@@ -81,7 +79,7 @@ class CreateItemConfigUnavailableTest {
     }
 
     @Test
-    fun `S14 - create under a cold failing root persists the item but omits schemaMatch and expectedNotes`(): Unit =
+    fun `S14 - create under a cold failing root fails closed as config_unavailable and persists nothing`(): Unit =
         runBlocking {
             val rootEntry = createUnderPlainContext(title = "Root S14")
             val rootId = rootEntry["id"]!!.jsonPrimitive.content
@@ -132,27 +130,25 @@ class CreateItemConfigUnavailableTest {
                     failingContext
                 ) as JsonObject
 
+            // `type` is validated against the root's declared types inside the create's own unit, which cannot be
+            // done without the per-root config: the read fault fails the create (fail closed, transient
+            // config_unavailable) BEFORE anything is written, instead of persisting and omitting the decoration.
             assertEquals(true, createResult["success"]!!.jsonPrimitive.boolean)
             val data = createResult["data"] as JsonObject
-            assertEquals(1, data["created"]?.jsonPrimitive?.int, "D7: a committed write must never be reported failed")
-            assertEquals(0, data["failed"]?.jsonPrimitive?.int)
+            assertEquals(0, data["created"]?.jsonPrimitive?.int, "the type cannot be validated, so nothing is created")
+            assertEquals(1, data["failed"]?.jsonPrimitive?.int)
+            val failure = data["failures"]!!.jsonArray[0].jsonObject
+            assertEquals("config_unavailable", failure["errorCode"]!!.jsonPrimitive.content)
+            assertEquals("transient", failure["errorKind"]!!.jsonPrimitive.content)
+            assertTrue(data["items"]!!.jsonArray.isEmpty())
 
-            val items = data["items"]!!.jsonArray
-            assertEquals(1, items.size)
-            val item = items[0] as JsonObject
-            assertFalse(item.containsKey("schemaMatch"), "D7: schemaMatch must be OMITTED (not false) when the per-root read fails")
-            assertFalse(item.containsKey("expectedNotes"), "D7: expectedNotes must be OMITTED (not empty) when the per-root read fails")
-            assertFalse(data.containsKey("availableTraits"), "D7: availableTraits is omitted from the response on a read failure")
-
-            // The item itself was genuinely persisted despite the decoration failure.
-            val childId = item["id"]!!.jsonPrimitive.content
-            val persisted = repositoryProvider.workItemRepository().getById(UUID.fromString(childId))
-            assertNotNull(persisted)
-            assertEquals("Child S14", persisted.title)
+            // Nothing was persisted for the failed create.
+            val persisted = repositoryProvider.workItemRepository().findChildren(UUID.fromString(rootId))
+            assertTrue(persisted.none { it.title == "Child S14" }, "the failed create wrote no row")
         }
 
     @Test
-    fun `probe - a sibling item created in the same batch with no rootId still gets its schemaMatch and expectedNotes`(): Unit =
+    fun `probe - a sibling item created in the same batch with no rootId is unaffected by the failing item's config fault`(): Unit =
         runBlocking {
             val rootEntry = createUnderPlainContext(title = "Root S14b")
             val rootId = rootEntry["id"]!!.jsonPrimitive.content
@@ -186,6 +182,7 @@ class CreateItemConfigUnavailableTest {
                                         put("parentId", JsonPrimitive(rootId))
                                     },
                                     buildJsonObject {
+                                        put("type", JsonPrimitive("test-item"))
                                         put("title", JsonPrimitive("Standalone"))
                                     }
                                 )
@@ -195,12 +192,20 @@ class CreateItemConfigUnavailableTest {
                 ) as JsonObject
 
             val data = createResult["data"] as JsonObject
-            assertEquals(2, data["created"]?.jsonPrimitive?.int)
+            // The failing child fails closed (its type cannot be validated); the sibling is still created.
+            assertEquals(1, data["created"]?.jsonPrimitive?.int)
+            assertEquals(1, data["failed"]?.jsonPrimitive?.int)
+            assertEquals(
+                "config_unavailable",
+                data["failures"]!!
+                    .jsonArray[0]
+                    .jsonObject["errorCode"]!!
+                    .jsonPrimitive.content
+            )
             val items = data["items"]!!.jsonArray
-            val failingChild = items.first { it.jsonObject["title"]?.jsonPrimitive?.content == "Failing child" }.jsonObject
+            assertEquals(1, items.size)
             val standalone = items.first { it.jsonObject["title"]?.jsonPrimitive?.content == "Standalone" }.jsonObject
 
-            assertFalse(failingChild.containsKey("schemaMatch"))
             // The standalone item has no rootId, so context.resolveSchema for it never touches the
             // per-root layer at all — its decoration keys must be present as usual.
             assertTrue(

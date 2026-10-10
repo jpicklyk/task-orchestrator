@@ -23,10 +23,13 @@ import java.sql.Connection
  *   column-wide exclusion: a step below this migration still verifies every column it does not transform, and the
  *   transformed columns are verified against the exact expected value rather than skipped. Return overrides only
  *   for columns present in the row (guard with `"col" in row`): earlier steps dump older schemas.
- * - [relocations] declares a table this migration drops after copying its rows into another table; the harness then
- *   checks each old row by id in the target table, over the mapped columns, instead of reporting the table as lost.
  * - [verify] runs after the whole chain has been migrated to the latest version, on the migration's own step only,
  *   and asserts the transformation took effect.
+ * - [relocated] is the DROPPED-TABLE contract. When a table present before the chain is missing after it, the harness
+ *   asks the applicable seeds (in version order) where each of its rows went; the first non-null [Relocated] names the
+ *   new table, the row's `id` key there (lowercase hex for a BLOB id, as the dump keys it) and the exact expected values
+ *   of the columns to compare. The row is passed AFTER every seed's [expected] transform. A missing table whose rows no
+ *   seed relocates is still reported as "table X disappeared".
  */
 abstract class MigrationSeed(
     val version: Int
@@ -39,19 +42,22 @@ abstract class MigrationSeed(
         row: Map<String, Any?>
     ): Map<String, Any?> = emptyMap()
 
-    /**
-     * Tables this migration drops after relocating their rows: old table name to where the rows went. Rows keep their
-     * `id`; each entry of [Relocation.columns] maps an old column to the column of the target table that must hold
-     * the same value after the migration.
-     */
-    open fun relocations(): Map<String, Relocation> = emptyMap()
-
     open fun verify(conn: Connection) {}
 
-    /** The new home of a dropped table: [table] is the target table, [columns] maps old column to target column. */
-    data class Relocation(
+    /** Where [row] of [table] lives after this migration dropped [table], or null when this seed does not relocate it. */
+    open fun relocated(
+        table: String,
+        row: Map<String, Any?>
+    ): Relocated? = null
+
+    /**
+     * A relocated row: it now lives in [table] under the dump key [id], and every column in [expected] must hold exactly
+     * that value there (columns the new table lacks are skipped, as for an in-place row).
+     */
+    data class Relocated(
         val table: String,
-        val columns: Map<String, String>
+        val id: String,
+        val expected: Map<String, Any?>
     )
 
     companion object {

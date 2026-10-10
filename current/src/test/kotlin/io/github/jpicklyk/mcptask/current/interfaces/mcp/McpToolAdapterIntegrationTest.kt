@@ -22,6 +22,7 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import org.slf4j.LoggerFactory
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -247,7 +248,9 @@ class McpToolAdapterIntegrationTest {
             val textContent = result.content.filterIsInstance<TextContent>()
             assertTrue(textContent.isNotEmpty())
             assertTrue(textContent[0].text.contains("Internal error"), "Should contain internal error message")
-            assertTrue(textContent[0].text.contains("Intentional test failure"), "Should contain exception message")
+            assertTrue(textContent[0].text.contains("failing_tool"), "Should name the tool")
+            // Exception text stays server-side (Q1a carry-in flag a): it must not reach the client.
+            assertFalse(textContent[0].text.contains("Intentional test failure"), "Must not echo the exception message")
         }
 
     // ──────────────────────────────────────────────
@@ -351,7 +354,7 @@ class McpToolAdapterIntegrationTest {
                     arguments =
                         mapOf(
                             "operation" to "create",
-                            "items" to listOf(mapOf("title" to "Integration test item"))
+                            "items" to listOf(mapOf("title" to "Integration test item", "type" to "test-item"))
                         )
                 )
 
@@ -459,7 +462,7 @@ class McpToolAdapterIntegrationTest {
                         mapOf(
                             "operation" to "create",
                             "parentId" to "deadbeef", // valid hex prefix, matches nothing
-                            "items" to listOf(mapOf("title" to "Orphan item"))
+                            "items" to listOf(mapOf("title" to "Orphan item", "type" to "test-item"))
                         )
                 )
 

@@ -90,7 +90,10 @@ class IdempotencyToolsTest {
                         "items" to
                             JsonArray(
                                 listOf(
-                                    buildJsonObject { put("title", JsonPrimitive("First")) }
+                                    buildJsonObject {
+                                        put("type", JsonPrimitive("test-item"))
+                                        put("title", JsonPrimitive("First"))
+                                    }
                                 )
                             ),
                         "requestId" to JsonPrimitive(requestId),
@@ -108,7 +111,10 @@ class IdempotencyToolsTest {
                             JsonArray(
                                 listOf(
                                     // Same payload on retry: replayed from the stored record, not executed again
-                                    buildJsonObject { put("title", JsonPrimitive("First")) }
+                                    buildJsonObject {
+                                        put("type", JsonPrimitive("test-item"))
+                                        put("title", JsonPrimitive("First"))
+                                    }
                                 )
                             ),
                         "requestId" to JsonPrimitive(requestId),
@@ -147,7 +153,12 @@ class IdempotencyToolsTest {
                         "operation" to JsonPrimitive("create"),
                         "items" to
                             JsonArray(
-                                listOf(buildJsonObject { put("title", JsonPrimitive("First")) })
+                                listOf(
+                                    buildJsonObject {
+                                        put("type", JsonPrimitive("test-item"))
+                                        put("title", JsonPrimitive("First"))
+                                    }
+                                )
                             ),
                         "requestId" to JsonPrimitive(UUID.randomUUID().toString()),
                         "actor" to actor()
@@ -161,7 +172,12 @@ class IdempotencyToolsTest {
                         "operation" to JsonPrimitive("create"),
                         "items" to
                             JsonArray(
-                                listOf(buildJsonObject { put("title", JsonPrimitive("Second")) })
+                                listOf(
+                                    buildJsonObject {
+                                        put("type", JsonPrimitive("test-item"))
+                                        put("title", JsonPrimitive("Second"))
+                                    }
+                                )
                             ),
                         "requestId" to JsonPrimitive(UUID.randomUUID().toString()),
                         "actor" to actor()
@@ -192,7 +208,12 @@ class IdempotencyToolsTest {
                     "operation" to JsonPrimitive("create"),
                     "items" to
                         JsonArray(
-                            listOf(buildJsonObject { put("title", JsonPrimitive("Item A")) })
+                            listOf(
+                                buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
+                                    put("title", JsonPrimitive("Item A"))
+                                }
+                            )
                         )
                 ),
                 context
@@ -204,7 +225,12 @@ class IdempotencyToolsTest {
                     "operation" to JsonPrimitive("create"),
                     "items" to
                         JsonArray(
-                            listOf(buildJsonObject { put("title", JsonPrimitive("Item B")) })
+                            listOf(
+                                buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
+                                    put("title", JsonPrimitive("Item B"))
+                                }
+                            )
                         )
                 ),
                 context
@@ -228,7 +254,12 @@ class IdempotencyToolsTest {
                     "operation" to JsonPrimitive("create"),
                     "items" to
                         JsonArray(
-                            listOf(buildJsonObject { put("title", JsonPrimitive("Agent A item")) })
+                            listOf(
+                                buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
+                                    put("title", JsonPrimitive("Agent A item"))
+                                }
+                            )
                         ),
                     "requestId" to JsonPrimitive(requestId),
                     "actor" to actor("agent-a")
@@ -242,7 +273,12 @@ class IdempotencyToolsTest {
                     "operation" to JsonPrimitive("create"),
                     "items" to
                         JsonArray(
-                            listOf(buildJsonObject { put("title", JsonPrimitive("Agent B item")) })
+                            listOf(
+                                buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
+                                    put("title", JsonPrimitive("Agent B item"))
+                                }
+                            )
                         ),
                     "requestId" to JsonPrimitive(requestId),
                     "actor" to actor("agent-b")
@@ -488,7 +524,11 @@ class IdempotencyToolsTest {
             val first =
                 tool.execute(
                     params(
-                        "root" to buildJsonObject { put("title", JsonPrimitive("Root tree")) },
+                        "root" to
+                            buildJsonObject {
+                                put("type", JsonPrimitive("test-item"))
+                                put("title", JsonPrimitive("Root tree"))
+                            },
                         "requestId" to JsonPrimitive(requestId),
                         "actor" to actor()
                     ),
@@ -498,7 +538,11 @@ class IdempotencyToolsTest {
             val second =
                 tool.execute(
                     params(
-                        "root" to buildJsonObject { put("title", JsonPrimitive("Root tree")) },
+                        "root" to
+                            buildJsonObject {
+                                put("type", JsonPrimitive("test-item"))
+                                put("title", JsonPrimitive("Root tree"))
+                            },
                         "requestId" to JsonPrimitive(requestId),
                         "actor" to actor()
                     ),
@@ -576,7 +620,12 @@ class IdempotencyToolsTest {
                     "operation" to JsonPrimitive("create"),
                     "items" to
                         JsonArray(
-                            listOf(buildJsonObject { put("title", JsonPrimitive("From A")) })
+                            listOf(
+                                buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
+                                    put("title", JsonPrimitive("From A"))
+                                }
+                            )
                         ),
                     "requestId" to JsonPrimitive(sharedRequestId),
                     "actor" to actor("agent-a")
@@ -588,7 +637,12 @@ class IdempotencyToolsTest {
                     "operation" to JsonPrimitive("create"),
                     "items" to
                         JsonArray(
-                            listOf(buildJsonObject { put("title", JsonPrimitive("From B")) })
+                            listOf(
+                                buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
+                                    put("title", JsonPrimitive("From B"))
+                                }
+                            )
                         ),
                     "requestId" to JsonPrimitive(sharedRequestId),
                     "actor" to actor("agent-b")
@@ -615,7 +669,12 @@ class IdempotencyToolsTest {
                     "operation" to JsonPrimitive("create"),
                     "items" to
                         JsonArray(
-                            listOf(buildJsonObject { put("title", JsonPrimitive("First")) })
+                            listOf(
+                                buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
+                                    put("title", JsonPrimitive("First"))
+                                }
+                            )
                         ),
                     "requestId" to JsonPrimitive(requestId)
                     // No actor!
@@ -627,7 +686,12 @@ class IdempotencyToolsTest {
                     "operation" to JsonPrimitive("create"),
                     "items" to
                         JsonArray(
-                            listOf(buildJsonObject { put("title", JsonPrimitive("Second")) })
+                            listOf(
+                                buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
+                                    put("title", JsonPrimitive("Second"))
+                                }
+                            )
                         ),
                     "requestId" to JsonPrimitive(requestId)
                 ),
@@ -822,7 +886,12 @@ class IdempotencyToolsTest {
                                     "operation" to JsonPrimitive("create"),
                                     "items" to
                                         JsonArray(
-                                            listOf(buildJsonObject { put("title", JsonPrimitive("Concurrent Item")) })
+                                            listOf(
+                                                buildJsonObject {
+                                                    put("type", JsonPrimitive("test-item"))
+                                                    put("title", JsonPrimitive("Concurrent Item"))
+                                                }
+                                            )
                                         ),
                                     "requestId" to JsonPrimitive(requestId),
                                     "actor" to actor("concurrent-agent")
@@ -1020,7 +1089,12 @@ class IdempotencyToolsTest {
                     "operation" to JsonPrimitive("create"),
                     "items" to
                         JsonArray(
-                            listOf(buildJsonObject { put("title", JsonPrimitive("Rejected Item")) })
+                            listOf(
+                                buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
+                                    put("title", JsonPrimitive("Rejected Item"))
+                                }
+                            )
                         ),
                     "requestId" to JsonPrimitive(requestId),
                     "actor" to actor("unverified-agent")
@@ -1116,7 +1190,11 @@ class IdempotencyToolsTest {
             val first =
                 tool.execute(
                     params(
-                        "root" to buildJsonObject { put("title", JsonPrimitive("Regression Tree")) },
+                        "root" to
+                            buildJsonObject {
+                                put("type", JsonPrimitive("test-item"))
+                                put("title", JsonPrimitive("Regression Tree"))
+                            },
                         "requestId" to JsonPrimitive(requestId),
                         "actor" to actor("tree-agent")
                     ),
@@ -1126,7 +1204,11 @@ class IdempotencyToolsTest {
             val second =
                 tool.execute(
                     params(
-                        "root" to buildJsonObject { put("title", JsonPrimitive("Regression Tree")) },
+                        "root" to
+                            buildJsonObject {
+                                put("type", JsonPrimitive("test-item"))
+                                put("title", JsonPrimitive("Regression Tree"))
+                            },
                         "requestId" to JsonPrimitive(requestId),
                         "actor" to actor("tree-agent")
                     ),

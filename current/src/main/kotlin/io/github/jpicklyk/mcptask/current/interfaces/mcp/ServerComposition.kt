@@ -35,6 +35,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SqliteUnitOfWork
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteDataStepStore
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.TypeBackfillStep
 import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
@@ -47,6 +48,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import java.nio.file.Path
 import java.nio.file.Paths
 
 /**
@@ -218,7 +220,7 @@ class ServerComposition(
             configService = configService,
             dataStepRunner =
                 DataStepRunner(
-                    steps = productionDataSteps(configService) + extraDataSteps,
+                    steps = productionDataSteps(configService, globalConfigPath) + extraDataSteps,
                     unitOfWork = unitOfWork,
                     store = SqliteDataStepStore(databaseManager),
                     clock = clock,
@@ -372,7 +374,13 @@ class ServerComposition(
     }
 
     private companion object {
-        /** The data steps the server ships. Later work items register theirs here. */
-        fun productionDataSteps(configService: ConfigService): List<DataStep> = listOf(ConfigCanonicalizeStep(configService))
+        /**
+         * The data steps the server ships; later work items register theirs here. Phase order runs config-canonicalize
+         * (CONFIG_CANONICALIZE) before type-backfill (ITEM_BACKFILL).
+         */
+        fun productionDataSteps(
+            configService: ConfigService,
+            globalConfigPath: Path,
+        ): List<DataStep> = listOf(ConfigCanonicalizeStep(configService), TypeBackfillStep(globalConfigPath))
     }
 }

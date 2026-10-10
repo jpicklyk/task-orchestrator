@@ -31,7 +31,17 @@ interface RepositoryProvider {
 
     fun configStore(): ConfigStore
 
+    /**
+     * The 3.x plan-document view, backed by [documentStore] and [linkStore] since 4.0 (a `rule/<key>` slug is the
+     * RULE-kind document `<key>`; adoption is an `adopted_by` link).
+     */
     fun planDocumentRepository(): PlanDocumentStore
+
+    /** Versioned documents and their history. Writes belong to the knowledge document service. */
+    fun documentStore(): DocumentStore
+
+    /** Polymorphic links (adoption provenance and, later, references). */
+    fun linkStore(): LinkStore
 
     fun resourceLeaseRepository(): LeaseStore
 

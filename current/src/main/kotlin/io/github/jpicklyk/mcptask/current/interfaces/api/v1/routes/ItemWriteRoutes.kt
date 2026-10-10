@@ -23,6 +23,7 @@ import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellat
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.model.ClaimState
@@ -64,6 +65,7 @@ import io.ktor.server.routing.post
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -165,6 +167,25 @@ private fun itemConfigUnavailableCaptured(
 ): CachedHttpResponse {
     writeLogger.warn("{}: per-root config unavailable: {}", route, e.message)
     return LegacyRestErrorMapper.captured(LegacyRestCode.CONFIG_UNAVAILABLE, e.message)
+}
+
+/**
+ * 400 `validation_error` for a type rule rejection (missing, cleared or undeclared `type`): `details` carries the
+ * `reason`, the offending `type` (null when absent) and, when the root declares any, the sorted `availableTypes`
+ * (the same status and code `NoteWriteRoutes` answers a `schema_violation` with).
+ */
+private fun typeViolationCaptured(error: DomainError): CachedHttpResponse {
+    val violation = error.detail as? ErrorDetail.SchemaViolation
+    val available = ItemCommandErrors.availableTypes(error)?.takeIf { it.isNotEmpty() }
+    return LegacyRestErrorMapper.captured(
+        LegacyRestCode.VALIDATION_ERROR,
+        error.message,
+        buildJsonObject {
+            put("reason", JsonPrimitive(violation?.reason ?: error.message))
+            put("type", JsonPrimitive(violation?.type))
+            if (available != null) put("availableTypes", JsonArray(available.map { JsonPrimitive(it) }))
+        },
+    )
 }
 
 /** The parent id an `invalid_transition` (closed-parent) error names. */
@@ -399,6 +420,7 @@ fun Route.itemWriteRoutes(
                                 )
                             error.code == ErrorCode.INVALID_REQUEST ->
                                 LegacyRestErrorMapper.captured(LegacyRestCode.VALIDATION_ERROR, error.message)
+                            ItemCommandErrors.isTypeViolation(error) -> typeViolationCaptured(error)
                             else -> {
                                 writeLogger.warn("POST /items DB error: {}", error.message)
                                 LegacyRestErrorMapper.captured(LegacyRestCode.DB_ERROR, "Failed to create item")
@@ -677,6 +699,7 @@ fun Route.itemWriteRoutes(
                                 )
                             error.code == ErrorCode.INVALID_REQUEST ->
                                 LegacyRestErrorMapper.captured(LegacyRestCode.VALIDATION_ERROR, error.message)
+                            ItemCommandErrors.isTypeViolation(error) -> typeViolationCaptured(error)
                             else -> {
                                 writeLogger.warn("PATCH /items/{} DB error: {}", id, error.message)
                                 LegacyRestErrorMapper.captured(LegacyRestCode.DB_ERROR, "Failed to update item")

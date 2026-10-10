@@ -1173,7 +1173,7 @@ Create a work item. Requires `WRITE_ITEMS`.
   "description": "string",     // optional
   "summary": "string",         // optional (default empty)
   "parentId": "<uuid>",        // optional; null = root item
-  "type": "string",            // optional
+  "type": "string",            // required; must be a declared type when any schema is configured
   "priority": "HIGH",          // optional (default MEDIUM)
   "complexity": 5,             // optional
   "requiresVerification": false, // optional (default false)
@@ -1186,7 +1186,7 @@ Create a work item. Requires `WRITE_ITEMS`.
 
 **Responses:**
 - `201 Created` → `ItemDto` + `ETag` header
-- `400 validation_error` — invalid field values
+- `400 validation_error` — invalid field values; also a missing/blank `type`, or a `type` that is not declared (any schema configured): `details = { reason, type, availableTypes }` (`type` is `null` when missing; `availableTypes` is the sorted declared keys of the root's per-root and global config, omitted when none are declared)
 - `400 not_found` — parentId not found
 - `403 scope_forbidden` — parent outside scope; or, when `parentId` is absent/`null` (a root-level
   create), a `root_ids`-scoped token is always denied (a new item's chain can never already be in
@@ -1221,6 +1221,7 @@ JSON Merge Patch update. Requires `WRITE_ITEMS`, `If-Match`, and `Content-Type: 
 - `200 OK` → `ItemDto` + `ETag` header
 - `400 precondition_required` — `If-Match` missing
 - `400 field_not_patchable` — attempted to patch server-owned field
+- `400 validation_error` with `details = { reason, type, availableTypes }` — the patch clears `type` (`{"type": null}` is the RFC 7396 delete; `""` is the same) or changes it to an undeclared one. A patch that leaves `type` unchanged is never re-checked, so an `untyped` item stays patchable.
 - `403 scope_forbidden` — new parent outside scope. When the patch re-parents the item (`parentId`
   changed to a non-null value), the target parent is scope-checked the same way `POST /items`
   checks a create-time `parentId` — an existence check alone is not authorization. A `parentId`

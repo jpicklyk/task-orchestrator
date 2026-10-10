@@ -39,6 +39,7 @@ class ManageItemsToolPrefixTest {
     ): String {
         val itemObj =
             buildJsonObject {
+                put("type", JsonPrimitive("test-item"))
                 put("title", JsonPrimitive(title))
                 parentId?.let { put("parentId", JsonPrimitive(it)) }
             }
@@ -420,8 +421,14 @@ class ManageItemsToolPrefixTest {
                             "items",
                             JsonArray(
                                 listOf(
-                                    buildJsonObject { put("title", JsonPrimitive("Child 1")) },
-                                    buildJsonObject { put("title", JsonPrimitive("Child 2")) }
+                                    buildJsonObject {
+                                        put("type", JsonPrimitive("test-item"))
+                                        put("title", JsonPrimitive("Child 1"))
+                                    },
+                                    buildJsonObject {
+                                        put("type", JsonPrimitive("test-item"))
+                                        put("title", JsonPrimitive("Child 2"))
+                                    }
                                 )
                             )
                         )
@@ -465,6 +472,7 @@ class ManageItemsToolPrefixTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
+                                        put("type", JsonPrimitive("test-item"))
                                         put("title", JsonPrimitive("Child via prefix"))
                                         put("parentId", JsonPrimitive(parentPrefix))
                                     }
@@ -496,6 +504,7 @@ class ManageItemsToolPrefixTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
+                                        put("type", JsonPrimitive("test-item"))
                                         put("title", JsonPrimitive("Child via 4-char prefix"))
                                         put("parentId", JsonPrimitive(prefix))
                                     }
@@ -523,6 +532,7 @@ class ManageItemsToolPrefixTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
+                                        put("type", JsonPrimitive("test-item"))
                                         put("title", JsonPrimitive("Child via full UUID"))
                                         put("parentId", JsonPrimitive(parentId))
                                     }
@@ -548,6 +558,7 @@ class ManageItemsToolPrefixTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
+                                        put("type", JsonPrimitive("test-item"))
                                         put("title", JsonPrimitive("Bad parent"))
                                         put("parentId", JsonPrimitive("xyz"))
                                     }
@@ -580,9 +591,11 @@ class ManageItemsToolPrefixTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
+                                        put("type", JsonPrimitive("test-item"))
                                         put("title", JsonPrimitive("Uses shared parent"))
                                     },
                                     buildJsonObject {
+                                        put("type", JsonPrimitive("test-item"))
                                         put("title", JsonPrimitive("Uses item-level parent"))
                                         put("parentId", JsonPrimitive(itemParentPrefix))
                                     }

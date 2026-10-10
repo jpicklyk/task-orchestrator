@@ -63,6 +63,7 @@ class CreateWorkTreeToolIntegrationTest {
                     put(
                         "root",
                         buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("Integration Root"))
                         }
                     )
@@ -72,6 +73,7 @@ class CreateWorkTreeToolIntegrationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("c1"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("Child One"))
                                 }
                             )
@@ -149,6 +151,7 @@ class CreateWorkTreeToolIntegrationTest {
                     put(
                         "root",
                         buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("Dedup Root"))
                         }
                     )
@@ -213,6 +216,7 @@ class CreateWorkTreeToolIntegrationTest {
                     put(
                         "root",
                         buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive(rootTitle))
                         }
                     )
@@ -265,6 +269,7 @@ class CreateWorkTreeToolIntegrationTest {
                     put(
                         "root",
                         buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("Existing Feature Root"))
                         }
                     )
@@ -288,12 +293,14 @@ class CreateWorkTreeToolIntegrationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("c1"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("Attach Child One"))
                                 }
                             )
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("c2"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("Attach Child Two"))
                                 }
                             )
@@ -383,6 +390,7 @@ class CreateWorkTreeToolIntegrationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("c1"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("Should Not Create"))
                                 }
                             )
@@ -408,13 +416,20 @@ class CreateWorkTreeToolIntegrationTest {
         runBlocking {
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("New Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("New Root"))
+                        }
+                    )
                     put(
                         "children",
                         buildJsonArray {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("child"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("Child"))
                                 }
                             )
@@ -422,6 +437,7 @@ class CreateWorkTreeToolIntegrationTest {
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("grandchild"))
                                     put("parentRef", JsonPrimitive("child"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("Grandchild"))
                                 }
                             )
@@ -451,14 +467,28 @@ class CreateWorkTreeToolIntegrationTest {
         runBlocking {
             // Pre-create an existing root to hang the new tree's root under.
             val existingRootParams =
-                buildJsonObject { put("root", buildJsonObject { put("title", JsonPrimitive("Existing Root")) }) }
+                buildJsonObject {
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("Existing Root"))
+                        }
+                    )
+                }
             val existingRootResult = tool.execute(existingRootParams, context) as JsonObject
             val existingRootId =
                 UUID.fromString((existingRootResult["data"] as JsonObject)["root"]!!.jsonObject["id"]!!.jsonPrimitive.content)
 
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("New Root Under Parent")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("New Root Under Parent"))
+                        }
+                    )
                     put("parentId", JsonPrimitive(existingRootId.toString()))
                     put(
                         "children",
@@ -466,6 +496,7 @@ class CreateWorkTreeToolIntegrationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("child"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("Child"))
                                 }
                             )
@@ -497,7 +528,15 @@ class CreateWorkTreeToolIntegrationTest {
             //    Its rootId is whatever CreateWorkTreeTool's own create-mode path stamps it
             //    with — own id, since it has no parentId.
             val existingItemParams =
-                buildJsonObject { put("root", buildJsonObject { put("title", JsonPrimitive("Attach Root")) }) }
+                buildJsonObject {
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("Attach Root"))
+                        }
+                    )
+                }
             val createResult = tool.execute(existingItemParams, context) as JsonObject
             val existingRootId =
                 UUID.fromString((createResult["data"] as JsonObject)["root"]!!.jsonObject["id"]!!.jsonPrimitive.content)
@@ -514,6 +553,7 @@ class CreateWorkTreeToolIntegrationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("c1"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("Attach Child"))
                                 }
                             )
@@ -521,6 +561,7 @@ class CreateWorkTreeToolIntegrationTest {
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("gc1"))
                                     put("parentRef", JsonPrimitive("c1"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("Attach Grandchild"))
                                 }
                             )
@@ -557,6 +598,7 @@ class CreateWorkTreeToolIntegrationTest {
                     put(
                         "root",
                         buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("Attributed Root"))
                         }
                     )
@@ -633,6 +675,7 @@ class CreateWorkTreeToolIntegrationTest {
                     put(
                         "root",
                         buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("Feature X"))
                             put(
                                 "noteAnchors",
@@ -656,6 +699,7 @@ class CreateWorkTreeToolIntegrationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("t1"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("Task 1"))
                                     put(
                                         "noteAnchors",
@@ -709,6 +753,7 @@ class CreateWorkTreeToolIntegrationTest {
                     put(
                         "root",
                         buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("Feature X"))
                             put(
                                 "noteAnchors",
@@ -751,7 +796,13 @@ class CreateWorkTreeToolIntegrationTest {
 
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("Feature X")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("Feature X"))
+                        }
+                    )
                     put("parentId", JsonPrimitive(projectRootId.toString()))
                     put("docRef", buildJsonObject { put("slug", JsonPrimitive("my-plan")) })
                 }
@@ -775,6 +826,7 @@ class CreateWorkTreeToolIntegrationTest {
                     put(
                         "root",
                         buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("Feature X"))
                             put(
                                 "noteAnchors",
@@ -826,7 +878,13 @@ class CreateWorkTreeToolIntegrationTest {
 
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("Feature X")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("Feature X"))
+                        }
+                    )
                     put("parentId", JsonPrimitive(projectRootId.toString()))
                     put(
                         "docRef",
@@ -850,7 +908,13 @@ class CreateWorkTreeToolIntegrationTest {
         runBlocking {
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("No Doc Feature")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("No Doc Feature"))
+                        }
+                    )
                 }
 
             val result = tool.execute(params, context) as JsonObject
