@@ -897,6 +897,9 @@ components:
           format: uuid
         field:
           type: string
+          description: >-
+            The field that contains a match (title or summary for an item hit, title when both
+            do; body for a note hit). snippet is taken from it.
         snippet:
           type: string
         score:
@@ -905,6 +908,12 @@ components:
         noteKey:
           type: string
           nullable: true
+        title:
+          type: string
+          nullable: true
+          description: >-
+            Title of the owning work item (the item's own title for an item hit); omitted when the
+            item could not be read.
 
     NoteSchemaEntryDto:
       type: object
@@ -2714,9 +2723,10 @@ paths:
       operationId: searchItems
       tags: [search]
       description: >-
-        A scope.tags_include token has its hits filtered to items carrying an allowed tag
-        (item-level exact match, applied after the FTS5 query) — a tag scope matching nothing
-        returns 200 with an empty list, never 403.
+        A token's scope.root_ids and scope.tags_include are applied inside the FTS5 query, before
+        ranking and the 50-hit page (tags_include: item-level exact, case-sensitive match), so a
+        restricted token gets a full page of in-scope hits; a scope matching nothing returns 200
+        with an empty list, never 403. Each hit's field names the field that contains a match.
       parameters:
         - name: q
           in: query
@@ -2760,8 +2770,9 @@ paths:
       operationId: searchNotes
       tags: [search]
       description: >-
-        A scope.tags_include token has its hits filtered to notes on items carrying an allowed tag
-        (item-level exact match, applied after the FTS5 query) — a tag scope matching nothing
+        A token's scope.root_ids and scope.tags_include are applied inside the FTS5 query, before
+        ranking and the 50-hit page (tags_include: exact, case-sensitive match on each note's owning
+        item), so a restricted token gets a full page of in-scope hits; a scope matching nothing
         returns 200 with an empty list, never 403.
       parameters:
         - name: q

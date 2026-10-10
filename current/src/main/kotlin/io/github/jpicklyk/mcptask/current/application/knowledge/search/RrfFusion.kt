@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.application.service.search
+package io.github.jpicklyk.mcptask.current.application.knowledge.search
 
 /**
  * Reciprocal Rank Fusion (RRF) utility.
@@ -67,12 +67,24 @@ object RrfFusion {
      * @param sources Vararg of (docId → rank) maps, one per source list.
      * @return Map of docId → fused RRF score.
      */
-    fun <DocId> fuse(vararg sources: Map<DocId, Int>): Map<DocId, Double> {
+    fun <DocId> fuse(vararg sources: Map<DocId, Int>): Map<DocId, Double> = fuse(sources.toList(), K)
+
+    /**
+     * [fuse] over a list of sources with an explicit smoothing constant [k]. [Ranker] is the production caller.
+     *
+     * @param sources One (docId to 1-based rank) map per source list.
+     * @param k The RRF smoothing constant.
+     * @return Map of docId to fused RRF score.
+     */
+    fun <DocId> fuse(
+        sources: List<Map<DocId, Int>>,
+        k: Double
+    ): Map<DocId, Double> {
         val allDocIds = sources.flatMap { it.keys }.toSet()
         return allDocIds.associateWith { docId ->
             sources.sumOf { source ->
                 val rank = source[docId]
-                if (rank != null) score(rank) else 0.0
+                if (rank != null) score(rank, k) else 0.0
             }
         }
     }

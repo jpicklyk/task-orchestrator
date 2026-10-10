@@ -93,6 +93,8 @@ class FlywayOnlyMigrationTest {
         insertNote(url, a, "k", "zebra body")
         val before = query(url, "SELECT title FROM work_items ORDER BY title") { it.getString(1) }
         // Rebuild the exact V17 shape: drop what later migrations added, then the history.
+        // Every table later migrations added (including the data_steps ledger) must go for an exact V17 shape.
+        exec(url, "DROP TABLE data_steps")
         exec(url, "DROP TABLE call_log")
         exec(url, "DROP TABLE events")
         exec(url, "DROP TABLE idempotency_records")
@@ -109,13 +111,13 @@ class FlywayOnlyMigrationTest {
         assertTrue(manager(url).updateSchema(), "an exact V17 shape must be baselined, not refused")
 
         val rows = historyRows(url)
-        // Baselined at 17, then the pending V18 (data-only timestamp normalization), V19 (idempotency records), V20 (events), V21 (call log) and V22 (dependency direction) are applied on top.
+        // Baselined at 17, then every later migration is applied on top.
         assertEquals(
-            listOf("17" to "BASELINE", "18" to "SQL", "19" to "SQL", "20" to "SQL", "21" to "SQL", "22" to "SQL"),
+            listOf("17" to "BASELINE") + (18..MigrationChain.max()).map { it.toString() to "SQL" },
             rows.map {
                 it.first to it.second
             },
-            "history must be baseline@17 then V18, V19, V20, V21, V22, got $rows"
+            "history must be baseline@17 then V18..V${MigrationChain.max()}, got $rows"
         )
         assertTrue(rows.all { it.third })
         assertEquals(before, query(url, "SELECT title FROM work_items ORDER BY title") { it.getString(1) })
@@ -202,6 +204,17 @@ class FlywayOnlyMigrationTest {
         insertHistory(url, "99", 0)
         val errors = errorsOf { assertFalse(manager(url).updateSchema()) }
         assertTrue(errors.any { it.contains("99") }, "the ERROR must identify the failed version 99: $errors")
+    }
+
+    @Test
+    fun `S10 repair leaves a newer successful row alone and the next start still fails closed`() {
+        val url = migrated(dir)
+        insertHistory(url, "99", 1)
+        val before = historyRows(url)
+        assertTrue(manager(url, repair = true).updateSchema(), "repair itself succeeds")
+        assertEquals(before, historyRows(url), "repair must not delete or add any history row for a newer version")
+        val errors = errorsOf { assertFalse(manager(url).updateSchema(), "the database is still ahead of this binary") }
+        assertTrue(errors.any { it.contains("99") }, "the ERROR must still name version 99: $errors")
     }
 
     // ---- S15: applied version with no local file below the latest is tolerated ----

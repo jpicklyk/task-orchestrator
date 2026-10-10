@@ -211,8 +211,8 @@ class SQLiteWorkItemRepositoryFilterTest {
 
     // The LIKE-based `query` filter on findByFilters was removed in T4 of the
     // FTS5 + Graph-Aware Search feature. Text search now goes through
-    // SQLiteWorkItemRepository.ftsSearch() backed by FTS5 virtual tables
-    // (SQLite-only). Integration coverage lives in T8's FTS test suite.
+    // SearchService over the SearchIndex port, backed by FTS5 virtual tables
+    // (SQLite-only). Integration coverage lives in SqliteSearchIndexContractTest.
 
     @Test
     fun `findByFilters with sortBy created asc`() =

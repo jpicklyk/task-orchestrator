@@ -32,12 +32,23 @@ class CallTelemetry(
     private val versions = ConcurrentHashMap<UUID, Long>()
     private val resultCountRef = AtomicReference<Int?>(null)
     private val eligibleCountRef = AtomicReference<Int?>(null)
+    private val searchShapeRef = AtomicReference<SearchShape?>(null)
 
     /** Who made the call, as first recorded: the claim's id and kind and the verification status wire value. */
     data class Principal(
         val id: String,
         val kind: String,
         val proofStatus: String?
+    )
+
+    /**
+     * What a search call recorded about its query for `request_shape`: a hash of the normalized terms, the term
+     * count and the match mode. Never the query text.
+     */
+    data class SearchShape(
+        val queryHash: String,
+        val termCount: Int,
+        val matchMode: String
     )
 
     val principal: Principal? get() = principalRef.get()
@@ -52,6 +63,9 @@ class CallTelemetry(
 
     val resultCount: Int? get() = resultCountRef.get()
     val eligibleCount: Int? get() = eligibleCountRef.get()
+
+    /** The search shape of this call, or null when it ran no search. */
+    val searchShape: SearchShape? get() = searchShapeRef.get()
 
     /** First recorded principal wins. */
     fun setPrincipal(principal: Principal) {
@@ -79,6 +93,11 @@ class CallTelemetry(
     ) {
         if (result != null) resultCountRef.set(result)
         if (eligible != null) eligibleCountRef.set(eligible)
+    }
+
+    /** First recorded search shape wins. */
+    fun setSearchShape(shape: SearchShape) {
+        searchShapeRef.compareAndSet(null, shape)
     }
 
     companion object Key : CoroutineContext.Key<CallTelemetry>
@@ -121,4 +140,13 @@ suspend fun recordCallResultCounts(
     eligible: Int?
 ) {
     currentCallTelemetry()?.setResultCounts(result, eligible)
+}
+
+/** Records the query shape of a search call (hash, term count, match mode); a no-op outside a call. */
+suspend fun recordCallSearchShape(
+    queryHash: String,
+    termCount: Int,
+    matchMode: String
+) {
+    currentCallTelemetry()?.setSearchShape(CallTelemetry.SearchShape(queryHash, termCount, matchMode))
 }

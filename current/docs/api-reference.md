@@ -232,7 +232,7 @@ snippets, filtered list search, or hierarchical overview.
 | `matchMode` | string | No | `"auto"` (default — trigram+text tables fused via RRF), `"substring"` (trigram only, requires ≥3-char tokens), `"text"` (porter+unicode61, stemming) |
 | `snippet` | boolean | No | Include ~32-token snippet with `<mark>…</mark>` highlights (default: true) |
 | `explain` | boolean | No | Include raw FTS5 scores per hit for ranking debug (default: false) |
-| `limit` | integer | No | Max hits (default: 20, max: 100) |
+| `limit` | integer | No | Max hits (default: 20, max: 100; a larger value is rejected with `VALIDATION_ERROR`, not capped) |
 | `offset` | integer | No | Skip N hits for pagination (default: 0) |
 
 #### Key Parameters — search (list mode, when `query` is absent)
@@ -355,6 +355,7 @@ This is the **only** place that returns full note text (`description`, `guidance
     {
       "kind": "item",
       "itemId": "550e8400-e29b-41d4-a716-446655440001",
+      "title": "Implement OAuth flow for the API gateway",
       "field": "title",
       "snippet": "Implement <mark>OAuth</mark> <mark>flow</mark> for…",
       "score": 0.0325,
@@ -368,11 +369,11 @@ This is the **only** place that returns full note text (`description`, `guidance
 }
 ```
 
-`snippet` is included by default; `explain` appears only when `explain=true` (default false). `score` is the descending RRF fused value (higher = more relevant).
+`snippet` is included by default; `explain` appears only when `explain=true` (default false). `score` is the descending RRF fused value (higher = more relevant). `title` is the item's title (omitted if the item could not be read). `field` names the field that actually contains a match — `title` or `summary`, `title` when both do — and `snippet` is taken from that field.
 
 **Pagination contract.** Every page is a slice of one deterministic, totally ordered list: a fixed
 200-row candidate window is fetched from each FTS5 table regardless of `offset`, fused by RRF into a
-single order (score descending, ties broken ascending by the underlying item/note id), then capped
+single order (score descending, then hit kind, then ascending by the underlying item/note id), then capped
 at 100 entries before the `offset`/`limit` slice is taken. Consequently:
 - `totalHits` is the size of that capped, fused list — it is identical on every page of the same
   query (it is **not** the raw database match count), and is **at most 100**.
@@ -937,11 +938,11 @@ WorkItem, or FTS5 full-text search across note bodies.
 |---|---|---|---|
 | `operation` | string | Yes | `"search"` |
 | `query` | string | Yes | FTS5 search terms — multiple words produce implicit AND. Pass plain terms; special characters are auto-escaped. |
-| `scope` | object | No | `itemId` (UUID — single item's notes), `ancestorId` (UUID — subtree of items). To filter by note role use `list` instead. |
+| `scope` | object | No | `itemId` (UUID — single item's notes), `ancestorId` (UUID — subtree of items). `role` and `tags` are not supported: a non-null value is rejected with `VALIDATION_ERROR` (an explicit `null` counts as absent). To filter by note role use `list` instead. |
 | `matchMode` | string | No | `"auto"` (default), `"substring"`, `"text"` — same semantics as `query_items.search` |
 | `snippet` | boolean | No | Include ~32-token snippet with highlights (default: true). Markdown preserved. |
 | `explain` | boolean | No | Include raw FTS5 ranks per hit (default: false) |
-| `limit` | integer | No | Max hits (default: 20, max: 100) |
+| `limit` | integer | No | Max hits (default: 20, max: 100; a larger value is rejected with `VALIDATION_ERROR`, not capped) |
 | `offset` | integer | No | Skip N hits for pagination (default: 0) |
 
 **Examples.**
@@ -988,6 +989,7 @@ Note objects omit the `itemId` echo in `list` results (you already supplied it).
     {
       "kind": "note",
       "itemId": "550e8400-e29b-41d4-a716-446655440001",
+      "title": "Implement OAuth flow for the API gateway",
       "noteKey": "implementation-notes",
       "field": "body",
       "snippet": "The <mark>authentication</mark> <mark>token</mark> is stored…",
@@ -1001,8 +1003,9 @@ Note objects omit the `itemId` echo in `list` results (you already supplied it).
 }
 ```
 
-`kind` is always `"note"` for note hits. `noteKey` is the note's key within its item. `field` is
-always `"body"` (notes have a single body field). Score interpretation and `truncated` semantics are
+`kind` is always `"note"` for note hits. `noteKey` is the note's key within its item; `title` is the
+owning item's title (omitted if the item could not be read). `field` is always `"body"` (notes have a
+single body field). Score interpretation and `truncated` semantics are
 the same as `query_items.search`.
 
 ---
@@ -2777,8 +2780,10 @@ now follows the fault (it was always `permanent` when it escaped a tool): `shedd
 timeout, `permanent` for a duplicate or foreign-key fault, `transient` for any other store fault.
 An `advance_item` `apply_failed` takes its kind from its cause the same way (a vanished row or a
 version conflict is `permanent`, a busy database `shedding`, anything else `transient`).
-An unexpected exception that escapes a tool keeps its `Internal error in '<tool>' ...` text and now
-also carries `structuredContent.error` `{code: "INTERNAL_ERROR", message: <same text>, kind: "transient"}`.
+An unexpected exception that escapes a tool returns the fixed text `Internal error in '<tool>'`: the exception
+message and the session id are never sent to the client (in the text, the `notifications/message` log
+notification or the structured error); the server log keeps both. The result also carries
+`structuredContent.error` `{code: "INTERNAL_ERROR", message: <same text>, kind: "transient"}`.
 
 **Storage faults.** A database fault keeps the 3.x `DATABASE_ERROR` code on both reads and writes, and
 is never reported as `RESOURCE_NOT_FOUND` (not-found means only that the row does not exist). A tool

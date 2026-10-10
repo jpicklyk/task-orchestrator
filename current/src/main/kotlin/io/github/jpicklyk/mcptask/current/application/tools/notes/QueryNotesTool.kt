@@ -1,9 +1,14 @@
 package io.github.jpicklyk.mcptask.current.application.tools.notes
 
+import io.github.jpicklyk.mcptask.current.application.knowledge.search.AccessScope
+import io.github.jpicklyk.mcptask.current.application.knowledge.search.Ranker
+import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchRequest
+import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
+import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchValidationException
+import io.github.jpicklyk.mcptask.current.application.port.Corpus
+import io.github.jpicklyk.mcptask.current.application.port.MAX_FTS_RESULTS
 import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.application.port.SearchResult
-import io.github.jpicklyk.mcptask.current.application.port.SearchScope
-import io.github.jpicklyk.mcptask.current.application.service.search.FtsQuerySanitizer
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
@@ -15,6 +20,9 @@ import java.util.UUID
 
 /** Valid values for the `matchMode` FTS search parameter. */
 private val VALID_MATCH_MODES = setOf("auto", "substring", "text")
+
+/** `scope` fields `query_items` accepts but note search does not; rejected rather than ignored. */
+private val UNSUPPORTED_SEARCH_SCOPE_FIELDS = listOf("role", "tags")
 
 /**
  * Read-only MCP tool for querying Notes.
@@ -199,7 +207,7 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                         "limit",
                         buildJsonObject {
                             put("type", JsonPrimitive("integer"))
-                            put("description", JsonPrimitive("Max results (default: 20, max: 100)"))
+                            put("description", JsonPrimitive("Max results (default 20; over 100 rejected)"))
                         }
                     )
                     put(
@@ -255,9 +263,24 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                 if (limitVal != null && limitVal < 1) {
                     throw ToolValidationException("limit must be at least 1")
                 }
+                if (limitVal != null && limitVal > MAX_FTS_RESULTS) {
+                    throw ToolValidationException(SearchService.limitTooLargeMessage(limitVal))
+                }
                 val offsetVal = optionalInt(params, "offset")
                 if (offsetVal != null && offsetVal < 0) {
                     throw ToolValidationException("offset must be non-negative")
+                }
+                // Note search has no role or tag scope: reject them instead of silently ignoring them. An explicit
+                // JSON null is the same as an absent field.
+                val scopeJson = (params as? JsonObject)?.get("scope") as? JsonObject
+                for (field in UNSUPPORTED_SEARCH_SCOPE_FIELDS) {
+                    val value = scopeJson?.get(field)
+                    if (value != null && value !is JsonNull) {
+                        throw ToolValidationException(
+                            "scope.$field is not supported by query_notes search. Supported scope fields: ancestorId, " +
+                                "itemId. To filter notes by role, use operation=list with role."
+                        )
+                    }
                 }
             }
             else -> throw ToolValidationException("Invalid operation: $operation. Must be get, list, or search")
@@ -383,11 +406,13 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
     /**
      * Full-text search over note bodies via FTS5.
      *
-     * Sanitizes the user query, delegates to [NoteStore.ftsSearch], and
-     * serializes the [SearchResult] into the response shape defined in plan §7:
+     * Parses the params, delegates to the shared
+     * [io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService] (note corpus, unrestricted
+     * access), and serializes the [SearchResult] into the response shape defined in plan §7:
      * `{ hits: [...], totalHits, nextOffset, truncated }`.
      *
-     * Each hit includes `kind="note"`, `itemId`, `noteKey`, `field="body"`, `snippet`, `score`,
+     * Each hit includes `kind="note"`, `itemId`, `title` (the owning item's, when it could be read),
+     * `noteKey`, `field="body"`, `snippet`, `score`,
      * `matchedIn`, and optionally `explain` (raw FTS5 ranks, only when `explain=true`).
      *
      * @param rawQuery The user-supplied (unsanitized) search string from the `query` param.
@@ -400,12 +425,13 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
         val matchModeStr = optionalString(params, "matchMode")?.lowercase() ?: "auto"
         val includeSnippet = optionalBoolean(params, "snippet", true)
         val includeExplain = optionalBoolean(params, "explain", false)
-        val limit = (optionalInt(params, "limit") ?: 20).coerceIn(1, 100)
+        // Range-checked in validateParams (1..MAX_FTS_RESULTS); the service re-checks.
+        val limit = optionalInt(params, "limit") ?: SearchRequest.DEFAULT_LIMIT
         val offset = (optionalInt(params, "offset") ?: 0).coerceAtLeast(0)
 
         // Parse optional scope object
         val scopeJson = (params as? JsonObject)?.get("scope") as? JsonObject
-        val scope: SearchScope? =
+        val scope: NoteSearchScope? =
             if (scopeJson != null) {
                 val ancestorIdStr = scopeJson["ancestorId"]?.jsonPrimitive?.contentOrNull
                 val itemIdStr = scopeJson["itemId"]?.jsonPrimitive?.contentOrNull
@@ -432,7 +458,7 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                     } else {
                         null
                     }
-                SearchScope(itemId = scopeItemId, ancestorId = ancestorId, tags = null, role = null)
+                NoteSearchScope(itemId = scopeItemId, ancestorId = ancestorId)
             } else {
                 null
             }
@@ -445,39 +471,23 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                 else -> SearchMatchMode.AUTO
             }
 
-        // Sanitize the query, with trigram-specific validation when relevant.
-        val sanitizedQuery: String =
-            try {
-                when (matchMode) {
-                    SearchMatchMode.SUBSTRING ->
-                        FtsQuerySanitizer.sanitizeForTrigram(rawQuery)
-                            ?: return errorResponse(
-                                "Search query is empty. Provide at least one search term.",
-                                LegacyMcpCode.VALIDATION_ERROR,
-                            )
-                    SearchMatchMode.AUTO, SearchMatchMode.TEXT ->
-                        FtsQuerySanitizer.sanitize(rawQuery)
-                            ?: return errorResponse(
-                                "Search query is empty. Provide at least one search term.",
-                                LegacyMcpCode.VALIDATION_ERROR,
-                            )
-                }
-            } catch (e: IllegalArgumentException) {
-                return errorResponse(e.message ?: "Invalid search query", LegacyMcpCode.VALIDATION_ERROR)
-            }
-
-        // Delegate to repository, dispatched via the NoteStore interface (a read; the write
-        // services record their own event rows, so no decorator sits in front of it).
-        val repo = context.noteRepository()
+        // MCP carries no principal scope yet: the one explicit unrestricted() call site.
+        val request =
+            SearchRequest(
+                query = rawQuery,
+                corpus = Corpus.NOTE,
+                matchMode = matchMode,
+                itemId = scope?.itemId,
+                ancestorId = scope?.ancestorId,
+                limit = limit,
+                offset = offset,
+                access = AccessScope.unrestricted(),
+            )
         val searchResult: SearchResult =
             try {
-                repo.ftsSearch(
-                    sanitizedFtsQuery = sanitizedQuery,
-                    matchMode = matchMode,
-                    scope = scope,
-                    limit = limit,
-                    offset = offset,
-                )
+                context.searchService.search(request)
+            } catch (e: SearchValidationException) {
+                return errorResponse(e.message ?: "Invalid search query", LegacyMcpCode.VALIDATION_ERROR)
             } catch (e: Exception) {
                 e.rethrowIfCancellation()
                 return errorResponse(
@@ -493,6 +503,7 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                     buildJsonObject {
                         put("kind", JsonPrimitive(hit.kind))
                         put("itemId", JsonPrimitive(hit.itemId.toString()))
+                        hit.title?.let { put("title", JsonPrimitive(it)) }
                         put("noteKey", JsonPrimitive(hit.noteKey ?: ""))
                         put("field", JsonPrimitive(hit.field))
                         if (includeSnippet) {
@@ -515,7 +526,7 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                                         "textRank",
                                         if (hit.textRank != null) JsonPrimitive(hit.textRank) else JsonNull,
                                     )
-                                    put("rrfK", JsonPrimitive(60))
+                                    put("rrfK", JsonPrimitive(Ranker.K))
                                 },
                             )
                         }
@@ -537,3 +548,9 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
         return successResponse(data)
     }
 }
+
+/** The parsed `scope` object of a `query_notes` search. */
+private data class NoteSearchScope(
+    val itemId: UUID?,
+    val ancestorId: UUID?,
+)

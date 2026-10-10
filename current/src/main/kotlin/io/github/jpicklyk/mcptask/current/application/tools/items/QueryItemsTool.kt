@@ -1,11 +1,17 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
+import io.github.jpicklyk.mcptask.current.application.knowledge.search.AccessScope
+import io.github.jpicklyk.mcptask.current.application.knowledge.search.Ranker
+import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchRequest
+import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
+import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchValidationException
+import io.github.jpicklyk.mcptask.current.application.port.Corpus
 import io.github.jpicklyk.mcptask.current.application.port.ItemSortFields
+import io.github.jpicklyk.mcptask.current.application.port.MAX_FTS_RESULTS
 import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
-import io.github.jpicklyk.mcptask.current.application.port.SearchScope
+import io.github.jpicklyk.mcptask.current.application.port.SearchResult
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView
-import io.github.jpicklyk.mcptask.current.application.service.search.FtsQuerySanitizer
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
@@ -350,7 +356,8 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                                 "description",
                                 JsonPrimitive(
                                     "Max results. Default 20 in FTS search (`query` set); 50 in list mode and in " +
-                                        "global/anchored overview. Search modes cap at 100; overview does not cap. " +
+                                        "global/anchored overview. FTS search rejects above 100; list mode caps at 100; " +
+                                        "overview does not cap. " +
                                         "Scoped overview (`itemId`) ignores it."
                                 )
                             )
@@ -481,6 +488,10 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                 val limitVal = optionalInt(params, "limit")
                 if (limitVal != null && limitVal < 1) {
                     throw ToolValidationException("limit must be at least 1")
+                }
+                // FTS mode rejects an over-cap limit; list mode still caps it at 100.
+                if (limitVal != null && limitVal > MAX_FTS_RESULTS && optionalString(params, "query") != null) {
+                    throw ToolValidationException(SearchService.limitTooLargeMessage(limitVal))
                 }
                 val offsetVal = optionalInt(params, "offset")
                 if (offsetVal != null && offsetVal < 0) {
@@ -749,12 +760,14 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
     /**
      * Full-text search over work-item titles and summaries via FTS5.
      *
-     * Sanitizes the user query, delegates to [WorkItemRepository.ftsSearch], and
-     * serializes the [SearchResult] into the response shape defined in plan §7:
+     * Parses the params, delegates to the shared
+     * [io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService] (item corpus, unrestricted
+     * access), and serializes the [SearchResult] into the response shape defined in plan §7:
      * `{ hits: [...], totalHits, nextOffset, truncated }`.
      *
-     * Each hit includes `kind`, `itemId`, `field`, `snippet`, `score`, `matchedIn`, and
-     * optionally `explain` (raw FTS5 ranks, only when `explain=true`).
+     * Each hit includes `kind`, `itemId`, `title` (when the item could be read), `field` (the field that
+     * contains a match), `snippet`, `score`, `matchedIn`, and optionally `explain` (raw FTS5 ranks, only
+     * when `explain=true`).
      *
      * @param rawQuery The user-supplied (unsanitized) search string from the `query` param.
      */
@@ -766,12 +779,13 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
         val matchModeStr = optionalString(params, "matchMode")?.lowercase() ?: "auto"
         val includeSnippet = optionalBoolean(params, "snippet", true)
         val includeExplain = optionalBoolean(params, "explain", false)
-        val limit = (optionalInt(params, "limit") ?: 20).coerceIn(1, 100)
+        // Range-checked in validateParams (1..MAX_FTS_RESULTS); the service re-checks.
+        val limit = optionalInt(params, "limit") ?: SearchRequest.DEFAULT_LIMIT
         val offset = (optionalInt(params, "offset") ?: 0).coerceAtLeast(0)
 
         // Parse optional scope object
         val scopeJson = (params as? JsonObject)?.get("scope") as? JsonObject
-        val scope: SearchScope? =
+        val scope: ItemSearchScope? =
             if (scopeJson != null) {
                 val ancestorIdStr = scopeJson["ancestorId"]?.jsonPrimitive?.contentOrNull
                 val itemIdStr = scopeJson["itemId"]?.jsonPrimitive?.contentOrNull
@@ -805,7 +819,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                     } else {
                         null
                     }
-                SearchScope(itemId = scopeItemId, ancestorId = ancestorId, tags = scopeTags, role = scopeRole)
+                ItemSearchScope(itemId = scopeItemId, ancestorId = ancestorId, tags = scopeTags, role = scopeRole)
             } else {
                 null
             }
@@ -818,39 +832,25 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                 else -> SearchMatchMode.AUTO
             }
 
-        // Sanitize the query, with trigram-specific validation when relevant.
-        val sanitizedQuery: String =
+        // MCP carries no principal scope yet: the one explicit unrestricted() call site.
+        val request =
+            SearchRequest(
+                query = rawQuery,
+                corpus = Corpus.ITEM,
+                matchMode = matchMode,
+                itemId = scope?.itemId,
+                ancestorId = scope?.ancestorId,
+                roles = scope?.role?.let { setOf(it) },
+                tags = scope?.tags,
+                limit = limit,
+                offset = offset,
+                access = AccessScope.unrestricted(),
+            )
+        val searchResult: SearchResult =
             try {
-                when (matchMode) {
-                    SearchMatchMode.SUBSTRING ->
-                        FtsQuerySanitizer.sanitizeForTrigram(rawQuery)
-                            ?: return errorResponse(
-                                "Search query is empty. Provide at least one search term.",
-                                LegacyMcpCode.VALIDATION_ERROR
-                            )
-                    SearchMatchMode.AUTO, SearchMatchMode.TEXT ->
-                        FtsQuerySanitizer.sanitize(rawQuery)
-                            ?: return errorResponse(
-                                "Search query is empty. Provide at least one search term.",
-                                LegacyMcpCode.VALIDATION_ERROR
-                            )
-                }
-            } catch (e: IllegalArgumentException) {
+                context.searchService.search(request)
+            } catch (e: SearchValidationException) {
                 return errorResponse(e.message ?: "Invalid search query", LegacyMcpCode.VALIDATION_ERROR)
-            }
-
-        // Delegate to repository, dispatched via the WorkItemRepository interface (a read; the
-        // write services record their own event rows, so no decorator sits in front of it).
-        val repo = context.workItemRepository()
-        val searchResult =
-            try {
-                repo.ftsSearch(
-                    sanitizedFtsQuery = sanitizedQuery,
-                    matchMode = matchMode,
-                    scope = scope,
-                    limit = limit,
-                    offset = offset,
-                )
             } catch (e: Exception) {
                 e.rethrowIfCancellation()
                 return errorResponse(
@@ -866,6 +866,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                     buildJsonObject {
                         put("kind", JsonPrimitive(hit.kind))
                         put("itemId", JsonPrimitive(hit.itemId.toString()))
+                        hit.title?.let { put("title", JsonPrimitive(it)) }
                         put("field", JsonPrimitive(hit.field))
                         if (includeSnippet) {
                             put("snippet", JsonPrimitive(hit.snippet))
@@ -881,7 +882,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                                 buildJsonObject {
                                     put("trigramRank", if (hit.trigramRank != null) JsonPrimitive(hit.trigramRank) else JsonNull)
                                     put("textRank", if (hit.textRank != null) JsonPrimitive(hit.textRank) else JsonNull)
-                                    put("rrfK", JsonPrimitive(60))
+                                    put("rrfK", JsonPrimitive(Ranker.K))
                                 }
                             )
                         }
@@ -1486,3 +1487,11 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
         }
     }
 }
+
+/** The parsed `scope` object of an FTS-mode `query_items` search. */
+private data class ItemSearchScope(
+    val itemId: UUID?,
+    val ancestorId: UUID?,
+    val tags: List<String>?,
+    val role: Role?,
+)
