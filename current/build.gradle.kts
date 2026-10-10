@@ -96,6 +96,8 @@ dependencies {
     implementation(libs.ktor.server.sse)
     // CORS plugin — env-driven origin allowlist for REST API cross-origin requests
     implementation(libs.ktor.server.cors)
+    // StatusPages — REST /api/v1 safety net: an uncaught exception becomes a 500 internal ErrorDto, never exception text
+    implementation(libs.ktor.server.status.pages)
     // ContentNegotiation — installs before mcpStreamableHttp so MCP SDK sees CN already present
     implementation(libs.ktor.server.content.negotiation)
     // kotlinx-serialization JSON adapter for Ktor ContentNegotiation

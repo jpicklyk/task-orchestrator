@@ -13,19 +13,19 @@ import io.github.jpicklyk.mcptask.current.application.tools.ActorParseResult
 import io.github.jpicklyk.mcptask.current.application.tools.BaseToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ElementOutcome
 import io.github.jpicklyk.mcptask.current.application.tools.ElementResult
-import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
 import io.github.jpicklyk.mcptask.current.application.tools.KeyedCall
+import io.github.jpicklyk.mcptask.current.application.tools.LegacyMcpCode
+import io.github.jpicklyk.mcptask.current.application.tools.LegacyMcpErrorMapper
 import io.github.jpicklyk.mcptask.current.application.tools.PolicyResolution
 import io.github.jpicklyk.mcptask.current.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.current.application.tools.putOutcomeKindAndCode
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
@@ -399,9 +399,9 @@ Call only in claim-mode deployments, to take ownership before working an item.
             when (actorResult) {
                 is ActorParseResult.Success -> Pair(actorResult.claim, actorResult.verification)
                 is ActorParseResult.Absent ->
-                    return errorResponse("actor is required for claim_item", ErrorCodes.VALIDATION_ERROR)
+                    return errorResponse("actor is required for claim_item", LegacyMcpCode.VALIDATION_ERROR)
                 is ActorParseResult.Invalid ->
-                    return errorResponse(actorResult.error, ErrorCodes.VALIDATION_ERROR)
+                    return errorResponse(actorResult.error, LegacyMcpCode.VALIDATION_ERROR)
             }
 
         // Resolve trusted identity via DegradedModePolicy.
@@ -491,8 +491,7 @@ Call only in claim-mode deployments, to take ownership before working an item.
     private fun mismatchOutcome(error: DomainError): JsonObject =
         buildJsonObject {
             put("outcome", JsonPrimitive(KeyedCall.IDEMPOTENCY_MISMATCH_CODE))
-            put("kind", JsonPrimitive(ErrorKind.PERMANENT.toJsonString()))
-            put("code", JsonPrimitive(KeyedCall.IDEMPOTENCY_MISMATCH_CODE))
+            putOutcomeKindAndCode(LegacyMcpCode.IDEMPOTENCY_MISMATCH)
             put("message", JsonPrimitive(error.message))
         }
 
@@ -541,6 +540,7 @@ Call only in claim-mode deployments, to take ownership before working an item.
             if (idError != null) {
                 return buildJsonObject {
                     put("outcome", JsonPrimitive("not_found"))
+                    putOutcomeKindAndCode(LegacyMcpCode.NOT_FOUND)
                     put("error", JsonPrimitive("Failed to resolve selector.parentId: $selectorParentIdStr"))
                     claimRef?.let { put("claimRef", JsonPrimitive(it)) }
                 }
@@ -560,8 +560,7 @@ Call only in claim-mode deployments, to take ownership before working an item.
                         // db_error transient outcome rather than guessing.
                         buildJsonObject {
                             put("outcome", JsonPrimitive("db_error"))
-                            put("kind", JsonPrimitive(ErrorKind.TRANSIENT.toJsonString()))
-                            put("code", JsonPrimitive("db_error"))
+                            putOutcomeKindAndCode(LegacyMcpCode.DB_ERROR)
                             put("message", JsonPrimitive("Database error during selector recommendation"))
                             claimRef?.let { put("claimRef", JsonPrimitive(it)) }
                         }
@@ -598,8 +597,7 @@ Call only in claim-mode deployments, to take ownership before working an item.
                         // existing db_error transient outcome rather than guessing.
                         buildJsonObject {
                             put("outcome", JsonPrimitive("db_error"))
-                            put("kind", JsonPrimitive(ErrorKind.TRANSIENT.toJsonString()))
-                            put("code", JsonPrimitive("db_error"))
+                            putOutcomeKindAndCode(LegacyMcpCode.DB_ERROR)
                             put("message", JsonPrimitive("Database error while explaining empty selector result"))
                             claimRef?.let { put("claimRef", JsonPrimitive(it)) }
                         }
@@ -610,8 +608,7 @@ Call only in claim-mode deployments, to take ownership before working an item.
                 // queue_empty: nothing matches the selector filters at all — permanent.
                 buildJsonObject {
                     put("outcome", JsonPrimitive("queue_empty"))
-                    put("kind", JsonPrimitive(ErrorKind.PERMANENT.toJsonString()))
-                    put("code", JsonPrimitive("queue_empty"))
+                    putOutcomeKindAndCode(LegacyMcpCode.QUEUE_EMPTY)
                     claimRef?.let { put("claimRef", JsonPrimitive(it)) }
                 }
             } else {
@@ -619,8 +616,7 @@ Call only in claim-mode deployments, to take ownership before working an item.
                 // Aggregate counts only, never item/agent identities.
                 buildJsonObject {
                     put("outcome", JsonPrimitive("none_eligible"))
-                    put("kind", JsonPrimitive(ErrorKind.TRANSIENT.toJsonString()))
-                    put("code", JsonPrimitive("none_eligible"))
+                    putOutcomeKindAndCode(LegacyMcpCode.NONE_ELIGIBLE)
                     put("retryAfterMs", JsonPrimitive(NONE_ELIGIBLE_RETRY_AFTER_MS))
                     put(
                         "excluded",
@@ -650,6 +646,7 @@ Call only in claim-mode deployments, to take ownership before working an item.
             return buildJsonObject {
                 put("itemId", JsonPrimitive(itemIdStr))
                 put("outcome", JsonPrimitive("not_found"))
+                putOutcomeKindAndCode(LegacyMcpCode.NOT_FOUND)
                 put("error", JsonPrimitive("Failed to resolve item ID: $itemIdStr"))
                 claimRef?.let { put("claimRef", JsonPrimitive(it)) }
             }
@@ -730,21 +727,13 @@ Call only in claim-mode deployments, to take ownership before working an item.
                 // or by another agent between resolution and claim (ID path). Emit ToolError
                 // fields (kind, retryAfterMs, contendedItemId) so agents can make retry
                 // decisions without string-parsing. Tiered disclosure: no competing agent identity.
-                val alreadyClaimedError =
-                    ToolError(
-                        kind = ErrorKind.TRANSIENT,
-                        code = "already_claimed",
-                        message = "Item ${claimResult.itemId} is already claimed by another agent",
-                        retryAfterMs = claimResult.retryAfterMs,
-                        contendedItemId = claimResult.itemId
-                    )
                 buildJsonObject {
                     put("itemId", JsonPrimitive(claimResult.itemId.toString()))
                     put("outcome", JsonPrimitive("already_claimed"))
-                    put("kind", JsonPrimitive(alreadyClaimedError.kind.toJsonString()))
-                    put("contendedItemId", JsonPrimitive(alreadyClaimedError.contendedItemId!!.toString()))
+                    put("kind", JsonPrimitive(LegacyMcpErrorMapper.kindOf(LegacyMcpCode.ALREADY_CLAIMED).toJsonString()))
+                    put("contendedItemId", JsonPrimitive(claimResult.itemId.toString()))
                     // Tiered disclosure: retryAfterMs only — no competing agent identity.
-                    alreadyClaimedError.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
+                    claimResult.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
                     claimRef?.let { put("claimRef", JsonPrimitive(it)) }
                 }
             }
@@ -753,6 +742,7 @@ Call only in claim-mode deployments, to take ownership before working an item.
                 buildJsonObject {
                     put("itemId", JsonPrimitive(claimResult.itemId.toString()))
                     put("outcome", JsonPrimitive("not_found"))
+                    putOutcomeKindAndCode(LegacyMcpCode.NOT_FOUND)
                     claimRef?.let { put("claimRef", JsonPrimitive(it)) }
                 }
 
@@ -760,24 +750,17 @@ Call only in claim-mode deployments, to take ownership before working an item.
                 buildJsonObject {
                     put("itemId", JsonPrimitive(claimResult.itemId.toString()))
                     put("outcome", JsonPrimitive("terminal_item"))
+                    putOutcomeKindAndCode(LegacyMcpCode.TERMINAL_ITEM)
                     claimRef?.let { put("claimRef", JsonPrimitive(it)) }
                 }
 
             null -> {
-                val dbError =
-                    ToolError(
-                        kind = ErrorKind.TRANSIENT,
-                        code = "db_error",
-                        message = "Database error during claim operation",
-                        contendedItemId = itemId
-                    )
                 buildJsonObject {
                     put("itemId", JsonPrimitive(itemId.toString()))
                     put("outcome", JsonPrimitive("db_error"))
-                    put("kind", JsonPrimitive(dbError.kind.toJsonString()))
-                    put("code", JsonPrimitive(dbError.code))
-                    put("message", JsonPrimitive(dbError.message))
-                    put("contendedItemId", JsonPrimitive(dbError.contendedItemId!!.toString()))
+                    putOutcomeKindAndCode(LegacyMcpCode.DB_ERROR)
+                    put("message", JsonPrimitive("Database error during claim operation"))
+                    put("contendedItemId", JsonPrimitive(itemId.toString()))
                     claimRef?.let { put("claimRef", JsonPrimitive(it)) }
                 }
             }
@@ -799,6 +782,7 @@ Call only in claim-mode deployments, to take ownership before working an item.
             return buildJsonObject {
                 put("itemId", JsonPrimitive(itemIdStr))
                 put("outcome", JsonPrimitive("not_found"))
+                putOutcomeKindAndCode(LegacyMcpCode.NOT_FOUND)
                 put("error", JsonPrimitive("Failed to resolve item ID: $itemIdStr"))
             }
         }
@@ -823,29 +807,23 @@ Call only in claim-mode deployments, to take ownership before working an item.
                 buildJsonObject {
                     put("itemId", JsonPrimitive(result.itemId.toString()))
                     put("outcome", JsonPrimitive("not_claimed_by_you"))
+                    putOutcomeKindAndCode(LegacyMcpCode.NOT_CLAIMED_BY_YOU)
                 }
 
             is ReleaseResult.NotFound ->
                 buildJsonObject {
                     put("itemId", JsonPrimitive(result.itemId.toString()))
                     put("outcome", JsonPrimitive("not_found"))
+                    putOutcomeKindAndCode(LegacyMcpCode.NOT_FOUND)
                 }
 
             null -> {
-                val dbError =
-                    ToolError(
-                        kind = ErrorKind.TRANSIENT,
-                        code = "db_error",
-                        message = "Database error during release operation",
-                        contendedItemId = itemId
-                    )
                 buildJsonObject {
                     put("itemId", JsonPrimitive(itemId.toString()))
                     put("outcome", JsonPrimitive("db_error"))
-                    put("kind", JsonPrimitive(dbError.kind.toJsonString()))
-                    put("code", JsonPrimitive(dbError.code))
-                    put("message", JsonPrimitive(dbError.message))
-                    put("contendedItemId", JsonPrimitive(dbError.contendedItemId!!.toString()))
+                    putOutcomeKindAndCode(LegacyMcpCode.DB_ERROR)
+                    put("message", JsonPrimitive("Database error during release operation"))
+                    put("contendedItemId", JsonPrimitive(itemId.toString()))
                 }
             }
         }
@@ -937,12 +915,7 @@ Call only in claim-mode deployments, to take ownership before working an item.
     }
 
     private fun buildRejectedByPolicyResponse(reason: String): JsonElement =
-        errorResponse(
-            ToolError.permanent(
-                code = "rejected_by_policy",
-                message = "Actor rejected by degradedModePolicy: $reason"
-            )
-        )
+        errorResponse("Actor rejected by degradedModePolicy: $reason", LegacyMcpCode.REJECTED_BY_POLICY)
 
     companion object {
         /**

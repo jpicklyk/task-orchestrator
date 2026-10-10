@@ -10,13 +10,13 @@ import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellat
 import io.github.jpicklyk.mcptask.current.application.telemetry.CallLogFields
 import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetry
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
-import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
+import io.github.jpicklyk.mcptask.current.application.tools.LegacyMcpCode
+import io.github.jpicklyk.mcptask.current.application.tools.LegacyMcpErrorMapper
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
-import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.github.jpicklyk.mcptask.current.infrastructure.logging.MdcValues
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.PersistenceFaults
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -189,10 +189,7 @@ class McpToolAdapter(
                             ignored.rethrowIfCancellation()
                         }
                         logResponseSize(toolDefinition.name, success = false, responseChars = message.length)
-                        val errorEnvelope =
-                            ResponseUtil.createErrorResponse(
-                                ToolError.permanent(code = ErrorCodes.VALIDATION_ERROR, message = message)
-                            )
+                        val errorEnvelope = LegacyMcpErrorMapper.envelope(message, LegacyMcpCode.VALIDATION_ERROR)
                         CallToolResult(
                             content = listOf(TextContent(text = message)),
                             isError = true,
@@ -220,14 +217,12 @@ class McpToolAdapter(
                             ignored.rethrowIfCancellation()
                         }
                         logResponseSize(toolDefinition.name, success = false, responseChars = message.length)
-                        // Reuse the same ToolError -> envelope -> structured-payload pipeline normal tool
+                        // Reuse the same mapper -> envelope -> structured-payload pipeline normal tool
                         // failures use below, rather than hand-building the {kind, code, message} object —
                         // the wire shape (isError, structuredContent.error.{kind,code,message}, no
-                        // retryAfterMs) stays identical.
-                        val errorEnvelope =
-                            ResponseUtil.createErrorResponse(
-                                ToolError.transient(code = PerRootConfigUnavailableException.CODE, message = message)
-                            )
+                        // retryAfterMs) stays identical. config_unavailable classifies as the catalog's
+                        // internal code, whose kind is transient.
+                        val errorEnvelope = LegacyMcpErrorMapper.envelope(message, LegacyMcpCode.CONFIG_UNAVAILABLE)
                         CallToolResult(
                             content = listOf(TextContent(text = message)),
                             isError = true,
@@ -241,8 +236,14 @@ class McpToolAdapter(
                             val dbMessage = "Database error in '${toolDefinition.name}': ${LegacyFaults.message(e)}"
                             logger.warn(dbMessage, e)
                             logResponseSize(toolDefinition.name, success = false, responseChars = dbMessage.length)
+                            // The wire code stays DATABASE_ERROR; the kind comes from the translated fault (busy or a
+                            // pool timeout: shedding, duplicate or foreign key: permanent, anything else: transient).
                             val dbEnvelope =
-                                ResponseUtil.createErrorResponse(ToolError.permanent(code = ErrorCodes.DATABASE_ERROR, message = dbMessage))
+                                LegacyMcpErrorMapper.envelope(
+                                    dbMessage,
+                                    LegacyMcpCode.DATABASE_ERROR,
+                                    cause = PersistenceFaults.translate(e)
+                                )
                             return@withContext CallToolResult(
                                 content = listOf(TextContent(text = dbMessage)),
                                 isError = true,
@@ -265,9 +266,12 @@ class McpToolAdapter(
                             ignored.rethrowIfCancellation()
                         }
                         logResponseSize(toolDefinition.name, success = false, responseChars = message.length)
+                        // The text is unchanged; the structured payload now carries {code, message, kind} too.
+                        val internalEnvelope = LegacyMcpErrorMapper.envelope(message, LegacyMcpCode.INTERNAL_ERROR)
                         CallToolResult(
                             content = listOf(TextContent(text = message)),
-                            isError = true
+                            isError = true,
+                            structuredContent = ResponseUtil.extractErrorPayload(internalEnvelope)
                         )
                     }
                 }
@@ -308,7 +312,7 @@ class McpToolAdapter(
                     arguments
                 }
             val errorCode =
-                if (isError) CallLogFields.errorCode(structured) ?: ErrorCodes.INTERNAL_ERROR else null
+                if (isError) CallLogFields.errorCode(structured) ?: LegacyMcpCode.INTERNAL_ERROR.wire else null
             val data = if (isError) null else structured
             callLog.submit(
                 CallLogFields.record(

@@ -11,10 +11,11 @@ import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.PlanDocumentListResponseDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.PlanDocumentResponseDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.PlanDocumentSummaryDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
@@ -65,17 +66,14 @@ fun Route.planDocumentRoutes(
                 val rootId = call.parseRootId() ?: return@get
 
                 if (!enforceScopeForItem(call, rootId, workItemRepo)) {
-                    call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for root $rootId"))
+                    call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for root $rootId")
                     return@get
                 }
 
                 val statusFilter =
                     call.request.queryParameters["status"]?.let { raw ->
                         runCatchingNonCancellation { PlanDocumentStatus.fromDbValue(raw) }.getOrElse {
-                            call.respond(
-                                HttpStatusCode.BadRequest,
-                                ErrorDto("bad_request", "Invalid status '$raw'; expected pending or adopted"),
-                            )
+                            call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid status '$raw'; expected pending or adopted")
                             return@get
                         }
                     }
@@ -85,7 +83,7 @@ fun Route.planDocumentRoutes(
                         legacyRead({
                             return@run run {
                                 planDocumentLogger.warn("GET /roots/{}/plans DB error: {}", rootId, it)
-                                call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to list plan documents"))
+                                call.respondError(LegacyRestCode.DB_ERROR, "Failed to list plan documents")
                             }
                         }) { service.list(rootId, statusFilter) }
                     call.respond(
@@ -119,7 +117,7 @@ fun Route.planDocumentRoutes(
                     val slug = call.parseSlug() ?: return@get
 
                     if (!enforceScopeForItem(call, rootId, workItemRepo)) {
-                        call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for root $rootId"))
+                        call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for root $rootId")
                         return@get
                     }
 
@@ -128,15 +126,12 @@ fun Route.planDocumentRoutes(
                             legacyRead({
                                 return@run run {
                                     planDocumentLogger.warn("GET /roots/{}/plans/{} DB error: {}", rootId, slug, it)
-                                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to read plan document"))
+                                    call.respondError(LegacyRestCode.DB_ERROR, "Failed to read plan document")
                                 }
                             }) { service.get(rootId, slug) }
                         val document =
                             result ?: run {
-                                call.respond(
-                                    HttpStatusCode.NotFound,
-                                    ErrorDto("not_found", "No plan document found for root $rootId, slug $slug"),
-                                )
+                                call.respondError(LegacyRestCode.NOT_FOUND, "No plan document found for root $rootId, slug $slug")
                                 return@get
                             }
                         call.respond(HttpStatusCode.OK, document.toResponseDto(includeBody = true))
@@ -151,7 +146,7 @@ fun Route.planDocumentRoutes(
                     val slug = call.parseSlug() ?: return@put
 
                     if (!enforceScopeForItem(call, rootId, workItemRepo)) {
-                        call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for root $rootId"))
+                        call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for root $rootId")
                         return@put
                     }
 
@@ -166,40 +161,28 @@ fun Route.planDocumentRoutes(
                         is PlanDocumentStashResult.Success ->
                             call.respond(HttpStatusCode.OK, result.document.toResponseDto(includeBody = false))
                         is PlanDocumentStashResult.NotFound ->
-                            call.respond(
-                                HttpStatusCode.NotFound,
-                                ErrorDto("not_found", "Root WorkItem not found: ${result.rootItemId}"),
-                            )
+                            call.respondError(LegacyRestCode.NOT_FOUND, "Root WorkItem not found: ${result.rootItemId}")
                         is PlanDocumentStashResult.NotDepthZero ->
-                            call.respond(
-                                HttpStatusCode.UnprocessableEntity,
-                                ErrorDto(
-                                    "validation_error",
-                                    "rootId must reference a depth-0 (root) WorkItem; '${result.rootItemId}' has depth ${result.depth}",
-                                ),
+                            call.respondError(
+                                LegacyRestCode.VALIDATION_ERROR_UNPROCESSABLE,
+                                "rootId must reference a depth-0 (root) WorkItem; '${result.rootItemId}' has depth ${result.depth}"
                             )
                         is PlanDocumentStashResult.TooLarge ->
                             // Defensive — the pre-check above already covers this in practice.
-                            call.respond(
-                                HttpStatusCode.PayloadTooLarge,
-                                ErrorDto(
-                                    "payload_too_large",
-                                    "body is ${result.sizeBytes} bytes, exceeds the ${result.maxBytes} byte limit",
-                                ),
+                            call.respondError(
+                                LegacyRestCode.PAYLOAD_TOO_LARGE,
+                                "body is ${result.sizeBytes} bytes, exceeds the ${result.maxBytes} byte limit"
                             )
                         is PlanDocumentStashResult.AdoptedConflict ->
-                            call.respond(
-                                HttpStatusCode.Conflict,
-                                ErrorDto(
-                                    "adopted_conflict",
-                                    "slug '$slug' has already been adopted" +
-                                        (result.existing.adoptedByItemId?.let { " by item $it" } ?: "") +
-                                        "; adoption is one-way and cannot be overwritten",
-                                ),
+                            call.respondError(
+                                LegacyRestCode.ADOPTED_CONFLICT,
+                                "slug '$slug' has already been adopted" +
+                                    (result.existing.adoptedByItemId?.let { " by item $it" } ?: "") +
+                                    "; adoption is one-way and cannot be overwritten"
                             )
                         is PlanDocumentStashResult.RepositoryError -> {
                             planDocumentLogger.warn("PUT /roots/{}/plans/{} DB error: {}", rootId, slug, result.message)
-                            call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to store plan document"))
+                            call.respondError(LegacyRestCode.DB_ERROR, "Failed to store plan document")
                         }
                     }
                 }
@@ -225,11 +208,11 @@ private fun PlanDocument.toResponseDto(includeBody: Boolean) =
 private suspend fun ApplicationCall.parseRootId(): UUID? {
     val rawId =
         parameters["rootId"] ?: run {
-            respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing rootId"))
+            respondError(LegacyRestCode.BAD_REQUEST, "Missing rootId")
             return null
         }
     return runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-        respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+        respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
         null
     }
 }
@@ -238,7 +221,7 @@ private suspend fun ApplicationCall.parseRootId(): UUID? {
 private suspend fun ApplicationCall.parseSlug(): String? {
     val slug = parameters["slug"]?.takeIf { it.isNotBlank() }
     if (slug == null) {
-        respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing slug"))
+        respondError(LegacyRestCode.BAD_REQUEST, "Missing slug")
         return null
     }
     return slug

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.JsonElement
@@ -124,9 +125,14 @@ enum class ToolCategory(
 /**
  * Exception thrown when tool parameter validation fails.
  * Contains a descriptive message indicating which parameter(s) are invalid and why.
+ *
+ * [errorCode] classifies the failure for a per-element failure entry (`errorCode`/`errorKind`); the message and
+ * the top-level 3.x wire code are unaffected. It is `invalid_request` unless a site names a more precise cause
+ * (an id that resolves to nothing is `not_found`).
  */
 class ToolValidationException(
-    message: String
+    message: String,
+    val errorCode: ErrorCode = ErrorCode.INVALID_REQUEST
 ) : RuntimeException(message)
 
 /**

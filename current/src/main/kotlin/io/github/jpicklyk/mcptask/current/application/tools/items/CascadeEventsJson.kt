@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceCascadeEvent
+import io.github.jpicklyk.mcptask.current.application.tools.LegacyMcpCode
+import io.github.jpicklyk.mcptask.current.application.tools.LegacyMcpErrorMapper
 import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
@@ -57,6 +59,6 @@ internal fun configUnavailableFailure(
     buildJsonObject {
         put(idKey, idValue)
         put("error", JsonPrimitive(e.message))
-        put("errorKind", JsonPrimitive("transient"))
-        put("errorCode", JsonPrimitive(PerRootConfigUnavailableException.CODE))
+        put("errorKind", JsonPrimitive(LegacyMcpErrorMapper.kindOf(LegacyMcpCode.CONFIG_UNAVAILABLE).toJsonString()))
+        put("errorCode", JsonPrimitive(LegacyMcpCode.CONFIG_UNAVAILABLE.wire))
     }

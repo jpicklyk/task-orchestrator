@@ -9,8 +9,10 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowedItemIdsForScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.RoleTransitionDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.DB_QUERY_FAILED
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.buildPageDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.pageParamsOrRespond
@@ -61,27 +63,27 @@ fun Route.transitionRoutes(
         get("/items/{id}/transitions") {
             val rawId =
                 call.parameters["id"] ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
                     return@get
                 }
             val id =
                 runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
                     return@get
                 }
 
             val itemResult =
                 legacyRead({
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@get
                 }) { workItemRepo.getById(id) }
             if (itemResult == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
+                call.respondError(LegacyRestCode.NOT_FOUND, "Item $id not found")
                 return@get
             }
 
             if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
+                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
                 return@get
             }
 
@@ -89,7 +91,7 @@ fun Route.transitionRoutes(
             val result =
                 legacyRead({
                     transitionLogger.warn("GET /items/{}/transitions DB error: {}", id, it)
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@get
                 }) { transitionRepo.findByItemId(id, limit = pp.pageSize + 1, offset = pp.offset) }
             run {
@@ -119,7 +121,7 @@ fun Route.transitionRoutes(
             val result =
                 legacyRead({
                     transitionLogger.warn("GET /transitions DB error: {}", it)
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@get
                 }) { transitionRepo.findSince(since, limit = fetchLimit) }
 

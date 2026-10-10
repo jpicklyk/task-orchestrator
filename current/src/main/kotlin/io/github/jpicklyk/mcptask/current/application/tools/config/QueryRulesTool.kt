@@ -193,7 +193,7 @@ key, never the body. Takes only `rootId` -- `key`/`itemId`/`noteKey` are rejecte
         when (val operation = requireString(params, "operation")) {
             "get" -> executeGet(params, context)
             "list" -> executeList(params, context)
-            else -> errorResponse("Invalid operation: $operation. Must be get or list", ErrorCodes.VALIDATION_ERROR)
+            else -> errorResponse("Invalid operation: $operation. Must be get or list", LegacyMcpCode.VALIDATION_ERROR)
         }
 
     override fun userSummary(
@@ -249,30 +249,30 @@ key, never the body. Takes only `rootId` -- `key`/`itemId`/`noteKey` are rejecte
     ): JsonElement {
         val item: WorkItem =
             context.workItemRepository().getById(itemId)
-                ?: return errorResponse("WorkItem not found: $itemId", ErrorCodes.RESOURCE_NOT_FOUND)
+                ?: return errorResponse("WorkItem not found: $itemId", LegacyMcpCode.RESOURCE_NOT_FOUND)
         val rootId =
             item.rootId ?: return errorResponse(
                 "Item $itemId has no rootId; cannot resolve a rule root",
-                ErrorCodes.VALIDATION_ERROR
+                LegacyMcpCode.VALIDATION_ERROR
             )
 
         val schema =
             context.resolveSchema(item) ?: return errorResponse(
                 "No schema resolved for item $itemId; cannot resolve noteKey '$noteKey'",
-                ErrorCodes.RESOURCE_NOT_FOUND
+                LegacyMcpCode.RESOURCE_NOT_FOUND
             )
         val entry = schema.notes.firstOrNull { it.key == noteKey }
         val skill = entry?.skill
         if (entry == null || skill == null) {
             return errorResponse(
                 "Note key '$noteKey' not found in item $itemId's effective schema, or has no skill pointer",
-                ErrorCodes.RESOURCE_NOT_FOUND
+                LegacyMcpCode.RESOURCE_NOT_FOUND
             )
         }
         if (!RuleService.KEY_PATTERN.matches(skill)) {
             return errorResponse(
                 "Resolved skill '$skill' is not a valid rule key",
-                ErrorCodes.VALIDATION_ERROR
+                LegacyMcpCode.VALIDATION_ERROR
             )
         }
 
@@ -318,19 +318,19 @@ key, never the body. Takes only `rootId` -- `key`/`itemId`/`noteKey` are rejecte
                     }
                 )
             is RuleGetResult.RootNotFound ->
-                errorResponse("Root WorkItem not found: ${result.rootId}", ErrorCodes.RESOURCE_NOT_FOUND)
+                errorResponse("Root WorkItem not found: ${result.rootId}", LegacyMcpCode.RESOURCE_NOT_FOUND)
             is RuleGetResult.NotDepthZero ->
                 errorResponse(
                     "rootId must reference a depth-0 (root) WorkItem; '${result.rootId}' has depth ${result.depth}",
-                    ErrorCodes.VALIDATION_ERROR
+                    LegacyMcpCode.VALIDATION_ERROR
                 )
             is RuleGetResult.RuleNotFound ->
                 errorResponse(
                     "No rule '${result.key}' for root ${result.rootId}",
-                    ErrorCodes.RESOURCE_NOT_FOUND
+                    LegacyMcpCode.RESOURCE_NOT_FOUND
                 )
             is RuleGetResult.RepositoryError ->
-                errorResponse("Failed to read rule: ${result.message}", ErrorCodes.DATABASE_ERROR)
+                errorResponse("Failed to read rule: ${result.message}", LegacyMcpCode.DATABASE_ERROR, cause = result.error)
         }
 
     // ──────────────────────────────────────────────
@@ -365,14 +365,14 @@ key, never the body. Takes only `rootId` -- `key`/`itemId`/`noteKey` are rejecte
                     }
                 )
             is RuleListResult.RootNotFound ->
-                errorResponse("Root WorkItem not found: ${result.rootId}", ErrorCodes.RESOURCE_NOT_FOUND)
+                errorResponse("Root WorkItem not found: ${result.rootId}", LegacyMcpCode.RESOURCE_NOT_FOUND)
             is RuleListResult.NotDepthZero ->
                 errorResponse(
                     "rootId must reference a depth-0 (root) WorkItem; '${result.rootId}' has depth ${result.depth}",
-                    ErrorCodes.VALIDATION_ERROR
+                    LegacyMcpCode.VALIDATION_ERROR
                 )
             is RuleListResult.RepositoryError ->
-                errorResponse("Failed to list rules: ${result.message}", ErrorCodes.DATABASE_ERROR)
+                errorResponse("Failed to list rules: ${result.message}", LegacyMcpCode.DATABASE_ERROR, cause = result.error)
         }
     }
 

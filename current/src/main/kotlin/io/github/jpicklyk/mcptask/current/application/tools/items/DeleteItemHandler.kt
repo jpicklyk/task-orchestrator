@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.KeyedCall
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.current.application.tools.putElementError
 import io.github.jpicklyk.mcptask.current.application.tools.resolveWorkItemIdString
 import io.github.jpicklyk.mcptask.current.application.tools.runElement
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
@@ -49,7 +50,7 @@ class DeleteItemHandler {
         for ((index, element) in idsArray.withIndex()) {
             val idStr = (element as? JsonPrimitive)?.content
             if (idStr == null) {
-                failures.add(deleteFailure("null", "Each ID must be a string"))
+                failures.add(deleteFailure("null", "Each ID must be a string", ErrorCode.INVALID_REQUEST))
                 continue
             }
 
@@ -57,7 +58,7 @@ class DeleteItemHandler {
                 try {
                     resolveWorkItemIdString(idStr, context, "'id'")
                 } catch (e: ToolValidationException) {
-                    failures.add(deleteFailure(idStr, e.message ?: "Invalid ID: $idStr"))
+                    failures.add(deleteFailure(idStr, e.message ?: "Invalid ID: $idStr", e.errorCode))
                     continue
                 }
 
@@ -83,11 +84,15 @@ class DeleteItemHandler {
                                         deleteFailure(
                                             idStr,
                                             "Item '$idStr' has $childCount child item(s). " +
-                                                "Use recursive=true to delete the item and all its descendants."
+                                                "Use recursive=true to delete the item and all its descendants.",
+                                            error.code
                                         )
                                     )
-                                error.code == ErrorCode.NOT_FOUND -> ElementResult.Failed(deleteFailure(idStr, "Item '$idStr' not found"))
-                                else -> ElementResult.Failed(deleteFailure(idStr, LegacyFaults.message(error)))
+                                error.code == ErrorCode.NOT_FOUND ->
+                                    ElementResult.Failed(
+                                        deleteFailure(idStr, "Item '$idStr' not found", ErrorCode.NOT_FOUND)
+                                    )
+                                else -> ElementResult.Failed(deleteFailure(idStr, LegacyFaults.message(error), error.code))
                             }
                         }
                     }
@@ -124,11 +129,11 @@ class DeleteItemHandler {
     private fun deleteFailure(
         id: String,
         message: String,
-        code: ErrorCode? = null
+        code: ErrorCode
     ): JsonObject =
         buildJsonObject {
             put("id", JsonPrimitive(id))
             put("error", JsonPrimitive(message))
-            if (code == ErrorCode.IDEMPOTENCY_MISMATCH) put("errorCode", JsonPrimitive(KeyedCall.IDEMPOTENCY_MISMATCH_CODE))
+            putElementError(code)
         }
 }

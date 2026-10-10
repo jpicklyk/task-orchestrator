@@ -102,7 +102,7 @@ class BaseToolDefinitionTest {
 
             fun testErrorResponse(
                 msg: String,
-                code: String = ErrorCodes.VALIDATION_ERROR
+                code: LegacyMcpCode = LegacyMcpCode.VALIDATION_ERROR
             ) = errorResponse(msg, code)
 
             fun testValidateIdOrPrefix(
@@ -599,7 +599,7 @@ class BaseToolDefinitionTest {
 
     @Test
     fun `errorResponse includes code and message in error envelope`() {
-        val response = tool.testErrorResponse("Something went wrong", ErrorCodes.DATABASE_ERROR)
+        val response = tool.testErrorResponse("Something went wrong", LegacyMcpCode.DATABASE_ERROR)
 
         assertFalse(response["success"]!!.jsonPrimitive.boolean)
         val error = response["error"]!!.jsonObject

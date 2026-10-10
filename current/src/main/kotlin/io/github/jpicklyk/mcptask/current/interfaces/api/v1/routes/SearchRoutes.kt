@@ -9,8 +9,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowedItemIdsForTagScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.SearchHitDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.response.respond
@@ -45,13 +46,13 @@ fun Route.searchRoutes(repositoryProvider: RepositoryProvider) {
             val principal = call.attributes.getOrNull(ApiPrincipalKey)
             val rawQuery =
                 call.request.queryParameters["q"]?.takeIf { it.isNotBlank() } ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Query parameter 'q' is required"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Query parameter 'q' is required")
                     return@get
                 }
 
             val sanitizedQuery =
                 FtsQuerySanitizer.sanitize(rawQuery) ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Search query produced no usable tokens"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Search query produced no usable tokens")
                     return@get
                 }
 
@@ -78,10 +79,7 @@ fun Route.searchRoutes(repositoryProvider: RepositoryProvider) {
                     requestedAncestorId != null -> {
                         // Validate caller-requested narrowing against principal scope
                         if (principalRoots != null && !enforceScopeForItem(call, requestedAncestorId, workItemRepo)) {
-                            call.respond(
-                                HttpStatusCode.Forbidden,
-                                ErrorDto("scope_forbidden", "Requested ancestorId is outside your scope")
-                            )
+                            call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Requested ancestorId is outside your scope")
                             return@get
                         }
                         SearchScope(ancestorId = requestedAncestorId, role = role, tags = tags)

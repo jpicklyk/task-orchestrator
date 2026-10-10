@@ -361,7 +361,7 @@ with `deleteAll=true` for every dependency on that item.
                         KeyedCall.withoutKeyFields(params),
                         recordable = { KeyedCall.hasPositive(it, "deleted") }
                     ) { executeDelete(params, context) } ?: executeDelete(params, context)
-                else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
+                else -> errorResponse("Invalid operation: $operation", LegacyMcpCode.VALIDATION_ERROR)
             }
         }
     }
@@ -415,7 +415,7 @@ with `deleteAll=true` for every dependency on that item.
                 DependencyType.fromString(sharedTypeStr)
                     ?: return errorResponse(
                         "Invalid dependency type: $sharedTypeStr. Valid: BLOCKS, IS_BLOCKED_BY, RELATES_TO",
-                        ErrorCodes.VALIDATION_ERROR
+                        LegacyMcpCode.VALIDATION_ERROR
                     )
             } else {
                 DependencyType.BLOCKS
@@ -436,12 +436,12 @@ with `deleteAll=true` for every dependency on that item.
                     generateFromPattern(params, pattern!!, sharedType, sharedUnblockAt, context)
                 } catch (e: ToolValidationException) {
                     return successResponse(
-                        buildValidationFailureResponse(listOf(DependencyFailure(0, e.message ?: "Validation failed")))
+                        buildValidationFailureResponse(listOf(DependencyFailure(0, e.message ?: "Validation failed", e.errorCode)))
                     )
                 } catch (e: ValidationException) {
                     return successResponse(
                         buildValidationFailureResponse(
-                            listOf(DependencyFailure(0, e.message ?: "Domain validation failed"))
+                            listOf(DependencyFailure(0, e.message ?: "Domain validation failed", ErrorCode.INVALID_REQUEST))
                         )
                     )
                 }
@@ -458,9 +458,11 @@ with `deleteAll=true` for every dependency on that item.
                             // Batch-level rejection (duplicate / cycle across the whole batch) - a single failure.
                             ErrorCode.DUPLICATE, ErrorCode.CYCLE_DETECTED ->
                                 successResponse(
-                                    buildValidationFailureResponse(listOf(DependencyFailure(0, outcome.error.message)))
+                                    buildValidationFailureResponse(
+                                        listOf(DependencyFailure(0, outcome.error.message, outcome.error.code))
+                                    )
                                 )
-                            else -> errorResponse(LegacyFaults.message(outcome.error), ErrorCodes.INTERNAL_ERROR)
+                            else -> errorResponse(LegacyFaults.message(outcome.error), LegacyMcpCode.INTERNAL_ERROR, cause = outcome.error)
                         }
                 }
             val data =
@@ -487,11 +489,13 @@ with `deleteAll=true` for every dependency on that item.
         } catch (e: ValidationException) {
             // Batch-level rejection (cycle/duplicate detected across the whole batch) — a single failure.
             successResponse(
-                buildValidationFailureResponse(listOf(DependencyFailure(0, e.message ?: "Dependency creation failed")))
+                buildValidationFailureResponse(
+                    listOf(DependencyFailure(0, e.message ?: "Dependency creation failed", ErrorCode.INVALID_REQUEST))
+                )
             )
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            errorResponse(e.message ?: "Unexpected error creating dependencies", ErrorCodes.INTERNAL_ERROR)
+            errorResponse(e.message ?: "Unexpected error creating dependencies", LegacyMcpCode.INTERNAL_ERROR)
         }
     }
 
@@ -514,7 +518,7 @@ with `deleteAll=true` for every dependency on that item.
             try {
                 result.add(parseOneDependency(index, element, sharedType, sharedUnblockAt, context))
             } catch (e: ToolValidationException) {
-                failures.add(DependencyFailure(index, e.message ?: "Validation failed"))
+                failures.add(DependencyFailure(index, e.message ?: "Validation failed", e.errorCode))
             }
         }
         return result to failures
@@ -668,7 +672,11 @@ with `deleteAll=true` for every dependency on that item.
                     val deleted =
                         when (val unit = context.dependencyCommandService.deleteById(id)) {
                             is Outcome.Ok -> unit.value
-                            is Outcome.Err -> return errorResponse(LegacyFaults.message(unit.error), ErrorCodes.INTERNAL_ERROR)
+                            is Outcome.Err -> return errorResponse(
+                                LegacyFaults.message(unit.error),
+                                LegacyMcpCode.INTERNAL_ERROR,
+                                cause = unit.error
+                            )
                         }
                     val data =
                         buildJsonObject {
@@ -688,12 +696,16 @@ with `deleteAll=true` for every dependency on that item.
                         fromItemId ?: toItemId
                             ?: return errorResponse(
                                 "deleteAll requires 'fromItemId' or 'toItemId'",
-                                ErrorCodes.VALIDATION_ERROR
+                                LegacyMcpCode.VALIDATION_ERROR
                             )
                     val count =
                         when (val unit = context.dependencyCommandService.deleteByItemId(itemId)) {
                             is Outcome.Ok -> unit.value
-                            is Outcome.Err -> return errorResponse(LegacyFaults.message(unit.error), ErrorCodes.INTERNAL_ERROR)
+                            is Outcome.Err -> return errorResponse(
+                                LegacyFaults.message(unit.error),
+                                LegacyMcpCode.INTERNAL_ERROR,
+                                cause = unit.error
+                            )
                         }
                     val data =
                         buildJsonObject {
@@ -709,7 +721,7 @@ with `deleteAll=true` for every dependency on that item.
                     if (typeFilter != null && DependencyType.fromString(typeFilter) == null) {
                         return errorResponse(
                             "Unknown dependency type: '$typeFilter'. Valid values: ${DependencyType.entries.joinToString(", ")}",
-                            ErrorCodes.VALIDATION_ERROR
+                            LegacyMcpCode.VALIDATION_ERROR
                         )
                     }
                     // The lookup and every delete share ONE write unit (the service owns it).
@@ -723,7 +735,11 @@ with `deleteAll=true` for every dependency on that item.
                                 )
                         ) {
                             is Outcome.Ok -> unit.value
-                            is Outcome.Err -> return errorResponse(LegacyFaults.message(unit.error), ErrorCodes.INTERNAL_ERROR)
+                            is Outcome.Err -> return errorResponse(
+                                LegacyFaults.message(unit.error),
+                                LegacyMcpCode.INTERNAL_ERROR,
+                                cause = unit.error
+                            )
                         }
                     val data =
                         buildJsonObject {
@@ -737,12 +753,12 @@ with `deleteAll=true` for every dependency on that item.
                 else ->
                     errorResponse(
                         "Delete requires 'dependencyId', 'fromItemId'+'toItemId', or 'deleteAll' with an item ID",
-                        ErrorCodes.VALIDATION_ERROR
+                        LegacyMcpCode.VALIDATION_ERROR
                     )
             }
         } catch (e: Exception) {
             e.rethrowIfCancellation()
-            errorResponse(e.message ?: "Unexpected error deleting dependencies", ErrorCodes.INTERNAL_ERROR)
+            errorResponse(e.message ?: "Unexpected error deleting dependencies", LegacyMcpCode.INTERNAL_ERROR)
         }
     }
 
@@ -763,7 +779,8 @@ with `deleteAll=true` for every dependency on that item.
     /** A single validation failure tied to its 0-based position in the request's `dependencies` array. */
     private data class DependencyFailure(
         val index: Int,
-        val error: String
+        val error: String,
+        val code: ErrorCode
     )
 
     /**
@@ -782,6 +799,7 @@ with `deleteAll=true` for every dependency on that item.
                         buildJsonObject {
                             put("index", JsonPrimitive(failure.index))
                             put("error", JsonPrimitive(failure.error))
+                            putElementError(failure.code)
                         }
                     }
                 )

@@ -177,7 +177,7 @@ optionally filtered to a single `status` (pending or adopted).
             "stash" -> executeStash(params, context)
             "get" -> executeGet(params, context)
             "list" -> executeList(params, context)
-            else -> errorResponse("Invalid operation: $operation. Must be stash, get, or list", ErrorCodes.VALIDATION_ERROR)
+            else -> errorResponse("Invalid operation: $operation. Must be stash, get, or list", LegacyMcpCode.VALIDATION_ERROR)
         }
 
     override fun userSummary(
@@ -215,7 +215,7 @@ optionally filtered to a single `status` (pending or adopted).
             try {
                 if (bodyFromFilePath != null) readBodyFromFile(bodyFromFilePath) else (bodyInline ?: "")
             } catch (e: ToolValidationException) {
-                return errorResponse(e.message ?: "bodyFromFile could not be read", ErrorCodes.VALIDATION_ERROR)
+                return errorResponse(e.message ?: "bodyFromFile could not be read", LegacyMcpCode.VALIDATION_ERROR)
             }
 
         val service = PlanDocumentService(context.repositoryProvider, context.unitOfWork)
@@ -224,30 +224,31 @@ optionally filtered to a single `status` (pending or adopted).
             is PlanDocumentStashResult.NotFound ->
                 errorResponse(
                     "Root WorkItem not found: ${result.rootItemId}",
-                    ErrorCodes.RESOURCE_NOT_FOUND
+                    LegacyMcpCode.RESOURCE_NOT_FOUND
                 )
             is PlanDocumentStashResult.NotDepthZero ->
                 errorResponse(
                     "rootId must reference a depth-0 (root) WorkItem; '${result.rootItemId}' has depth ${result.depth}",
-                    ErrorCodes.VALIDATION_ERROR
+                    LegacyMcpCode.VALIDATION_ERROR
                 )
             is PlanDocumentStashResult.TooLarge ->
                 errorResponse(
                     "body is ${result.sizeBytes} bytes, exceeds the ${result.maxBytes} byte " +
                         "(${result.maxBytes / 1024} KiB) limit",
-                    ErrorCodes.VALIDATION_ERROR
+                    LegacyMcpCode.VALIDATION_ERROR
                 )
             is PlanDocumentStashResult.AdoptedConflict ->
                 errorResponse(
                     "slug '$slug' has already been adopted" +
                         (result.existing.adoptedByItemId?.let { " by item $it" } ?: "") +
                         "; adoption is one-way and cannot be overwritten",
-                    ErrorCodes.CONFLICT_ERROR
+                    LegacyMcpCode.CONFLICT_ERROR
                 )
             is PlanDocumentStashResult.RepositoryError ->
                 errorResponse(
                     "Failed to store plan document: ${result.message}",
-                    ErrorCodes.DATABASE_ERROR
+                    LegacyMcpCode.DATABASE_ERROR,
+                    cause = result.error
                 )
         }
     }
@@ -270,13 +271,13 @@ optionally filtered to a single `status` (pending or adopted).
                 legacyRead({
                     return@run errorResponse(
                         "Failed to read plan document: $it",
-                        ErrorCodes.DATABASE_ERROR
+                        LegacyMcpCode.DATABASE_ERROR
                     )
                 }) { service.get(rootId!!, slug) }
             val document =
                 result ?: return errorResponse(
                     "No plan document found for root $rootId, slug $slug",
-                    ErrorCodes.RESOURCE_NOT_FOUND
+                    LegacyMcpCode.RESOURCE_NOT_FOUND
                 )
             successResponse(documentToJson(document, includeBody = true))
         }
@@ -300,7 +301,7 @@ optionally filtered to a single `status` (pending or adopted).
                 legacyRead({
                     return@run errorResponse(
                         "Failed to list plan documents: $it",
-                        ErrorCodes.DATABASE_ERROR
+                        LegacyMcpCode.DATABASE_ERROR
                     )
                 }) { service.list(rootId!!, statusFilter) }
             successResponse(

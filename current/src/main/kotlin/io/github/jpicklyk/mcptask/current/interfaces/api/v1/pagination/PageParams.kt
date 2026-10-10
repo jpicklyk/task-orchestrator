@@ -1,10 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination
 
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.PageDto
-import io.ktor.http.HttpStatusCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.ktor.server.application.ApplicationCall
-import io.ktor.server.response.respond
 
 /** Default page number when the `page` query parameter is absent or blank. */
 const val DEFAULT_PAGE = 1
@@ -111,7 +110,7 @@ suspend fun ApplicationCall.pageParamsOrRespond(): PageParams? =
     when (val result = parsePageParams()) {
         is PageParamsResult.Valid -> result.params
         is PageParamsResult.Invalid -> {
-            respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", result.message))
+            respondError(LegacyRestCode.VALIDATION_ERROR, result.message)
             null
         }
     }

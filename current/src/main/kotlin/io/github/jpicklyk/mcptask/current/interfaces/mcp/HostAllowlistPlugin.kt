@@ -2,6 +2,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
@@ -181,7 +183,7 @@ private suspend fun rejectHost(call: ApplicationCall) {
     if (path == "/mcp" || path.startsWith("/mcp/")) {
         call.respond(HttpStatusCode.Forbidden, JsonRpcHostRejection())
     } else {
-        call.respond(HttpStatusCode.Forbidden, ErrorDto(error = "host_not_allowed", message = HOST_REJECTED_MESSAGE))
+        call.respondError(LegacyRestCode.HOST_NOT_ALLOWED, HOST_REJECTED_MESSAGE)
     }
 }
 

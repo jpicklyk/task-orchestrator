@@ -38,6 +38,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors.configureCors
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.installApiStatusPages
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.installRequestCorrelation
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configRoutes
@@ -665,6 +666,9 @@ internal fun Application.installRestApiRoutes(
 ) {
     if (apiConfig is ApiAuthConfig.Disabled) return
 
+    // The REST safety net: an uncaught /api/v1 exception becomes a 500 `internal` body, never exception text.
+    // Installed only here (API enabled) and scoped to /api/v1 paths, so API-disabled deployments are untouched.
+    installApiStatusPages()
     installRequestCorrelation(callLog, toolContext.clock)
 
     routing {

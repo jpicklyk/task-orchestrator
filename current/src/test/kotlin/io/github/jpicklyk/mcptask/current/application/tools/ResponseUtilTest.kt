@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
+import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import kotlinx.serialization.json.*
 import java.util.Properties
 import kotlin.test.Test
@@ -58,60 +59,12 @@ class ResponseUtilTest {
     }
 
     // ────────────────────────────────────────────────────────
-    // createErrorResponse
-    // ────────────────────────────────────────────────────────
-
-    @Test
-    fun `createErrorResponse with all fields`() {
-        val extraData = buildJsonObject { put("field", JsonPrimitive("title")) }
-        val response =
-            ResponseUtil.createErrorResponse(
-                message = "Validation failed",
-                code = ErrorCodes.VALIDATION_ERROR,
-                details = "Title is required",
-                additionalData = extraData
-            )
-
-        assertFalse(response["success"]!!.jsonPrimitive.boolean)
-        val error = response["error"]!!.jsonObject
-        assertEquals("Validation failed", error["message"]!!.jsonPrimitive.content)
-        assertEquals(ErrorCodes.VALIDATION_ERROR, error["code"]!!.jsonPrimitive.content)
-        assertEquals("Title is required", error["details"]!!.jsonPrimitive.content)
-        assertEquals("title", response["data"]!!.jsonObject["field"]!!.jsonPrimitive.content)
-        assertNotNull(response["metadata"])
-    }
-
-    @Test
-    fun `createErrorResponse with message and code only omits details and data`() {
-        val response =
-            ResponseUtil.createErrorResponse(
-                message = "Not found",
-                code = ErrorCodes.RESOURCE_NOT_FOUND
-            )
-
-        assertFalse(response["success"]!!.jsonPrimitive.boolean)
-        val error = response["error"]!!.jsonObject
-        assertEquals("Not found", error["message"]!!.jsonPrimitive.content)
-        assertEquals(ErrorCodes.RESOURCE_NOT_FOUND, error["code"]!!.jsonPrimitive.content)
-        assertNull(error["details"])
-        assertNull(response["data"])
-    }
-
-    @Test
-    fun `createErrorResponse defaults code to VALIDATION_ERROR`() {
-        val response = ResponseUtil.createErrorResponse(message = "Bad input")
-
-        val error = response["error"]!!.jsonObject
-        assertEquals(ErrorCodes.VALIDATION_ERROR, error["code"]!!.jsonPrimitive.content)
-    }
-
-    // ────────────────────────────────────────────────────────
     // isErrorResponse
     // ────────────────────────────────────────────────────────
 
     @Test
     fun `isErrorResponse returns true for error response`() {
-        val response = ResponseUtil.createErrorResponse("fail")
+        val response = ResponseUtil.createErrorResponse(ToolError.permanent(ErrorCodes.VALIDATION_ERROR, "fail"))
         assertTrue(ResponseUtil.isErrorResponse(response))
     }
 

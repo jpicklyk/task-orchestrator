@@ -13,8 +13,9 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocume
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ProjectConfigResponseDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
@@ -105,7 +106,7 @@ fun Route.projectConfigRoutes(
                 val rootId = call.parseRootId() ?: return@get
 
                 if (!enforceScopeForItem(call, rootId, workItemRepo)) {
-                    call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for root $rootId"))
+                    call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for root $rootId")
                     return@get
                 }
 
@@ -114,15 +115,12 @@ fun Route.projectConfigRoutes(
                         legacyRead({
                             return@run run {
                                 projectConfigLogger.warn("GET /roots/{}/config DB error: {}", rootId, it)
-                                call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to read project config"))
+                                call.respondError(LegacyRestCode.DB_ERROR, "Failed to read project config")
                             }
                         }) { projectConfigRepo.get(rootId) }
                     val config =
                         result ?: run {
-                            call.respond(
-                                HttpStatusCode.NotFound,
-                                ErrorDto("not_found", "No project config found for root $rootId"),
-                            )
+                            call.respondError(LegacyRestCode.NOT_FOUND, "No project config found for root $rootId")
                             return@get
                         }
 
@@ -160,7 +158,7 @@ fun Route.projectConfigRoutes(
                 val rootId = call.parseRootId() ?: return@put
 
                 if (!enforceScopeForItem(call, rootId, workItemRepo)) {
-                    call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for root $rootId"))
+                    call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for root $rootId")
                     return@put
                 }
 
@@ -210,62 +208,41 @@ fun Route.projectConfigRoutes(
                         )
                     }
                     is ProjectConfigPushResult.NotFound ->
-                        call.respond(
-                            HttpStatusCode.NotFound,
-                            ErrorDto("not_found", "Root WorkItem not found: ${result.rootItemId}"),
-                        )
+                        call.respondError(LegacyRestCode.NOT_FOUND, "Root WorkItem not found: ${result.rootItemId}")
                     is ProjectConfigPushResult.NotDepthZero ->
-                        call.respond(
-                            HttpStatusCode.UnprocessableEntity,
-                            ErrorDto(
-                                "validation_error",
-                                "rootId must reference a depth-0 (root) WorkItem; '${result.rootItemId}' has depth ${result.depth}",
-                            ),
+                        call.respondError(
+                            LegacyRestCode.VALIDATION_ERROR_UNPROCESSABLE,
+                            "rootId must reference a depth-0 (root) WorkItem; '${result.rootItemId}' has depth ${result.depth}"
                         )
                     is ProjectConfigPushResult.TooLarge ->
                         // Defensive — the pre-check above already covers this in practice.
-                        call.respond(
-                            HttpStatusCode.PayloadTooLarge,
-                            ErrorDto(
-                                "payload_too_large",
-                                "configYaml is ${result.sizeBytes} bytes, exceeds the ${result.maxBytes} byte limit",
-                            ),
+                        call.respondError(
+                            LegacyRestCode.PAYLOAD_TOO_LARGE,
+                            "configYaml is ${result.sizeBytes} bytes, exceeds the ${result.maxBytes} byte limit"
                         )
                     is ProjectConfigPushResult.ParseError ->
-                        call.respond(
-                            HttpStatusCode.UnprocessableEntity,
-                            ErrorDto("parse_error", "configYaml failed to parse: ${result.detail}"),
-                        )
+                        call.respondError(LegacyRestCode.PARSE_ERROR, "configYaml failed to parse: ${result.detail}")
                     is ProjectConfigPushResult.RootIdMismatch ->
-                        call.respond(
-                            HttpStatusCode.UnprocessableEntity,
-                            ErrorDto(
-                                "rootid_mismatch",
-                                "configYaml embeds project.rootId '${result.embeddedRootId}', which differs " +
-                                    "from the target rootId '${result.targetRootId}'; fix project.rootId in " +
-                                    "the document or retry with ?force=true",
-                            ),
+                        call.respondError(
+                            LegacyRestCode.ROOTID_MISMATCH,
+                            "configYaml embeds project.rootId '${result.embeddedRootId}', which differs " +
+                                "from the target rootId '${result.targetRootId}'; fix project.rootId in " +
+                                "the document or retry with ?force=true"
                         )
                     is ProjectConfigPushResult.Superseded ->
-                        call.respond(
-                            HttpStatusCode.Conflict,
-                            ErrorDto(
-                                "superseded",
-                                "local config is older than the server's (updated ${result.currentUpdatedAt}); " +
-                                    "pull or copy back before editing, or retry with ?force=true",
-                            ),
+                        call.respondError(
+                            LegacyRestCode.SUPERSEDED,
+                            "local config is older than the server's (updated ${result.currentUpdatedAt}); " +
+                                "pull or copy back before editing, or retry with ?force=true"
                         )
                     is ProjectConfigPushResult.PreconditionFailed -> {
                         val currentEtag = configEtag(result.currentFingerprint)
                         call.response.header(HttpHeaders.ETag, currentEtag)
-                        call.respond(
-                            HttpStatusCode.PreconditionFailed,
-                            ErrorDto("etag_mismatch", "ETag mismatch; current ETag is $currentEtag"),
-                        )
+                        call.respondError(LegacyRestCode.ETAG_MISMATCH, "ETag mismatch; current ETag is $currentEtag")
                     }
                     is ProjectConfigPushResult.RepositoryError -> {
                         projectConfigLogger.warn("PUT /roots/{}/config DB error: {}", rootId, result.message)
-                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to store project config"))
+                        call.respondError(LegacyRestCode.DB_ERROR, "Failed to store project config")
                     }
                 }
             }
@@ -277,7 +254,7 @@ fun Route.projectConfigRoutes(
                 val rootId = call.parseRootId() ?: return@delete
 
                 if (!enforceScopeForItem(call, rootId, workItemRepo)) {
-                    call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for root $rootId"))
+                    call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for root $rootId")
                     return@delete
                 }
 
@@ -293,17 +270,11 @@ fun Route.projectConfigRoutes(
                                         rootId,
                                         LegacyFaults.message(outcome.error),
                                     )
-                                    call.respond(
-                                        HttpStatusCode.InternalServerError,
-                                        ErrorDto("db_error", "Failed to delete project config")
-                                    )
+                                    call.respondError(LegacyRestCode.DB_ERROR, "Failed to delete project config")
                                 }
                         }
                     if (!result) {
-                        call.respond(
-                            HttpStatusCode.NotFound,
-                            ErrorDto("not_found", "No project config found for root $rootId"),
-                        )
+                        call.respondError(LegacyRestCode.NOT_FOUND, "No project config found for root $rootId")
                         return@delete
                     }
                     call.respond(HttpStatusCode.NoContent)
@@ -317,11 +288,11 @@ fun Route.projectConfigRoutes(
 private suspend fun ApplicationCall.parseRootId(): UUID? {
     val rawId =
         parameters["rootId"] ?: run {
-            respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing rootId"))
+            respondError(LegacyRestCode.BAD_REQUEST, "Missing rootId")
             return null
         }
     return runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-        respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+        respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
         null
     }
 }

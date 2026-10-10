@@ -379,10 +379,25 @@ other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability
 | `verification_failed` | 401 | Not currently reachable via REST — a JWT passing `ApiBearerAuth` is always `VERIFIED`, which every `degradedModePolicy` trusts. Reserved for the same audit-policy check used by MCP tool calls, where a self-reported actor under a degraded JWKS result can still be rejected. |
 | `insufficient_capability` | 403 | Caller's token lacks a capability required by the request itself (distinct from `scope_forbidden`'s root-scope check) — e.g. a non-ADMIN caller sets `overrideResourceLeases: true` on `POST /items/{id}/advance`, or calls `DELETE /api/v1/resources/leases/{key}` without `ADMIN` |
 | `insufficient_scope` | 403 | `error_description` body. A generic `requireCapability` check failed for the plugin's configured capability; (SSE-specific) a `GET /api/v1/events` connection presents a valid token that lacks the `read` capability (see §21); (SSE-specific) a `GET /api/v1/events` connection carries a `tags_include` scope but the route has no `WorkItemRepository` wired to filter by it -- fail-closed rather than serving an unfiltered stream; or (SSE-specific) a root-scoped principal's `?root=` values do not intersect its token's `scope.rootIds` -- the requested roots are entirely outside scope (see §21) |
-| `transition_failed` | 422 | Role transition rejected (invalid trigger, gate failure, dependency blocker) |
+| `gate_blocked` | 422 | `POST /items/{id}/advance`: a required-note gate rejected the transition; `details.missingNotes` lists the unfilled notes (and `details.missingBySeat` when the schema is seat-aware) |
+| `transition_blocked` | 422 | `POST /items/{id}/advance`: a blocking dependency (or a `credentialRefs` rule) rejected the transition; `details.blockers` lists them |
+| `transition_failed` | 422 | `POST /items/{id}/advance`: no transition exists for the trigger from the item's current role, or the write failed. The gate and dependency rejections above have their own codes; this one carries no `details` |
+| `not_claim_holder` | 409 | Not reachable on REST today (ownership is not enforced on this surface); reserved for the same claim check MCP applies |
+| `internal` | 500 | An exception escaped a `/api/v1` route. The message is always `Internal server error`: the exception text is logged at ERROR and never returned. Produced by the REST safety net (see below) |
 | `resource_unavailable` | 409 | Resource-lease gate contention on `POST /items/{id}/advance` into WORK — transient, retryable. Carries a `Retry-After` header and `details.contendedResources`/`details.retryAfterMs`. Never discloses the current holder. |
 | `config_unavailable` | 503 | Per-root config read failed (a transient database error) and there was no last-known-good cached config to serve for that root — transient, retryable; the caller applies its own backoff (no `Retry-After` header). Returned by `POST /items/{id}/advance`, `GET /items/{id}/gate` (see §9, §10), `PUT /items/{id}/notes/{key}` (note write policy needs the per-root schema and `note_limits` mode), and `GET /roots/{rootId}/config/effective` (see §18). REST and the MCP tools now read per-root config through the same `EffectiveConfigResolver`/last-known-good cache (one shared instance, built once in `ServerComposition`) — a transient DB error on one surface is absorbed by a cache warmed by the other, so this error is rarer than it was when each surface kept its own cache. Exception: `POST /items/{id}/advance` reads the item's config (and every cascade target's) inside the advance's unit of work, `GET /items/{id}/gate` inside its preview's read unit, and `PUT /items/{id}/notes/{key}` inside the write's unit of work; a unit has no last-known-good fallback, so on those three routes a read fault answers `config_unavailable` even when the cache is warm. |
 | `db_error` | 500 | A store fault: a read route responds `Database query failed` (or the route's own read text), a write route its existing text (e.g. `Failed to create item`). A store fault on a read is never reported as `404 not_found`; `404` means only that the row does not exist. |
+
+**One mapper, one safety net.** Every `ErrorDto` body is built by one mapper (`LegacyRestErrorMapper`): each
+code above is bound to its HTTP status and to the error catalog code that classifies it, so a route names a
+code instead of a free string and the status cannot drift from the wire code. REST carries no `kind` and no
+catalog `details` in this release; the bodies, statuses, `details` objects and `Retry-After` headers are the
+3.x ones. When the REST API is enabled, an exception that still escapes a `/api/v1` route is answered by a
+Ktor `StatusPages` handler scoped to `/api/v1` paths (other paths, `/mcp` included, keep Ktor's default):
+Ktor's own status exceptions keep their status (`400 bad_request` for a malformed body or parameter,
+`404 not_found`, `415 unsupported_media_type`, `413 payload_too_large`), a domain validation failure is
+`400 validation_error`, and anything else is `500 internal` with the fixed message above. A cancelled request
+is never answered. An API-disabled deployment installs nothing.
 
 ---
 

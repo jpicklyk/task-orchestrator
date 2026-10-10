@@ -20,9 +20,12 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.NoteDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.NoteWriteDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.DB_QUERY_FAILED
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestErrorMapper
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.etagFor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor
@@ -58,16 +61,6 @@ private val noteWriteJson =
         encodeDefaults = true
     }
 
-private fun noteErrorCaptured(
-    status: HttpStatusCode,
-    error: String,
-    message: String,
-): CachedHttpResponse =
-    CachedHttpResponse(
-        statusCode = status.value,
-        bodyJson = noteWriteJson.encodeToString(ErrorDto.serializer(), ErrorDto(error, message)),
-    )
-
 /**
  * Maps a [NoteCommandService] write failure to its captured HTTP response. Only a payload-only failure
  * (an invalid role) is a recordable [payloadRejection]; every config-dependent one (schema-role,
@@ -80,13 +73,13 @@ private fun noteWriteFailure(
 ): CachedHttpResponse =
     when (error.code) {
         ErrorCode.INVALID_REQUEST -> payloadRejection(error.message)
-        ErrorCode.PAYLOAD_TOO_LARGE -> noteErrorCaptured(HttpStatusCode.PayloadTooLarge, "payload_too_large", error.message)
-        ErrorCode.NOTE_TOO_LONG -> noteErrorCaptured(HttpStatusCode.UnprocessableEntity, "note_body_too_long", error.message)
-        ErrorCode.SCHEMA_VIOLATION -> noteErrorCaptured(HttpStatusCode.BadRequest, "validation_error", error.message)
-        ErrorCode.NOT_FOUND -> noteErrorCaptured(HttpStatusCode.NotFound, "not_found", "Item $itemId not found")
+        ErrorCode.PAYLOAD_TOO_LARGE -> LegacyRestErrorMapper.captured(LegacyRestCode.PAYLOAD_TOO_LARGE, error.message)
+        ErrorCode.NOTE_TOO_LONG -> LegacyRestErrorMapper.captured(LegacyRestCode.NOTE_BODY_TOO_LONG, error.message)
+        ErrorCode.SCHEMA_VIOLATION -> LegacyRestErrorMapper.captured(LegacyRestCode.VALIDATION_ERROR, error.message)
+        ErrorCode.NOT_FOUND -> LegacyRestErrorMapper.captured(LegacyRestCode.NOT_FOUND, "Item $itemId not found")
         else -> {
             noteWriteLogger.warn("PUT /items/{}/notes/{} DB error: {} {}", itemId, key, error.code.wire, error.message)
-            noteErrorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to upsert note")
+            LegacyRestErrorMapper.captured(LegacyRestCode.DB_ERROR, "Failed to upsert note")
         }
     }
 
@@ -132,26 +125,23 @@ fun Route.noteWriteRoutes(
                     .withoutParameters()
                     .toString()
             if (upsertContentType !in JSON_WRITE_CONTENT_TYPES) {
-                call.respond(
-                    HttpStatusCode.UnsupportedMediaType,
-                    ErrorDto("unsupported_media_type", "Use Content-Type: application/json"),
-                )
+                call.respondError(LegacyRestCode.UNSUPPORTED_MEDIA_TYPE, "Use Content-Type: application/json")
                 return@put
             }
 
             val rawId =
                 call.parameters["id"] ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
                     return@put
                 }
             val id =
                 runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
                     return@put
                 }
             val key =
                 call.parameters["key"] ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing note key"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing note key")
                     return@put
                 }
 
@@ -172,20 +162,20 @@ fun Route.noteWriteRoutes(
             // returns the cached response verbatim without re-evaluating the now-mutated note's ETag.
             suspend fun executeUpsert(): CachedHttpResponse {
                 val itemResult =
-                    legacyRead({ return noteErrorCaptured(HttpStatusCode.InternalServerError, "db_error", DB_QUERY_FAILED) }) {
+                    legacyRead({ return LegacyRestErrorMapper.captured(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED) }) {
                         workItemRepo.getById(id)
                     }
                 if (itemResult == null) {
-                    return noteErrorCaptured(HttpStatusCode.NotFound, "not_found", "Item $id not found")
+                    return LegacyRestErrorMapper.captured(LegacyRestCode.NOT_FOUND, "Item $id not found")
                 }
 
                 if (!enforceScopeForItem(call, id, workItemRepo)) {
-                    return noteErrorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for item $id")
+                    return LegacyRestErrorMapper.captured(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
                 }
 
                 // Check for existing note to handle ETag and ID preservation
                 val existingNote =
-                    legacyRead({ return noteErrorCaptured(HttpStatusCode.InternalServerError, "db_error", DB_QUERY_FAILED) }) {
+                    legacyRead({ return LegacyRestErrorMapper.captured(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED) }) {
                         noteRepo.findByItemIdAndKey(id, key)
                     }
 
@@ -194,13 +184,9 @@ fun Route.noteWriteRoutes(
                 if (ifMatch != null && existingNote != null) {
                     val currentEtag = etagFor(existingNote.modifiedAt)
                     if (ifMatch != currentEtag) {
-                        return CachedHttpResponse(
-                            statusCode = HttpStatusCode.PreconditionFailed.value,
-                            bodyJson =
-                                noteWriteJson.encodeToString(
-                                    ErrorDto.serializer(),
-                                    ErrorDto("etag_mismatch", "Note ETag mismatch; current ETag is $currentEtag"),
-                                ),
+                        return LegacyRestErrorMapper.captured(
+                            LegacyRestCode.ETAG_MISMATCH,
+                            "Note ETag mismatch; current ETag is $currentEtag",
                             etag = currentEtag,
                         )
                     }
@@ -224,7 +210,7 @@ fun Route.noteWriteRoutes(
                         }
                     } catch (e: PerRootConfigUnavailableException) {
                         noteWriteLogger.warn("PUT /items/{}/notes/{} per-root config unavailable: {}", id, key, e.message)
-                        return noteErrorCaptured(HttpStatusCode.ServiceUnavailable, PerRootConfigUnavailableException.CODE, e.message)
+                        return LegacyRestErrorMapper.captured(LegacyRestCode.CONFIG_UNAVAILABLE, e.message)
                     }
                 return when (written) {
                     is Outcome.Err -> noteWriteFailure(written.error, id, key)
@@ -261,43 +247,43 @@ fun Route.noteWriteRoutes(
         delete("/items/{id}/notes/{key}") {
             val rawId =
                 call.parameters["id"] ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
                     return@delete
                 }
             val id =
                 runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
                     return@delete
                 }
             val key =
                 call.parameters["key"] ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing note key"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing note key")
                     return@delete
                 }
 
             val itemResult =
                 legacyRead({
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@delete
                 }) { workItemRepo.getById(id) }
             if (itemResult == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
+                call.respondError(LegacyRestCode.NOT_FOUND, "Item $id not found")
                 return@delete
             }
 
             if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
+                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
                 return@delete
             }
 
             val existingNote =
                 legacyRead({
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@delete
                 }) { noteRepo.findByItemIdAndKey(id, key) }
 
             if (existingNote == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Note '$key' not found on item $id"))
+                call.respondError(LegacyRestCode.NOT_FOUND, "Note '$key' not found on item $id")
                 return@delete
             }
 
@@ -309,7 +295,7 @@ fun Route.noteWriteRoutes(
             ) {
                 is Outcome.Err -> {
                     noteWriteLogger.warn("DELETE /items/{}/notes/{} DB error: {}", id, key, LegacyFaults.message(result.error))
-                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to delete note"))
+                    call.respondError(LegacyRestCode.DB_ERROR, "Failed to delete note")
                 }
                 is Outcome.Ok -> {
                     call.respond(HttpStatusCode.NoContent)

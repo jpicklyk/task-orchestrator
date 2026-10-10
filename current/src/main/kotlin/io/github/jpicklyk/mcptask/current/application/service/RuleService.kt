@@ -2,7 +2,9 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
+import io.github.jpicklyk.mcptask.current.application.support.legacyReadFault
+import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocument
 import java.time.Instant
 import java.util.UUID
@@ -41,7 +43,7 @@ class RuleService(
     ): RuleGetResult {
         // Only a genuine not-found (null) is a 404; a store fault is a db_error (500).
         val item =
-            legacyRead({ return RuleGetResult.RepositoryError(it) }) { workItemRepository.getById(rootId) }
+            legacyReadFault({ return RuleGetResult.RepositoryError(it) }) { workItemRepository.getById(rootId) }
                 ?: return RuleGetResult.RootNotFound(rootId)
         if (item.depth != 0) {
             return RuleGetResult.NotDepthZero(rootId, item.depth)
@@ -49,7 +51,7 @@ class RuleService(
 
         val slug = RULE_SLUG_PREFIX + key
         return run {
-            val result = legacyRead({ return@run RuleGetResult.RepositoryError(it) }) { planDocumentRepository.get(rootId, slug) }
+            val result = legacyReadFault({ return@run RuleGetResult.RepositoryError(it) }) { planDocumentRepository.get(rootId, slug) }
             val document = result ?: return RuleGetResult.RuleNotFound(rootId, key)
             RuleGetResult.Success(document)
         }
@@ -65,7 +67,7 @@ class RuleService(
     suspend fun list(rootId: UUID): RuleListResult {
         // Only a genuine not-found (null) is a 404; a store fault is a db_error (500).
         val item =
-            legacyRead({ return RuleListResult.RepositoryError(it) }) { workItemRepository.getById(rootId) }
+            legacyReadFault({ return RuleListResult.RepositoryError(it) }) { workItemRepository.getById(rootId) }
                 ?: return RuleListResult.RootNotFound(rootId)
         if (item.depth != 0) {
             return RuleListResult.NotDepthZero(rootId, item.depth)
@@ -73,7 +75,7 @@ class RuleService(
 
         return run {
             val result =
-                legacyRead({ return@run RuleListResult.RepositoryError(it) }) { planDocumentRepository.list(rootId, status = null) }
+                legacyReadFault({ return@run RuleListResult.RepositoryError(it) }) { planDocumentRepository.list(rootId, status = null) }
             val rules =
                 result
                     .filter { it.slug.startsWith(RULE_SLUG_PREFIX) }
@@ -139,8 +141,11 @@ sealed class RuleGetResult {
 
     /** The repository call itself failed. */
     data class RepositoryError(
-        val message: String,
-    ) : RuleGetResult()
+        val error: DomainError,
+    ) : RuleGetResult() {
+        /** The 3.x store message (the innermost SQL text), unchanged on the wire. */
+        val message: String get() = LegacyFaults.message(error)
+    }
 }
 
 /** Outcome of [RuleService.list]. */
@@ -163,6 +168,9 @@ sealed class RuleListResult {
 
     /** The repository call itself failed. */
     data class RepositoryError(
-        val message: String,
-    ) : RuleListResult()
+        val error: DomainError,
+    ) : RuleListResult() {
+        /** The 3.x store message (the innermost SQL text), unchanged on the wire. */
+        val message: String get() = LegacyFaults.message(error)
+    }
 }

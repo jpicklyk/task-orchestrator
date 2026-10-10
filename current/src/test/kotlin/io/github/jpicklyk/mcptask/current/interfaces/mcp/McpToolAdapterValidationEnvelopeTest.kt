@@ -33,7 +33,6 @@ import org.slf4j.LoggerFactory
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -266,7 +265,7 @@ class McpToolAdapterValidationEnvelopeTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S5 - a generic RuntimeException from execute stays an Internal error with no structuredContent`(): Unit =
+    fun `S5 - a generic RuntimeException from execute stays an Internal error`(): Unit =
         runBlocking {
             adapter.registerToolWithServer(server, executeThrowingRuntimeTool("Intentional"), dummyContext)
 
@@ -276,10 +275,6 @@ class McpToolAdapterValidationEnvelopeTest {
             val textContent = result.content.filterIsInstance<TextContent>()
             assertTrue(textContent.isNotEmpty())
             assertTrue(textContent[0].text.contains("Internal error"), "Non-validation exceptions must keep the Internal error text")
-            assertNull(
-                result.structuredContent,
-                "A generic RuntimeException must not gain structuredContent — out of scope per diagnosis non-goals"
-            )
         }
 
     // ──────────────────────────────────────────────

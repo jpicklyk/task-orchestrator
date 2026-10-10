@@ -243,7 +243,7 @@ class ClaimItemToolRealStateTest {
             val result = tool.execute(params(releases = listOf(releaseEntry(item.id.toString()))), context())
 
             val first = firstResult(result, "releaseResults")
-            assertEquals(listOf("itemId", "outcome"), first.keys.toList())
+            assertEquals(listOf("itemId", "outcome", "kind", "code"), first.keys.toList())
             assertEquals("not_claimed_by_you", first["outcome"]!!.jsonPrimitive.content)
 
             val dbItem = repository.getById(item.id)
@@ -274,7 +274,7 @@ class ClaimItemToolRealStateTest {
             val result = tool.execute(params(claims = listOf(claimEntry(randomId))), context())
 
             val first = firstResult(result, "claimResults")
-            assertEquals(listOf("itemId", "outcome"), first.keys.toList())
+            assertEquals(listOf("itemId", "outcome", "kind", "code"), first.keys.toList())
             assertEquals("not_found", first["outcome"]!!.jsonPrimitive.content)
         }
 
@@ -286,7 +286,7 @@ class ClaimItemToolRealStateTest {
             val result = tool.execute(params(releases = listOf(releaseEntry(randomId))), context())
 
             val first = firstResult(result, "releaseResults")
-            assertEquals(listOf("itemId", "outcome"), first.keys.toList())
+            assertEquals(listOf("itemId", "outcome", "kind", "code"), first.keys.toList())
             assertEquals("not_found", first["outcome"]!!.jsonPrimitive.content)
         }
 
@@ -305,7 +305,7 @@ class ClaimItemToolRealStateTest {
                 )
 
             val first = firstResult(result, "claimResults")
-            assertEquals(listOf("itemId", "outcome", "error", "claimRef"), first.keys.toList())
+            assertEquals(listOf("itemId", "outcome", "kind", "code", "error", "claimRef"), first.keys.toList())
             assertEquals("abcd1234", first["itemId"]!!.jsonPrimitive.content)
             assertEquals("not_found", first["outcome"]!!.jsonPrimitive.content)
             assertEquals("Failed to resolve item ID: abcd1234", first["error"]!!.jsonPrimitive.content)
@@ -318,7 +318,7 @@ class ClaimItemToolRealStateTest {
             val result = tool.execute(params(releases = listOf(releaseEntry("abcd1234"))), context())
 
             val first = firstResult(result, "releaseResults")
-            assertEquals(listOf("itemId", "outcome", "error"), first.keys.toList())
+            assertEquals(listOf("itemId", "outcome", "kind", "code", "error"), first.keys.toList())
             assertEquals("Failed to resolve item ID: abcd1234", first["error"]!!.jsonPrimitive.content)
         }
 

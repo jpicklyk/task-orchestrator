@@ -38,44 +38,11 @@ object ResponseUtil {
         }
 
     /**
-     * Creates an error response envelope.
-     *
-     * @param message Human-readable error description
-     * @param code Error code constant from [ErrorCodes] (defaults to VALIDATION_ERROR)
-     * @param details Optional additional details about the error (e.g., stack trace, field-level errors)
-     * @param additionalData Optional JSON payload with extra context about the error
-     * @return A JsonObject with the standard error envelope format
-     */
-    fun createErrorResponse(
-        message: String,
-        code: String = ErrorCodes.VALIDATION_ERROR,
-        details: String? = null,
-        additionalData: JsonElement? = null
-    ): JsonObject =
-        buildJsonObject {
-            put("success", JsonPrimitive(false))
-            put(
-                "error",
-                buildJsonObject {
-                    put("message", JsonPrimitive(message))
-                    put("code", JsonPrimitive(code))
-                    if (details != null) {
-                        put("details", JsonPrimitive(details))
-                    }
-                }
-            )
-            if (additionalData != null) {
-                put("data", additionalData)
-            }
-            put("metadata", createMetadata())
-        }
-
-    /**
      * Creates a structured error response envelope from a [ToolError].
      *
-     * The `error` object includes all legacy fields (`code`, `message`) plus the new
-     * structured fields (`kind`, `retryAfterMs`, `contendedItemId`) for agent-parseable
-     * retry semantics. Fields are omitted from the JSON when null.
+     * The `error` object is `{code, message, kind, details?, retryAfterMs?, contendedItemId?}`: the legacy
+     * fields plus the structured ones for agent-parseable retry semantics; optional fields are omitted when null.
+     * Callers build the [ToolError] through `LegacyMcpErrorMapper`, the only classifier of MCP errors.
      *
      * @param toolError The structured error descriptor.
      * @param additionalData Optional JSON payload with extra context about the error
@@ -94,6 +61,7 @@ object ResponseUtil {
                     put("code", JsonPrimitive(toolError.code))
                     put("message", JsonPrimitive(toolError.message))
                     put("kind", JsonPrimitive(toolError.kind.toJsonString()))
+                    toolError.details?.let { put("details", JsonPrimitive(it)) }
                     toolError.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
                     toolError.contendedItemId?.let { put("contendedItemId", JsonPrimitive(it.toString())) }
                 }

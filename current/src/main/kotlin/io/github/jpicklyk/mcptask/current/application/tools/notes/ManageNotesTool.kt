@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
@@ -242,7 +243,7 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                     } else {
                         executeDelete(params, context, keyed)
                     }
-                else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
+                else -> errorResponse("Invalid operation: $operation", LegacyMcpCode.VALIDATION_ERROR)
             }
         }
     }
@@ -294,7 +295,7 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                         val noteObj = element as? JsonObject
                         if (noteObj == null) {
                             val message = "Note at index $index must be a JSON object"
-                            return@body ElementResult.Invalid(noteFailure(index, message), message)
+                            return@body ElementResult.Invalid(noteFailure(index, message, ErrorCode.INVALID_REQUEST), message)
                         }
 
                         val itemIdStr =
@@ -331,7 +332,9 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                                 is ActorParseResult.Success -> actorResult.claim
                                 is ActorParseResult.Absent -> null
                                 is ActorParseResult.Invalid ->
-                                    return@body ElementResult.Failed(noteFailure(index, "Note at index $index: ${actorResult.error}"))
+                                    return@body ElementResult.Failed(
+                                        noteFailure(index, "Note at index $index: ${actorResult.error}", ErrorCode.INVALID_REQUEST)
+                                    )
                             }
                         val verification =
                             when (actorResult) {
@@ -380,6 +383,7 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                     buildJsonObject {
                         put("index", JsonPrimitive(index))
                         put("error", JsonPrimitive(e.message ?: "Validation failed"))
+                        putElementError(e.errorCode)
                     }
                 )
             } catch (e: PerRootConfigUnavailableException) {
@@ -391,8 +395,8 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                     buildJsonObject {
                         put("index", JsonPrimitive(index))
                         put("error", JsonPrimitive(e.message))
-                        put("errorKind", JsonPrimitive("transient"))
-                        put("errorCode", JsonPrimitive(PerRootConfigUnavailableException.CODE))
+                        put("errorKind", JsonPrimitive(LegacyMcpErrorMapper.kindOf(LegacyMcpCode.CONFIG_UNAVAILABLE).toJsonString()))
+                        put("errorCode", JsonPrimitive(LegacyMcpCode.CONFIG_UNAVAILABLE.wire))
                     }
                 )
             } catch (e: Exception) {
@@ -401,6 +405,7 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                     buildJsonObject {
                         put("index", JsonPrimitive(index))
                         put("error", JsonPrimitive(e.message ?: "Unexpected error"))
+                        putElementError(ErrorCode.INTERNAL)
                     }
                 )
             }
@@ -489,11 +494,13 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
 
     private fun noteFailure(
         index: Int,
-        message: String
+        message: String,
+        code: ErrorCode
     ): JsonObject =
         buildJsonObject {
             put("index", JsonPrimitive(index))
             put("error", JsonPrimitive(message))
+            putElementError(code)
         }
 
     private fun noteFailure(
@@ -519,7 +526,8 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                     buildJsonObject {
                         put("index", JsonPrimitive(index))
                         put("error", JsonPrimitive(message))
-                        put("code", JsonPrimitive("NOTE_BODY_TOO_LONG"))
+                        put("code", JsonPrimitive(LegacyMcpCode.NOTE_BODY_TOO_LONG.wire))
+                        putElementError(error)
                         put("key", JsonPrimitive(key))
                         put("maxLength", JsonPrimitive(detail.max))
                         put("actualLength", JsonPrimitive(detail.actual))
@@ -530,28 +538,31 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                     buildJsonObject {
                         put("index", JsonPrimitive(index))
                         put("error", JsonPrimitive(message))
-                        put("code", JsonPrimitive("NOTE_BODY_TOO_LARGE"))
+                        put("code", JsonPrimitive(LegacyMcpCode.NOTE_BODY_TOO_LARGE.wire))
+                        putElementError(error)
                         put("key", JsonPrimitive(key))
                         put("maxBytes", JsonPrimitive(detail.max))
                         put("actualBytes", JsonPrimitive(detail.actual))
                     },
                     message
                 )
-            is ErrorDetail.InvalidRequest -> ElementResult.Invalid(noteFailure(index, message), message)
+            is ErrorDetail.InvalidRequest -> ElementResult.Invalid(noteFailure(index, message, error.code), message)
             is ErrorDetail.NotFound ->
-                ElementResult.Failed(noteFailure(index, "Note at index $index: WorkItem '$itemIdStr' not found"))
-            is ErrorDetail.SchemaViolation -> ElementResult.Failed(noteFailure(index, message))
-            else -> ElementResult.Failed(noteFailure(index, LegacyFaults.message(error)))
+                ElementResult.Failed(noteFailure(index, "Note at index $index: WorkItem '$itemIdStr' not found", error.code))
+            is ErrorDetail.SchemaViolation -> ElementResult.Failed(noteFailure(index, message, error.code))
+            else -> ElementResult.Failed(noteFailure(index, LegacyFaults.message(error), error.code))
         }
     }
 
     private fun deleteFailure(
         id: String,
-        message: String
+        message: String,
+        code: ErrorCode
     ): JsonObject =
         buildJsonObject {
             put("id", JsonPrimitive(id))
             put("error", JsonPrimitive(message))
+            putElementError(code)
         }
 
     private suspend fun executeDelete(
@@ -575,6 +586,7 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                         buildJsonObject {
                             put("id", JsonPrimitive("null"))
                             put("error", JsonPrimitive("Each ID must be a string"))
+                            putElementError(ErrorCode.INVALID_REQUEST)
                         }
                     )
                     continue
@@ -588,6 +600,7 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                             buildJsonObject {
                                 put("id", JsonPrimitive(idStr))
                                 put("error", JsonPrimitive("Invalid UUID format: $idStr"))
+                                putElementError(ErrorCode.INVALID_REQUEST)
                             }
                         )
                         continue
@@ -596,14 +609,17 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                 // A delete is recorded only once it committed; a missing note or a fault rolls the element
                 // back and is reported unrecorded, so a retry with the same key runs it again.
                 val outcome =
-                    runElement(keyed, index, element, onError = { deleteFailure(idStr, it.message) }) {
+                    runElement(keyed, index, element, onError = { deleteFailure(idStr, it.message, it.code) }) {
                         when (val deleted = context.noteCommandService.deleteById(id)) {
-                            is Outcome.Err -> ElementResult.Failed(deleteFailure(idStr, LegacyFaults.message(deleted.error)))
+                            is Outcome.Err ->
+                                ElementResult.Failed(
+                                    deleteFailure(idStr, LegacyFaults.message(deleted.error), deleted.error.code)
+                                )
                             is Outcome.Ok ->
                                 if (deleted.value) {
                                     ElementResult.Done(buildJsonObject { put("id", JsonPrimitive(idStr)) })
                                 } else {
-                                    ElementResult.Failed(deleteFailure(idStr, "Note '$idStr' not found"))
+                                    ElementResult.Failed(deleteFailure(idStr, "Note '$idStr' not found", ErrorCode.NOT_FOUND))
                                 }
                         }
                     }
@@ -633,6 +649,7 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                             buildJsonObject {
                                 put("id", JsonPrimitive("$itemIdStr/$key"))
                                 put("error", JsonPrimitive(LegacyFaults.message(deleted.error)))
+                                putElementError(deleted.error)
                             }
                         )
                     }
@@ -646,6 +663,7 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                             buildJsonObject {
                                 put("id", JsonPrimitive(itemIdStr))
                                 put("error", JsonPrimitive(LegacyFaults.message(deleted.error)))
+                                putElementError(deleted.error)
                             }
                         )
                 }

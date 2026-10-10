@@ -274,7 +274,7 @@ a backlink row means another item has an edge with toItemId = your itemId. E.g. 
                 "incoming" -> depRepo.findByToItemId(itemId)
                 "outgoing" -> depRepo.findByFromItemId(itemId)
                 "all" -> depRepo.findByItemId(itemId)
-                else -> return errorResponse("Invalid direction: $direction", ErrorCodes.VALIDATION_ERROR)
+                else -> return errorResponse("Invalid direction: $direction", LegacyMcpCode.VALIDATION_ERROR)
             }
 
         // Apply type filter. IS_BLOCKED_BY is the blocked-side view: the BLOCKS rows whose toItemId is itemId.

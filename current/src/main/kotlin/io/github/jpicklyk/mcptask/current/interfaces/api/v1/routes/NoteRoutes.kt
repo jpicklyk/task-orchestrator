@@ -11,8 +11,10 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowedItemIdsForTagScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.SearchHitDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.DB_QUERY_FAILED
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor
 import io.ktor.http.HttpHeaders
@@ -51,27 +53,27 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
         get("/items/{id}/notes") {
             val rawId =
                 call.parameters["id"] ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
                     return@get
                 }
             val id =
                 runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
                     return@get
                 }
 
             val itemResult =
                 legacyRead({
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@get
                 }) { workItemRepo.getById(id) }
             if (itemResult == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
+                call.respondError(LegacyRestCode.NOT_FOUND, "Item $id not found")
                 return@get
             }
 
             if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
+                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
                 return@get
             }
 
@@ -81,7 +83,7 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
             val notesResult =
                 legacyRead({
                     noteLogger.warn("GET /items/{}/notes DB error: {}", id, it)
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@get
                 }) { noteRepo.findByItemId(id, role = role) }
             val notes =
@@ -95,45 +97,45 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
         get("/items/{id}/notes/{key}") {
             val rawId =
                 call.parameters["id"] ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
                     return@get
                 }
             val id =
                 runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
                     return@get
                 }
             val key =
                 call.parameters["key"] ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing note key"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing note key")
                     return@get
                 }
 
             val itemResult =
                 legacyRead({
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@get
                 }) { workItemRepo.getById(id) }
             if (itemResult == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
+                call.respondError(LegacyRestCode.NOT_FOUND, "Item $id not found")
                 return@get
             }
 
             if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
+                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
                 return@get
             }
 
             val note =
                 legacyRead({
                     noteLogger.warn("GET /items/{}/notes/{} DB error: {}", id, key, it)
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@get
                 }) { noteRepo.findByItemIdAndKey(id, key) }
             run {
                 run {
                     if (note == null) {
-                        call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Note '$key' not found on item $id"))
+                        call.respondError(LegacyRestCode.NOT_FOUND, "Note '$key' not found on item $id")
                     } else {
                         val dto = redactor.redact(note.toDto(), call)
                         // Emit the note's ETag as a response header so clients can supply it as
@@ -150,13 +152,13 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
             val principal = call.attributes.getOrNull(ApiPrincipalKey)
             val rawQuery =
                 call.request.queryParameters["q"]?.takeIf { it.isNotBlank() } ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Query parameter 'q' is required"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Query parameter 'q' is required")
                     return@get
                 }
 
             val sanitizedQuery =
                 FtsQuerySanitizer.sanitize(rawQuery) ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Search query produced no usable tokens"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Search query produced no usable tokens")
                     return@get
                 }
 
@@ -170,10 +172,7 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
                 when {
                     requestedAncestorId != null -> {
                         if (principalRoots != null && !enforceScopeForItem(call, requestedAncestorId, workItemRepo)) {
-                            call.respond(
-                                HttpStatusCode.Forbidden,
-                                ErrorDto("scope_forbidden", "Requested ancestorId is outside your scope")
-                            )
+                            call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Requested ancestorId is outside your scope")
                             return@get
                         }
                         SearchScope(ancestorId = requestedAncestorId)

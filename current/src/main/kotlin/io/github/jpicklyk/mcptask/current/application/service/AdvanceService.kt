@@ -16,9 +16,14 @@ import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.ActorAware
 import io.github.jpicklyk.mcptask.current.application.tools.PolicyResolution
+import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
+import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
+import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.error.ResourceRef
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.event.TransitionOrigin
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator
@@ -58,35 +63,36 @@ import java.util.UUID
  */
 sealed class AdvanceFailure {
     /**
-     * The catalog error behind this failure when it came from a policy rejection
-     * ([Decision.Reject.error]); null for failures raised outside the policy (degraded-mode policy,
-     * credential refs, store faults). Not on the 3.x wire yet (P16 adopts the catalog).
+     * The catalog error behind this failure: the policy rejection's own ([Decision.Reject.error]) or one
+     * built here for failures raised outside the policy (unknown trigger, degraded-mode policy, credential
+     * refs, a missing row, an apply-time lease contention, a store fault). Always present: the MCP and REST
+     * mappers read the failure's `kind` from it. The 3.x wire code and message stay each variant's own.
      */
-    abstract val error: DomainError?
+    abstract val error: DomainError
 
     /** The caller does not hold the active claim on an actively-claimed item. */
     data class OwnershipRejected(
         val message: String,
-        override val error: DomainError? = null
+        override val error: DomainError
     ) : AdvanceFailure()
 
     /** The configured [DegradedModePolicy] rejected the actor's verification status. */
     data class PolicyRejected(
         val reason: String,
-        override val error: DomainError? = null
+        override val error: DomainError
     ) : AdvanceFailure()
 
     /** The trigger could not be resolved to a target role from the item's current role. */
     data class ResolutionFailed(
         val message: String,
-        override val error: DomainError? = null
+        override val error: DomainError
     ) : AdvanceFailure()
 
     /** A blocking dependency prevents the forward transition (or a `credentialRefs` rule failed, with no blockers). */
     data class ValidationFailed(
         val message: String,
         val blockers: List<BlockerInfo>,
-        override val error: DomainError? = null
+        override val error: DomainError
     ) : AdvanceFailure()
 
     /**
@@ -112,7 +118,7 @@ sealed class AdvanceFailure {
         val missingNotes: List<NoteSchemaEntry>,
         val missingBySeat: Map<String, List<String>>? = null,
         val violations: List<IndependenceViolation>? = null,
-        override val error: DomainError? = null
+        override val error: DomainError
     ) : AdvanceFailure()
 
     /**
@@ -139,13 +145,13 @@ sealed class AdvanceFailure {
         val targetRole: Role,
         val contendedResources: List<String>,
         val retryAfterMs: Long?,
-        override val error: DomainError? = null
+        override val error: DomainError
     ) : AdvanceFailure()
 
     /** The persistence step failed (a store fault anywhere in the advance unit; nothing was applied). */
     data class ApplyFailed(
         val message: String,
-        override val error: DomainError? = null
+        override val error: DomainError
     ) : AdvanceFailure()
 }
 
@@ -406,7 +412,8 @@ class AdvanceService(
             Trigger.User.parse(trigger)
                 ?: return AdvanceOutcome.Failure(
                     AdvanceFailure.ResolutionFailed(
-                        "Unknown trigger: '$trigger'. Valid triggers: ${Trigger.User.entries.joinToString { it.wire }}"
+                        "Unknown trigger: '$trigger'. Valid triggers: ${Trigger.User.entries.joinToString { it.wire }}",
+                        AdvanceErrors.invalidField("trigger", "unknown trigger", trigger, "Unknown trigger: '$trigger'")
                     )
                 )
 
@@ -414,7 +421,9 @@ class AdvanceService(
         var callerId: String? = null
         if (enforceOwnership && actorClaim != null && verification != null) {
             when (val resolution = ActorAware.resolveTrustedActorId(actorClaim, verification, degradedModePolicy)) {
-                is PolicyResolution.Rejected -> return AdvanceOutcome.Failure(AdvanceFailure.PolicyRejected(resolution.reason))
+                is PolicyResolution.Rejected -> return AdvanceOutcome.Failure(
+                    AdvanceFailure.PolicyRejected(resolution.reason, AdvanceErrors.unauthenticated(resolution.reason))
+                )
                 is PolicyResolution.Trusted -> callerId = resolution.trustedId
             }
         }
@@ -477,12 +486,13 @@ class AdvanceService(
     private fun <T> Outcome<T>.orAbort(): T =
         when (this) {
             is Outcome.Ok -> value
-            is Outcome.Err -> throw ApplyAbort(applyFaultMessage(error))
+            is Outcome.Err -> throw ApplyAbort(applyFaultMessage(error), error)
         }
 
     /** An apply step aborted by a missing row: rolls the unit back and becomes [AdvanceFailure.ApplyFailed]. */
     private class ApplyAbort(
-        message: String
+        message: String,
+        val error: DomainError
     ) : RuntimeException(message)
 
     /**
@@ -514,24 +524,25 @@ class AdvanceService(
                         is AdvanceOutcome.Success -> Outcome.Ok(result)
                         is AdvanceOutcome.Failure -> {
                             rejected = result
-                            Outcome.Err(
-                                result.failure.error ?: DomainError(ErrorCode.INTERNAL, "Unit '$UNIT_OP' rolled back by its caller")
-                            )
+                            Outcome.Err(result.failure.error)
                         }
                     }
                 }
             } catch (e: PerRootConfigUnavailableException) {
                 throw e
             } catch (e: ApplyAbort) {
-                return AdvanceOutcome.Failure(AdvanceFailure.ApplyFailed(e.message ?: "Failed to apply transition"))
+                return AdvanceOutcome.Failure(AdvanceFailure.ApplyFailed(e.message ?: "Failed to apply transition", e.error))
             } catch (e: Exception) {
                 e.rethrowIfCancellation()
-                return AdvanceOutcome.Failure(AdvanceFailure.ApplyFailed(applyFaultMessage(LegacyFaults.fault(e))))
+                val fault = LegacyFaults.fault(e)
+                return AdvanceOutcome.Failure(AdvanceFailure.ApplyFailed(applyFaultMessage(fault), fault))
             }
         configFault?.let { throw it }
         return when (outcome) {
             is Outcome.Ok -> outcome.value
-            is Outcome.Err -> rejected ?: AdvanceOutcome.Failure(AdvanceFailure.ApplyFailed(applyFaultMessage(outcome.error)))
+            is Outcome.Err ->
+                rejected
+                    ?: AdvanceOutcome.Failure(AdvanceFailure.ApplyFailed(applyFaultMessage(outcome.error), outcome.error))
         }
     }
 
@@ -554,7 +565,10 @@ class AdvanceService(
         val item =
             workItemRepository.getById(request.itemId)
                 ?: return AdvanceOutcome.Failure(
-                    AdvanceFailure.ApplyFailed("Failed to update item: WorkItem not found with id: ${request.itemId}")
+                    AdvanceFailure.ApplyFailed(
+                        "Failed to update item: WorkItem not found with id: ${request.itemId}",
+                        AdvanceErrors.itemNotFound(request.itemId)
+                    )
                 )
 
         // An advance that evaluates a lapsed claim reports it (deduped); a rejected advance rolls the row back and
@@ -583,7 +597,13 @@ class AdvanceService(
                         "credentialRefs entry '$unknownRef' is not a resource declared by this item or " +
                             "registered in the server's resources: registry. Known keys: " +
                             knownKeys.sorted().joinToString(),
-                        emptyList()
+                        emptyList(),
+                        AdvanceErrors.invalidField(
+                            "credentialRefs",
+                            "not a declared or registered resource",
+                            unknownRef,
+                            "credentialRefs entry '$unknownRef' is not a declared or registered resource"
+                        )
                     )
                 )
             }
@@ -598,7 +618,12 @@ class AdvanceService(
                 is Decision.Reject -> return AdvanceOutcome.Failure(rejectPrimary(item, trigger, decision, loaded, target, request))
                 // Not produced for a user trigger; treated as an invalid transition defensively.
                 is Decision.NotApplicable ->
-                    return AdvanceOutcome.Failure(AdvanceFailure.ResolutionFailed(legacyTableMessage(item, trigger, null)))
+                    return AdvanceOutcome.Failure(
+                        AdvanceFailure.ResolutionFailed(
+                            legacyTableMessage(item, trigger, null),
+                            AdvanceErrors.notApplicable(item, trigger)
+                        )
+                    )
             }
 
         val label = labelFor(trigger, allow.target)
@@ -626,7 +651,8 @@ class AdvanceService(
                             message = leaseMessage(result.keys),
                             targetRole = Role.WORK,
                             contendedResources = result.keys,
-                            retryAfterMs = result.retryAfterMs
+                            retryAfterMs = result.retryAfterMs,
+                            error = AdvanceErrors.contended(item.id, result.keys, result.retryAfterMs)
                         )
                     )
             }
@@ -928,7 +954,10 @@ class AdvanceService(
 
         val updated =
             workItemRepository.update(updatedItem)
-                ?: throw ApplyAbort("Failed to update item: WorkItem not found with id: ${item.id}")
+                ?: throw ApplyAbort(
+                    "Failed to update item: WorkItem not found with id: ${item.id}",
+                    AdvanceErrors.itemNotFound(item.id)
+                )
         // update() never writes the claim columns: release the claim explicitly, in this unit.
         if (clearsClaim) claims.clearClaim(item.id).orAbort()
 
@@ -1176,4 +1205,62 @@ sealed class AdvanceOutcome {
     data class Failure(
         val failure: AdvanceFailure
     ) : AdvanceOutcome()
+}
+
+/**
+ * Catalog errors for the [AdvanceFailure]s raised outside the transition policy, so every failure carries a
+ * [DomainError] (the mappers read `kind` from it). Messages are descriptive only: each variant keeps its own
+ * 3.x wire message.
+ */
+internal object AdvanceErrors {
+    fun invalidField(
+        field: String,
+        reason: String,
+        received: String?,
+        message: String
+    ): DomainError =
+        DomainError(
+            code = ErrorCode.INVALID_REQUEST,
+            message = message,
+            detail = ErrorDetail.InvalidRequest(listOf(FieldViolation(field, reason, received)))
+        )
+
+    fun unauthenticated(reason: String): DomainError =
+        DomainError(ErrorCode.UNAUTHENTICATED, reason.ifBlank { "Actor verification rejected by the degraded-mode policy" })
+
+    fun itemNotFound(id: UUID): DomainError =
+        DomainError(
+            code = ErrorCode.NOT_FOUND,
+            message = "WorkItem not found with id: $id",
+            detail = ErrorDetail.NotFound(EntityKind.ITEM, id.toString()),
+            fixArgs = mapOf("kind" to "item", "id" to id.toString())
+        )
+
+    fun notApplicable(
+        item: WorkItem,
+        trigger: Trigger.User
+    ): DomainError =
+        DomainError(
+            code = ErrorCode.INVALID_TRANSITION,
+            message = "Trigger '${trigger.wire}' is not applicable to item ${item.id} in role ${item.role.toJsonString()}",
+            detail = ErrorDetail.InvalidTransition(item.id, item.role.toJsonString(), trigger.wire, emptyList()),
+            fixArgs = mapOf("itemId" to item.id.toString(), "trigger" to trigger.wire, "fromRole" to item.role.toJsonString())
+        )
+
+    fun contended(
+        itemId: UUID,
+        keys: List<String>,
+        retryAfterMs: Long?
+    ): DomainError =
+        DomainError(
+            code = ErrorCode.RESOURCE_UNAVAILABLE,
+            message = "Resource(s) currently held by another work item: ${keys.joinToString()}",
+            detail =
+                ErrorDetail.ResourceUnavailable(
+                    itemId,
+                    keys.ifEmpty { listOf("unknown") }.map { ResourceRef(it, "exclusive") },
+                    retryAfterMs
+                ),
+            fixArgs = mapOf("itemId" to itemId.toString())
+        )
 }

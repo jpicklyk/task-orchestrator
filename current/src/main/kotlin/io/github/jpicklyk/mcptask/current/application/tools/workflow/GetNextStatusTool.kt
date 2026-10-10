@@ -76,7 +76,7 @@ Call to check one item's advance-readiness when a full context snapshot is not n
         val item =
             itemResult ?: return errorResponse(
                 "WorkItem not found: $itemId",
-                ErrorCodes.RESOURCE_NOT_FOUND
+                LegacyMcpCode.RESOURCE_NOT_FOUND
             )
 
         return when (item.role) {
@@ -124,7 +124,7 @@ Call to check one item's advance-readiness when a full context snapshot is not n
                         )
                     }
                     is Decision.Reject -> blockedResponse(item.role, decision)
-                    is Decision.NotApplicable -> errorResponse("Failed to resolve next status", ErrorCodes.OPERATION_FAILED)
+                    is Decision.NotApplicable -> errorResponse("Failed to resolve next status", LegacyMcpCode.OPERATION_FAILED)
                 }
             }
         }
@@ -179,7 +179,7 @@ Call to check one item's advance-readiness when a full context snapshot is not n
                         )
                     }
                 )
-            else -> errorResponse(decision.error.message, ErrorCodes.OPERATION_FAILED)
+            else -> errorResponse(decision.error.message, LegacyMcpCode.OPERATION_FAILED, cause = decision.error)
         }
 
     override fun userSummary(

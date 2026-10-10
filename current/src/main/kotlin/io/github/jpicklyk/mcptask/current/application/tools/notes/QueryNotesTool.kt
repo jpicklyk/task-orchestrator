@@ -276,7 +276,7 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                 val query = requireString(params, "query")
                 executeFtsSearch(params, query, context)
             }
-            else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
+            else -> errorResponse("Invalid operation: $operation", LegacyMcpCode.VALIDATION_ERROR)
         }
     }
 
@@ -321,10 +321,10 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
         val noteRepo = context.noteRepository()
 
         val note =
-            legacyRead({ return errorResponse("Failed to get note: $it", ErrorCodes.DATABASE_ERROR) }) { noteRepo.getById(id) }
+            legacyRead({ return errorResponse("Failed to get note: $it", LegacyMcpCode.DATABASE_ERROR) }) { noteRepo.getById(id) }
                 ?: return errorResponse(
                     "Note not found: $id",
-                    ErrorCodes.RESOURCE_NOT_FOUND,
+                    LegacyMcpCode.RESOURCE_NOT_FOUND,
                     details = "Note not found with id: $id"
                 )
         return successResponse(note.toJson())
@@ -355,7 +355,7 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                     return@run run {
                         errorResponse(
                             "Failed to list notes for item: $itemId",
-                            ErrorCodes.DATABASE_ERROR,
+                            LegacyMcpCode.DATABASE_ERROR,
                             details = it
                         )
                     }
@@ -415,7 +415,7 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                         runCatchingNonCancellation { UUID.fromString(ancestorIdStr) }.getOrElse {
                             return errorResponse(
                                 "Invalid scope.ancestorId UUID: $ancestorIdStr",
-                                ErrorCodes.VALIDATION_ERROR,
+                                LegacyMcpCode.VALIDATION_ERROR,
                             )
                         }
                     } else {
@@ -426,7 +426,7 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                         runCatchingNonCancellation { UUID.fromString(itemIdStr) }.getOrElse {
                             return errorResponse(
                                 "Invalid scope.itemId UUID: $itemIdStr",
-                                ErrorCodes.VALIDATION_ERROR,
+                                LegacyMcpCode.VALIDATION_ERROR,
                             )
                         }
                     } else {
@@ -453,17 +453,17 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                         FtsQuerySanitizer.sanitizeForTrigram(rawQuery)
                             ?: return errorResponse(
                                 "Search query is empty. Provide at least one search term.",
-                                ErrorCodes.VALIDATION_ERROR,
+                                LegacyMcpCode.VALIDATION_ERROR,
                             )
                     SearchMatchMode.AUTO, SearchMatchMode.TEXT ->
                         FtsQuerySanitizer.sanitize(rawQuery)
                             ?: return errorResponse(
                                 "Search query is empty. Provide at least one search term.",
-                                ErrorCodes.VALIDATION_ERROR,
+                                LegacyMcpCode.VALIDATION_ERROR,
                             )
                 }
             } catch (e: IllegalArgumentException) {
-                return errorResponse(e.message ?: "Invalid search query", ErrorCodes.VALIDATION_ERROR)
+                return errorResponse(e.message ?: "Invalid search query", LegacyMcpCode.VALIDATION_ERROR)
             }
 
         // Delegate to repository, dispatched via the NoteStore interface (a read; the write
@@ -482,7 +482,7 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                 e.rethrowIfCancellation()
                 return errorResponse(
                     "FTS5 note search failed: ${e.message}",
-                    ErrorCodes.INTERNAL_ERROR
+                    LegacyMcpCode.INTERNAL_ERROR
                 )
             }
 

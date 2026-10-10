@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
-import io.ktor.http.HttpStatusCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.contentLength
 import io.ktor.server.request.receiveChannel
-import io.ktor.server.response.respond
 import io.ktor.utils.io.readRemaining
 import kotlinx.io.readByteArray
 
@@ -65,13 +65,7 @@ const val MAX_JSON_WRITE_BODY_BYTES: Int = 1 * 1024 * 1024
 suspend fun ApplicationCall.receiveBounded(maxBytes: Int): String? {
     val declaredLength = request.contentLength()
     if (declaredLength != null && declaredLength > maxBytes) {
-        respond(
-            HttpStatusCode.PayloadTooLarge,
-            ErrorDto(
-                "payload_too_large",
-                "Request body declares $declaredLength bytes, exceeds the $maxBytes byte limit",
-            ),
-        )
+        respondError(LegacyRestCode.PAYLOAD_TOO_LARGE, "Request body declares $declaredLength bytes, exceeds the $maxBytes byte limit")
         return null
     }
 
@@ -79,13 +73,7 @@ suspend fun ApplicationCall.receiveBounded(maxBytes: Int): String? {
     // chunked or absent/understated-Content-Length body can never be buffered in full.
     val bytes = receiveChannel().readRemaining(maxBytes.toLong() + 1).readByteArray()
     if (bytes.size > maxBytes) {
-        respond(
-            HttpStatusCode.PayloadTooLarge,
-            ErrorDto(
-                "payload_too_large",
-                "Request body exceeds the $maxBytes byte limit",
-            ),
-        )
+        respondError(LegacyRestCode.PAYLOAD_TOO_LARGE, "Request body exceeds the $maxBytes byte limit")
         return null
     }
 

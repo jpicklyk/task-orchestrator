@@ -184,7 +184,7 @@ class ClaimItemToolFailurePathTest {
                 )
 
             val first = firstResult(result, "claimResults")
-            assertEquals(listOf("outcome", "error", "claimRef"), first.keys.toList())
+            assertEquals(listOf("outcome", "kind", "code", "error", "claimRef"), first.keys.toList())
             assertEquals(
                 "Failed to resolve selector.parentId: abcd1234",
                 first["error"]!!.jsonPrimitive.content
@@ -276,7 +276,7 @@ class ClaimItemToolFailurePathTest {
                 )
 
             val first = firstResult(result, "claimResults")
-            assertEquals(listOf("itemId", "outcome", "claimRef"), first.keys.toList())
+            assertEquals(listOf("itemId", "outcome", "kind", "code", "claimRef"), first.keys.toList())
             assertEquals("not_found", first["outcome"]!!.jsonPrimitive.content)
             assertEquals(itemId1.toString(), first["itemId"]!!.jsonPrimitive.content)
             assertEquals("s11ref", first["claimRef"]!!.jsonPrimitive.content)
@@ -298,7 +298,7 @@ class ClaimItemToolFailurePathTest {
                 )
 
             val first = firstResult(result, "claimResults")
-            assertEquals(listOf("itemId", "outcome", "claimRef"), first.keys.toList())
+            assertEquals(listOf("itemId", "outcome", "kind", "code", "claimRef"), first.keys.toList())
             assertEquals("terminal_item", first["outcome"]!!.jsonPrimitive.content)
             assertEquals(itemId1.toString(), first["itemId"]!!.jsonPrimitive.content)
             assertEquals("s11ref", first["claimRef"]!!.jsonPrimitive.content)

@@ -156,7 +156,7 @@ the root's stored fingerprint history.
         when (val operation = requireString(params, "operation")) {
             "push" -> executePush(params, context)
             "get" -> executeGet(params, context)
-            else -> errorResponse("Invalid operation: $operation. Must be push or get", ErrorCodes.VALIDATION_ERROR)
+            else -> errorResponse("Invalid operation: $operation. Must be push or get", LegacyMcpCode.VALIDATION_ERROR)
         }
 
     override fun userSummary(
@@ -208,23 +208,23 @@ the root's stored fingerprint history.
             is ProjectConfigPushResult.NotFound ->
                 errorResponse(
                     "Root WorkItem not found: ${result.rootItemId}",
-                    ErrorCodes.RESOURCE_NOT_FOUND
+                    LegacyMcpCode.RESOURCE_NOT_FOUND
                 )
             is ProjectConfigPushResult.NotDepthZero ->
                 errorResponse(
                     "rootId must reference a depth-0 (root) WorkItem; '${result.rootItemId}' has depth ${result.depth}",
-                    ErrorCodes.VALIDATION_ERROR
+                    LegacyMcpCode.VALIDATION_ERROR
                 )
             is ProjectConfigPushResult.TooLarge ->
                 errorResponse(
                     "configYaml is ${result.sizeBytes} bytes, exceeds the ${result.maxBytes} byte " +
                         "(${result.maxBytes / 1024} KiB) limit",
-                    ErrorCodes.VALIDATION_ERROR
+                    LegacyMcpCode.VALIDATION_ERROR
                 )
             is ProjectConfigPushResult.ParseError ->
                 errorResponse(
                     "configYaml failed to parse: ${result.detail}",
-                    ErrorCodes.VALIDATION_ERROR,
+                    LegacyMcpCode.VALIDATION_ERROR,
                     details = result.detail
                 )
             is ProjectConfigPushResult.RootIdMismatch ->
@@ -232,13 +232,13 @@ the root's stored fingerprint history.
                     "configYaml embeds project.rootId '${result.embeddedRootId}', which differs from " +
                         "the target rootId '${result.targetRootId}'; fix project.rootId in the " +
                         "document or pass force: true to push anyway",
-                    ErrorCodes.VALIDATION_ERROR
+                    LegacyMcpCode.VALIDATION_ERROR
                 )
             is ProjectConfigPushResult.Superseded ->
                 errorResponse(
                     "local config is older than the server's (updated ${result.currentUpdatedAt}); " +
                         "pull or copy back before editing, or pass force: true to overwrite anyway",
-                    ErrorCodes.CONFLICT_ERROR
+                    LegacyMcpCode.CONFLICT_ERROR
                 )
             is ProjectConfigPushResult.PreconditionFailed ->
                 // Unreachable from this tool today (no expectedFingerprint MCP param exists yet;
@@ -247,12 +247,13 @@ the root's stored fingerprint history.
                 // a future forgotten case.
                 errorResponse(
                     "Project config was modified concurrently; current fingerprint is ${result.currentFingerprint}",
-                    ErrorCodes.CONFLICT_ERROR
+                    LegacyMcpCode.CONFLICT_ERROR
                 )
             is ProjectConfigPushResult.RepositoryError ->
                 errorResponse(
                     "Failed to store project config: ${result.message}",
-                    ErrorCodes.DATABASE_ERROR
+                    LegacyMcpCode.DATABASE_ERROR,
+                    cause = result.error
                 )
         }
     }
@@ -271,11 +272,11 @@ the root's stored fingerprint history.
 
         val service = ProjectConfigPushService(context.repositoryProvider, configDocumentParser, context.unitOfWork)
         val config =
-            legacyRead({ return errorResponse("Failed to read project config: $it", ErrorCodes.DATABASE_ERROR) }) {
+            legacyRead({ return errorResponse("Failed to read project config: $it", LegacyMcpCode.DATABASE_ERROR) }) {
                 service.get(rootId!!)
             } ?: return errorResponse(
                 "No project config found for root: $rootId",
-                ErrorCodes.RESOURCE_NOT_FOUND
+                LegacyMcpCode.RESOURCE_NOT_FOUND
             )
         val relation = fingerprint?.let { service.classifyRelation(rootId!!, it) }
         return run {

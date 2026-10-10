@@ -62,7 +62,7 @@ class PlanDocumentService(
 
         return unitOfWork.writeUnit(
             "PlanDocumentService.stash",
-            onFault = { PlanDocumentStashResult.RepositoryError(LegacyFaults.message(it)) }
+            onFault = { PlanDocumentStashResult.RepositoryError(it) }
         ) {
             val item =
                 repositoryProvider.workItemRepository().getById(rootItemId)
@@ -195,6 +195,9 @@ sealed class PlanDocumentStashResult {
 
     /** The repository call itself failed. */
     data class RepositoryError(
-        val message: String,
-    ) : PlanDocumentStashResult()
+        val error: DomainError,
+    ) : PlanDocumentStashResult() {
+        /** The 3.x store message (the innermost SQL text), unchanged on the wire. */
+        val message: String get() = LegacyFaults.message(error)
+    }
 }
