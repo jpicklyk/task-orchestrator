@@ -27,6 +27,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import org.sqlite.SQLiteErrorCode
 import org.sqlite.SQLiteException
+import java.sql.SQLException
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -247,19 +248,35 @@ class McpToolAdapterErrorKindTest {
         }
 
     @Test
-    fun `S2 probe a storage fault wrapped three causes deep is still classified by the innermost fault`(): Unit =
+    fun `S2 probe an SQLException-rooted chain wrapped three causes deep is a persistence fault classified by the innermost fault`(): Unit =
         runBlocking {
+            // Persistence-fault contract (P5a, task-scope step 4): only an outermost java.sql.SQLException chain is a fault.
             val result =
                 call("s2_wrapped") {
-                    RuntimeException(
+                    SQLException(
                         "outer",
-                        IllegalStateException(
+                        SQLException(
                             "middle",
-                            RuntimeException("inner", SQLiteException("marker-wrapped", SQLiteErrorCode.SQLITE_BUSY))
+                            SQLiteException("marker-wrapped", SQLiteErrorCode.SQLITE_BUSY)
                         )
                     )
                 }
             assertStorageFault("s2_wrapped", "marker-wrapped", result, "shedding")
+        }
+
+    @Test
+    fun `S2 probe a non-SQL exception wrapping a storage fault is not a persistence fault and stays INTERNAL_ERROR transient`(): Unit =
+        runBlocking {
+            val result =
+                call("s2_wrapped_plain") { RuntimeException("outer", SQLiteException("marker-plain", SQLiteErrorCode.SQLITE_BUSY)) }
+
+            assertEquals(true, result.isError)
+            val text = result.text()
+            assertTrue(text.startsWith("Internal error in 's2_wrapped_plain'"), "generic internal error text, got: $text")
+            val error = result.errorObject()
+            assertEquals(ErrorCodes.INTERNAL_ERROR, error["code"]?.jsonPrimitive?.content)
+            assertEquals("transient", error["kind"]?.jsonPrimitive?.content)
+            assertEquals(text, error["message"]?.jsonPrimitive?.content)
         }
 
     @Test
