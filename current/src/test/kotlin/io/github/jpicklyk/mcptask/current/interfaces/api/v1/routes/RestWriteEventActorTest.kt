@@ -166,7 +166,7 @@ class RestWriteEventActorTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"R2 root"}""")
+                    setBody("""{"type":"test-item","title":"R2 root"}""")
                 }
             assertEquals(HttpStatusCode.Created, rootResp.status)
             val rootId = idOf(rootResp.bodyAsText())
@@ -174,7 +174,7 @@ class RestWriteEventActorTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"R2 child","parentId":"$rootId"}""")
+                    setBody("""{"type":"test-item","title":"R2 child","parentId":"$rootId"}""")
                 }
             assertEquals(HttpStatusCode.Created, childResp.status)
             val childId = idOf(childResp.bodyAsText())
@@ -329,7 +329,7 @@ class RestWriteEventActorTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $TEST_TOKEN")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"denied"}""")
+                    setBody("""{"type":"test-item","title":"denied"}""")
                 }
             assertEquals(HttpStatusCode.Forbidden, denied.status)
             // The same request with the write token produces an event (R2), so a zero here is

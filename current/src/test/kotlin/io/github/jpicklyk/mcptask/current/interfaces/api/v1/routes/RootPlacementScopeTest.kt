@@ -134,7 +134,7 @@ class RootPlacementScopeTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"S1 Root"}""")
+                    setBody("""{"type":"test-item","title":"S1 Root"}""")
                 }
 
             assertEquals(HttpStatusCode.Created, response.status, "Unscoped root create must succeed: ${response.bodyAsText()}")
@@ -170,7 +170,7 @@ class RootPlacementScopeTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"S2 Child","parentId":"${root.id}"}""")
+                    setBody("""{"type":"test-item","title":"S2 Child","parentId":"${root.id}"}""")
                 }
 
             assertEquals(HttpStatusCode.Created, response.status, "In-scope parented create must succeed: ${response.bodyAsText()}")
@@ -195,7 +195,7 @@ class RootPlacementScopeTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $tagToken")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"S3 Root","tags":["alpha"]}""")
+                    setBody("""{"type":"test-item","title":"S3 Root","tags":["alpha"]}""")
                 }
 
             assertEquals(
@@ -328,7 +328,7 @@ class RootPlacementScopeTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"S6 Should Not Exist"}""")
+                    setBody("""{"type":"test-item","title":"S6 Should Not Exist"}""")
                 }
 
             assertEquals(
@@ -368,7 +368,7 @@ class RootPlacementScopeTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"S7 Should Not Exist","parentId":null}""")
+                    setBody("""{"type":"test-item","title":"S7 Should Not Exist","parentId":null}""")
                 }
 
             assertEquals(
@@ -406,7 +406,7 @@ class RootPlacementScopeTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $token")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"S8 Should Not Exist","tags":["alpha"]}""")
+                    setBody("""{"type":"test-item","title":"S8 Should Not Exist","tags":["alpha"]}""")
                 }
 
             assertEquals(
@@ -438,7 +438,7 @@ class RootPlacementScopeTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $token")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"S9a Should Not Exist","tags":["beta"]}""")
+                    setBody("""{"type":"test-item","title":"S9a Should Not Exist","tags":["beta"]}""")
                 }
 
             assertEquals(
@@ -467,7 +467,7 @@ class RootPlacementScopeTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $token")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"S9b Should Not Exist"}""")
+                    setBody("""{"type":"test-item","title":"S9b Should Not Exist"}""")
                 }
 
             assertEquals(
@@ -565,7 +565,7 @@ class RootPlacementScopeTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $token")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"P1a Should Not Exist","tags":[]}""")
+                    setBody("""{"type":"test-item","title":"P1a Should Not Exist","tags":[]}""")
                 }
 
             assertEquals(
@@ -588,7 +588,7 @@ class RootPlacementScopeTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $token")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"P1b Should Not Exist","tags":["", " "]}""")
+                    setBody("""{"type":"test-item","title":"P1b Should Not Exist","tags":["", " "]}""")
                 }
 
             assertEquals(
@@ -617,7 +617,7 @@ class RootPlacementScopeTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $token")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"P2 Should Not Exist","tags":["alpha"]}""")
+                    setBody("""{"type":"test-item","title":"P2 Should Not Exist","tags":["alpha"]}""")
                 }
 
             assertEquals(
@@ -644,7 +644,7 @@ class RootPlacementScopeTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $token")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"P3 Root","tags":[" alpha "]}""")
+                    setBody("""{"type":"test-item","title":"P3 Root","tags":[" alpha "]}""")
                 }
 
             assertEquals(
@@ -670,7 +670,7 @@ class RootPlacementScopeTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $token")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"P4 Root","tags":["beta","alpha"]}""")
+                    setBody("""{"type":"test-item","title":"P4 Root","tags":["beta","alpha"]}""")
                 }
 
             assertEquals(
@@ -708,7 +708,7 @@ class RootPlacementScopeTest {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     header("Idempotency-Key", idempotencyKey)
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"P5a Should Not Exist"}""")
+                    setBody("""{"type":"test-item","title":"P5a Should Not Exist"}""")
                 }
             }
 

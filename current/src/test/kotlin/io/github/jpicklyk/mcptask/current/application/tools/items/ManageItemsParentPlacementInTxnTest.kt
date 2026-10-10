@@ -211,6 +211,7 @@ class ManageItemsParentPlacementInTxnTest {
             JsonArray(
                 listOf(
                     buildJsonObject {
+                        put("type", JsonPrimitive("test-item"))
                         put("title", JsonPrimitive(title))
                         put("parentId", JsonPrimitive(parentId.toString()))
                     }
@@ -401,7 +402,15 @@ class ManageItemsParentPlacementInTxnTest {
                     tool.execute(
                         params(
                             "operation" to JsonPrimitive("create"),
-                            "items" to JsonArray(listOf(buildJsonObject { put("title", JsonPrimitive("Root S13")) }))
+                            "items" to
+                                JsonArray(
+                                    listOf(
+                                        buildJsonObject {
+                                            put("type", JsonPrimitive("test-item"))
+                                            put("title", JsonPrimitive("Root S13"))
+                                        }
+                                    )
+                                )
                         ),
                         contextWith(spy)
                     )
@@ -520,8 +529,14 @@ class ManageItemsParentPlacementInTxnTest {
                             "items" to
                                 JsonArray(
                                     listOf(
-                                        buildJsonObject { put("title", JsonPrimitive("Batch Child A")) },
-                                        buildJsonObject { put("title", JsonPrimitive("Batch Child B")) }
+                                        buildJsonObject {
+                                            put("type", JsonPrimitive("test-item"))
+                                            put("title", JsonPrimitive("Batch Child A"))
+                                        },
+                                        buildJsonObject {
+                                            put("type", JsonPrimitive("test-item"))
+                                            put("title", JsonPrimitive("Batch Child B"))
+                                        }
                                     )
                                 )
                         ),

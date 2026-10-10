@@ -372,6 +372,11 @@ data class EffectiveConfigDto(
  *
  * All optional fields match [WorkItem] semantics. `parentId` must be a valid UUID string
  * when provided; null creates a root item.
+ *
+ * [type] is required by the service rule (`ItemCommandService`): a missing or blank type is rejected with a 400
+ * `validation_error` whose `details.availableTypes` lists the declared types, and so is a type that is not
+ * declared whenever any schema is configured for the root. The field stays nullable here so a missing field gets that
+ * typed rejection, not a serializer error.
  */
 @Serializable
 data class ItemCreateDto(
@@ -398,6 +403,10 @@ data class ItemCreateDto(
  *
  * Tags: when present in the merged object, `tags` is a comma-separated string mirroring
  * the domain model storage format.
+ *
+ * [type] cannot be cleared: `{"type": null}` (the RFC 7396 delete) and `""` are rejected with a 400
+ * `validation_error`, and so is a changed type that is not declared whenever any schema is configured. An unchanged
+ * type is never re-checked, so a `untyped` item stays patchable.
  */
 @Serializable
 data class ItemPatchDto(

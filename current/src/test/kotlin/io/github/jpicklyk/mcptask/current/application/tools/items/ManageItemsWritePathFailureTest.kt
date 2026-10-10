@@ -245,16 +245,22 @@ class ManageItemsWritePathFailureTest {
                     "items" to
                         JsonArray(
                             listOf(
-                                buildJsonObject { put("title", JsonPrimitive("Valid S13")) },
                                 buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
+                                    put("title", JsonPrimitive("Valid S13"))
+                                },
+                                buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("Bad priority S13"))
                                     put("priority", JsonPrimitive("urgent"))
                                 },
                                 buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("Bad complexity S13"))
                                     put("complexity", JsonPrimitive(11))
                                 },
                                 buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("Bad role S13"))
                                     put("role", JsonPrimitive("bogus"))
                                 }

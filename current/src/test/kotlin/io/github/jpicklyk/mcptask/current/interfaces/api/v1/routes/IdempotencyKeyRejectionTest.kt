@@ -51,7 +51,7 @@ class IdempotencyKeyRejectionTest {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     header("Idempotency-Key", "not-a-uuid")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"Should Not Be Created"}""")
+                    setBody("""{"type":"test-item","title":"Should Not Be Created"}""")
                 }
 
             assertEquals(HttpStatusCode.BadRequest, response.status)

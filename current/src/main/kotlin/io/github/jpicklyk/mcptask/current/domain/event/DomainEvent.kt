@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.domain.event
 
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import java.time.Instant
 import java.util.UUID
@@ -301,7 +302,7 @@ sealed class DomainEvent {
         override fun payload(): Map<String, Any?> = mapOf("key" to key, "expiresAt" to expiresAt)
     }
 
-    // ---- per-root config and plan documents (root = the project root item) ----
+    // ---- per-root config (root = the project root item) ----
 
     data class ProjectConfigUpserted(
         override val rootId: UUID,
@@ -324,25 +325,71 @@ sealed class DomainEvent {
         override fun payload(): Map<String, Any?> = emptyMap()
     }
 
-    data class PlanDocumentStashed(
+    // ---- documents (entity = the document; root = its project root item) ----
+
+    /** A document's first version was written ([version] is 1). */
+    data class DocumentCreated(
         override val entityId: UUID,
         override val rootId: UUID,
-        val slug: String
+        val kind: DocumentKind,
+        val slug: String,
+        val version: Int
     ) : DomainEvent() {
-        override val type: String get() = PLAN_DOCUMENT_STASHED
-        override val entityKind: String get() = KIND_PLAN_DOCUMENT
+        override val type: String get() = DOCUMENT_CREATED
+        override val entityKind: String get() = KIND_DOCUMENT
 
-        override fun payload(): Map<String, Any?> = mapOf("slug" to slug)
+        override fun payload(): Map<String, Any?> = documentPayload(kind, slug, version)
     }
 
-    data class PlanDocumentAdopted(
+    /** A document gained a new version, or was unarchived ([version] is then unchanged). */
+    data class DocumentUpdated(
+        override val entityId: UUID,
+        override val rootId: UUID,
+        val kind: DocumentKind,
+        val slug: String,
+        val version: Int
+    ) : DomainEvent() {
+        override val type: String get() = DOCUMENT_UPDATED
+        override val entityKind: String get() = KIND_DOCUMENT
+
+        override fun payload(): Map<String, Any?> = documentPayload(kind, slug, version)
+    }
+
+    data class DocumentArchived(
+        override val entityId: UUID,
+        override val rootId: UUID,
+        val kind: DocumentKind,
+        val slug: String,
+        val version: Int
+    ) : DomainEvent() {
+        override val type: String get() = DOCUMENT_ARCHIVED
+        override val entityKind: String get() = KIND_DOCUMENT
+
+        override fun payload(): Map<String, Any?> = documentPayload(kind, slug, version)
+    }
+
+    data class DocumentDeleted(
+        override val entityId: UUID,
+        override val rootId: UUID,
+        val kind: DocumentKind,
+        val slug: String,
+        val version: Int
+    ) : DomainEvent() {
+        override val type: String get() = DOCUMENT_DELETED
+        override val entityKind: String get() = KIND_DOCUMENT
+
+        override fun payload(): Map<String, Any?> = documentPayload(kind, slug, version)
+    }
+
+    /** A plan document was adopted by [adoptedByItemId] (an `adopted_by` link was recorded). */
+    data class DocumentAdopted(
         override val entityId: UUID,
         override val rootId: UUID,
         val slug: String,
-        val adoptedByItemId: UUID?
+        val adoptedByItemId: UUID
     ) : DomainEvent() {
-        override val type: String get() = PLAN_DOCUMENT_ADOPTED
-        override val entityKind: String get() = KIND_PLAN_DOCUMENT
+        override val type: String get() = DOCUMENT_ADOPTED
+        override val entityKind: String get() = KIND_DOCUMENT
 
         override fun payload(): Map<String, Any?> = mapOf("slug" to slug, "adoptedByItemId" to adoptedByItemId)
     }
@@ -352,7 +399,7 @@ sealed class DomainEvent {
         const val KIND_NOTE = "note"
         const val KIND_DEPENDENCY = "dependency"
         const val KIND_PROJECT_CONFIG = "project_config"
-        const val KIND_PLAN_DOCUMENT = "plan_document"
+        const val KIND_DOCUMENT = "document"
 
         const val ITEM_CREATED = "item.created"
         const val ITEM_UPDATED = "item.updated"
@@ -374,8 +421,11 @@ sealed class DomainEvent {
         const val LEASE_EXPIRED = "lease.expired"
         const val PROJECT_CONFIG_UPSERTED = "project_config.upserted"
         const val PROJECT_CONFIG_DELETED = "project_config.deleted"
-        const val PLAN_DOCUMENT_STASHED = "plan_document.stashed"
-        const val PLAN_DOCUMENT_ADOPTED = "plan_document.adopted"
+        const val DOCUMENT_CREATED = "document.created"
+        const val DOCUMENT_UPDATED = "document.updated"
+        const val DOCUMENT_ARCHIVED = "document.archived"
+        const val DOCUMENT_DELETED = "document.deleted"
+        const val DOCUMENT_ADOPTED = "document.adopted"
 
         /** `transition.rejected` codes (the error-catalog wire codes they mirror). */
         const val REJECTED_GATE_BLOCKED = "gate_blocked"
@@ -395,6 +445,12 @@ sealed class DomainEvent {
                 put("unblockAt", unblockAt)
                 if (cause != null) put("cause", cause.wire)
             }
+
+        private fun documentPayload(
+            kind: DocumentKind,
+            slug: String,
+            version: Int
+        ): Map<String, Any?> = mapOf("kind" to kind.toDbValue(), "slug" to slug, "version" to version)
     }
 }
 

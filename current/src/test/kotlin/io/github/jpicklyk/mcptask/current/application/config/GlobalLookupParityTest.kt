@@ -66,6 +66,7 @@ class GlobalLookupParityTest {
         assertEquals(service.resourceRegistry(), layer.resourceRegistry(), "$label - resourceRegistry()")
         assertEquals(service.noteLimitsMode(), layer.noteLimitsMode(), "$label - noteLimitsMode()")
         assertEquals(service.fingerprint(), layer.fingerprint(), "$label - fingerprint()")
+        assertEquals(service.schemaKeys(), layer.schemaKeys(), "$label - schemaKeys()")
         assertEquals(service.traitNames().toSet(), layer.traitNames().toSet(), "$label - traitNames()")
         for (trigger in triggers) {
             assertEquals(service.statusLabel(trigger), layer.statusLabel(trigger), "$label - statusLabel($trigger)")
@@ -130,6 +131,7 @@ class GlobalLookupParityTest {
         assertEquals(null, service.statusLabel("complete"), "explicit null is a present key, not absence")
         assertEquals(null, service.statusLabel("cascade"), "a trigger absent from the map resolves to null (no NoOp default fold here)")
         assertEquals(setOf(Role.WORK), service.traitDispatch("trait-a").keys)
+        assertEquals(setOf("feature-task", "container", "default"), service.schemaKeys(), "every declared key, default included")
     }
 
     @Test

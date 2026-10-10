@@ -146,7 +146,13 @@ class CreateWorkTreeParentPlacementInTxnTest {
 
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("New Root S6")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("New Root S6"))
+                        }
+                    )
                     put("parentId", JsonPrimitive(tree.p.id.toString()))
                     put(
                         "children",
@@ -154,6 +160,7 @@ class CreateWorkTreeParentPlacementInTxnTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("c1"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("Child S6"))
                                 }
                             )
@@ -210,6 +217,7 @@ class CreateWorkTreeParentPlacementInTxnTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("c1"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("Child S7"))
                                 }
                             )
@@ -251,7 +259,13 @@ class CreateWorkTreeParentPlacementInTxnTest {
 
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("Orphan Root S11")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("Orphan Root S11"))
+                        }
+                    )
                     put("parentId", JsonPrimitive(p.id.toString()))
                 }
 
@@ -281,7 +295,13 @@ class CreateWorkTreeParentPlacementInTxnTest {
 
             fun params(title: String) =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive(title)) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive(title))
+                        }
+                    )
                     put("parentId", JsonPrimitive(p.id.toString()))
                 }
 

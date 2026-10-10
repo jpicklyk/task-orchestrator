@@ -103,7 +103,13 @@ class NoteWritePolicyParityTest {
         val tool = CreateWorkTreeTool()
         val params =
             buildJsonObject {
-                put("root", buildJsonObject { put("title", JsonPrimitive("parity tree $key")) })
+                put(
+                    "root",
+                    buildJsonObject {
+                        put("type", JsonPrimitive("test-item"))
+                        put("title", JsonPrimitive("parity tree $key"))
+                    }
+                )
                 put(
                     "notes",
                     JsonArray(

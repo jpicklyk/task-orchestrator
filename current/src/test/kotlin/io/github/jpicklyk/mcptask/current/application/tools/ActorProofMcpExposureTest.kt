@@ -278,6 +278,7 @@ class ActorProofMcpExposureTest {
                     put(
                         "root",
                         buildJsonObject {
+                            put("type", "test-item")
                             put("title", "S4 Root")
                         }
                     )

@@ -1,8 +1,10 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management
 
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.DependenciesTable
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.DocumentVersionsTable
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.DocumentsTable
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.LinksTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.NotesTable
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.PlanDocumentsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ProjectConfigTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ResourceLeaseHistoryTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ResourceLeasesTable
@@ -26,7 +28,8 @@ import org.slf4j.LoggerFactory
  *    FK-less so the audit trail survives holder deletion; see V16__Resource_Lease_History.sql.
  *    Positioned after ResourceLeasesTable for readability only, not FK ordering.)
  * 4. ProjectConfigTable (depends on WorkItemsTable)
- * 5. PlanDocumentsTable (depends on WorkItemsTable, two FKs — root_item_id and adopted_by_item_id)
+ * 5. DocumentsTable (depends on WorkItemsTable, root_item_id), DocumentVersionsTable (depends on
+ *    DocumentsTable, document_id), LinksTable (depends on WorkItemsTable, root_item_id; its ends carry no FK)
  * 6. NotesTable (depends on WorkItemsTable)
  * 7. DependenciesTable (depends on WorkItemsTable)
  * 8. RoleTransitionsTable (depends on WorkItemsTable)
@@ -54,7 +57,9 @@ class DirectDatabaseSchemaManager(
             ResourceLeasesTable,
             ResourceLeaseHistoryTable,
             ProjectConfigTable,
-            PlanDocumentsTable,
+            DocumentsTable,
+            DocumentVersionsTable,
+            LinksTable,
             NotesTable,
             DependenciesTable,
             RoleTransitionsTable,

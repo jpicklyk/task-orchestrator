@@ -92,6 +92,7 @@ internal object WalReparentScenarios {
                 buildJsonArray {
                     add(
                         buildJsonObject {
+                            put("type", "test-item")
                             put("title", title)
                             put("parentId", parent.id.toString())
                         }

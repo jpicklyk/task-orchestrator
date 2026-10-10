@@ -68,6 +68,7 @@ class DependencyNormalizationTreeToolsTest {
     ): JsonObject =
         buildJsonObject {
             put("ref", JsonPrimitive(ref))
+            put("type", JsonPrimitive("test-item"))
             put("title", JsonPrimitive(title))
         }
 
@@ -90,7 +91,13 @@ class DependencyNormalizationTreeToolsTest {
         vararg deps: JsonObject
     ): JsonObject =
         buildJsonObject {
-            put("root", buildJsonObject { put("title", JsonPrimitive(rootTitle)) })
+            put(
+                "root",
+                buildJsonObject {
+                    put("type", JsonPrimitive("test-item"))
+                    put("title", JsonPrimitive(rootTitle))
+                }
+            )
             put("children", buildJsonArray { refs.forEach { add(child(it, "Child $it")) } })
             put("deps", buildJsonArray { deps.forEach { add(it) } })
         }

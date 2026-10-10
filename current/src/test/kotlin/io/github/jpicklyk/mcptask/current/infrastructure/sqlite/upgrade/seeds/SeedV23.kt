@@ -71,7 +71,7 @@ object SeedV23 : MigrationSeed(23) {
         val expectedNames = productionOnceStepNames(conn)
         assertEquals(expectedNames, names(conn), "data_steps holds exactly the registered ONCE steps (the migration backfills nothing)")
         val pre = before ?: error("SeedV23.seed did not run before the migration")
-        for ((table, rows) in pre) assertEquals(rows, count(conn, table), "$table row count changed across V23")
+        for ((table, rows) in pre) assertEquals(rows, count(conn, live(table)), "$table row count changed across V23")
 
         // Accepted shapes, at the boundaries of every CHECK.
         insert(conn, "seed23-ok")
@@ -117,6 +117,9 @@ object SeedV23 : MigrationSeed(23) {
                 buildSet { while (rs.next()) add(rs.getString(1)) }
             }
         }
+
+    /** Where a table lives at the latest schema: V24 re-homed `plan_documents` rows into `documents`. */
+    private fun live(table: String) = if (table == "plan_documents") "documents" else table
 
     private fun count(
         conn: Connection,

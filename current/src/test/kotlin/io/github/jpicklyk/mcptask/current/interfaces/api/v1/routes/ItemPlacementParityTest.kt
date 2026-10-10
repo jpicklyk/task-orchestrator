@@ -249,6 +249,7 @@ class ItemPlacementParityTest {
                         JsonArray(
                             listOf(
                                 buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive(title))
                                     put("parentId", JsonPrimitive(parentId.toString()))
                                 }
@@ -321,7 +322,7 @@ class ItemPlacementParityTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"$title","parentId":"$parentId"}""")
+                    setBody("""{"type":"test-item","title":"$title","parentId":"$parentId"}""")
                 }
             out = r.status to r.bodyAsText()
         }

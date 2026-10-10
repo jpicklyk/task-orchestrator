@@ -124,6 +124,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
         tags: String? = null
     ) = buildJsonObject {
         put("ref", JsonPrimitive(ref))
+        put("type", JsonPrimitive("test-item"))
         put("title", JsonPrimitive(title))
         if (tags != null) put("tags", JsonPrimitive(tags))
     }
@@ -162,7 +163,13 @@ class CreateWorkTreeExecuteCharacterizationTest {
         runBlocking {
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("S4 Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("S4 Root"))
+                        }
+                    )
                     put(
                         "children",
                         buildJsonArray {
@@ -189,7 +196,13 @@ class CreateWorkTreeExecuteCharacterizationTest {
         runBlocking {
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("S4 Probe Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("S4 Probe Root"))
+                        }
+                    )
                     put(
                         "children",
                         buildJsonArray {
@@ -227,7 +240,13 @@ class CreateWorkTreeExecuteCharacterizationTest {
         runBlocking {
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("S5 Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("S5 Root"))
+                        }
+                    )
                     put("children", buildJsonArray { add(childSpec("c1", "C1")) })
                     put("deps", buildJsonArray { add(depSpec("root", "ghost")) })
                 }
@@ -252,7 +271,13 @@ class CreateWorkTreeExecuteCharacterizationTest {
         runBlocking {
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("S6 Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("S6 Root"))
+                        }
+                    )
                     put(
                         "children",
                         buildJsonArray {
@@ -294,7 +319,13 @@ class CreateWorkTreeExecuteCharacterizationTest {
         runBlocking {
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("S7 Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("S7 Root"))
+                        }
+                    )
                     put(
                         "children",
                         buildJsonArray {
@@ -329,7 +360,13 @@ class CreateWorkTreeExecuteCharacterizationTest {
         runBlocking {
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("S8 Child Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("S8 Child Root"))
+                        }
+                    )
                     put("children", buildJsonArray { add(childSpec("c1", "C1", tags = "Bad Tag")) })
                 }
 
@@ -352,6 +389,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                     put(
                         "root",
                         buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("S8 Root Root"))
                             put("tags", JsonPrimitive("Bad Tag"))
                         }
@@ -382,7 +420,13 @@ class CreateWorkTreeExecuteCharacterizationTest {
 
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("S9 Orphan Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("S9 Orphan Root"))
+                        }
+                    )
                     put("parentId", JsonPrimitive(p.id.toString()))
                 }
 
@@ -448,6 +492,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("g1"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("S10 G1"))
                                     put("parentRef", JsonPrimitive("c1"))
                                 }
@@ -497,7 +542,13 @@ class CreateWorkTreeExecuteCharacterizationTest {
 
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("S11 Slug Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("S11 Slug Root"))
+                        }
+                    )
                     put("parentId", JsonPrimitive(projectRootId.toString()))
                     put("docRef", buildJsonObject { put("slug", JsonPrimitive("nope")) })
                 }
@@ -524,6 +575,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                     put(
                         "root",
                         buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("S11 Anchor Root"))
                             put(
                                 "noteAnchors",
@@ -568,7 +620,13 @@ class CreateWorkTreeExecuteCharacterizationTest {
 
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("S11 Adopted Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("S11 Adopted Root"))
+                        }
+                    )
                     put("parentId", JsonPrimitive(projectRootId.toString()))
                     put("docRef", buildJsonObject { put("slug", JsonPrimitive("my-plan")) })
                 }
@@ -617,6 +675,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("c1"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("S12 C1"))
                                     put("tags", JsonPrimitive("task"))
                                     put(
@@ -671,6 +730,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("c1"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("S13 C1"))
                                     put("tags", JsonPrimitive("task"))
                                     put(
@@ -719,6 +779,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                     put(
                         "root",
                         buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("S14 Root"))
                             put("priority", JsonPrimitive("HIGH"))
                         }
@@ -729,6 +790,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("c1"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("S14 C1"))
                                     put("priority", JsonPrimitive("  "))
                                 }
@@ -736,6 +798,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("c2"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("S14 C2"))
                                     put("priority", JsonPrimitive("low"))
                                 }
@@ -772,7 +835,13 @@ class CreateWorkTreeExecuteCharacterizationTest {
         runBlocking {
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("F4 Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("F4 Root"))
+                        }
+                    )
                     put("children", buildJsonArray { add(childSpec("c1", "F4 C1", tags = "task")) })
                     put(
                         "notes",

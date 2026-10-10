@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.test
 
+import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import kotlinx.serialization.json.*
 import java.util.UUID
@@ -39,6 +40,49 @@ fun makeItem(
         metadata = metadata,
         requiresVerification = requiresVerification
     )
+
+// ── Typed item creation (`type` is required on every create surface) ──
+
+/** The type the sweep gives test items that are not about type selection; schema-free rigs accept it as-is. */
+const val TEST_ITEM_TYPE = "test-item"
+
+/** An [ItemCreateCommand] with [type] defaulting to [TEST_ITEM_TYPE], so a rig that does not care still creates items. */
+fun createCommand(
+    title: String = "Test Item",
+    parentId: UUID? = null,
+    type: String? = TEST_ITEM_TYPE,
+    id: UUID = UUID.randomUUID(),
+    tags: String? = null,
+    summary: String = "",
+    priority: Priority = Priority.MEDIUM,
+    properties: String? = null
+): ItemCreateCommand =
+    ItemCreateCommand(
+        id = id,
+        parentId = parentId,
+        title = title,
+        summary = summary,
+        priority = priority,
+        tags = tags,
+        type = type,
+        properties = properties
+    )
+
+/** [this] item spec with a `type` (default [TEST_ITEM_TYPE]) added unless it already has one. */
+fun JsonObject.withType(type: String = TEST_ITEM_TYPE): JsonObject =
+    if (containsKey("type")) this else JsonObject(this + ("type" to JsonPrimitive(type)))
+
+/** A manage_items / create_work_tree / REST item body: a typed item with [title] plus any [extra] fields. */
+fun typedItemJson(
+    title: String = "Test Item",
+    type: String? = TEST_ITEM_TYPE,
+    vararg extra: Pair<String, JsonElement>
+): JsonObject =
+    buildJsonObject {
+        put("title", title)
+        if (type != null) put("type", type)
+        extra.forEach { (k, v) -> put(k, v) }
+    }
 
 // ── Dependency builders ──
 

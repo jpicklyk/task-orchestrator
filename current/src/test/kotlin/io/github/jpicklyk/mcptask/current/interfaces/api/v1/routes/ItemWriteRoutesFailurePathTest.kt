@@ -980,7 +980,7 @@ class ItemWriteRoutesFailurePathTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     contentType(ContentType.Text.Plain)
-                    setBody("""{"title":"F13 Should Not Persist"}""")
+                    setBody("""{"type":"test-item","title":"F13 Should Not Persist"}""")
                 }
 
             assertEquals(HttpStatusCode.UnsupportedMediaType, response.status, "actual: ${response.bodyAsText()}")

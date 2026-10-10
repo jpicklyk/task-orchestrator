@@ -67,14 +67,14 @@ class ItemWriteIdempotencyConcurrencyTest {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     header("Idempotency-Key", key)
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"First Body"}""")
+                    setBody("""{"type":"test-item","title":"First Body"}""")
                 }
             val second =
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     header("Idempotency-Key", key)
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"Second Body Completely Different"}""")
+                    setBody("""{"type":"test-item","title":"Second Body Completely Different"}""")
                 }
 
             assertEquals(HttpStatusCode.Created, first.status)
@@ -150,14 +150,14 @@ class ItemWriteIdempotencyConcurrencyTest {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     header("Idempotency-Key", lower)
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"Mixed Case First"}""")
+                    setBody("""{"type":"test-item","title":"Mixed Case First"}""")
                 }
             val second =
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     header("Idempotency-Key", upper)
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"Mixed Case First"}""")
+                    setBody("""{"type":"test-item","title":"Mixed Case First"}""")
                 }
 
             assertEquals(HttpStatusCode.Created, first.status)
