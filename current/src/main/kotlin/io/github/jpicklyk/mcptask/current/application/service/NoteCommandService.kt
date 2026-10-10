@@ -101,7 +101,7 @@ class NoteCommandService(
                     code = ErrorCode.PAYLOAD_TOO_LARGE,
                     message = "Note '$key' body is $bytes bytes, exceeds the $MAX_NOTE_BODY_BYTES byte cap",
                     detail = ErrorDetail.PayloadTooLarge(MAX_NOTE_BODY_BYTES.toLong(), bytes.toLong()),
-                    fixArgs = mapOf("max" to "$MAX_NOTE_BODY_BYTES bytes")
+                    fixArgs = mapOf("max" to MAX_NOTE_BODY_BYTES.toString())
                 )
             )
         }

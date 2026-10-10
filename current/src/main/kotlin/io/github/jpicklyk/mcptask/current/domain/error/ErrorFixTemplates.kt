@@ -35,7 +35,7 @@ object ErrorFixTemplates {
             ErrorCode.SCHEMA_PINNED_CONFLICT to
                 "Item {itemId} is pinned to schema {pinnedVersion} but the current schema is {currentVersion}; refresh and retry.",
             ErrorCode.CONFIG_INVALID to "Fix the configuration errors listed in detail.errors and push the config again.",
-            ErrorCode.PAYLOAD_TOO_LARGE to "Reduce the payload to at most {max}.",
+            ErrorCode.PAYLOAD_TOO_LARGE to "Reduce the payload to at most {max} bytes.",
             ErrorCode.UNAUTHENTICATED to "Authenticate and retry the request.",
             ErrorCode.FORBIDDEN to "Use a credential that grants {required} for the {scope} scope."
         )

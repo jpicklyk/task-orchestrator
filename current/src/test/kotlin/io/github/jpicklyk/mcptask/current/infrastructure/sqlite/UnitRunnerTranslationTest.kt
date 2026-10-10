@@ -280,7 +280,16 @@ class UnitRunnerTranslationTest {
         assertEquals("abc", known.id)
     }
 
-    private fun slots(code: ErrorCode): Map<String, String> = ErrorFixTemplates.slots(code).associateWith { "val-$it" }
+    private fun slots(code: ErrorCode): Map<String, String> =
+        ErrorFixTemplates.slots(code).associateWith {
+            if (it ==
+                "kind"
+            ) {
+                "item"
+            } else {
+                "val-$it"
+            }
+        }
 
     // ---------------------------------------------------------------- S12
     private class CountingSource : PerRootConfigSource {
