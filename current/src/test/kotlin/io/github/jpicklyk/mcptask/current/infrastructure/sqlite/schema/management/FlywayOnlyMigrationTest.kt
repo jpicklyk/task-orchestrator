@@ -204,6 +204,17 @@ class FlywayOnlyMigrationTest {
         assertTrue(errors.any { it.contains("99") }, "the ERROR must identify the failed version 99: $errors")
     }
 
+    @Test
+    fun `S10 repair leaves a newer successful row alone and the next start still fails closed`() {
+        val url = migrated(dir)
+        insertHistory(url, "99", 1)
+        val before = historyRows(url)
+        assertTrue(manager(url, repair = true).updateSchema(), "repair itself succeeds")
+        assertEquals(before, historyRows(url), "repair must not delete or add any history row for a newer version")
+        val errors = errorsOf { assertFalse(manager(url).updateSchema(), "the database is still ahead of this binary") }
+        assertTrue(errors.any { it.contains("99") }, "the ERROR must still name version 99: $errors")
+    }
+
     // ---- S15: applied version with no local file below the latest is tolerated ----
 
     @Test
