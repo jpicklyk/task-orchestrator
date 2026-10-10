@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.tools.config
 
+import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLitePlanDocumentRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.every
@@ -25,7 +25,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Exercises [ManagePlanDocumentsTool] against a real SQLite-backed [SQLitePlanDocumentRepository] and
+ * Exercises [ManagePlanDocumentsTool] against a real SQLite-backed [PlanDocumentStore] and
  * [SQLiteWorkItemRepository] — mirrors [ManageProjectConfigToolTest]'s DB-backed style.
  */
 class ManagePlanDocumentsToolTest {
@@ -34,7 +34,7 @@ class ManagePlanDocumentsToolTest {
 
     private lateinit var tool: ManagePlanDocumentsTool
     private lateinit var workItemRepository: SQLiteWorkItemRepository
-    private lateinit var planDocumentRepository: SQLitePlanDocumentRepository
+    private lateinit var planDocumentRepository: PlanDocumentStore
     private lateinit var context: ToolExecutionContext
     private lateinit var rootId: UUID
 
@@ -47,11 +47,13 @@ class ManagePlanDocumentsToolTest {
             tool = ManagePlanDocumentsTool(agentConfigBaseDir = tempDir)
 
             workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
-            planDocumentRepository = db.repositoryProvider().planDocumentRepository() as SQLitePlanDocumentRepository
+            planDocumentRepository = db.repositoryProvider().planDocumentRepository()
 
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository
             every { repositoryProvider.planDocumentRepository() } returns planDocumentRepository
+            every { repositoryProvider.documentStore() } returns db.repositoryProvider().documentStore()
+            every { repositoryProvider.linkStore() } returns db.repositoryProvider().linkStore()
 
             context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
 

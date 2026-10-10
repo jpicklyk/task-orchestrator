@@ -127,7 +127,9 @@ object PersistenceFaults {
         when {
             message.contains("failed: notes.") -> EntityKind.NOTE
             message.contains("failed: dependencies.") -> EntityKind.DEPENDENCY
-            message.contains("failed: plan_documents.") -> EntityKind.DOCUMENT
+            message.contains("failed: documents.") -> EntityKind.DOCUMENT
+            message.contains("failed: document_versions.") -> EntityKind.DOCUMENT
+            message.contains("failed: links.") -> EntityKind.DOCUMENT
             else -> EntityKind.ITEM
         }
 

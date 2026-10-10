@@ -190,7 +190,13 @@ class DatabaseManager(
                 }
                 logger.info("Creating Flyway schema manager (SCHEMA_MODE=${schemaMode.name.lowercase()})")
                 schemaManager =
-                    FlywayDatabaseSchemaManager(url, appConfig.flywayRepair, appConfig.databaseBusyTimeoutMs, schemaMode)
+                    FlywayDatabaseSchemaManager(
+                        url,
+                        appConfig.flywayRepair,
+                        appConfig.databaseBusyTimeoutMs,
+                        schemaMode,
+                        ftsIntegrity = appConfig.ftsIntegrity
+                    )
             }
 
             val result = schemaManager.updateSchema()

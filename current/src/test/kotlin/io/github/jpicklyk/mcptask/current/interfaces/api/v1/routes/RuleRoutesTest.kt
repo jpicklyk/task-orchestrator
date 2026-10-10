@@ -153,6 +153,10 @@ class RuleRoutesTest {
         /** Own copy of the S1 fixture body -- see `QueryRulesToolTest.FIXTURE_B` for the field-by-field rationale. */
         const val FIXTURE_B =
             "First line ends here.\r\nSecond line: em-dash —, e-acute é, rocket 🚀, and a\ttab.  "
+
+        /** [FIXTURE_B] as stored and served: CRLF normalized to LF (AR-99), nothing else changed. */
+        const val FIXTURE_B_LF =
+            "First line ends here.\nSecond line: em-dash —, e-acute é, rocket 🚀, and a\ttab.  "
     }
 
     // -----------------------------------------------------------------------
@@ -160,7 +164,7 @@ class RuleRoutesTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun `S1 GET roots rootId rules key serves the stashed body UTF-8 byte-identical`(
+    fun `S1 GET roots rootId rules key serves the stashed body UTF-8 byte-identical after CRLF to LF`(
         @TempDir tempDir: Path,
     ): Unit =
         testApplication {
@@ -177,12 +181,12 @@ class RuleRoutesTest {
             assertEquals(HttpStatusCode.OK, response.status)
             val body = parseObj(response.bodyAsText())
             val servedBody = body["body"]!!.jsonPrimitive.content
-            assertEquals(FIXTURE_B, servedBody)
-            assertContentEquals(FIXTURE_B.toByteArray(Charsets.UTF_8), servedBody.toByteArray(Charsets.UTF_8))
+            assertEquals(FIXTURE_B_LF, servedBody)
+            assertContentEquals(FIXTURE_B_LF.toByteArray(Charsets.UTF_8), servedBody.toByteArray(Charsets.UTF_8))
             assertEquals(root.id.toString(), body["rootId"]!!.jsonPrimitive.content)
             assertEquals("protocol.entry-seat", body["key"]!!.jsonPrimitive.content)
             assertEquals(
-                sha256Hex(FIXTURE_B.toByteArray(Charsets.UTF_8)),
+                sha256Hex(FIXTURE_B_LF.toByteArray(Charsets.UTF_8)),
                 body["rulesVersion"]!!.jsonPrimitive.content,
                 "REST rulesVersion must equal an independently computed SHA-256 of the UTF-8 body (M2 must also go red on REST)",
             )

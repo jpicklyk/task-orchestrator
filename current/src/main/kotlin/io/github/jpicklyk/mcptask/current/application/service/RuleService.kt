@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService
+import io.github.jpicklyk.mcptask.current.application.knowledge.document.PlanSlugs
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
@@ -90,14 +92,14 @@ class RuleService(
 
     companion object {
         /** Plan-document slug prefix a rule document is stored under: `rule/<key>`. */
-        const val RULE_SLUG_PREFIX = "rule/"
+        const val RULE_SLUG_PREFIX = PlanSlugs.RULE_PREFIX
 
         /**
          * Hard cap on a rule document body's UTF-8 byte size, enforced by
          * [PlanDocumentService.stash] for any slug starting with [RULE_SLUG_PREFIX] (tighter than
          * that service's general 64 KiB cap for non-rule plan documents).
          */
-        const val MAX_RULE_BODY_BYTES = 16384
+        const val MAX_RULE_BODY_BYTES = DocumentService.MAX_RULE_BODY_BYTES
 
         /**
          * Rule-key grammar: lowercase alphanumeric, `.`, `_`, `-`; must start with an alphanumeric;

@@ -1,0 +1,1 @@
+table|documents_fts_trigram|documents_fts_trigram|CREATE VIRTUAL TABLE documents_fts_trigram USING fts5( title, body, content='documents', content_rowid='doc_rowid', tokenize='trigram' )
