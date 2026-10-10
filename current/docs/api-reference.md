@@ -97,7 +97,7 @@ is computed automatically from the parent; nesting depth is unbounded at creatio
 | `parentId` | string (UUID) | No | shared `parentId` or null | |
 | `tags` | string | No | null | |
 | `metadata` | string | No | null | |
-| `type` | string | **Yes** | — | Schema type identifier. Selects the `work_item_schemas` entry that determines lifecycle mode and required notes. One-to-one lookup (unlike tags, only one type per item). A missing or blank `type` fails the element with `errorCode: "schema_violation"` (`errorKind: "permanent"`); so does a `type` that is not one of the root's declared schema keys (per-root and global, per the root's `schema_resolution` mode, `default` included) whenever any schema is configured. The failure element is `{ index, error, errorCode, errorKind, availableTypes }` with the sorted declared keys in `availableTypes` (omitted when no schema is configured, where any non-blank `type` is accepted); sibling elements still run. Matching is exact and case-sensitive. `untyped` is the residue value the 4.0 upgrade gives pre-4.0 items that matched no schema; it is not a creatable type when any schema is configured. |
+| `type` | string | **Yes** | — | Schema type identifier. Selects the `work_item_schemas` entry that determines lifecycle mode and required notes. One-to-one lookup (unlike tags, only one type per item). A missing or blank `type` fails the element with `errorCode: "schema_violation"` (`errorKind: "permanent"`); so does a `type` that is not one of the root's declared schema keys (the union of per-root and global keys, `default` included) whenever any schema is configured. The failure element is `{ index, error, errorCode, errorKind, availableTypes }` with the sorted declared keys in `availableTypes` (omitted when no schema is configured, where any non-blank `type` is accepted); sibling elements still run. Matching is exact and case-sensitive. `untyped` is the residue value the 4.0 upgrade gives pre-4.0 items that matched no schema; it is not a creatable type when any schema is configured. |
 | `properties` | string | No | null | JSON string for extensible item metadata. Traits are stored here automatically when using the `traits` parameter. |
 | `traits` | string | No | null | Comma-separated trait names (e.g., `needs-security-review,needs-perf-review`). Adds additional note requirements from the `traits:` config section. Merged into `properties` JSON automatically. |
 | `requiresVerification` | boolean | No | false | |
@@ -323,7 +323,7 @@ entirely, unchanged.
 
 This is the **only** place that returns full note text (`description`, `guidance`, `skill`, `maxLength`) in one shot for an entire schema. Use it to resolve the keys-only `expectedNotes` and the reference-only `guidanceKey`/`skillPointer` fields returned elsewhere. `guidance`, `skill`, and `maxLength` are omitted per-entry when unset. `configFingerprint` reports the fingerprint of whichever config layer actually supplied the schema (per-root or global) and is `null` when unavailable; cache schema responses per fingerprint to avoid re-fetching unchanged config. `configSource` is `"per-root"` when a per-root pushed config supplied the schema (via `rootId` on the `type` path, or the item's own `rootId` on the `itemId` path) and `"global"` otherwise. Errors with `RESOURCE_NOT_FOUND` when no schema matches the given `type` or the item is schema-free.
 
-`dispatch` (object, optional) is `{"queue"|"work"|"review": {agent?, model?, effort?}}` — one entry per phase with a resolved profile, from the `dispatch` trait dimension (see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension) → "Dispatch (Trait Dimension)"). Omitted entirely (never `{}`) when no resolved trait declares a profile for any phase. The `itemId` path resolves each phase from the item's per-item `traits` first, then its type's `default_traits` (the reverse of the note-merge order); the `type` path has no item, so it resolves from `default_traits` only. `resources` (array, optional) is `[{key, mode, ttlSeconds?}]`, the trait-declared shared-resource requirements — omitted entirely (never `[]`) when none resolve.
+`dispatch` (object, optional) is `{"queue"|"work"|"review": {agent?, model?, effort?}}` — one entry per phase with a resolved profile, from the `dispatch` trait dimension (see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension) → "Dispatch (Trait Dimension)"). Omitted entirely (never `{}`) when no resolved trait declares a profile for any phase. The `itemId` path resolves each phase from the item's per-item `traits` first, then its type's `default_traits` (the same item-first order as every other trait dimension); the `type` path has no item, so it resolves from `default_traits` only. `resources` (array, optional) is `[{key, mode, ttlSeconds?}]`, the trait-declared shared-resource requirements — omitted entirely (never `[]`) when none resolve.
 
 **Seats (A1).** Each `notes[]` entry gains a `seat` field (string, or JSON `null` when unowned) whenever the resolved schema is seat-aware (declares `seats:` on itself or a merged trait, after trait merging) — omitted entirely for a seat-less schema, never emitted as `null` on one. An entry with a non-empty `independent_of` also gains `independentOf` (array of seat names), independent of seat-awareness. `seats` (array, optional) is `[{name, phase, enters?, after?, readsExclude?}]`, in merged order (base schema seats, then surviving trait seats — see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension) → "Seats"); `enters` appears only when `true`, `after`/`readsExclude` only when non-empty. `dispatchBySeat` (object, optional) is `{"queue"|"work"|"review": {<seat>: {agent?, model?, effort?}}}`, phases in that order, each phase present only when at least one of its seats has a resolved profile. Both `seats` and `dispatchBySeat` are omitted entirely (never `[]`/`{}`) for a seat-less schema. `features` (array) is **always** present — see "Server feature advertisement" below.
 
@@ -1283,16 +1283,19 @@ When provided, the response includes an `actor` object on each successful transi
 | `cancel` | Any non-terminal → TERMINAL with the `cancel` status label (default `"cancelled"`); never dependency-gated |
 | `reopen` | TERMINAL → QUEUE (clears statusLabel, bypasses gate enforcement, cascades parent TERMINAL → WORK) |
 
-**Gate enforcement.** The schema used for gate checks is resolved in this order:
-1. `type` field → direct lookup in `work_item_schemas` (highest priority)
-2. Tag fallback → first tag in the item's `tags` that matches a schema key
-3. `default` schema fallback (if configured)
+**Gate enforcement.** The schema used for gate checks is resolved by one precedence rule over the item's `type`:
+1. the root's per-root config declares the type;
+2. the server config declares the type;
+3. the root's per-root `default` schema;
+4. the server `default` schema.
+
+Tags never select a schema, and there are no `schema_resolution` modes (a config that still sets the key loads with a removal warning).
 
 When a schema is resolved:
 - `start`: required notes for the current phase must exist and be filled.
 - `complete`: all required notes across all phases must be filled.
 
-Trait notes are merged into the resolved schema: `default_traits` from config apply globally, and per-item traits (stored in `properties` JSON) add their note requirements on top. The `dispatch` trait dimension (below) resolves in the **reverse** order — per-item `traits` first, then `default_traits` — and a per-root trait's `dispatch` map replaces the global trait's map wholesale (no per-role fall-through within a trait); see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension) → "Dispatch (Trait Dimension)" for the full precedence and layering rules.
+Trait notes are merged into the resolved schema from the item's per-item traits first, then the type's `default_traits`, in every dimension (notes, dispatch, seats, resources). A note's `required` flag is OR'd across the base schema and every trait, EXCLUSIVE beats ADVISORY for a resource, and a per-root trait replaces the server trait of the same name as a whole (no per-dimension fall-through within a trait); see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension) → "Dispatch (Trait Dimension)" for the full precedence and layering rules.
 
 **Lifecycle modes** (set on the schema via `work_item_schemas`):
 - `AUTO` (default) — cascades (terminal, start and reopen) apply automatically
@@ -2207,7 +2210,13 @@ text keyed by a project root's WorkItem UUID; `ToolExecutionContext.resolveSchem
 per-root config over the global config on every schema-resolving read (see `PerRootConfigService` —
 hot-reload is a property of that read path, so no separate reload call is needed after a push).
 
-**Read-error fallback (last-known-good).** A read (`getFingerprint`/`get`) failing with a transient
+**Versioned store.** The stored config is the head of a versioned, append-only store: a push appends the
+next version of the root's config and moves the head, and a byte-identical re-push appends nothing. Version
+history, reading an older version, rollback and reset are REST-only for now (`GET .../config?version=`,
+`GET .../config/history`, `POST .../config/rollback`, `DELETE .../config`; see
+[api-rest.md §18](api-rest.md#18-endpoints--project-config-per-root)) - this tool's `push` and `get` shapes are unchanged.
+
+**Read-error fallback (last-known-good).** A read of the head (and, on a cache miss, of its version) failing with a transient
 repository error is NOT the same as "no per-root config" — `PerRootConfigService` never falls back
 to the global config on a read error. It instead serves that root's last cached parse (last-known-good)
 without evicting it, and logs a WARN naming the root and the error. Last-known-good has no TTL: the
@@ -2218,8 +2227,9 @@ with a warm cache; `manage_notes` upsert and REST note `PUT` read
 the config this way (`create_work_tree` reads it before its write, so the fallback still applies there). When there is no cached entry to serve — a cold
 cache, e.g. the first read for the root — the read fails closed with a transient
 `config_unavailable` error (see [Error Envelope](#error-envelope)) rather than silently resolving
-against the global config. This is distinct from an explicit absence (no config row, or malformed
-stored YAML), which is unchanged: evict any cached entry, fall through to the global config.
+against the global config. This is distinct from an explicit absence (no config version, or a reset head), which evicts any cached entry
+and falls through to the global config. A head whose stored canonical form is missing or undecodable is neither:
+it fails closed (`PerRootConfigInvalidException`) and never falls through to the global layer.
 `advance_item`, `complete_tree` and
 REST `POST /items/{id}/advance` read the advanced item's config (and every cascade target's) inside the
 advance's unit, so the NOTE, lease and label decisions never use config read before the writer lock;
@@ -2267,11 +2277,11 @@ so a push is never silently partial:
 | `work_item_schemas` | Yes | `PerRootConfigService` / `ToolExecutionContext.resolveSchema()` |
 | `note_schemas` (legacy) | Yes | `PerRootConfigService` / `ToolExecutionContext.resolveSchema()` |
 | `traits` | Yes | `PerRootConfigService` / `ToolExecutionContext.resolveSchema()` |
-| `project` | Yes | `ProjectConfigPushService` (embedded `project.rootId` guard only) |
+| `project` | Yes | `ConfigService` (embedded `project.rootId` guard only) |
 | `note_limits` | Yes | `ToolExecutionContext.resolveNoteLimitsMode()` |
 | `status_labels` | Yes | `ToolExecutionContext.resolveStatusLabel()` |
-| `resources` | Yes | `ToolExecutionContext.resolveResourceRegistry()` |
-| `schema_resolution` | Yes | `LayeredConfig.effectiveMode` (AR-39) — see [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md) → "Global vs Per-Project Config" |
+| `resources` | No — the resource registry is server-only | n/a |
+| `schema_resolution` | No — removed in 4.0 (parses with one warning, no effect) | n/a |
 | `independence` | Yes | `EffectiveConfigResolver.resolveIndependencePolicy()` (A2) — a per-root block replaces the global one wholesale; see [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2) → "Independence (A2)" |
 | `actor_authentication` | No — global-only | n/a |
 | any other key | No | n/a |
@@ -2328,9 +2338,8 @@ present (and non-empty) when the pushed document contains top-level keys outside
 allowlist above — e.g. `actor_authentication`. `schemaWarnings` is only present (and non-empty)
 when `YamlSchemaParser` emitted per-entry warnings while parsing the pushed document — e.g. a note
 schema entry with an invalid `role` value, which is skipped rather than rejecting the whole push,
-or a top-level `schema_resolution` value that isn't one of `legacy`/`layered`/`isolated` (case-
-sensitive), which is treated as absent (falls through to the global mode for that root) and adds
-one `schemaWarnings` entry naming the raw value.
+or a top-level `schema_resolution` key (removed in 4.0), which has no effect and adds one
+`schemaWarnings` entry saying the key was removed.
 The push still succeeds and the document is still stored regardless of `schemaWarnings` — these are
 advisory, not validation failures (contrast with the `VALIDATION_ERROR` cases below, which reject
 the push outright).

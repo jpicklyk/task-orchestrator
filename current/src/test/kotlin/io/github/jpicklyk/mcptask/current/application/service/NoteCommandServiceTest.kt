@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
@@ -16,7 +17,10 @@ import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableE
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
@@ -56,24 +60,24 @@ class NoteCommandServiceTest {
     private fun schema(
         globalMode: String = "warn",
         entries: List<NoteSchemaEntry> = listOf(NoteSchemaEntry(key = "lim", role = Role.WORK, maxLength = 10))
-    ): NoteSchemaService =
-        object : NoteSchemaService {
-            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = if (tags.contains(limTag)) entries else null
-
-            override fun getNoteLimitsMode(): String = globalMode
-        }
+    ): ConfigDocument = TestConfigResolver.document(mapOf(limTag to entries)).copy(noteLimitsMode = globalMode)
 
     private fun context(
-        schema: NoteSchemaService = schema(),
+        schema: ConfigDocument = schema(),
         perRoot: PerRootConfigSource? = null
-    ) = ToolExecutionContext(db.repositoryProvider(), schema, perRootConfigService = perRoot, unitOfWork = db.unitOfWork())
+    ) = ToolExecutionContext(
+        db.repositoryProvider(),
+        perRootConfigService = perRoot,
+        configResolver = TestConfigResolver.resolver(schema, perRoot),
+        unitOfWork = db.unitOfWork()
+    )
 
     private fun service(
-        schema: NoteSchemaService = schema(),
+        schema: ConfigDocument = schema(),
         perRoot: PerRootConfigSource? = null
     ): NoteCommandService = context(schema, perRoot).noteCommandService
 
-    private fun limItem(rootId: UUID? = null) = WorkItem(title = "lim item", tags = limTag, rootId = rootId)
+    private fun limItem(rootId: UUID? = null) = WorkItem(title = "lim item", tags = limTag, type = limTag, rootId = rootId)
 
     private fun plainItem() = WorkItem(title = "plain item")
 
@@ -384,9 +388,9 @@ class NoteCommandServiceTest {
             val strictRoot = persist(WorkItem(title = "strict root"))
             val laxRoot = persist(WorkItem(title = "lax root"))
             val bareRoot = persist(WorkItem(title = "bare root"))
-            repos.projectConfigRepository().upsert(strictRoot.id, "note_limits:\n  mode: reject\n")
-            repos.projectConfigRepository().upsert(laxRoot.id, "note_limits:\n  mode: warn\n")
-            val perRoot = PerRootConfigService(repos.projectConfigRepository())
+            repos.configStore().upsert(strictRoot.id, "note_limits:\n  mode: reject\n")
+            repos.configStore().upsert(laxRoot.id, "note_limits:\n  mode: warn\n")
+            val perRoot = PerRootConfigService(repos.configStore())
             val over = "x".repeat(11)
 
             val globalWarn = service(schema(globalMode = "warn"), perRoot)

@@ -1,18 +1,20 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -68,9 +70,7 @@ class SharedConfigCacheRestMcpTest {
     }
 
     /** No global schema for any type — the note key in every scenario must come from the per-root push only. */
-    private object NoGlobalSchemaService : WorkItemSchemaService {
-        override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
-    }
+    private object NoGlobalSchemaService : WorkItemSchemaService
 
     private fun perRootYaml(): String =
         """
@@ -104,30 +104,32 @@ class SharedConfigCacheRestMcpTest {
     private fun gateParams(itemId: UUID): JsonObject = JsonObject(mapOf("itemId" to JsonPrimitive(itemId.toString())))
 
     private class FailableProjectConfigRepository(
-        private val delegate: ProjectConfigStore
-    ) : ProjectConfigStore by delegate {
+        private val delegate: ConfigStore
+    ) : ConfigStore by delegate {
         @Volatile var failFingerprint: Boolean = false
 
         @Volatile var failGet: Boolean = false
 
-        override suspend fun getFingerprint(rootItemId: UUID) =
-            if (failFingerprint) throw IllegalStateException("x") else delegate.getFingerprint(rootItemId)
+        override suspend fun head(
+            scope: ConfigScope,
+            rootId: UUID?
+        ) = if (failFingerprint) throw IllegalStateException("x") else delegate.head(scope, rootId)
 
-        override suspend fun get(rootItemId: UUID) = if (failGet) throw IllegalStateException("x") else delegate.get(rootItemId)
+        override suspend fun version(id: UUID) = if (failGet) throw IllegalStateException("x") else delegate.version(id)
     }
 
     private class FailableRepositoryProvider(
         private val delegate: RepositoryProvider,
         private val failable: FailableProjectConfigRepository
     ) : RepositoryProvider by delegate {
-        override fun projectConfigRepository(): ProjectConfigStore = failable
+        override fun configStore(): ConfigStore = failable
     }
 
     private class SpyRepositoryProvider(
         private val delegate: RepositoryProvider,
-        private val spyConfigRepo: ProjectConfigStore
+        private val spyConfigRepo: ConfigStore
     ) : RepositoryProvider by delegate {
-        override fun projectConfigRepository(): ProjectConfigStore = spyConfigRepo
+        override fun configStore(): ConfigStore = spyConfigRepo
     }
 
     // ──────────────────────────────────────────────
@@ -138,12 +140,11 @@ class SharedConfigCacheRestMcpTest {
     fun `S4 - after a warm MCP read, a read failure fails REST gate and advance closed (503) while a non-unit read is still cached`() =
         testApplication {
             val sqlite = db.repositoryProvider()
-            val failable = FailableProjectConfigRepository(sqlite.projectConfigRepository())
+            val failable = FailableProjectConfigRepository(sqlite.configStore())
             val provider = FailableRepositoryProvider(sqlite, failable)
             val ctx =
                 ToolExecutionContext(
                     provider,
-                    NoGlobalSchemaService,
                     perRootConfigService = PerRootConfigService(failable),
                     unitOfWork = db.unitOfWork()
                 )
@@ -151,7 +152,7 @@ class SharedConfigCacheRestMcpTest {
             val item =
                 runBlocking {
                     val root = sqlite.workItemRepository().create(WorkItem(title = "S4 root", depth = 0))!!
-                    sqlite.projectConfigRepository().upsert(root.id, perRootYaml())
+                    sqlite.configStore().upsert(root.id, perRootYaml())
                         ?: error("fixture: per-root config upsert failed")
                     val i =
                         sqlite
@@ -225,12 +226,11 @@ class SharedConfigCacheRestMcpTest {
     fun `S5 - after a warm REST gate read, a read failure makes get_context throw while a non-unit read is still cached`() =
         testApplication {
             val sqlite = db.repositoryProvider()
-            val failable = FailableProjectConfigRepository(sqlite.projectConfigRepository())
+            val failable = FailableProjectConfigRepository(sqlite.configStore())
             val provider = FailableRepositoryProvider(sqlite, failable)
             val ctx =
                 ToolExecutionContext(
                     provider,
-                    NoGlobalSchemaService,
                     perRootConfigService = PerRootConfigService(failable),
                     unitOfWork = db.unitOfWork()
                 )
@@ -238,7 +238,7 @@ class SharedConfigCacheRestMcpTest {
             val item =
                 runBlocking {
                     val root = sqlite.workItemRepository().create(WorkItem(title = "S5 root", depth = 0))!!
-                    sqlite.projectConfigRepository().upsert(root.id, perRootYaml())
+                    sqlite.configStore().upsert(root.id, perRootYaml())
                         ?: error("fixture: per-root config upsert failed")
                     sqlite
                         .workItemRepository()
@@ -282,14 +282,13 @@ class SharedConfigCacheRestMcpTest {
     fun `S6 - with no warm read at all, a cold per-root failure yields 503 config_unavailable with no Retry-After on both routes`() =
         testApplication {
             val sqlite = db.repositoryProvider()
-            val failable = FailableProjectConfigRepository(sqlite.projectConfigRepository())
+            val failable = FailableProjectConfigRepository(sqlite.configStore())
             failable.failFingerprint = true
             failable.failGet = true
             val provider = FailableRepositoryProvider(sqlite, failable)
             val ctx =
                 ToolExecutionContext(
                     provider,
-                    NoGlobalSchemaService,
                     perRootConfigService = PerRootConfigService(failable),
                     unitOfWork = db.unitOfWork()
                 )
@@ -337,12 +336,11 @@ class SharedConfigCacheRestMcpTest {
     fun `S7 - one POST advance for a rooted item with a config row performs exactly one underlying getFingerprint read`() =
         testApplication {
             val sqlite = db.repositoryProvider()
-            val spyConfigRepo = spyk(sqlite.projectConfigRepository())
+            val spyConfigRepo = spyk(sqlite.configStore())
             val provider = SpyRepositoryProvider(sqlite, spyConfigRepo)
             val ctx =
                 ToolExecutionContext(
                     provider,
-                    NoGlobalSchemaService,
                     perRootConfigService = PerRootConfigService(spyConfigRepo),
                     unitOfWork = db.unitOfWork()
                 )
@@ -350,7 +348,7 @@ class SharedConfigCacheRestMcpTest {
             val item =
                 runBlocking {
                     val root = sqlite.workItemRepository().create(WorkItem(title = "S7 root", depth = 0))!!
-                    sqlite.projectConfigRepository().upsert(root.id, "work_item_schemas:\n  default:\n    notes: []\n")
+                    sqlite.configStore().upsert(root.id, "work_item_schemas:\n  default:\n    notes: []\n")
                         ?: error("fixture: per-root config upsert failed")
                     // Schema-free item type: the "start" transition must succeed with no gate
                     // involvement, isolating this scenario to config reads alone.
@@ -369,6 +367,6 @@ class SharedConfigCacheRestMcpTest {
                 }
             assertEquals(HttpStatusCode.OK, response.status, "sanity: a schema-free start must succeed")
 
-            coVerify(exactly = 1) { spyConfigRepo.getFingerprint(item.rootId!!) }
+            coVerify(exactly = 1) { spyConfigRepo.head(ConfigScope.ROOT, item.rootId!!) }
         }
 }

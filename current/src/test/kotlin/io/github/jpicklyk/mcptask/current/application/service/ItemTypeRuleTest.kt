@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.test.configFaultFixture
 import io.github.jpicklyk.mcptask.current.test.createCommand
 import io.github.jpicklyk.mcptask.current.test.rawCount
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -91,7 +92,7 @@ class ItemTypeRuleTest {
         root: WorkItem,
         yaml: String,
     ) {
-        raw.projectConfigRepository().upsert(root.id, yaml)
+        raw.configStore().upsert(root.id, yaml)
     }
 
     private suspend fun EventLogRig.reload(item: WorkItem): WorkItem = raw.workItemRepository().getById(item.id)!!
@@ -137,7 +138,7 @@ class ItemTypeRuleTest {
         }
 
     @Test
-    fun `S1 under isolated only the per-root keys are declared and the rejection lists exactly them`(
+    fun `S1 the removed schema_resolution isolated key has no effect -- the global keys stay declared`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -146,13 +147,15 @@ class ItemTypeRuleTest {
             r.pushRootConfig(root, "schema_resolution: isolated\nwork_item_schemas:\n  only-here:\n    notes: []\n")
 
             val ok = r.make("accepted", "only-here", root.id)
+            val global = r.make("global key", "gamma-type", root.id)
             val before = r.itemCount()
-            val err = r.svc.create(createCommand(title = "global key", parentId = root.id, type = "gamma-type")).errorOrFail()
+            val err = r.svc.create(createCommand(title = "nowhere", parentId = root.id, type = "nope-type")).errorOrFail()
 
             assertEquals("only-here", r.reload(ok).type)
+            assertEquals("gamma-type", r.reload(global).type, "a global key is still declared for the root")
             assertEquals(ErrorCode.SCHEMA_VIOLATION, err.code)
-            assertEquals(listOf("only-here"), err.violation().availableTypes, "isolated never consults the global layer")
-            assertEquals("gamma-type", err.violation().type)
+            assertEquals(listOf("alpha-type", "default", "gamma-type", "only-here"), err.violation().availableTypes)
+            assertEquals("nope-type", err.violation().type)
             assertEquals(before, r.itemCount(), "the rejected create wrote nothing")
         }
 
@@ -401,12 +404,12 @@ class ItemTypeRuleTest {
             val r = rig(dir)
             val rootA = r.make("root A", "alpha-type")
             val rootB = r.make("root B", "alpha-type")
-            r.pushRootConfig(rootB, "schema_resolution: isolated\nwork_item_schemas:\n  only-b:\n    notes: []\n")
+            r.pushRootConfig(rootB, "work_item_schemas:\n  only-b:\n    notes: []\n")
             val x = r.make("X", "gamma-type", rootA.id)
 
-            // Changing the type while moving into root B: root B declares only "only-b" (isolated), so "alpha-type" is not valid there.
-            val err = r.svc.patch(patchOf(x, parent = ParentChange.MoveUnder(rootB.id)).copy(type = "alpha-type")).errorOrFail()
-            assertEquals(listOf("only-b"), err.violation().availableTypes)
+            // Changing the type while moving into root B: "only-a-type" is declared nowhere for root B.
+            val err = r.svc.patch(patchOf(x, parent = ParentChange.MoveUnder(rootB.id)).copy(type = "only-a-type")).errorOrFail()
+            assertEquals(listOf("alpha-type", "default", "gamma-type", "only-b"), err.violation().availableTypes)
             assertEquals(rootA.id, r.reload(x).parentId, "the rejected move left X where it was")
             assertEquals("gamma-type", r.reload(x).type)
 

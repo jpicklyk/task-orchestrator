@@ -39,7 +39,7 @@ import kotlin.test.assertTrue
  *
  * Oracles: fix-decisions-r1 H1; api-rest.md `config_unavailable` row of the error table and the 503 bullets of the
  * `GET /items/{id}/gate` and `POST /items/{id}/advance` responses (idempotency via the `Idempotency-Key` header, section 5).
- * The fault is real (project_config renamed away after the cache is warm); the control test proves the same fixture advances.
+ * The fault is real (config_heads renamed away after the cache is warm); the control test proves the same fixture advances.
  */
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
 class AdvanceConfigFailClosedRestTest {

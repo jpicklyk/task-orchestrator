@@ -1,13 +1,16 @@
 package io.github.jpicklyk.mcptask.current.application.tools.notes
 
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -47,18 +50,29 @@ class NoteWritePolicyMcpTest {
 
     private val tool = ManageNotesTool()
 
-    private fun schema(globalMode: String): NoteSchemaService =
-        object : NoteSchemaService {
-            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                if (tags.contains("lim-type")) listOf(NoteSchemaEntry(key = "lim", role = Role.WORK, maxLength = 10)) else null
-
-            override fun getNoteLimitsMode(): String = globalMode
-        }
+    private fun schema(
+        globalMode: String,
+        perRoot: PerRootConfigSource? = null
+    ): EffectiveConfigResolver =
+        TestConfigResolver.resolver(
+            TestConfigResolver
+                .document(
+                    mapOf(
+                        "lim-type" to listOf(NoteSchemaEntry(key = "lim", role = Role.WORK, maxLength = 10))
+                    )
+                ).copy(noteLimitsMode = globalMode),
+            perRoot = perRoot
+        )
 
     private fun context(
         globalMode: String = "warn",
         perRoot: PerRootConfigSource? = null
-    ) = ToolExecutionContext(db.repositoryProvider(), schema(globalMode), perRootConfigService = perRoot, unitOfWork = db.unitOfWork())
+    ) = ToolExecutionContext(
+        db.repositoryProvider(),
+        perRootConfigService = perRoot,
+        configResolver = schema(globalMode, perRoot),
+        unitOfWork = db.unitOfWork()
+    )
 
     private suspend fun item(
         tags: String? = "lim-type",
@@ -67,7 +81,7 @@ class NoteWritePolicyMcpTest {
         db
             .repositoryProvider()
             .workItemRepository()
-            .create(WorkItem(title = "host", tags = tags, rootId = rootId))
+            .create(WorkItem(title = "host", tags = tags, type = tags?.substringBefore(",")?.trim(), rootId = rootId))
             .id
 
     private fun noteObj(
@@ -377,7 +391,7 @@ class NoteWritePolicyMcpTest {
             val repos = db.repositoryProvider()
             val root = repos.workItemRepository().create(WorkItem(title = "root"))
             val itemId = item(rootId = root.id)
-            val perRoot = PerRootConfigService(repos.projectConfigRepository())
+            val perRoot = PerRootConfigService(repos.configStore())
             val ctx = context(globalMode = "reject", perRoot = perRoot)
             val requestId = UUID.randomUUID().toString()
             val params =
@@ -406,7 +420,7 @@ class NoteWritePolicyMcpTest {
             )
             assertNull(stored(itemId, "lim"))
 
-            repos.projectConfigRepository().upsert(root.id, "note_limits:\n  mode: warn\n")
+            repos.configStore().upsert(root.id, "note_limits:\n  mode: warn\n")
 
             val retried = run(ctx, params)
             assertTrue(retried["success"]!!.jsonPrimitive.boolean, "result: $retried")

@@ -24,10 +24,11 @@ import kotlin.test.assertTrue
  *
  * Oracles (frozen task-scope 1e, AC7, AC8 decisions D7 D8 D9 D10 D11 and the frozen inference rule 1d, none read from the
  * implementation): the step is named `type-backfill`, phase ITEM_BACKFILL, kind ONCE, no `after`; it types every row whose
- * `type` is NULL or blank from its tags using the per-root `project_config` YAML and the global file; it writes `type` only
- * (no `version` or `modified_at` bump, no event rows); it records its updated-row count in `data_steps.rows_affected`; a
- * second boot skips it; a per-root YAML that does not parse counts as no per-root layer and never fails the run; a row with
- * a NULL `root_id` is inferred against the global layer only; typed rows are never rewritten.
+ * `type` is NULL or blank from its tags using the per-root config YAML (each root's head `config_versions` row since V25)
+ * and the global file; it writes `type` only (no `version` or `modified_at` bump, no event rows); it records its
+ * updated-row count in `data_steps.rows_affected`; a second boot skips it; a per-root YAML that does not parse counts as no
+ * per-root layer and never fails the run; a row with a NULL `root_id` is inferred against the global layer only; typed rows
+ * are never rewritten.
  */
 class TypeBackfillGoldenTest {
     @TempDir
@@ -172,7 +173,18 @@ class TypeBackfillGoldenTest {
             }
         }
 
-    private fun dumpOf(url: String) = DriverManager.getConnection(url).use { UpgradeHarness.dump(it) }
+    /**
+     * The dump of [url] minus what the other production step writes: `config-canonicalize` (phase CONFIG_CANONICALIZE,
+     * before this step) fills `config_versions.canonical_json` / `model_version` and records its own `data_steps` row.
+     */
+    private fun dumpOf(url: String) =
+        DriverManager.getConnection(url).use { UpgradeHarness.dump(it) }.mapValues { (table, rows) ->
+            when (table) {
+                "config_versions" -> rows.mapValues { (_, row) -> row - "canonical_json" - "model_version" }
+                "data_steps" -> rows.filterValues { it["name"] == stepName }
+                else -> rows
+            }
+        }
 
     private val perRootYaml = "work_item_schemas:\n  task-a:\n    notes: []\n  default:\n    notes: []\n"
     private val globalYaml = "work_item_schemas:\n  task-b:\n    notes: []\n"
@@ -236,7 +248,7 @@ class TypeBackfillGoldenTest {
                 if (id !in changed) assertEquals(row["type"], now["type"], "row $id was typed and stays as it was")
             }
         }
-        assertEquals(1, after["data_steps"]!!.size, "exactly one ledger row")
+        assertEquals(1, after["data_steps"]!!.size, "exactly one ledger row for the step")
 
         val (second, _) = bootSteps(url, "s13", globalYaml)
         assertTrue(stepName in second.skipped, "second run skips it: $second")

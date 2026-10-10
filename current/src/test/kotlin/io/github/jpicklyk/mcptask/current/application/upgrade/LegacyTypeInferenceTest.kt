@@ -1,28 +1,18 @@
 package io.github.jpicklyk.mcptask.current.application.upgrade
 
-import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
-import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
-import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
-import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
-import io.github.jpicklyk.mcptask.current.application.config.LayeredConfig
-import io.github.jpicklyk.mcptask.current.application.config.SchemaResolutionMode
 import io.github.jpicklyk.mcptask.current.application.upgrade.LegacyTypeInference.DEFAULT_KEY
 import io.github.jpicklyk.mcptask.current.application.upgrade.LegacyTypeInference.Layer
 import io.github.jpicklyk.mcptask.current.application.upgrade.LegacyTypeInference.Mode
 import io.github.jpicklyk.mcptask.current.application.upgrade.LegacyTypeInference.UNTYPED
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import org.junit.jupiter.api.Test
-import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Independent tests for the frozen `LegacyTypeInference` rule (item 2c67eeca): scenarios S11 (the rule table) and S12
- * (equivalence with the real 3.x tag resolution) of the frozen test-plan, plus probes.
+ * Independent tests for the frozen `LegacyTypeInference` rule (item 2c67eeca): scenario S11 (the rule table) of the
+ * frozen test-plan, plus probes. (S12 compared against the 3.x production resolver, which 4.0 removed; the type-backfill
+ * golden test stays the oracle for the rule end to end.)
  *
  * Oracles (frozen task-scope 1d and the documented per-mode table in `config-format.md`, "schema_resolution: choosing how
  * the two layers combine", none read from the implementation):
@@ -35,8 +25,6 @@ import kotlin.test.assertTrue
  * - ISOLATED consults only the per-root layer: first tag match, then its `default`;
  * - the first TAG in tag order wins within a layer (not the first key in key order); a tag literally named `default`
  *   matches as a tag; no match and no default anywhere is `untyped`.
- * S12's oracle is the invariant itself: resolving an item with no type and these tags through the real [LayeredConfig]
- * gives the same schema as resolving it with the inferred type, in every mode.
  */
 class LegacyTypeInferenceTest {
     private data class Row(
@@ -244,93 +232,5 @@ class LegacyTypeInferenceTest {
     fun `S11 a layer with no mode defaults to null`() {
         assertNull(Layer(setOf("a")).mode)
         assertEquals(setOf("a"), Layer(setOf("a")).schemaKeys)
-    }
-
-    // ---------------------------------------------------------------------------------------------
-    // S12 - equivalence with the real 3.x tag resolution, in every mode
-    // ---------------------------------------------------------------------------------------------
-
-    private fun realMode(mode: Mode?): SchemaResolutionMode? =
-        when (mode) {
-            null -> null
-            Mode.LEGACY -> SchemaResolutionMode.LEGACY
-            Mode.LAYERED -> SchemaResolutionMode.LAYERED
-            Mode.ISOLATED -> SchemaResolutionMode.ISOLATED
-        }
-
-    private fun schemasFor(
-        layerName: String,
-        keys: Set<String>,
-    ): Map<String, WorkItemSchema> =
-        keys.associateWith { key ->
-            // A distinct note per layer and key, so two layers' schemas for the same key are never equal.
-            WorkItemSchema(type = key, notes = listOf(NoteSchemaEntry(key = "$layerName-$key", role = Role.QUEUE)))
-        }
-
-    private fun realConfig(
-        perRoot: Layer?,
-        global: Layer?,
-    ): LayeredConfig {
-        val globalDocument =
-            ConfigDocument(
-                workItemSchemas = schemasFor("global", global?.schemaKeys.orEmpty()),
-                traits = emptyMap(),
-                schemaResolution = realMode(global?.mode),
-            )
-        val perRootLayer =
-            perRoot?.let {
-                ConfigLayer(
-                    ConfigDocument(
-                        workItemSchemas = schemasFor("perroot", it.schemaKeys),
-                        traits = emptyMap(),
-                        schemaResolution = realMode(it.mode),
-                    ),
-                    "perroot-fp",
-                    ConfigSource.PER_ROOT,
-                )
-            }
-        return LayeredConfig(
-            if (perRootLayer != null) UUID.randomUUID() else null,
-            perRootLayer,
-            LayerBackedGlobalLookup(ConfigLayer(globalDocument, "global-fp", ConfigSource.GLOBAL)),
-        )
-    }
-
-    private fun resolved(
-        config: LayeredConfig,
-        type: String?,
-        tags: List<String>,
-    ) = config.resolveBaseSchema(type, tags)?.let { it.source to it.schema }
-
-    @Test
-    fun `S12 the inferred type resolves to the same schema as the tags did, for every row in every mode`() {
-        val mismatches = mutableListOf<String>()
-        for (row in rows) {
-            val config = realConfig(row.perRoot, row.global)
-            val before = resolved(config, null, row.tags)
-            val inferred = LegacyTypeInference.infer(row.tags, row.perRoot, row.global)
-            val after = resolved(config, inferred, row.tags)
-
-            if (before != after) mismatches += "${row.name}: before=$before after=$after (inferred '$inferred')"
-            if (row.expected == UNTYPED &&
-                before != null
-            ) {
-                mismatches += "${row.name}: an untyped row must have resolved to no schema before, got $before"
-            }
-            if (row.expected != UNTYPED && before == null) mismatches += "${row.name}: a typed row must have resolved to a schema before"
-        }
-
-        assertEquals(emptyList(), mismatches)
-    }
-
-    @Test
-    fun `S12 control - the real resolution distinguishes a per-root default from a global tag match under legacy`() {
-        val config = realConfig(layer("t1", DEFAULT_KEY), layer("t2"))
-
-        val result = resolved(config, null, listOf("t2"))
-
-        assertNotNull(result)
-        assertEquals(ConfigSource.PER_ROOT, result.first, "the documented legacy rule: a per-root default wins over a global tag match")
-        assertEquals(DEFAULT_KEY, result.second.type)
     }
 }

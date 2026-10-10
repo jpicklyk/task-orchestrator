@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.compound
 
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
@@ -7,14 +8,14 @@ import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
-import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
 import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.TestStatusLabelService
+import io.github.jpicklyk.mcptask.current.test.asServerConfig
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
@@ -61,8 +62,12 @@ class CompleteTreeToolTest {
     }
 
     /** Build a custom context with a specific StatusLabelService, reusing existing mocked repos. */
-    private fun contextWithLabels(labelService: StatusLabelService): ToolExecutionContext =
-        ToolExecutionContext(repoProvider, statusLabelService = labelService)
+    private fun contextWithLabels(labelService: TestStatusLabelService): ToolExecutionContext =
+        ToolExecutionContext(
+            repoProvider,
+            statusLabelService = labelService,
+            configResolver = TestConfigResolver.resolver(labelService.asServerConfig())
+        )
 
     private fun makeItem(
         id: UUID = UUID.randomUUID(),
@@ -77,6 +82,7 @@ class CompleteTreeToolTest {
             title = title,
             role = role,
             tags = tags,
+            type = tags?.substringBefore(",")?.trim(),
             parentId = parentId,
             depth = depth
         )
@@ -198,10 +204,7 @@ class CompleteTreeToolTest {
                     )
                 )
             val noteSchemaService =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        if (tags.isNotEmpty()) schemaEntries else null
-                }
+                TestConfigResolver.forSchemas(mapOf("feature-task" to schemaEntries))
 
             val repoProvider = mockk<RepositoryProvider>()
             every { repoProvider.workItemRepository() } returns workItemRepo
@@ -210,7 +213,7 @@ class CompleteTreeToolTest {
             every { repoProvider.noteRepository() } returns noteRepo
             every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
             every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
-            val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
+            val gatedContext = ToolExecutionContext(repoProvider, configResolver = noteSchemaService)
 
             coEvery { workItemRepo.getById(itemId) } returns item
             coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
@@ -264,16 +267,7 @@ class CompleteTreeToolTest {
                     )
                 )
             val noteSchemaService =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        if ("feature-task" in
-                            tags
-                        ) {
-                            schemaEntries
-                        } else {
-                            null
-                        }
-                }
+                TestConfigResolver.forSchemas(mapOf("feature-task" to schemaEntries))
 
             val repoProvider = mockk<RepositoryProvider>()
             every { repoProvider.workItemRepository() } returns workItemRepo
@@ -282,7 +276,7 @@ class CompleteTreeToolTest {
             every { repoProvider.noteRepository() } returns noteRepo
             every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
             every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
-            val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
+            val gatedContext = ToolExecutionContext(repoProvider, configResolver = noteSchemaService)
 
             coEvery { workItemRepo.getById(idA) } returns itemA
             coEvery { workItemRepo.getById(idB) } returns itemB
@@ -386,10 +380,7 @@ class CompleteTreeToolTest {
                 )
             )
         val noteSchemaService =
-            object : NoteSchemaService {
-                override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                    if ("feature-task" in tags) schemaEntries else null
-            }
+            TestConfigResolver.forSchemas(mapOf("feature-task" to schemaEntries))
         val gatedRepoProvider = mockk<RepositoryProvider>()
         every { gatedRepoProvider.workItemRepository() } returns workItemRepo
         every { gatedRepoProvider.eventStore() } returns InMemoryEventStore()
@@ -397,7 +388,7 @@ class CompleteTreeToolTest {
         every { gatedRepoProvider.noteRepository() } returns noteRepo
         every { gatedRepoProvider.roleTransitionRepository() } returns roleTransitionRepo
         every { gatedRepoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
-        return ToolExecutionContext(gatedRepoProvider, noteSchemaService)
+        return ToolExecutionContext(gatedRepoProvider, configResolver = noteSchemaService)
     }
 
     @Test
@@ -844,16 +835,7 @@ class CompleteTreeToolTest {
                     )
                 )
             val noteSchemaService =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        if ("feature" in
-                            tags
-                        ) {
-                            schemaEntries
-                        } else {
-                            null
-                        }
-                }
+                TestConfigResolver.forSchemas(mapOf("feature" to schemaEntries))
 
             val repoProvider = mockk<RepositoryProvider>()
             every { repoProvider.workItemRepository() } returns workItemRepo
@@ -862,7 +844,7 @@ class CompleteTreeToolTest {
             every { repoProvider.noteRepository() } returns noteRepo
             every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
             every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
-            val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
+            val gatedContext = ToolExecutionContext(repoProvider, configResolver = noteSchemaService)
 
             coEvery { workItemRepo.findDescendants(rootId) } returns listOf(child)
             coEvery { workItemRepo.getById(rootId) } returns root
@@ -925,16 +907,7 @@ class CompleteTreeToolTest {
                     )
                 )
             val noteSchemaService =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        if ("feature" in
-                            tags
-                        ) {
-                            schemaEntries
-                        } else {
-                            null
-                        }
-                }
+                TestConfigResolver.forSchemas(mapOf("feature" to schemaEntries))
 
             val repoProvider = mockk<RepositoryProvider>()
             every { repoProvider.workItemRepository() } returns workItemRepo
@@ -943,7 +916,7 @@ class CompleteTreeToolTest {
             every { repoProvider.noteRepository() } returns noteRepo
             every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
             every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
-            val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
+            val gatedContext = ToolExecutionContext(repoProvider, configResolver = noteSchemaService)
 
             // Note exists with non-blank body — gate should pass
             val note = Note(itemId = itemId, key = "acceptance-criteria", role = "queue", body = "AC content here.")
@@ -988,16 +961,7 @@ class CompleteTreeToolTest {
                     )
                 )
             val noteSchemaService =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        if ("feature" in
-                            tags
-                        ) {
-                            schemaEntries
-                        } else {
-                            null
-                        }
-                }
+                TestConfigResolver.forSchemas(mapOf("feature" to schemaEntries))
 
             val repoProvider = mockk<RepositoryProvider>()
             every { repoProvider.workItemRepository() } returns workItemRepo
@@ -1006,7 +970,7 @@ class CompleteTreeToolTest {
             every { repoProvider.noteRepository() } returns noteRepo
             every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
             every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
-            val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
+            val gatedContext = ToolExecutionContext(repoProvider, configResolver = noteSchemaService)
 
             // No notes at all — gate would fail for "complete" but should be bypassed by "cancel"
             coEvery { workItemRepo.getById(itemId) } returns item
@@ -1043,9 +1007,9 @@ class CompleteTreeToolTest {
 
             // Schema only matches "feature" — "unrelated-tag" should return null
             val noteSchemaService =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        if ("feature" in tags) {
+                TestConfigResolver.forSchemas(
+                    mapOf(
+                        "feature" to
                             listOf(
                                 NoteSchemaEntry(
                                     key = "acceptance-criteria",
@@ -1054,10 +1018,8 @@ class CompleteTreeToolTest {
                                     description = "AC"
                                 )
                             )
-                        } else {
-                            null
-                        }
-                }
+                    )
+                )
 
             val repoProvider = mockk<RepositoryProvider>()
             every { repoProvider.workItemRepository() } returns workItemRepo
@@ -1066,7 +1028,7 @@ class CompleteTreeToolTest {
             every { repoProvider.noteRepository() } returns noteRepo
             every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
             every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
-            val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
+            val gatedContext = ToolExecutionContext(repoProvider, configResolver = noteSchemaService)
 
             coEvery { workItemRepo.getById(itemId) } returns item
             coEvery { workItemRepo.clear(any()) } returns true
@@ -1302,7 +1264,7 @@ class CompleteTreeToolTest {
 
     @Nested
     inner class TerminalRoleTests {
-        private fun makeSchemaServiceWithWorkPhaseNote(): NoteSchemaService {
+        private fun makeSchemaServiceWithWorkPhaseNote(): EffectiveConfigResolver {
             val schemaEntries =
                 listOf(
                     NoteSchemaEntry(
@@ -1312,12 +1274,10 @@ class CompleteTreeToolTest {
                         description = "Session tracking"
                     )
                 )
-            return object : NoteSchemaService {
-                override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = if (tags.isNotEmpty()) schemaEntries else null
-            }
+            return TestConfigResolver.forSchemas(mapOf("feature-task" to schemaEntries))
         }
 
-        private fun contextWithNoteSchema(noteSchemaService: NoteSchemaService): ToolExecutionContext {
+        private fun contextWithNoteSchema(noteSchemaService: EffectiveConfigResolver): ToolExecutionContext {
             val provider = mockk<RepositoryProvider>()
             every { provider.workItemRepository() } returns workItemRepo
             every { provider.eventStore() } returns InMemoryEventStore()
@@ -1325,7 +1285,7 @@ class CompleteTreeToolTest {
             every { provider.noteRepository() } returns noteRepo
             every { provider.roleTransitionRepository() } returns roleTransitionRepo
             every { provider.resourceLeaseRepository() } returns mockk(relaxed = true)
-            return ToolExecutionContext(provider, noteSchemaService)
+            return ToolExecutionContext(provider, configResolver = noteSchemaService)
         }
 
         @Test

@@ -15,7 +15,7 @@ import java.nio.file.Paths
  *   [GlobalConfigFile] exactly as `ServerComposition` does at startup;
  * - the dogfood file, `.taskorchestrator/config.yaml`, parsed through [YamlConfigDocumentParser]
  *   with `warnOnMissingSchemas = false`, exactly as `PerRootConfigService` and
- *   `ProjectConfigPushService` do.
+ *   `ConfigService` do.
  *
  * Each file must load without a throw/Failed outcome, produce zero warnings, and declare at least
  * one work item schema. The golden fixtures under `golden/a1-seatless/fixtures/` are deliberately

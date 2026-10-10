@@ -23,6 +23,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.FROM_START
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.emit
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.get
@@ -164,10 +165,9 @@ class McpJwksRestAuthTest {
             toolContext =
                 ToolExecutionContext(
                     repositoryProvider,
-                    NoOpNoteSchemaService,
                     statusLabelService = YamlStatusLabelService(),
-                    perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()),
-                    unitOfWork = db.unitOfWork(),
+                    perRootConfigService = PerRootConfigService(repositoryProvider.configStore()),
+                    unitOfWork = db.unitOfWork()
                 ),
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
             jwksVerifier = verifier,

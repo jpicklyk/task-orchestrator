@@ -15,6 +15,8 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItem
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersionSource
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
@@ -733,9 +735,9 @@ class EventCoverageTest {
                     )
                 }
             val pushed = cfg.single()
-            assertEquals("project_config.upserted", pushed.type)
-            assertEquals("project_config", pushed.entityKind)
-            assertEquals(root.id, pushed.entityId, "a project config row is about its root")
+            assertEquals("config.version_created", pushed.type)
+            assertEquals("config", pushed.entityKind)
+            assertEquals(root.id.toString(), pushed.str("rootId"), "a config version event names the root it belongs to")
             assertEquals(root.id, pushed.rootId)
             assertFalse(pushed.str("fingerprint").isNullOrBlank())
 
@@ -1252,20 +1254,21 @@ class EventCoverageTest {
     @Test
     fun `the typed catalog reports its documented type strings entity kinds and root`() {
         val id = UUID.randomUUID()
+        val versionId = UUID.randomUUID()
         val sample: List<DomainEvent> =
             listOf(
                 DomainEvent.ItemCreated(id, id, null),
                 DomainEvent.ItemDeleted(id, id),
                 DomainEvent.ClaimExpired(id, id),
                 DomainEvent.LeaseExpired(id, id, "k"),
-                DomainEvent.ProjectConfigDeleted(id),
+                DomainEvent.ConfigVersionCreated(id, versionId, ConfigScope.ROOT, 1, "fp", ConfigVersionSource.RESET, 0),
             )
         assertEquals(
-            listOf("item.created", "item.deleted", "claim.expired", "lease.expired", "project_config.deleted"),
+            listOf("item.created", "item.deleted", "claim.expired", "lease.expired", "config.version_created"),
             sample.map { it.type },
         )
-        assertEquals(listOf("item", "item", "item", "item", "project_config"), sample.map { it.entityKind })
-        assertEquals(sample.last().rootId, sample.last().entityId, "a project config event is about its root")
+        assertEquals(listOf("item", "item", "item", "item", "config"), sample.map { it.entityKind })
+        assertEquals(versionId, sample.last().entityId, "a config version event is about its version")
     }
 
     companion object {
@@ -1279,7 +1282,7 @@ class EventCoverageTest {
                 "claim_item" to setOf("claim.acquired"),
                 "complete_tree" to setOf("item.transitioned"),
                 "create_work_tree" to setOf("item.created"),
-                "manage_project_config" to setOf("project_config.upserted"),
+                "manage_project_config" to setOf("config.version_created"),
                 "manage_plan_documents" to setOf("document.created", "document.updated"),
             )
 

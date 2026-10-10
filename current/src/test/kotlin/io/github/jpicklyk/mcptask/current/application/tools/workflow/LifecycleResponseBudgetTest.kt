@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -12,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
@@ -111,13 +111,11 @@ class LifecycleResponseBudgetTest {
             )
 
         val schemaService =
-            object : NoteSchemaService {
-                override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
+            TestConfigResolver.withoutTypeValidation(
+                TestConfigResolver.resolver(TestConfigResolver.documentOf(mapOf("feature-task" to featureTaskSchema)))
+            )
 
-                override fun getSchemaForType(type: String?): WorkItemSchema? = if (type == "feature-task") featureTaskSchema else null
-            }
-
-        context = ToolExecutionContext(repositoryProvider, schemaService, unitOfWork = db.unitOfWork())
+        context = ToolExecutionContext(repositoryProvider, configResolver = schemaService, unitOfWork = db.unitOfWork())
         measured.clear()
     }
 

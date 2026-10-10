@@ -121,24 +121,16 @@ class V18NormalizeTimestampsTest {
         return expected
     }
 
-    /**
-     * The post-migration home of a pre-migration table: V24 re-homed `plan_documents` rows into `documents`, keeping
-     * each row's rowid (`doc_rowid`) and column names, so a cell is re-read there by the same rowid.
-     */
-    private fun live(table: String) = if (table == "plan_documents") "documents" else table
-
     private fun readCell(
         url: String,
         cell: Cell
-    ): String? = P7Raw.text(url, "SELECT CAST(${cell.column} AS TEXT) FROM ${live(cell.table)} WHERE rowid = ?", cell.rowid)
+    ): String? = P7Raw.text(url, "SELECT CAST(${cell.column} AS TEXT) FROM ${cell.table} WHERE rowid = ?", cell.rowid)
 
-    private fun rowCounts(
-        url: String,
-        afterMigration: Boolean = true
-    ): Map<String, Int> =
+    // The chain stops at V18 (migrate target = 18): later migrations re-home plan_documents (V24) and project_config
+    // (V25), so every cell is re-read in the table it was injected into.
+    private fun rowCounts(url: String): Map<String, Int> =
         timestampColumns.map { it.first }.distinct().associateWith {
-            val table = if (afterMigration) live(it) else it
-            P7Raw.query(url, "SELECT count(*) FROM $table") { rs -> rs.getInt(1) }.single()
+            P7Raw.query(url, "SELECT count(*) FROM $it") { rs -> rs.getInt(1) }.single()
         }
 
     private fun assertV18Applied(url: String) {
@@ -156,14 +148,14 @@ class V18NormalizeTimestampsTest {
     fun `S12 every injected legacy shape in every timestamp column normalizes to the specified canonical text`() {
         val url = UpgradeHarness.copyAt(17, File(dir, "shapes.db"))
         DriverManager.getConnection(url).use { BaselineDataset.seed(it) }
-        val countsBefore = rowCounts(url, afterMigration = false)
+        val countsBefore = rowCounts(url)
         val expected = inject(url)
         assertTrue(expected.size >= timestampColumns.size, "at least one row per column must have been injected")
         // The injection must really have covered every shape, otherwise the check below is partly vacuous.
         val covered = expected.values.toSet()
         shapes.forEach { assertTrue(it.expected in covered, "shape '${it.label}' was never injected") }
 
-        val probe = UpgradeHarness.migrate(url)
+        val probe = UpgradeHarness.migrate(url, target = 18)
 
         assertTrue(probe.observed.isNotEmpty(), "the foreign-key probe must have fired")
         assertEquals(emptyList(), probe.violations())
@@ -182,10 +174,10 @@ class V18NormalizeTimestampsTest {
         val url = UpgradeHarness.copyAt(17, File(dir, "replay.db"))
         DriverManager.getConnection(url).use { BaselineDataset.seed(it) }
         val expected = inject(url)
-        UpgradeHarness.migrate(url)
+        UpgradeHarness.migrate(url, target = 18)
         val afterFirst = expected.keys.associateWith { readCell(url, it) }
 
-        UpgradeHarness.migrate(url)
+        UpgradeHarness.migrate(url, target = 18)
 
         assertV18Applied(url)
         assertEquals(afterFirst, expected.keys.associateWith { readCell(url, it) })
@@ -204,7 +196,7 @@ class V18NormalizeTimestampsTest {
         assertTrue(before.values.any { it != null && fractionLess.matches(it) }, "the golden must contain datetime()-shaped values")
         assertTrue(before.values.any { it != null && it.length == 23 }, "the golden must contain Exposed-shaped values")
 
-        UpgradeHarness.migrate(url)
+        UpgradeHarness.migrate(url, target = 18)
 
         assertV18Applied(url)
         before.forEach { (cell, old) ->
@@ -216,7 +208,7 @@ class V18NormalizeTimestampsTest {
                 P7Raw
                     .query(
                         url,
-                        "SELECT count(*) FROM ${live(table)} WHERE $column IS NOT NULL AND " +
+                        "SELECT count(*) FROM $table WHERE $column IS NOT NULL AND " +
                             "NOT ($column GLOB '${P7Raw.CANONICAL_GLOB}' AND length($column) = 23)"
                     ) { it.getInt(1) }
                     .single()

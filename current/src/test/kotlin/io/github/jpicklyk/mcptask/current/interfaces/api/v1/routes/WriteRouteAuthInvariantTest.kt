@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
@@ -14,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.delete
 import io.ktor.client.request.header
@@ -90,8 +90,7 @@ class WriteRouteAuthInvariantTest {
                 val toolContext =
                     ToolExecutionContext(
                         repo,
-                        NoOpNoteSchemaService,
-                        perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
+                        perRootConfigService = PerRootConfigService(repo.configStore()),
                         unitOfWork = db.unitOfWork()
                     )
                 itemWriteRoutes(

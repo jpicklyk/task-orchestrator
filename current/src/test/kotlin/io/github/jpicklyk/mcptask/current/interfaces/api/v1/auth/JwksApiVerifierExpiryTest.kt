@@ -18,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelS
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -263,10 +264,9 @@ class JwksApiVerifierExpiryTest {
             toolContext =
                 ToolExecutionContext(
                     repositoryProvider,
-                    NoOpNoteSchemaService,
                     statusLabelService = YamlStatusLabelService(),
-                    perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()),
-                    unitOfWork = db.unitOfWork(),
+                    perRootConfigService = PerRootConfigService(repositoryProvider.configStore()),
+                    unitOfWork = db.unitOfWork()
                 ),
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
             jwksVerifier = verifier,

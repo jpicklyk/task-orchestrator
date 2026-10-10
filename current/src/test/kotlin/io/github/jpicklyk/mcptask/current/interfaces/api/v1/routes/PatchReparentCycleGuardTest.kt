@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -13,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.Defau
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
@@ -186,9 +186,8 @@ class PatchReparentCycleGuardTest {
                     IdempotencyService(db.unitOfWork()),
                     ToolExecutionContext(
                         repositoryProvider,
-                        NoOpNoteSchemaService,
                         statusLabelService = NoOpStatusLabelService,
-                        perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()),
+                        perRootConfigService = PerRootConfigService(repositoryProvider.configStore()),
                         unitOfWork = db.unitOfWork()
                     ).advanceServiceFactory(),
                     db.unitOfWork(),

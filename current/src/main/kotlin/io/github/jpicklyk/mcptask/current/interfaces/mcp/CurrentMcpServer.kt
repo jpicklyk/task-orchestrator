@@ -1,7 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
+import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
+import io.github.jpicklyk.mcptask.current.application.api.RequestDecoder
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -61,6 +64,10 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.searchRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.serviceRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.transitionRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.wellKnownRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -258,6 +265,23 @@ class CurrentMcpServer(
             val adapter = McpToolAdapter(callLog = callLogWriter)
             adapter.registerToolsWithServer(server, tools, toolContext)
             logger.info("Registered ${tools.size} MCP tools")
+
+            // 4.0 tools (ToolSpec registry) are served beside the 3.x tools until Q32, at the orchestration
+            // profile on this one Server until Q29. A registry name equal to a 3.x name fails startup.
+            val registry = ToolRegistry(buildToolSpecs())
+            checkRegistryDisjoint(registry, tools)
+            val operationAdapter =
+                McpOperationAdapter(
+                    ToolDispatcher(
+                        RequestDecoder(),
+                        toolContext.actorVerifier(),
+                        BatchRunner(toolContext.unitOfWork, toolContext.idempotency),
+                        toolContext
+                    ),
+                    callLog = callLogWriter
+                )
+            operationAdapter.register(server, registry, ToolProfile.ORCHESTRATION)
+            logger.info("Registered ${registry.visible(ToolProfile.ORCHESTRATION).size} 4.0 tools")
 
             val toolCount = tools.size
 
@@ -606,6 +630,20 @@ internal fun buildMcpTools(): List<ToolDefinition> =
     )
 
 /**
+ * Fails startup when a 4.0 registry tool reuses a 3.x tool name (U2: no 3.x name is reused), since both
+ * register on the same MCP [Server] until Q32 deletes the 3.x tools.
+ *
+ * @throws IllegalStateException naming the clashing tool names.
+ */
+internal fun checkRegistryDisjoint(
+    registry: ToolRegistry,
+    legacyTools: List<ToolDefinition>
+) {
+    val clash = registry.tools.map { it.name }.toSet() intersect legacyTools.map { it.name }.toSet()
+    check(clash.isEmpty()) { "4.0 tool names reuse 3.x tool names: ${clash.sorted()}" }
+}
+
+/**
  * Installs the MCP Streamable HTTP transport at `/mcp` plus the JSON + CORS plugins it shares with
  * the REST API.
  *
@@ -755,8 +793,11 @@ internal fun Application.installRestApiRoutes(
                 toolContext.dependencyCommandService
             )
             // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete —
-            // converges on the same ProjectConfigPushService the manage_project_config MCP tool uses.
-            projectConfigRoutes(effectiveProvider, toolContext.unitOfWork)
+            // converges on the same ConfigService the manage_project_config MCP tool uses.
+            projectConfigRoutes(
+                effectiveProvider,
+                toolContext.configService ?: ConfigService(effectiveProvider, YamlConfigDocumentParser, toolContext.unitOfWork),
+            )
             // Additive per-root effective (layered) config view — same LayeredConfig the MCP
             // configResolver already computes, surfaced as one REST resource (AR-42).
             effectiveConfigRoutes(effectiveProvider, toolContext.configResolver, noteSchemaService)

@@ -21,7 +21,7 @@ import java.util.UUID
  * The 3.x plan-document surface, kept byte-for-byte for `manage_plan_documents`, the REST plan routes and
  * `create_work_tree` adoption, and delegating every write to the knowledge [DocumentService].
  *
- * Extracted the same way [ProjectConfigPushService] is: so the exact SAME pipeline can be driven
+ * Extracted the same way [ConfigService] is: so the exact SAME pipeline can be driven
  * by both the MCP `manage_plan_documents` `stash` operation and the REST
  * `PUT /api/v1/roots/{rootId}/plans/{slug}` route
  * ([io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.planDocumentRoutes]) — both callers

@@ -1,12 +1,13 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
@@ -20,7 +21,10 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.str
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.header
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
@@ -83,19 +87,20 @@ class NoteWritePolicyRestTest {
     @RegisterExtension
     val db = SqliteTestDatabase.perMethod()
 
-    private fun schema(globalMode: String): WorkItemSchemaService =
-        object : WorkItemSchemaService {
-            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                if (tags.contains("lim-type")) listOf(NoteSchemaEntry(key = "lim", role = Role.WORK, maxLength = 10)) else null
-
-            override fun getNoteLimitsMode(): String = globalMode
-        }
+    private fun schema(globalMode: String): ConfigDocument =
+        TestConfigResolver
+            .document(mapOf("lim-type" to listOf(NoteSchemaEntry(key = "lim", role = Role.WORK, maxLength = 10))))
+            .copy(noteLimitsMode = globalMode)
 
     private fun item(
         tags: String? = "lim-type",
         rootId: UUID? = null
     ): WorkItem =
-        runBlocking { db.repositoryProvider().workItemRepository().create(WorkItem(title = "host", tags = tags, rootId = rootId)) }
+        runBlocking {
+            db.repositoryProvider().workItemRepository().create(
+                WorkItem(title = "host", tags = tags, type = tags?.substringBefore(",")?.trim(), rootId = rootId)
+            )
+        }
 
     private fun stored(
         itemId: UUID,
@@ -192,7 +197,7 @@ class NoteWritePolicyRestTest {
     fun `S5 an 11-char lim body in warn mode is created with a warning naming the key and the limit`(): Unit =
         testApplication {
             val target = item()
-            application { configureWriteTestApp(db.repositoryProvider(), schemaService = schema("warn"), unitOfWork = db.unitOfWork()) }
+            application { configureWriteTestApp(db.repositoryProvider(), serverConfig = schema("warn"), unitOfWork = db.unitOfWork()) }
 
             val response = putNote(target.id, "lim", "work", "x".repeat(11))
 
@@ -207,7 +212,7 @@ class NoteWritePolicyRestTest {
     fun `S5 control - a lim body of exactly 10 chars has no warning in the body`(): Unit =
         testApplication {
             val target = item()
-            application { configureWriteTestApp(db.repositoryProvider(), schemaService = schema("warn"), unitOfWork = db.unitOfWork()) }
+            application { configureWriteTestApp(db.repositoryProvider(), serverConfig = schema("warn"), unitOfWork = db.unitOfWork()) }
 
             val response = putNote(target.id, "lim", "work", "x".repeat(10))
 
@@ -219,7 +224,7 @@ class NoteWritePolicyRestTest {
     fun `S21 a lim body with two CRLF is 10 normalized chars so no warning and no rejection even under reject`(): Unit =
         testApplication {
             val target = item()
-            application { configureWriteTestApp(db.repositoryProvider(), schemaService = schema("reject"), unitOfWork = db.unitOfWork()) }
+            application { configureWriteTestApp(db.repositoryProvider(), serverConfig = schema("reject"), unitOfWork = db.unitOfWork()) }
 
             val response = putNote(target.id, "lim", "work", "ab\r\ncdef\r\ngh")
 
@@ -237,9 +242,9 @@ class NoteWritePolicyRestTest {
         testApplication {
             val repos = db.repositoryProvider()
             val root = runBlocking { repos.workItemRepository().create(WorkItem(title = "root")) }
-            runBlocking { repos.projectConfigRepository().upsert(root.id, "note_limits:\n  mode: reject\n") }
+            runBlocking { repos.configStore().upsert(root.id, "note_limits:\n  mode: reject\n") }
             val target = item(rootId = root.id)
-            application { configureWriteTestApp(repos, schemaService = schema("warn"), unitOfWork = db.unitOfWork()) }
+            application { configureWriteTestApp(repos, serverConfig = schema("warn"), unitOfWork = db.unitOfWork()) }
 
             val response = putNote(target.id, "lim", "work", "x".repeat(11))
 
@@ -253,9 +258,9 @@ class NoteWritePolicyRestTest {
         testApplication {
             val repos = db.repositoryProvider()
             val root = runBlocking { repos.workItemRepository().create(WorkItem(title = "root")) }
-            runBlocking { repos.projectConfigRepository().upsert(root.id, "note_limits:\n  mode: warn\n") }
+            runBlocking { repos.configStore().upsert(root.id, "note_limits:\n  mode: warn\n") }
             val target = item(rootId = root.id)
-            application { configureWriteTestApp(repos, schemaService = schema("reject"), unitOfWork = db.unitOfWork()) }
+            application { configureWriteTestApp(repos, serverConfig = schema("reject"), unitOfWork = db.unitOfWork()) }
 
             val response = putNote(target.id, "lim", "work", "x".repeat(11))
 
@@ -270,7 +275,7 @@ class NoteWritePolicyRestTest {
             val repos = db.repositoryProvider()
             val root = runBlocking { repos.workItemRepository().create(WorkItem(title = "bare root")) }
             val target = item(rootId = root.id)
-            application { configureWriteTestApp(repos, schemaService = schema("reject"), unitOfWork = db.unitOfWork()) }
+            application { configureWriteTestApp(repos, serverConfig = schema("reject"), unitOfWork = db.unitOfWork()) }
 
             val response = putNote(target.id, "lim", "work", "x".repeat(11))
 
@@ -287,7 +292,7 @@ class NoteWritePolicyRestTest {
     fun `S12 a schema key written with the wrong role answers 400 validation_error and is not stored`(): Unit =
         testApplication {
             val target = item()
-            application { configureWriteTestApp(db.repositoryProvider(), schemaService = schema("warn"), unitOfWork = db.unitOfWork()) }
+            application { configureWriteTestApp(db.repositoryProvider(), serverConfig = schema("warn"), unitOfWork = db.unitOfWork()) }
 
             val response = putNote(target.id, "lim", "queue", "ok")
 
@@ -300,7 +305,7 @@ class NoteWritePolicyRestTest {
     fun `S12 control - the schema key with WORK is accepted`(): Unit =
         testApplication {
             val target = item()
-            application { configureWriteTestApp(db.repositoryProvider(), schemaService = schema("warn"), unitOfWork = db.unitOfWork()) }
+            application { configureWriteTestApp(db.repositoryProvider(), serverConfig = schema("warn"), unitOfWork = db.unitOfWork()) }
 
             val response = putNote(target.id, "lim", "WORK", "ok")
 
@@ -412,24 +417,26 @@ class NoteWritePolicyRestTest {
     // ---------------------------------------------------------------------------------------------
 
     private class NoteTestFailableConfigStore(
-        private val delegate: ProjectConfigStore
-    ) : ProjectConfigStore by delegate {
+        private val delegate: ConfigStore
+    ) : ConfigStore by delegate {
         @Volatile var failFingerprint: Boolean = false
 
-        override suspend fun getFingerprint(rootItemId: UUID) =
-            if (failFingerprint) throw IllegalStateException("x") else delegate.getFingerprint(rootItemId)
+        override suspend fun head(
+            scope: ConfigScope,
+            rootId: UUID?
+        ) = if (failFingerprint) throw IllegalStateException("x") else delegate.head(scope, rootId)
     }
 
     private class NoteTestFailableProvider(
         private val delegate: RepositoryProvider,
         private val failable: NoteTestFailableConfigStore
     ) : RepositoryProvider by delegate {
-        override fun projectConfigRepository(): ProjectConfigStore = failable
+        override fun configStore(): ConfigStore = failable
     }
 
     private fun Application.configureNoteApp(
         provider: RepositoryProvider,
-        schemaService: WorkItemSchemaService,
+        schemaService: ConfigDocument,
         unitOfWork: UnitOfWork
     ) {
         install(ContentNegotiation) { json(McpJson) }
@@ -441,11 +448,12 @@ class NoteWritePolicyRestTest {
                     this.authConfig = authConfig
                     tokenEntries = authConfig.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) }
                 }
+                val perRoot = PerRootConfigService(provider.configStore())
                 val toolContext =
                     ToolExecutionContext(
                         provider,
-                        schemaService,
-                        perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                        perRootConfigService = perRoot,
+                        configResolver = TestConfigResolver.resolver(schemaService, perRoot),
                         unitOfWork = unitOfWork
                     )
                 noteWriteRoutes(
@@ -466,7 +474,7 @@ class NoteWritePolicyRestTest {
             val root = runBlocking { sqlite.workItemRepository().create(WorkItem(title = "failing root")) }
             val under = runBlocking { sqlite.workItemRepository().create(WorkItem(title = "under root", rootId = root.id)) }
             val rootless = runBlocking { sqlite.workItemRepository().create(WorkItem(title = "rootless")) }
-            val failable = NoteTestFailableConfigStore(sqlite.projectConfigRepository())
+            val failable = NoteTestFailableConfigStore(sqlite.configStore())
             failable.failFingerprint = true // armed before the first read: cold, no last-known-good
             application { configureNoteApp(NoteTestFailableProvider(sqlite, failable), schema("warn"), db.unitOfWork()) }
 

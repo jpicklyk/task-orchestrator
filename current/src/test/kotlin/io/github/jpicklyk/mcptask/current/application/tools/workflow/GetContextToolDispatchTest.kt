@@ -7,13 +7,12 @@ import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.test.MutableServerConfig
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -44,7 +43,7 @@ class GetContextToolDispatchTest {
     private lateinit var workItemRepo: WorkItemRepository
     private lateinit var noteRepo: NoteStore
     private lateinit var roleTransitionRepo: TransitionStore
-    private lateinit var noteSchemaService: NoteSchemaService
+    private lateinit var server: MutableServerConfig
     private lateinit var context: ToolExecutionContext
     private lateinit var schemaContext: ToolExecutionContext
 
@@ -54,12 +53,7 @@ class GetContextToolDispatchTest {
         workItemRepo = mockk()
         noteRepo = mockk()
         roleTransitionRepo = mockk()
-        noteSchemaService = mockk()
-        every { noteSchemaService.getSchemaForType(any()) } returns null
-        every { noteSchemaService.getDefaultTraits(any()) } returns emptyList()
-        every { noteSchemaService.getTraitNotes(any()) } returns null
-        every { noteSchemaService.getTraitResources(any()) } returns emptyList()
-        every { noteSchemaService.getTraitDispatch(any()) } returns emptyMap()
+        server = MutableServerConfig()
 
         val repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
@@ -70,8 +64,8 @@ class GetContextToolDispatchTest {
         every { repoProvider.resourceLeaseRepository() } returns
             mockk<LeaseStore>().also { coEvery { it.findActiveByKeys(any()) } returns emptyList() }
 
-        context = ToolExecutionContext(repoProvider, NoOpNoteSchemaService)
-        schemaContext = ToolExecutionContext(repoProvider, noteSchemaService)
+        context = ToolExecutionContext(repoProvider)
+        schemaContext = ToolExecutionContext(repoProvider, configResolver = server.resolver())
 
         coEvery { workItemRepo.countByClaimStatus(any()) } returns
             ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0)
@@ -95,7 +89,7 @@ class GetContextToolDispatchTest {
             title = title,
             role = role,
             tags = tags,
-            type = type,
+            type = type ?: tags?.substringBefore(",")?.trim(),
             properties = properties,
             depth = depth
         )
@@ -117,9 +111,8 @@ class GetContextToolDispatchTest {
             val item = makeItem(id = itemId, role = Role.WORK, type = "feature-task")
 
             val schema = WorkItemSchema(type = "feature-task", notes = emptyList(), defaultTraits = listOf("delegated"))
-            every { noteSchemaService.getSchemaForType("feature-task") } returns schema
-            every { noteSchemaService.getTraitDispatch("delegated") } returns
-                mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer"))
+            server.schemas["feature-task"] = schema
+            server.traitDispatch["delegated"] = mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer"))
 
             coEvery { workItemRepo.getById(itemId) } returns item
             coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
@@ -143,8 +136,8 @@ class GetContextToolDispatchTest {
             val item = makeItem(id = itemId, role = Role.WORK, type = "feature-task")
 
             val schema = WorkItemSchema(type = "feature-task", notes = emptyList(), defaultTraits = listOf("delegated"))
-            every { noteSchemaService.getSchemaForType("feature-task") } returns schema
-            every { noteSchemaService.getTraitDispatch("delegated") } returns
+            server.schemas["feature-task"] = schema
+            server.traitDispatch["delegated"] =
                 mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer", effort = "medium"))
 
             coEvery { workItemRepo.getById(itemId) } returns item
@@ -183,8 +176,8 @@ class GetContextToolDispatchTest {
             val item = makeItem(id = itemId, role = Role.QUEUE, type = "feature-task")
 
             val schema = WorkItemSchema(type = "feature-task", notes = emptyList(), defaultTraits = listOf("delegated"))
-            every { noteSchemaService.getSchemaForType("feature-task") } returns schema
-            every { noteSchemaService.getTraitDispatch("delegated") } returns
+            server.schemas["feature-task"] = schema
+            server.traitDispatch["delegated"] =
                 mapOf(
                     Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer"),
                     Role.REVIEW to DispatchProfile(agent = "task-orchestrator:reviewer")

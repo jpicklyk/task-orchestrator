@@ -27,6 +27,7 @@ data class EncodedEnvelope(
  *
  * - success `{"ok":true,"data"?,"meta":{"reqId","replayed"?}}`;
  * - error `{"ok":false,"error":{"code","kind","message","detail"?,"fix"?,"retryAfterMs"?,"index"?},"meta"}`;
+ *   a replayed stored rejection keeps `meta.replayed` (whole call) or `replayed: true` (batch element);
  * - list data `{"items":[..],"page":{"total","truncated","capped"?,"next"?}}`;
  * - batch data `{"results":[..],"summary":{"ok","failed"}}`, with a `partial_failure` error next to it
  *   when a non-atomic batch has failures, or only the failing element's error (with `index`) when an
@@ -48,7 +49,7 @@ object EnvelopeEncoder {
         data: (T) -> JsonElement?
     ): EncodedEnvelope =
         when (outcome) {
-            is Outcome.Err -> error(outcome.error, reqId)
+            is Outcome.Err -> error(outcome.error, reqId, replayed = replayed)
             is Outcome.Ok -> success(data(outcome.value), reqId, replayed)
         }
 
@@ -115,13 +116,14 @@ object EnvelopeEncoder {
     fun error(
         error: DomainError,
         reqId: String,
-        index: Int? = null
+        index: Int? = null,
+        replayed: Boolean = false
     ): EncodedEnvelope {
         val body =
             buildJsonObject {
                 put("ok", false)
                 put("error", errorMember(error, index))
-                put("meta", meta(reqId, replayed = false))
+                put("meta", meta(reqId, replayed))
             }
         return EncodedEnvelope(body, error.code.httpStatus)
     }
@@ -332,6 +334,7 @@ object EnvelopeEncoder {
                 buildJsonObject {
                     put("ok", false)
                     put("error", errorMember(outcome.error))
+                    if (replayed) put("replayed", true)
                 }
             is Outcome.Ok -> {
                 val fields = element(outcome.value)

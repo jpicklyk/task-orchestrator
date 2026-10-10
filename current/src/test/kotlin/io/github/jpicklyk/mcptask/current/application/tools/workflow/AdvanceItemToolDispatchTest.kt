@@ -1,11 +1,12 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.Note
@@ -15,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
 import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -76,10 +78,10 @@ class AdvanceItemToolDispatchTest {
         context = ToolExecutionContext(repoProvider)
     }
 
-    /** Build a custom context wiring a schema-aware NoteSchemaService, reusing the mocked repos. */
+    /** Build a custom context wiring a schema-aware config resolver, reusing the mocked repos. */
     private fun contextWithSchema(
         noteRepo: NoteStore,
-        noteSchemaService: NoteSchemaService
+        noteSchemaService: EffectiveConfigResolver
     ): ToolExecutionContext {
         val provider = mockk<RepositoryProvider>()
         every { provider.workItemRepository() } returns workItemRepo
@@ -88,21 +90,17 @@ class AdvanceItemToolDispatchTest {
         every { provider.noteRepository() } returns noteRepo
         every { provider.roleTransitionRepository() } returns roleTransitionRepo
         every { provider.resourceLeaseRepository() } returns mockk(relaxed = true)
-        return ToolExecutionContext(provider, noteSchemaService)
+        return ToolExecutionContext(provider, configResolver = noteSchemaService)
     }
 
-    /** A type-based NoteSchemaService exposing one schema plus a dispatch map per trait name. */
+    /** A server config exposing one schema plus a dispatch map per trait name. */
     private fun schemaServiceWithDispatch(
         schema: WorkItemSchema,
         dispatchByTrait: Map<String, Map<Role, DispatchProfile>>
-    ): NoteSchemaService =
-        object : NoteSchemaService {
-            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
-
-            override fun getSchemaForType(type: String?): WorkItemSchema? = if (type == schema.type) schema else null
-
-            override fun getTraitDispatch(traitName: String): Map<Role, DispatchProfile> = dispatchByTrait[traitName] ?: emptyMap()
-        }
+    ): EffectiveConfigResolver =
+        TestConfigResolver.resolver(
+            ConfigDocument(workItemSchemas = mapOf(schema.type to schema), traits = emptyMap(), traitDispatch = dispatchByTrait),
+        )
 
     private fun buildParams(vararg transitions: JsonObject): JsonObject =
         buildJsonObject {

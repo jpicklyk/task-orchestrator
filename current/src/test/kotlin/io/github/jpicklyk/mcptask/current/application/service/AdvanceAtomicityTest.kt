@@ -1,8 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
@@ -12,10 +13,13 @@ import io.github.jpicklyk.mcptask.current.test.P11Driver.Companion.transitioned
 import io.github.jpicklyk.mcptask.current.test.P11_BASE_YAML
 import io.github.jpicklyk.mcptask.current.test.arr
 import io.github.jpicklyk.mcptask.current.test.flag
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.rawCount
 import io.github.jpicklyk.mcptask.current.test.rawExec
+import io.github.jpicklyk.mcptask.current.test.rootItemId
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.text
+import io.github.jpicklyk.mcptask.current.test.upsert
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -42,7 +46,7 @@ import kotlin.test.assertNotNull
  * Oracles: AC1 (a store fault in a cascade apply or a lease release rolls back the PRIMARY too: item role,
  * transition rows, events and leases unchanged, and the call returns ApplyFailed / apply_failed) and task-scope 1.1
  * step 5 (a PerRootConfigUnavailableException while loading a PARENT's config skips only that cascade; the primary
- * still commits). Write faults are real SQL (a BEFORE-trigger RAISE(ABORT)); the config outage is an injected ProjectConfigStore failure, each
+ * still commits). Write faults are real SQL (a BEFORE-trigger RAISE(ABORT)); the config outage is an injected ConfigStore failure, each
  * with a same-fixture control proving the scenario would otherwise succeed.
  */
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
@@ -167,7 +171,7 @@ class AdvanceAtomicityTest {
         runBlocking {
             val provider = db.repositoryProvider()
             val items = provider.workItemRepository()
-            val failable = FailableConfigStore(provider.projectConfigRepository())
+            val failable = FailableConfigStore(provider.configStore())
             val ctx = ToolExecutionContext(provider, perRootConfigService = PerRootConfigService(failable), unitOfWork = db.unitOfWork())
             val rootA = items.create(WorkItem(title = "root A", role = Role.WORK))
             val rootB = items.create(WorkItem(title = "root B", role = Role.WORK))
@@ -222,19 +226,28 @@ class AdvanceAtomicityTest {
 
     /** Reads for [failOnlyForRoot] throw a plain exception (what a transient store outage looks like to the config service). */
     private class FailableConfigStore(
-        private val delegate: ProjectConfigStore,
-    ) : ProjectConfigStore by delegate {
+        private val delegate: ConfigStore,
+    ) : ConfigStore by delegate {
         @Volatile var failReads: Boolean = false
 
         @Volatile var failOnlyForRoot: UUID? = null
 
         private fun shouldFail(rootItemId: UUID) = failReads && (failOnlyForRoot == null || failOnlyForRoot == rootItemId)
 
-        override suspend fun getFingerprint(rootItemId: UUID) =
-            if (shouldFail(rootItemId)) throw IllegalStateException("injected config outage") else delegate.getFingerprint(rootItemId)
+        override suspend fun head(
+            scope: ConfigScope,
+            rootId: UUID?
+        ) = if (shouldFail(rootId!!)) throw IllegalStateException("injected config outage") else delegate.head(scope, rootId)
 
-        override suspend fun get(rootItemId: UUID) =
-            if (shouldFail(rootItemId)) throw IllegalStateException("injected config outage") else delegate.get(rootItemId)
+        override suspend fun version(id: UUID) =
+            if (shouldFail(
+                    delegate.version(id)?.rootId ?: UUID(0, 0)
+                )
+            ) {
+                throw IllegalStateException("injected config outage")
+            } else {
+                delegate.version(id)
+            }
     }
 
     // ---------------------------------------------------------------------------------------------

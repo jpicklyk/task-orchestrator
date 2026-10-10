@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -14,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.delete
 import io.ktor.client.request.header
@@ -102,9 +102,8 @@ private fun Application.configureDeleteLeaseTestApp(
                 IdempotencyService(unitOfWork),
                 ToolExecutionContext(
                     provider,
-                    NoOpNoteSchemaService,
                     statusLabelService = NoOpStatusLabelService,
-                    perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                    perRootConfigService = PerRootConfigService(provider.configStore()),
                     unitOfWork = unitOfWork
                 ).advanceServiceFactory(),
                 unitOfWork,

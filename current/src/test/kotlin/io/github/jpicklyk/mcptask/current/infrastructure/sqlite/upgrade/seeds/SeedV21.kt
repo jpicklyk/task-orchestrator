@@ -125,8 +125,16 @@ object SeedV21 : MigrationSeed(21) {
             }
         }
 
-    /** Where a table lives at the latest schema: V24 re-homed `plan_documents` rows into `documents`. */
-    private fun live(table: String) = if (table == "plan_documents") "documents" else table
+    /**
+     * Where a table lives at the latest schema: V24 re-homed `plan_documents` rows into `documents`, and V25 relocated
+     * `project_config` into `config_versions` (one version-1 row per root).
+     */
+    private fun live(table: String) =
+        when (table) {
+            "plan_documents" -> "documents"
+            "project_config" -> "config_versions"
+            else -> table
+        }
 
     private fun count(
         conn: Connection,

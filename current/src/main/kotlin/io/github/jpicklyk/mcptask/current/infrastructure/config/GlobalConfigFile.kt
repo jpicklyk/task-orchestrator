@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.GlobalConfigSource
-import io.github.jpicklyk.mcptask.current.application.config.SchemaResolutionMode
 import io.github.jpicklyk.mcptask.current.infrastructure.security.configFingerprint
 import org.slf4j.LoggerFactory
 import org.yaml.snakeyaml.LoaderOptions
@@ -77,7 +76,7 @@ class GlobalConfigFile(
                 )
             }
 
-        val parsedDocument =
+        val document =
             if (root == null) {
                 ConfigDocument.EMPTY
             } else {
@@ -96,18 +95,6 @@ class GlobalConfigFile(
                     // must still fail startup naming the file, like every other global-config error.
                     throw IllegalArgumentException("Failed to parse note schemas in '$configPath': ${e.message}", e)
                 }
-            }
-
-        // schema_resolution: isolated means nothing in the global config: there is no per-root
-        // layer above it to isolate from, so treat it as layered (AR-39, C4) and warn once.
-        val document =
-            if (parsedDocument.schemaResolution == SchemaResolutionMode.ISOLATED) {
-                val isolatedAtGlobalWarning =
-                    "schema_resolution: isolated has no effect in the global config " +
-                        "(nothing to isolate from); treating as layered"
-                parsedDocument.copy(warnings = parsedDocument.warnings + isolatedAtGlobalWarning)
-            } else {
-                parsedDocument
             }
 
         document.warnings.forEach { w -> logger.warn(w) }

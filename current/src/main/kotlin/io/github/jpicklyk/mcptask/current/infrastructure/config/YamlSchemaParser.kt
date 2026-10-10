@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
-import io.github.jpicklyk.mcptask.current.application.config.SchemaResolutionMode
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.IndependenceMode
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
@@ -61,6 +60,11 @@ internal object YamlSchemaParser {
 
     /** Default `note_limits.mode` when unconfigured: accept notes over maxLength, just warn. */
     const val DEFAULT_NOTE_LIMITS_MODE = "warn"
+
+    /** The one warning a document carrying the removed 3.x `schema_resolution` key gets; the key has no effect. */
+    const val SCHEMA_RESOLUTION_REMOVED_WARNING =
+        "schema_resolution was removed in 4.0 and has no effect; schemas resolve by one fixed precedence rule " +
+            "(per-root type, server type, per-root default, server default)"
 
     /** Recognized `note_limits.mode` values. */
     private val VALID_NOTE_LIMITS_MODES = setOf("warn", "reject")
@@ -180,10 +184,8 @@ internal object YamlSchemaParser {
      * document over another use that `null` to distinguish "this document doesn't opine, fall
      * through" from "this document explicitly configures note limits".
      *
-     * [ConfigDocument.schemaResolution] is parsed from the top-level `schema_resolution` key via
-     * [SchemaResolutionMode.fromConfigString]; a non-string or unrecognized value becomes `null`
-     * and, when the key is present at all, adds exactly one warning naming the raw value (AR-39,
-     * C4). [ConfigDocument.actorAuthenticationSection] is the raw `actor_authentication` value
+     * A top-level `schema_resolution` key (3.x) is removed: when present, whatever its value, it adds
+     * exactly one warning saying so and has no effect. [ConfigDocument.actorAuthenticationSection] is the raw `actor_authentication` value
      * (map, scalar, or explicit YAML `null`), or Kotlin `null` when the key is absent entirely.
      * [ConfigDocument.presentSections] is `root.keys` in document order (a `LinkedHashMap`'s
      * iteration order, since SnakeYAML deserializes mappings into `LinkedHashMap`).
@@ -210,12 +212,8 @@ internal object YamlSchemaParser {
         val resourceRegistry = parseResourceRegistry(root, warnings)
         val traitResources = parseTraitResources(root, resourceRegistry, warnings)
         val (traitDispatch, traitDispatchBySeat) = parseTraitDispatchAndBySeat(root, warnings)
-        val schemaResolution = (root["schema_resolution"] as? String)?.let { SchemaResolutionMode.fromConfigString(it) }
-        if (root.containsKey("schema_resolution") && schemaResolution == null) {
-            warnings.add(
-                "Unrecognized schema_resolution value '${root["schema_resolution"]}' " +
-                    "(expected legacy, layered or isolated); treating as absent"
-            )
+        if (root.containsKey("schema_resolution")) {
+            warnings.add(SCHEMA_RESOLUTION_REMOVED_WARNING)
         }
         val actorAuthenticationSection = root["actor_authentication"]
         val presentSections: Set<String> = LinkedHashSet(root.keys)
@@ -243,7 +241,6 @@ internal object YamlSchemaParser {
             traitDispatch = traitDispatch,
             traitDispatchBySeat = traitDispatchBySeat,
             traitSeats = traitSeatsMap,
-            schemaResolution = schemaResolution,
             actorAuthenticationSection = actorAuthenticationSection,
             presentSections = presentSections,
         )
@@ -857,8 +854,10 @@ internal object YamlSchemaParser {
                     continue
                 }
 
-            val phases = mutableMapOf<Role, DispatchProfile>()
-            val phasesBySeat = mutableMapOf<Role, Map<String, SeatDispatchOverride>>()
+            // EnumMap: iteration (and so the wire order) follows the phase order, not the YAML key order, so a stored
+            // version rebuilt from its key-sorted canonical JSON serializes exactly like the YAML it came from.
+            val phases: MutableMap<Role, DispatchProfile> = java.util.EnumMap(Role::class.java)
+            val phasesBySeat: MutableMap<Role, Map<String, SeatDispatchOverride>> = java.util.EnumMap(Role::class.java)
 
             for ((phaseKey, phaseRaw) in dispatchMap) {
                 val role = VALID_SCHEMA_ROLES[phaseKey]

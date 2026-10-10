@@ -102,7 +102,7 @@ class P5bWriteUnitGuardsTest {
             """
             CurrentMain.kt 1
             application/config/ConfigSession.kt 1
-            application/service/ProjectConfigPushService.kt 1
+            application/service/ConfigService.kt 1
             application/service/RoleTransitionHandler.kt 1
             application/service/WorkItemPlacementService.kt 4
             application/service/rest/WorkItemPatchProjection.kt 1

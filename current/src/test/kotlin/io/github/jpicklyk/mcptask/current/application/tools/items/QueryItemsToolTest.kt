@@ -3,7 +3,8 @@ package io.github.jpicklyk.mcptask.current.application.tools.items
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
@@ -14,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.coEvery
 import io.mockk.mockk
@@ -2022,7 +2024,10 @@ class QueryItemsToolTest {
     // ──────────────────────────────────────────────
 
     /** Schema service exposing one full schema for type/tag "feature-task" and a stable fingerprint. */
-    private fun schemaServiceForSchemaOp(fingerprint: String? = "fp-123"): NoteSchemaService {
+    private fun schemaServiceForSchemaOp(
+        fingerprint: String? = "fp-123",
+        perRoot: PerRootConfigSource? = null
+    ): EffectiveConfigResolver {
         val entries =
             listOf(
                 NoteSchemaEntry(
@@ -2041,19 +2046,14 @@ class QueryItemsToolTest {
                 )
             )
         val schema = WorkItemSchema(type = "feature-task", notes = entries)
-        return object : NoteSchemaService {
-            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = if (tags.contains("feature-task")) entries else null
-
-            override fun getSchemaForType(type: String?): WorkItemSchema? = if (type == "feature-task") schema else null
-
-            override fun getConfigFingerprint(): String? = fingerprint
-        }
+        return TestConfigResolver.resolver(TestConfigResolver.documentOf(mapOf("feature-task" to schema)), perRoot, fingerprint)
     }
 
     @Test
     fun `schema operation by type returns full entries and fingerprint`(): Unit =
         runBlocking {
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), unitOfWork = db.unitOfWork())
+            val schemaContext =
+                ToolExecutionContext(repositoryProvider, configResolver = schemaServiceForSchemaOp(), unitOfWork = db.unitOfWork())
 
             val result =
                 tool.execute(
@@ -2088,10 +2088,11 @@ class QueryItemsToolTest {
         }
 
     @Test
-    fun `schema operation by itemId resolves schema via item tags`(): Unit =
+    fun `schema operation by itemId resolves schema via item type`(): Unit =
         runBlocking {
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), unitOfWork = db.unitOfWork())
-            val itemId = createItem("Tagged item", tags = "feature-task")
+            val schemaContext =
+                ToolExecutionContext(repositoryProvider, configResolver = schemaServiceForSchemaOp(), unitOfWork = db.unitOfWork())
+            val itemId = createItem("Typed item", tags = "feature-task", type = "feature-task")
 
             val result =
                 tool.execute(
@@ -2113,7 +2114,8 @@ class QueryItemsToolTest {
     @Test
     fun `schema operation fingerprint is stable across calls`(): Unit =
         runBlocking {
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), unitOfWork = db.unitOfWork())
+            val schemaContext =
+                ToolExecutionContext(repositoryProvider, configResolver = schemaServiceForSchemaOp(), unitOfWork = db.unitOfWork())
             val schemaParams =
                 params(
                     "operation" to JsonPrimitive("schema"),
@@ -2132,7 +2134,8 @@ class QueryItemsToolTest {
     @Test
     fun `schema operation with unknown type returns error`(): Unit =
         runBlocking {
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), unitOfWork = db.unitOfWork())
+            val schemaContext =
+                ToolExecutionContext(repositoryProvider, configResolver = schemaServiceForSchemaOp(), unitOfWork = db.unitOfWork())
 
             val result =
                 tool.execute(
@@ -2149,7 +2152,8 @@ class QueryItemsToolTest {
     @Test
     fun `schema operation for schema-free item returns error`(): Unit =
         runBlocking {
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), unitOfWork = db.unitOfWork())
+            val schemaContext =
+                ToolExecutionContext(repositoryProvider, configResolver = schemaServiceForSchemaOp(), unitOfWork = db.unitOfWork())
             val itemId = createItem("Untagged item")
 
             val result =
@@ -2168,7 +2172,11 @@ class QueryItemsToolTest {
     fun `schema operation null fingerprint serializes as JsonNull`(): Unit =
         runBlocking {
             val schemaContext =
-                ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(fingerprint = null), unitOfWork = db.unitOfWork())
+                ToolExecutionContext(
+                    repositoryProvider,
+                    configResolver = schemaServiceForSchemaOp(fingerprint = null),
+                    unitOfWork = db.unitOfWork()
+                )
 
             val result =
                 tool.execute(
@@ -2206,12 +2214,8 @@ class QueryItemsToolTest {
                 )
             val schema = WorkItemSchema(type = "limited-task", notes = entries)
             val schemaService =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
-
-                    override fun getSchemaForType(type: String?): WorkItemSchema? = if (type == "limited-task") schema else null
-                }
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaService, unitOfWork = db.unitOfWork())
+                TestConfigResolver.resolver(TestConfigResolver.documentOf(mapOf("limited-task" to schema)))
+            val schemaContext = ToolExecutionContext(repositoryProvider, configResolver = schemaService, unitOfWork = db.unitOfWork())
 
             val result =
                 tool.execute(
@@ -2280,8 +2284,8 @@ class QueryItemsToolTest {
             val schemaContext =
                 ToolExecutionContext(
                     repositoryProvider,
-                    schemaServiceForSchemaOp(),
                     perRootConfigService = perRoot,
+                    configResolver = schemaServiceForSchemaOp(perRoot = perRoot),
                     unitOfWork = db.unitOfWork()
                 )
 
@@ -2306,7 +2310,7 @@ class QueryItemsToolTest {
         }
 
     @Test
-    fun `schema operation with type and rootId falls back to per-root default when exact type misses`(): Unit =
+    fun `schema operation with type and rootId falls back to per-root default when no layer has the exact type`(): Unit =
         runBlocking {
             val rootId = UUID.fromString(createItem("Project Root"))
             val perRoot = mockk<PerRootConfigService>()
@@ -2331,8 +2335,8 @@ class QueryItemsToolTest {
             val schemaContext =
                 ToolExecutionContext(
                     repositoryProvider,
-                    schemaServiceForSchemaOp(),
                     perRootConfigService = perRoot,
+                    configResolver = schemaServiceForSchemaOp(perRoot = perRoot),
                     unitOfWork = db.unitOfWork()
                 )
 
@@ -2340,7 +2344,7 @@ class QueryItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("schema"),
-                        "type" to JsonPrimitive("feature-task"),
+                        "type" to JsonPrimitive("other-task"),
                         "rootId" to JsonPrimitive(rootId.toString())
                     ),
                     schemaContext
@@ -2363,8 +2367,8 @@ class QueryItemsToolTest {
             val schemaContext =
                 ToolExecutionContext(
                     repositoryProvider,
-                    schemaServiceForSchemaOp(),
                     perRootConfigService = perRoot,
+                    configResolver = schemaServiceForSchemaOp(perRoot = perRoot),
                     unitOfWork = db.unitOfWork()
                 )
 
@@ -2388,7 +2392,8 @@ class QueryItemsToolTest {
     @Test
     fun `schema operation with type and no rootId is unchanged global behavior`(): Unit =
         runBlocking {
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), unitOfWork = db.unitOfWork())
+            val schemaContext =
+                ToolExecutionContext(repositoryProvider, configResolver = schemaServiceForSchemaOp(), unitOfWork = db.unitOfWork())
 
             val result =
                 tool.execute(
@@ -2437,8 +2442,8 @@ class QueryItemsToolTest {
             val schemaContext =
                 ToolExecutionContext(
                     repositoryProvider,
-                    schemaServiceForSchemaOp(),
                     perRootConfigService = perRoot,
+                    configResolver = schemaServiceForSchemaOp(perRoot = perRoot),
                     unitOfWork = db.unitOfWork()
                 )
 
@@ -2478,8 +2483,8 @@ class QueryItemsToolTest {
             val schemaContext =
                 ToolExecutionContext(
                     repositoryProvider,
-                    schemaServiceForSchemaOp(),
                     perRootConfigService = perRoot,
+                    configResolver = schemaServiceForSchemaOp(perRoot = perRoot),
                     unitOfWork = db.unitOfWork()
                 )
 

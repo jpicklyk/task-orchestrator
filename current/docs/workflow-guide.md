@@ -79,10 +79,11 @@ Note schemas gate role transitions. They define what documentation an item must 
 
 A note schema is a named set of note definitions. When an item matches a schema, the system enforces note requirements at `start` transitions.
 
-**Schema resolution order:**
-1. **Type-first lookup** — the item's `type` field (e.g., `feature`, `task`, `bug`) is looked up directly in `work_item_schemas`. If a match is found, that schema is used.
-2. **Tag fallback** — if no type match, the item's tags are checked against schema keys. The first matching tag wins.
-3. **Default schema** — if neither type nor tags match, the `default` schema is used (if configured). Items with no match at all advance freely with no gate enforcement.
+**Schema resolution order** (one rule; tags never select a schema):
+1. **Per-root type** — the item's `type` (e.g. `feature`, `task`, `bug`) declared in the root's pushed config.
+2. **Server type** — the same `type` declared in the server config.
+3. **Per-root default** — the root's `default` schema.
+4. **Server default** — the server's `default` schema. An item that matches none advances freely with no gate enforcement.
 
 Schemas are defined in `.taskorchestrator/config.yaml` in the project root.
 
@@ -885,9 +886,11 @@ Additional top-level keys (workflows, status, cascade) are supported but not cov
 
 ### Matching Rules
 
-1. **Type-first lookup** — the item's `type` field is looked up directly in `work_item_schemas`. If found, that schema is used.
-2. **Tag fallback** — if no type match, the item's tags are checked against schema keys. First matching tag wins. Each tag in the comma-separated tags string is compared whole against the schema keys — the match is exact and case-sensitive, never a substring match.
-3. **Default schema** — if neither type nor tags match, the `default` schema is used (if defined). Items with no match at all advance freely.
+1. **Per-root type** — the item's `type` declared in the root's pushed config.
+2. **Server type** — the same `type` declared in the server config.
+3. **Per-root default**, then **server default** — the `default` schema of the root, then of the server. Items with no match at all advance freely.
+
+Tags never select a schema.
 
 ### Minimal Config Example
 

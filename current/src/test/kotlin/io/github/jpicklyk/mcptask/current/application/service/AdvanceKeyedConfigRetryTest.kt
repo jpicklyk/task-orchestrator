@@ -32,7 +32,7 @@ import kotlin.test.assertEquals
  *
  * Oracle: plan v4-phase1-core.md section 3.9 (stores the result only on ok; transient failures are not stored) and the
  * api-reference idempotency paragraph (a config or database fault is not recorded, so a retry with the same requestId
- * runs it again). The fault is the real one of AdvanceConfigFailClosedTest (project_config renamed away), cleared by
+ * runs it again). The fault is the real one of AdvanceConfigFailClosedTest (config_heads renamed away), cleared by
  * renaming it back.
  */
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
@@ -63,7 +63,7 @@ class AdvanceKeyedConfigRetryTest {
             assertEquals("config_unavailable", first.text("errorCode"), "$first")
             assertEquals(before, d.snapshot(f.item), "fail-closed: nothing changed")
 
-            rawExec(d.jdbcUrl, "ALTER TABLE project_config_gone RENAME TO project_config")
+            rawExec(d.jdbcUrl, "ALTER TABLE config_heads_gone RENAME TO config_heads")
             val retry =
                 d.rig
                     .call(AdvanceItemTool(), *params)["data"]!!

@@ -1,20 +1,24 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.getFingerprint
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -45,9 +49,9 @@ import kotlin.test.assertTrue
  * test-plan's file list. Oracle: D6 ("REST: 503 + ErrorDto(\"config_unavailable\"), no Retry-After
  * ... RFC 9110 15.6.4 temporary inability, not a 409 conflict") plus the verbatim
  * `ItemWriteRoutes.kt`/`ItemRoutes.kt` excerpts, which construct `schemaResolutionContext` as
- * `ToolExecutionContext(..., perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()))`
+ * `ToolExecutionContext(..., perRootConfigService = PerRootConfigService(repositoryProvider.configStore()))`
  * from the SAME [RepositoryProvider] the route function is given — so swapping
- * `projectConfigRepository()` on that provider (via [FailableRepositoryProvider]) is sufficient to
+ * `configStore()` on that provider (via [FailableRepositoryProvider]) is sufficient to
  * drive the failure through the real route stack, with no need to construct a
  * `ToolExecutionContext`/`PerRootConfigService` directly in this file.
  *
@@ -73,7 +77,7 @@ class ConfigUnavailableRoutesTest {
                             )!!
                     r to i
                 }
-            val failable = FailableProjectConfigRepository(sqlite.projectConfigRepository())
+            val failable = FailableProjectConfigRepository(sqlite.configStore())
             failable.failFingerprint = true
             val provider = FailableRepositoryProvider(sqlite, failable)
             application { configureAdvanceApp(provider, NoSchemaWorkItemSchemaService, unitOfWork = db.unitOfWork()) }
@@ -109,22 +113,23 @@ class ConfigUnavailableRoutesTest {
                     // resolve() only reaches the .get() read (the one failFingerprint=false/failGet=true
                     // is meant to intercept) once the fingerprint check itself has NOT short-circuited
                     // on Success(null)/absence.
-                    sqlite.projectConfigRepository().upsert(r.id, "work_item_schemas:\n  T:\n    notes: []\n")
+                    sqlite.configStore().upsert(r.id, "work_item_schemas:\n  T:\n    notes: []\n")
                     sqlite
                         .workItemRepository()
                         .create(
                             WorkItem(title = "Child S11", role = Role.WORK, parentId = r.id, rootId = r.id, depth = 1)
                         )!!
                 }
-            val failable = FailableProjectConfigRepository(sqlite.projectConfigRepository())
+            val failable = FailableProjectConfigRepository(sqlite.configStore())
             failable.failGet = true
             val provider = FailableRepositoryProvider(sqlite, failable)
             application {
                 configureTestApp(makeTestAuthConfig()) {
+                    val perRoot = PerRootConfigService(provider.configStore())
                     ToolExecutionContext(
                         provider,
-                        NoSchemaWorkItemSchemaService,
-                        perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                        perRootConfigService = perRoot,
+                        configResolver = TestConfigResolver.resolver(NoSchemaWorkItemSchemaService, perRoot),
                         unitOfWork = db.unitOfWork(),
                     ).let { ctx -> itemGateRoutes(provider, ctx.configResolver, ctx.transitionPreview()) }
                 }
@@ -141,25 +146,27 @@ class ConfigUnavailableRoutesTest {
 }
 
 /**
- * Wraps a real [ProjectConfigStore] (the [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository]
+ * Wraps a real [ConfigStore] (the [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore]
  * a [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider] hands
- * back from `projectConfigRepository()`) and lets tests force [get]/[getFingerprint] to return
+ * back from `configStore()`) and lets tests force [get]/[getFingerprint] to return
  * `throw IllegalStateException("x")` on demand — the test-plan harness's "test
- * ProjectConfigStore wrapping SQLiteProjectConfigRepository" fixture, authored here per this
+ * ConfigStore wrapping SqliteConfigStore" fixture, authored here per this
  * file's ownership (no shared harness file; see the sibling copies in the tool-level
  * config-unavailable test files for the identical rationale).
  */
 private class FailableProjectConfigRepository(
-    private val delegate: ProjectConfigStore
-) : ProjectConfigStore by delegate {
+    private val delegate: ConfigStore
+) : ConfigStore by delegate {
     @Volatile var failFingerprint: Boolean = false
 
     @Volatile var failGet: Boolean = false
 
-    override suspend fun getFingerprint(rootItemId: UUID) =
-        if (failFingerprint) throw IllegalStateException("x") else delegate.getFingerprint(rootItemId)
+    override suspend fun head(
+        scope: ConfigScope,
+        rootId: UUID?
+    ) = if (failFingerprint) throw IllegalStateException("x") else delegate.head(scope, rootId)
 
-    override suspend fun get(rootItemId: UUID) = if (failGet) throw IllegalStateException("x") else delegate.get(rootItemId)
+    override suspend fun version(id: UUID) = if (failGet) throw IllegalStateException("x") else delegate.version(id)
 }
 
 /** An SQLite-backed provider with only [projectConfigRepository] swapped, mirroring `LeaseOverridingProvider`. */
@@ -167,18 +174,16 @@ private class FailableRepositoryProvider(
     private val delegate: RepositoryProvider,
     private val failable: FailableProjectConfigRepository
 ) : RepositoryProvider by delegate {
-    override fun projectConfigRepository(): ProjectConfigStore = failable
+    override fun configStore(): ConfigStore = failable
 }
 
 /** No global schema for any type — mirrors the test-plan harness's "Global: no T, no default". */
-private object NoSchemaWorkItemSchemaService : WorkItemSchemaService {
-    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
-}
+private val NoSchemaWorkItemSchemaService: ConfigDocument = ConfigDocument.EMPTY
 
 /** Registers only [itemWriteRoutes], mirroring [AdvanceRouteResourceLeaseTest]'s `configureLeaseTestApp`. */
 private fun Application.configureAdvanceApp(
     provider: RepositoryProvider,
-    schemaService: WorkItemSchemaService,
+    schemaService: ConfigDocument,
     unitOfWork: UnitOfWork
 ) {
     install(ContentNegotiation) { json(McpJson) }
@@ -194,13 +199,15 @@ private fun Application.configureAdvanceApp(
                 provider,
                 DegradedModePolicy.ACCEPT_CACHED,
                 IdempotencyService(unitOfWork),
-                ToolExecutionContext(
-                    provider,
-                    schemaService,
-                    statusLabelService = NoOpStatusLabelService,
-                    perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
-                    unitOfWork = unitOfWork
-                ).advanceServiceFactory(),
+                PerRootConfigService(provider.configStore()).let { perRoot ->
+                    ToolExecutionContext(
+                        provider,
+                        statusLabelService = NoOpStatusLabelService,
+                        perRootConfigService = perRoot,
+                        configResolver = TestConfigResolver.resolver(schemaService, perRoot),
+                        unitOfWork = unitOfWork
+                    ).advanceServiceFactory()
+                },
                 unitOfWork,
             )
         }

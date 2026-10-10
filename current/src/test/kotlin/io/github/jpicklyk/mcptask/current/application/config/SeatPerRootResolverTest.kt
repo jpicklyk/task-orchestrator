@@ -9,7 +9,9 @@ import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordi
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -32,7 +34,7 @@ import kotlin.test.assertTrue
  * SF2 follow-up on item `79cd4f0c` (A1 review): S8 (trait-seats wholesale, dispatch-block wholesale,
  * base-schema-seats LEGACY vs LAYERED), S9 (a per-item trait cannot redefine a base seat), and S2(b)
  * (the task-scope section 2 YAML pushed as a PER-ROOT config, not just a global file) -- all exercised
- * through a REAL per-root push (`projectConfigRepository().upsert`) resolved by the REAL
+ * through a REAL per-root push (`configStore().upsert`) resolved by the REAL
  * [EffectiveConfigResolver] wired inside a REAL [ServerComposition.build], observed through the public
  * MCP tools ([QueryItemsTool] for type-based resolution, [GetContextTool] for item-based resolution) --
  * per the Public-API rule (`LayeredConfigSeatTest`'s existing S8/S9 coverage calls `LayeredConfig`'s
@@ -98,7 +100,7 @@ class SeatPerRootResolverTest {
     ) {
         runBlocking {
             composition.toolContext.repositoryProvider
-                .projectConfigRepository()
+                .configStore()
                 .upsert(rootId, yaml)
                 ?: error("fixture: per-root push failed for $rootId")
         }
@@ -276,14 +278,13 @@ class SeatPerRootResolverTest {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // S8c (N2) -- base-schema seats follow the layer schema_resolution selects: LEGACY lets the
-    // per-root `default` schema shadow global's EXACT type match; `layered` lets global's exact match
-    // win instead. Same per-root fixture on both roots, ONLY schema_resolution differs, so a mutation
-    // that ignores the mode reddens (both roots would otherwise resolve identically).
+    // S8c (N2) -- base-schema seats follow the layer the one precedence rule selects: global's EXACT
+    // type match beats the per-root `default`, and the removed `schema_resolution` key changes nothing.
+    // A type neither layer names still falls to the per-root `default`.
     // ─────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `S8c base-schema seats follow schema_resolution -- LEGACY per-root default shadows global's exact type, layered lets it win (N2)`(
+    fun `S8c base-schema seats follow the one precedence rule -- global exact type beats a per-root default (N2)`(
         @TempDir tempDir: Path,
     ) {
         val globalConfig =
@@ -312,9 +313,13 @@ class SeatPerRootResolverTest {
         val legacySeats = seatNames(schemaByType(composition, "special-type", legacyRoot))
         val layeredSeats = seatNames(schemaByType(composition, "special-type", layeredRoot))
 
-        assertEquals(listOf("p1"), legacySeats, "N2/LEGACY: the per-root default schema must shadow global's exact-type match")
-        assertEquals(listOf("g1"), layeredSeats, "N2/layered: global's exact-type match must win over the per-root default")
-        assertFalse(legacySeats == layeredSeats, "toggling schema_resolution alone must change which layer's base schema is served")
+        assertEquals(listOf("g1"), legacySeats, "global's exact-type match must win over the per-root default")
+        assertEquals(listOf("g1"), layeredSeats, "the removed schema_resolution key must change nothing")
+        assertEquals(
+            listOf("p1"),
+            seatNames(schemaByType(composition, "other-type", legacyRoot)),
+            "a type no layer names falls to the per-root default"
+        )
     }
 
     // ─────────────────────────────────────────────────────────────────────

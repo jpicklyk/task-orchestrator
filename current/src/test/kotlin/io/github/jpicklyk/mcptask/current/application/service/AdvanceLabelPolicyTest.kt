@@ -9,9 +9,11 @@ import io.github.jpicklyk.mcptask.current.test.P11_BASE_YAML
 import io.github.jpicklyk.mcptask.current.test.P11_LABELS_YAML
 import io.github.jpicklyk.mcptask.current.test.arr
 import io.github.jpicklyk.mcptask.current.test.flag
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.testClaimService
 import io.github.jpicklyk.mcptask.current.test.text
+import io.github.jpicklyk.mcptask.current.test.upsert
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.jsonObject
 import org.junit.jupiter.api.Test
@@ -145,7 +147,7 @@ class AdvanceLabelPolicyTest {
             val rootA = d.item("root A", Role.WORK)
             val rootB = d.item("root B", Role.WORK)
             assertNotNull(
-                d.raw.projectConfigRepository().upsert(rootA.id, "status_labels:\n  cancel: p11-root-cancel\n"),
+                d.raw.configStore().upsert(rootA.id, "status_labels:\n  cancel: p11-root-cancel\n"),
                 "fixture: the per-root config push must succeed",
             )
             val underA = d.item("under A", Role.QUEUE, parent = rootA)

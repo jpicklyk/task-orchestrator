@@ -1,11 +1,12 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
@@ -30,7 +31,8 @@ class ManageItemsToolTest {
         tool = ManageItemsTool()
     }
 
-    private fun contextWithSchema(service: NoteSchemaService) = ToolExecutionContext(repositoryProvider, service)
+    private fun contextWithSchema(service: EffectiveConfigResolver) =
+        ToolExecutionContext(repositoryProvider, configResolver = TestConfigResolver.withoutTypeValidation(service))
 
     private fun params(vararg pairs: Pair<String, JsonElement>) = JsonObject(mapOf(*pairs))
 
@@ -96,7 +98,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("type", JsonPrimitive("test-item"))
+                                        put("type", JsonPrimitive("backend"))
                                         put("title", JsonPrimitive("Full item"))
                                         put("description", JsonPrimitive("A detailed description"))
                                         put("summary", JsonPrimitive("Short summary"))
@@ -387,7 +389,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("type", JsonPrimitive("test-item"))
+                                        put("type", JsonPrimitive("UPPERCASE"))
                                         put("title", JsonPrimitive("Bad tags"))
                                         put("tags", JsonPrimitive("UPPERCASE,Invalid"))
                                     }
@@ -407,9 +409,9 @@ class ManageItemsToolTest {
     fun `create item with tags matching schema includes tags and expectedNotes`(): Unit =
         runBlocking {
             val mockSchema =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        if (tags.contains("feature-plan")) {
+                TestConfigResolver.forSchemas(
+                    mapOf(
+                        "feature-plan" to
                             listOf(
                                 NoteSchemaEntry(
                                     key = "requirements",
@@ -424,10 +426,8 @@ class ManageItemsToolTest {
                                     description = "Definition of done"
                                 )
                             )
-                        } else {
-                            null
-                        }
-                }
+                    )
+                )
             val schemaContext = contextWithSchema(mockSchema)
 
             val result =
@@ -438,7 +438,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("type", JsonPrimitive("test-item"))
+                                        put("type", JsonPrimitive("feature-plan"))
                                         put("title", JsonPrimitive("Planned feature"))
                                         put("tags", JsonPrimitive("feature-plan"))
                                     }
@@ -509,9 +509,7 @@ class ManageItemsToolTest {
     fun `create item with tags not matching any schema includes tags but no expectedNotes`(): Unit =
         runBlocking {
             val mockSchema =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
-                }
+                TestConfigResolver.resolver()
             val schemaContext = contextWithSchema(mockSchema)
 
             val result =
@@ -522,7 +520,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("type", JsonPrimitive("test-item"))
+                                        put("type", JsonPrimitive("backend"))
                                         put("title", JsonPrimitive("Unmatched tags item"))
                                         put("tags", JsonPrimitive("backend,api"))
                                     }
@@ -1635,9 +1633,9 @@ class ManageItemsToolTest {
     fun `create item with schema returns keys-only expectedNotes without guidance text`(): Unit =
         runBlocking {
             val mockSchema =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        if (tags.contains("feature-plan")) {
+                TestConfigResolver.forSchemas(
+                    mapOf(
+                        "feature-plan" to
                             listOf(
                                 NoteSchemaEntry(
                                     key = "requirements",
@@ -1647,10 +1645,8 @@ class ManageItemsToolTest {
                                     guidance = "List all functional and non-functional requirements"
                                 )
                             )
-                        } else {
-                            null
-                        }
-                }
+                    )
+                )
             val schemaContext = contextWithSchema(mockSchema)
 
             val result =
@@ -1661,7 +1657,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("type", JsonPrimitive("test-item"))
+                                        put("type", JsonPrimitive("feature-plan"))
                                         put("title", JsonPrimitive("Planned feature with guidance"))
                                         put("tags", JsonPrimitive("feature-plan"))
                                     }
@@ -1692,9 +1688,9 @@ class ManageItemsToolTest {
     fun `create item with null guidance omits guidance field from expectedNotes`(): Unit =
         runBlocking {
             val mockSchema =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        if (tags.contains("feature-plan")) {
+                TestConfigResolver.forSchemas(
+                    mapOf(
+                        "feature-plan" to
                             listOf(
                                 NoteSchemaEntry(
                                     key = "requirements",
@@ -1704,10 +1700,8 @@ class ManageItemsToolTest {
                                     guidance = null
                                 )
                             )
-                        } else {
-                            null
-                        }
-                }
+                    )
+                )
             val schemaContext = contextWithSchema(mockSchema)
 
             val result =
@@ -1718,7 +1712,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("type", JsonPrimitive("test-item"))
+                                        put("type", JsonPrimitive("feature-plan"))
                                         put("title", JsonPrimitive("Planned feature without guidance"))
                                         put("tags", JsonPrimitive("feature-plan"))
                                     }
@@ -2118,10 +2112,7 @@ class ManageItemsToolTest {
             // When getSchemaForTags returns emptyList() (non-null but zero entries),
             // schemaMatch is true (a schema was found) and expectedNotes is an empty array.
             val mockSchema =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        if (tags.contains("empty-schema-tag")) emptyList() else null
-                }
+                TestConfigResolver.forSchemas(mapOf("empty-schema-tag" to emptyList<NoteSchemaEntry>()))
             val schemaContext = contextWithSchema(mockSchema)
 
             val result =
@@ -2132,7 +2123,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("type", JsonPrimitive("test-item"))
+                                        put("type", JsonPrimitive("empty-schema-tag"))
                                         put("title", JsonPrimitive("Item with empty-schema tag"))
                                         put("tags", JsonPrimitive("empty-schema-tag"))
                                     }

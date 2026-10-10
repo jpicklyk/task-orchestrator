@@ -77,7 +77,7 @@ class AdvanceRestKeyedConfigRetryTest {
             assertEquals(HttpStatusCode.ServiceUnavailable, first.status, first.bodyAsText())
             assertEquals(before, d.snapshot(f.item), "fail-closed: nothing changed")
 
-            rawExec(d.jdbcUrl, "ALTER TABLE project_config_gone RENAME TO project_config")
+            rawExec(d.jdbcUrl, "ALTER TABLE config_heads_gone RENAME TO config_heads")
             val retry = send()
 
             assertEquals(HttpStatusCode.OK, retry.status, "the retry EXECUTES instead of replaying the 503: ${retry.bodyAsText()}")

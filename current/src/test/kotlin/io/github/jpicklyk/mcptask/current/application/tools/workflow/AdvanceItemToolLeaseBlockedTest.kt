@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
@@ -8,9 +10,7 @@ import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
@@ -18,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
 import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -60,17 +61,16 @@ class AdvanceItemToolLeaseBlockedTest {
     private lateinit var workItemRepo: WorkItemRepository
     private lateinit var leaseRepo: LeaseStore
 
-    /** Schema service that maps the `needs-staging-db` trait onto one exclusive resource. */
-    private class ResourceTraitSchemaService : WorkItemSchemaService {
-        override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
-
-        override fun getTraitResources(traitName: String): List<ResourceRequirement> =
-            if (traitName == "needs-staging-db") {
-                listOf(ResourceRequirement("staging-db-credential", ResourceMode.EXCLUSIVE, 600))
-            } else {
-                emptyList()
-            }
-    }
+    /** Server config that maps the `needs-staging-db` trait onto one exclusive resource. */
+    private fun resourceTraitSchemaService(): EffectiveConfigResolver =
+        TestConfigResolver.resolver(
+            ConfigDocument(
+                workItemSchemas = emptyMap(),
+                traits = emptyMap(),
+                traitResources =
+                    mapOf("needs-staging-db" to listOf(ResourceRequirement("staging-db-credential", ResourceMode.EXCLUSIVE, 600))),
+            ),
+        )
 
     @BeforeEach
     fun setUp() {
@@ -101,7 +101,7 @@ class AdvanceItemToolLeaseBlockedTest {
         every { depRepo.findByToItemId(any()) } returns emptyList()
         every { depRepo.findByFromItemId(any()) } returns emptyList()
 
-        context = ToolExecutionContext(repoProvider, ResourceTraitSchemaService())
+        context = ToolExecutionContext(repoProvider, configResolver = resourceTraitSchemaService())
     }
 
     private fun tracedItem(id: UUID): WorkItem =

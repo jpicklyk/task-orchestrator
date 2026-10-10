@@ -162,7 +162,11 @@ class BatchRunner(
             detail =
                 ErrorDetail.InvalidRequest(
                     listOf(
-                        FieldViolation(IDEMPOTENCY_KEY_FIELD, "must be non-blank and at most $MAX_IDEMPOTENCY_KEY_LENGTH characters", key)
+                        FieldViolation(
+                            IDEMPOTENCY_KEY_FIELD,
+                            "must be non-blank and at most $MAX_IDEMPOTENCY_KEY_LENGTH characters",
+                            key.take(MAX_RECEIVED)
+                        )
                     )
                 )
         )
@@ -188,5 +192,8 @@ class BatchRunner(
     companion object {
         const val MAX_IDEMPOTENCY_KEY_LENGTH = 128
         const val IDEMPOTENCY_KEY_FIELD = "idempotencyKey"
+
+        /** The echoed bad key is capped like `RequestDecoder`'s `received` values. */
+        private const val MAX_RECEIVED = 100
     }
 }

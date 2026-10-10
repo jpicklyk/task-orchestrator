@@ -1,20 +1,25 @@
 package io.github.jpicklyk.mcptask.current.application.tools.compound
 
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
-import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
 import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.getFingerprint
+import io.github.jpicklyk.mcptask.current.test.rootItemId
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -45,7 +50,7 @@ import kotlin.test.assertEquals
  * "transient", errorCode: "config_unavailable" }`.
  *
  * Harness mirrors [AdvanceItemToolConfigUnavailableTest]: a real [PerRootConfigService] over a
- * real [SQLiteProjectConfigRepository] wrapped in [FailableProjectConfigRepository] (this file's
+ * real [SqliteConfigStore] wrapped in [FailableProjectConfigRepository] (this file's
  * own copy — not shared across files per this item's file-ownership rule), with [CompleteTreeTool]
  * run against an otherwise mocked [RepositoryProvider], mirroring [CompleteTreeToolTest]'s setup.
  */
@@ -95,7 +100,7 @@ class CompleteTreeToolConfigUnavailableTest {
             databaseManager = db.databaseManager
 
             wrapperRepo =
-                FailableProjectConfigRepository(db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository)
+                FailableProjectConfigRepository(db.repositoryProvider().configStore() as SqliteConfigStore)
             perRootConfigService = PerRootConfigService(wrapperRepo)
 
             workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
@@ -211,21 +216,23 @@ class CompleteTreeToolConfigUnavailableTest {
 }
 
 /**
- * Wraps a real [ProjectConfigStore] and lets tests force [get]/[getFingerprint] to return
+ * Wraps a real [ConfigStore] and lets tests force [get]/[getFingerprint] to return
  * `throw IllegalStateException("x")` on demand. Own copy for this file — see
  * [io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemToolConfigUnavailableTest]'s
  * identical class for the full rationale (this item's file-ownership rule forbids extracting a
  * shared harness file for it).
  */
 private class FailableProjectConfigRepository(
-    private val delegate: ProjectConfigStore
-) : ProjectConfigStore by delegate {
+    private val delegate: ConfigStore
+) : ConfigStore by delegate {
     @Volatile var failFingerprint: Boolean = false
 
     @Volatile var failGet: Boolean = false
 
-    override suspend fun getFingerprint(rootItemId: UUID) =
-        if (failFingerprint) throw IllegalStateException("x") else delegate.getFingerprint(rootItemId)
+    override suspend fun head(
+        scope: ConfigScope,
+        rootId: UUID?
+    ) = if (failFingerprint) throw IllegalStateException("x") else delegate.head(scope, rootId)
 
-    override suspend fun get(rootItemId: UUID) = if (failGet) throw IllegalStateException("x") else delegate.get(rootItemId)
+    override suspend fun version(id: UUID) = if (failGet) throw IllegalStateException("x") else delegate.version(id)
 }

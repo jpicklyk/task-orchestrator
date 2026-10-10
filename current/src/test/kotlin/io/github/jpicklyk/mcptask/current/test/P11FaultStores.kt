@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.test
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -93,17 +93,15 @@ internal class P11FaultProvider(
     override fun resourceLeaseRepository(): LeaseStore = leases
 }
 
-/** Maps [P11_FAULT_TRAIT] onto one exclusive resource with a 600s TTL (no note schemas). */
-internal class P11FaultSchemaService : WorkItemSchemaService {
-    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
-
-    override fun getTraitResources(traitName: String): List<ResourceRequirement> =
-        if (traitName == P11_FAULT_TRAIT) {
-            listOf(ResourceRequirement(P11_FAULT_LEASE_KEY, ResourceMode.EXCLUSIVE, 600))
-        } else {
-            emptyList()
-        }
-}
+/** A resolver mapping [P11_FAULT_TRAIT] onto one exclusive resource with a 600s TTL (no note schemas). */
+internal fun p11FaultResolver(): EffectiveConfigResolver =
+    TestConfigResolver.resolver(
+        ConfigDocument(
+            workItemSchemas = emptyMap(),
+            traits = emptyMap(),
+            traitResources = mapOf(P11_FAULT_TRAIT to listOf(ResourceRequirement(P11_FAULT_LEASE_KEY, ResourceMode.EXCLUSIVE, 600))),
+        ),
+    )
 
 /** Wrapped stores over a real SQLite provider, with a helper to build the cascading fixture and snapshot its state. */
 internal class P11FaultRig(

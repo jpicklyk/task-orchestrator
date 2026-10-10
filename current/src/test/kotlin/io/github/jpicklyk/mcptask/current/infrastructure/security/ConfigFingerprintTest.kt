@@ -1,12 +1,18 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.security
 
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigAppendOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ProjectConfigTable
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ConfigVersionsTable
+import io.github.jpicklyk.mcptask.current.test.configYaml
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.rootItemId
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
+import io.github.jpicklyk.mcptask.current.test.upsertGuarded
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -76,11 +82,11 @@ class ConfigFingerprintTest {
     }
 
     @Test
-    fun `SQLiteProjectConfigRepository computeFingerprint matches every shared fixture vector`() =
+    fun `SqliteConfigStore computeFingerprint matches every shared fixture vector`() =
         runBlocking {
             val database = sqliteDb.database
             val databaseManager = sqliteDb.databaseManager
-            val repository = SQLiteProjectConfigRepository(databaseManager)
+            val repository = SqliteConfigStore(databaseManager)
 
             for (vector in loadVectors()) {
                 assertEquals(
@@ -95,7 +101,7 @@ class ConfigFingerprintTest {
 
     private lateinit var database: Database
     private lateinit var databaseManager: DatabaseManager
-    private lateinit var projectConfigRepository: SQLiteProjectConfigRepository
+    private lateinit var projectConfigRepository: SqliteConfigStore
     private lateinit var workItemRepository: SQLiteWorkItemRepository
     private lateinit var rootItemId: UUID
 
@@ -104,7 +110,7 @@ class ConfigFingerprintTest {
         runBlocking {
             database = sqliteDb.database
             databaseManager = sqliteDb.databaseManager
-            projectConfigRepository = SQLiteProjectConfigRepository(databaseManager)
+            projectConfigRepository = SqliteConfigStore(databaseManager)
             workItemRepository = SQLiteWorkItemRepository(databaseManager)
 
             val root = WorkItem(title = "Project Root")
@@ -150,8 +156,8 @@ class ConfigFingerprintTest {
             val seeded = projectConfigRepository.upsert(rootItemId, crlfBody)
             assertNotNull(seeded)
             suspendTransaction(db = database) {
-                ProjectConfigTable.update({ ProjectConfigTable.rootItemId eq rootItemId }) {
-                    it[ProjectConfigTable.fingerprint] = rawFingerprint
+                ConfigVersionsTable.update({ ConfigVersionsTable.id eq seeded.id }) {
+                    it[ConfigVersionsTable.fingerprint] = rawFingerprint
                 }
             }
 
@@ -163,10 +169,10 @@ class ConfigFingerprintTest {
                 projectConfigRepository.upsertGuarded(rootItemId, crlfBody, expectedFingerprint = null, rejectSuperseded = true)
             assertNotNull(rePush)
             val applied =
-                assertIs<io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome.Applied>(
+                assertIs<ConfigAppendOutcome.Applied>(
                     rePush
                 )
-            assertEquals(normalizedFingerprint, applied.config.fingerprint, "fingerprint must become the normalized value")
+            assertEquals(normalizedFingerprint, applied.version.fingerprint, "fingerprint must become the normalized value")
 
             val afterRePush = projectConfigRepository.get(rootItemId)
             assertNotNull(afterRePush)
@@ -193,6 +199,6 @@ class ConfigFingerprintTest {
                 )
             assertNotNull(staleIfMatch)
             val outcome = staleIfMatch
-            assertIs<io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome.PreconditionFailed>(outcome)
+            assertIs<ConfigAppendOutcome.PreconditionFailed>(outcome)
         }
 }

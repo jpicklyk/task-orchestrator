@@ -16,9 +16,11 @@ import io.github.jpicklyk.mcptask.current.test.P11_BASE_YAML
 import io.github.jpicklyk.mcptask.current.test.arr
 import io.github.jpicklyk.mcptask.current.test.cleanup
 import io.github.jpicklyk.mcptask.current.test.flag
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.setup
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.text
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -227,7 +229,7 @@ class PreviewMissingNotesConsistencyTest {
                 WorkItem(title = "h3 item", type = "h3-type", role = Role.QUEUE, parentId = root.id, rootId = root.id, depth = 1),
             )
         sqlite.noteRepository().upsert(Note(itemId = item.id, key = "spec", role = "queue", body = "filled"))
-        sqlite.projectConfigRepository().upsert(
+        sqlite.configStore().upsert(
             root.id,
             "work_item_schemas:\n  h3-type:\n    notes:\n      - key: spec\n        role: queue\n        required: true\n",
         )
@@ -246,7 +248,7 @@ class PreviewMissingNotesConsistencyTest {
         val ctx =
             ToolExecutionContext(
                 provider,
-                perRootConfigService = PerRootConfigService(sqlite.projectConfigRepository()),
+                perRootConfigService = PerRootConfigService(sqlite.configStore()),
                 unitOfWork = SqliteUnitOfWork(db.databaseManager, provider) { Instant.now() },
             )
         return RaceFixture(provider, ctx, item, reads)

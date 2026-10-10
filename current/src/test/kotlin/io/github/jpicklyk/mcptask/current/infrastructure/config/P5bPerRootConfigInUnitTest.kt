@@ -6,9 +6,11 @@ import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableE
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.countRows
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.createProbeTables
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.writeTx
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
@@ -24,7 +26,7 @@ import kotlin.test.assertNotNull
  * Independent P5b test S11 (item c01d2e90): the last-known-good config layer is served only OUTSIDE a unit.
  *
  * Oracle: task-scope S11 / test-plan "config read fault: outside a unit, warm cache -> cached parse; inside ->
- * PerRootConfigUnavailableException" (the read fault is a real one: the project_config table is renamed away after the
+ * PerRootConfigUnavailableException" (the read fault is a real one: the config_heads table is renamed away after the
  * cache is warm). A unit that served a stale cached layer after a store fault would act on config its own transaction
  * could not confirm, and the F8 poison forbids committing after a fault anyway.
  */
@@ -49,14 +51,14 @@ class P5bPerRootConfigInUnitTest {
 
     private fun breakConfigReads() {
         DriverManager.getConnection(db.jdbcUrl).use { c ->
-            c.createStatement().use { it.execute("ALTER TABLE project_config RENAME TO project_config_gone") }
+            c.createStatement().use { it.execute("ALTER TABLE config_heads RENAME TO config_heads_gone") }
         }
     }
 
     private suspend fun warmService(): Pair<PerRootConfigService, java.util.UUID> {
         val root = db.repositoryProvider().workItemRepository().create(WorkItem(title = "S11 root", type = "project"))
-        SQLiteProjectConfigRepository(db.databaseManager).upsert(root.id, yaml)
-        val service = PerRootConfigService(SQLiteProjectConfigRepository(db.databaseManager))
+        SqliteConfigStore(db.databaseManager).upsert(root.id, yaml)
+        val service = PerRootConfigService(SqliteConfigStore(db.databaseManager))
         val warm = assertNotNull(service.layer(root.id), "the first read parses the stored row")
         assertEquals(
             "repro-steps",

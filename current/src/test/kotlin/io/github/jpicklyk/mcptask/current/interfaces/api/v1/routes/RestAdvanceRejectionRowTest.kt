@@ -1,10 +1,11 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -36,11 +37,8 @@ class RestAdvanceRejectionRowTest {
     @JvmField
     val db = SqliteTestDatabase.perMethod()
 
-    private val gate: WorkItemSchemaService =
-        object : WorkItemSchemaService {
-            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                if (tags.isNotEmpty()) listOf(NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true)) else null
-        }
+    private val gate: ConfigDocument =
+        TestConfigResolver.document(mapOf("feature-task" to listOf(NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true))))
 
     private suspend fun rejectedRows() =
         db
@@ -67,10 +65,10 @@ class RestAdvanceRejectionRowTest {
             val item =
                 runBlocking {
                     repo.workItemRepository().create(
-                        WorkItem(title = "Gated", role = Role.QUEUE, depth = 0, tags = "feature-task")
+                        WorkItem(title = "Gated", role = Role.QUEUE, depth = 0, tags = "feature-task", type = "feature-task")
                     )
                 }
-            application { configureWriteTestApp(repo, schemaService = gate, unitOfWork = db.unitOfWork()) }
+            application { configureWriteTestApp(repo, serverConfig = gate, unitOfWork = db.unitOfWork()) }
             val key = UUID.randomUUID().toString()
 
             val first = advance(item.id, key)
