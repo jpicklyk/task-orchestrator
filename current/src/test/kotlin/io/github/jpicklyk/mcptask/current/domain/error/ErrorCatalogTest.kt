@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.domain.error
 
+import com.lemonappdev.konsist.api.Konsist
 import kotlin.reflect.KClass
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -143,16 +144,37 @@ class ErrorCatalogTest {
         for (r in catalog) assertEquals(r.detail, r.code.detailClass, "detail of ${r.code}")
     }
 
+    // Q34-S9 (oracle: envelope section 4 - the detail shapes are sealed ErrorDetail subtypes, one per code). The scan
+    // covers every production declaration, so a top-level subtype beside the catalog is seen like a nested one.
     @Test
-    fun `S4 the 23 detail classes are distinct and are exactly the ErrorDetail subtypes`() {
-        val declared = ErrorCode.entries.mapNotNull { it.detailClass?.java }
+    fun `Q34-S9 the 23 detail classes are distinct and are exactly the ErrorDetail subtypes in production`() {
+        val declared = ErrorCode.entries.mapNotNull { it.detailClass?.qualifiedName }
         assertEquals(23, declared.size)
         assertEquals(23, declared.toSet().size, "each detail class used by one code only")
+        val errorDetailFqn = ErrorDetail::class.qualifiedName
+        val scope = Konsist.scopeFromProduction()
+        val all = scope.classes() + scope.interfaces() + scope.objects()
+        assertEquals(
+            listOf(errorDetailFqn),
+            all
+                .filter {
+                    it.name == "ErrorDetail"
+                }.map { it.fullyQualifiedName },
+            "the parent name must be unambiguous in production"
+        )
+        // The scan must see both nested subtypes and top-level declarations in the same file (FieldViolation is top-level).
+        val names = all.map { it.name }.toSet()
+        assertTrue("NotFound" in names && "FieldViolation" in names, "scan covers nested and top-level declarations")
         val subtypes =
-            ErrorDetail::class.java.declaredClasses
-                .filter { ErrorDetail::class.java.isAssignableFrom(it) && it != ErrorDetail::class.java }
+            all
+                .filter { decl -> decl.parents().any { it.name == "ErrorDetail" } }
+                .map { it.fullyQualifiedName }
                 .toSet()
-        assertEquals(subtypes, declared.toSet(), "ErrorDetail subtypes must be exactly the detail classes of the codes")
+        assertEquals(
+            declared.toSet(),
+            subtypes,
+            "ErrorDetail subtypes (top-level, nested, object) must be exactly the detail classes of the codes"
+        )
     }
 
     // S5
@@ -210,10 +232,56 @@ class ErrorCatalogTest {
         assertFalse(out.contains("{"))
     }
 
+    // Q34-S10 (oracle: task-scope D5 - arg values are inserted verbatim in one pass and never re-scanned). The expected
+    // string is computed here by a one-pass substitution over the template text, independent of the renderer.
+    private val slotRef = Regex("\\{(\\w+)}")
+
+    private fun onePass(
+        template: String,
+        args: Map<String, String>
+    ): String = slotRef.replace(template) { args.getValue(it.groupValues[1]) }
+
     @Test
-    fun `S6 an argument value containing braces is substituted verbatim`() {
-        val out = ErrorFixTemplates.render(ErrorCode.GATE_BLOCKED, mapOf("itemId" to "a-b-c"))
-        assertTrue(out.contains("a-b-c"))
+    fun `Q34-S10 an argument value that looks like another slot is inserted verbatim and not re-scanned`() {
+        val template = assertNotNull(ErrorFixTemplates.template(ErrorCode.NOT_FOUND))
+        val args = mapOf("kind" to "{id}", "id" to "X1")
+        val out = ErrorFixTemplates.render(ErrorCode.NOT_FOUND, args)
+        assertEquals(onePass(template, args), out)
+        assertEquals(1, out.split("{id}").size - 1, "the literal {id} value survives exactly once: $out")
+        assertTrue(out.contains("X1"))
+    }
+
+    @Test
+    fun `Q34-S10 two arguments whose values name each other's slot are both inserted verbatim`() {
+        val template = assertNotNull(ErrorFixTemplates.template(ErrorCode.NOT_FOUND))
+        val args = mapOf("kind" to "{id}", "id" to "{kind}")
+        val out = ErrorFixTemplates.render(ErrorCode.NOT_FOUND, args)
+        assertEquals(onePass(template, args), out)
+        assertTrue(out.contains("{id}") && out.contains("{kind}"), "both literal values survive: $out")
+    }
+
+    @Test
+    fun `Q34-S10 dollar and backslash sequences in an argument value are inserted verbatim`() {
+        val template = assertNotNull(ErrorFixTemplates.template(ErrorCode.GATE_BLOCKED))
+        for (value in listOf("\$1\\{x}", "\\", "\$", "\${itemId}", "\\1", "a\\\\b", "\\{itemId}")) {
+            val args = mapOf("itemId" to value)
+            val out = ErrorFixTemplates.render(ErrorCode.GATE_BLOCKED, args)
+            assertEquals(onePass(template, args), out, "value '$value'")
+            assertTrue(out.contains(value), "render lacks the verbatim value '$value': $out")
+        }
+    }
+
+    @Test
+    fun `Q34-S10 every slot value naming another slot of the same code is inserted verbatim in slot order independent form`() {
+        for (code in ErrorCode.entries) {
+            val template = ErrorFixTemplates.template(code) ?: continue
+            val slotNames = ErrorFixTemplates.slots(code).sorted()
+            if (slotNames.isEmpty()) continue
+            val args = slotNames.mapIndexed { i, slot -> slot to "{" + slotNames[(i + 1) % slotNames.size] + "}" }.toMap()
+            val out = ErrorFixTemplates.render(code, args)
+            assertEquals(onePass(template, args), out, "render of $code with cyclic brace values")
+            for ((slot, value) in args) assertTrue(out.contains(value), "render of $code lacks the value of slot $slot ($value): $out")
+        }
     }
 
     // S13

@@ -23,6 +23,14 @@ data class DomainError(
         require(fixArgs.keys == ErrorFixTemplates.slots(code)) {
             "fixArgs keys ${fixArgs.keys} must equal template slots ${ErrorFixTemplates.slots(code)} for ${code.wire}"
         }
+        detail?.slotValues()?.forEach { (slot, value) ->
+            val arg = fixArgs[slot]
+            if (value != null && arg != null) {
+                require(arg == canonicalSlotValue(value)) {
+                    "fixArgs[$slot] must equal detail value '${canonicalSlotValue(value)}' for ${code.wire}"
+                }
+            }
+        }
     }
 
     /** Retry semantics, decided by the code. */

@@ -24,6 +24,7 @@ import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -186,6 +187,20 @@ class NoteCommandServiceTest {
             assertTrue(detail is ErrorDetail.PayloadTooLarge, "detail: $detail")
             assertEquals(65536L, detail.max)
             assertEquals(65537L, detail.actual)
+        }
+
+    // Q34-S8 (oracle: D3 PAYLOAD_TOO_LARGE fix template "Reduce the payload to at most {max} bytes."; the 65536-byte cap
+    // is the S13 constant above). The unit must appear exactly once: not dropped, not doubled.
+    @Test
+    fun `Q34-S8 the oversize body error fix states the 65536 byte cap with the unit exactly once`(): Unit =
+        runBlocking {
+            val error = service().prepare(plainItem(), "k", "work", "a".repeat(65537)).err()
+
+            assertEquals(ErrorCode.PAYLOAD_TOO_LARGE, error.code)
+            val fix = assertNotNull(error.fix)
+            assertTrue(fix.contains("65536 bytes"), "fix: $fix")
+            assertFalse(fix.contains("bytes bytes"), "fix: $fix")
+            assertEquals("Reduce the payload to at most 65536 bytes.", fix)
         }
 
     @Test
