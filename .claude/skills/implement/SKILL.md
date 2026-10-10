@@ -313,7 +313,7 @@ fills the File ownership and Planning seat return template slots for the rest of
 | `test-plan-status` | Whether `test-plan` is filled and frozen (`filled (<n> chars)`) or still open, and why. |
 | `main-files` | The stream's production files (`src/main`), comma-separated. |
 | `test-files` | The stream's NEW test files (author-owned), comma-separated. |
-| `red-proof-shape` | Per scenario in `test-plan`: `EXISTING-SURFACE` (the test targets code that exists before the fix — revert-the-fix red-proof applies directly) or `NEW-SURFACE` (the test targets a surface the fix itself introduces). Every `NEW-SURFACE` scenario needs the narrowest-revert recipe — typically revert only the call sites and keep the new type/parameter — or, when no revert can produce a behavioural red, an explicit substitute: `no behavioural red possible, reviewer verifies <X>`. |
+| `red-proof-shape` | The item's red-proof budget (policy: served `test-author` rule, section 5): for a bug-fix, the revert-the-fix red-proof on the regression test; for new guard, gate, transition, classification, boundary or security behaviour, up to about 5 decision-point mutations (a cap, one per distinct decision point, one batched round), each labelled `EXISTING-SURFACE` (a plain revert gives behavioural red) or `NEW-SURFACE` (the fix introduces the surface; give the narrowest-revert recipe, typically revert only the call sites, or `no behavioural red possible, reviewer verifies <X>`); or `skip: <category>` for a test-only item, pure refactor, migration, or glue/config/docs. Not one recipe per scenario. |
 
 **The fields are the budget.** The return may exceed any line budget when the fields have
 content — trimming a field to fit a target length is the failure this stage exists to prevent,

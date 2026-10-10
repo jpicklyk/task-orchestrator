@@ -30,7 +30,7 @@ non-zero exit here is an expected result, not a call to retry. Per item this che
 commit SHAs actually exist, each stage's committed file list is a subset of what that seat was
 allowed to touch (implementer ⊆ `mainFiles ∪ docFiles`; test-author ⊆ `testFiles ∪
 existingTestEdits[].file`; never cross-owned), commit subjects carry the `[<short>]` tag and a
-`Seat:` trailer, and it returns `items[].redProof.shape` — the red-proof checklist the planner
+`Seat:` trailer, and it returns `items[].redProof.shape` - the red-proof budget the planner
 derived for that item (`null` when the item had no planner-v1 output to derive one from). An
 untagged commit (no `[<short>]` in its subject) surfaces as a top-level `warnings` entry, not a
 per-item finding, and does not by itself fail the item.
@@ -85,10 +85,33 @@ sha}]` recording the SHA. An unresolvable ref fails the item with `unresolved re
 now pointing at another item's commit).
 
 **Red-proofs themselves are run by you, the orchestrator**, not the helper — `verify` only
-returns the checklist (`items[].redProof.shape`, plus `items[].redProof.commands` for whichever
-of the project's `run-profile.json` → `verify[]` entries name the `orchestrator` seat) of what to
-run; this repo's profile names the lock helper self-check and a scratch-worktree
-revert-and-rebuild. A `verify` failure (`items[].ok: false`, non-empty `findings`) on any item
+returns the budget (`items[].redProof.shape`, plus `items[].redProof.commands` for whichever
+of the project's `run-profile.json` -> `verify[]` entries name the `orchestrator` seat); this
+repo's profile names the lock helper self-check and a scratch-worktree revert-and-rebuild.
+
+**The red-proof policy is a targeted budget, not one proof per scenario.** The full statement
+lives in the served `test-author` rule, section 5; what you run per item:
+
+- **Bug fix:** one revert-the-fix run on the regression test (red before, green after).
+- **New guard, gate, transition, classification, boundary or security behaviour:** up to about 5
+  mutations (a cap, not a target), one per distinct decision point, at most one per line, only on
+  changed lines the new tests reach, all in ONE batched round per item. Prefer: drop one of
+  several parallel enforcement paths, flip or shift a boundary comparison, invert a predicate,
+  remove a guard, give a source-scan guard an alternate spelling. Concurrency and atomicity items
+  aim the same budget at a fault at each write inside the unit and at the lock or ordering seam.
+- **Skip** test-only items, pure refactors and package moves, migrations, and glue, config,
+  wiring, logging or docs.
+- **Escalate on evidence:** a budget mutation that exposes a real gap expands the run to the rest
+  of that item's scenarios; a clean budget stops there. When test authorship was not independent
+  (the author read the implementation, or one agent wrote both), every scenario asserting new
+  behaviour gets a red check.
+- **A surviving mutation is triage, not an automatic failure:** classify it as weak test,
+  equivalent mutant, unreachable, or covered at another seam (name the test) before demanding a
+  new test.
+- **Record per item** in the Review scoping slot: proofs run, gaps found, equivalents, approximate
+  minutes. Reviewers read these results and do not re-run them, except to verify one they doubt.
+
+A `verify` failure (`items[].ok: false`, non-empty `findings`) on any item
 means that item **fails this run** — do not advance it in Step 4 below, and surface the specific
 failure (missing SHA, foreign file, missing trailer, failed red-proof) rather than a generic
 "verify failed".
@@ -208,12 +231,12 @@ cap on cycles.
    never a rewrite of the frozen body above it, and never a separate note key, so the independence
    audit can still check that the note's freeze timestamp (`modifiedAt`) predates the fix commit.
    The amendment lists every existing test file it expects edited (planner-v1 `existingTestEdits`)
-   and the mutation red-proofs the fix must satisfy. Keep amendments terse: accumulated ones made a
+   and the mutation red-proofs (within the item's budget) the fix must satisfy. Keep amendments terse: accumulated ones made a
    50k `task-scope` in one run.
 2. **Implementer, then blind test author, by name**, each scoped to section `A<n>` only. The test
    author appends its own `A<n>` section to `test-plan`/`test-manifest`; the planner does not touch
    those keys, which the test-author seat owns.
-3. **Orchestrator runs the amendment's named mutation red-proofs** in a scratch copy, never the
+3. **Orchestrator runs the amendment's named mutation red-proofs** (within the item's budget) in a scratch copy, never the
    shared tree (same rule as Step 1), applying each mutation as "Applying a mutation or a
    narrowest revert" above describes.
 4. **Original reviewer, by name**, scoped to `git diff <prevReviewedSha>..HEAD -- <owned files>`
