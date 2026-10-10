@@ -7,7 +7,8 @@ import java.util.UUID
  * One row of the append-only `events` table (plan section 3.7).
  *
  * [seq] is assigned by [EventStore.append] (0 until then). [data] is the event's JSON payload. [reqId],
- * [host], [sessionId], [runId] and [seat] stay null until the phases that capture them (P10, W4, W5);
+ * [host] and [sessionId] come from the ambient call telemetry (null outside a transport call); [runId] and [seat]
+ * stay null until the phases that capture them (W4, W5);
  * the principal and proof columns are null for actorless writes.
  */
 data class EventRecord(
