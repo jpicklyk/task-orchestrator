@@ -193,8 +193,10 @@ interface ClaimStore {
      * **Filter ordering vs. limit:** [limit] is applied to the candidate query *before* the
      * ancestor-claim filter runs. The returned list size is therefore at most [limit], and may
      * be smaller — even when more matching items exist in the DB — if some candidates are
-     * excluded by the ancestor walk. Callers that need a guaranteed minimum result size should
-     * over-fetch (e.g. `NextItemRecommender` uses `OVER_FETCH_LIMIT` for this reason).
+     * excluded by the ancestor walk, and dependency blocking is not applied at all. Callers that
+     * need the exact eligible set use [findEligible], which applies every predicate in SQL before
+     * the limit (`NextItemRecommender` moved onto it; this method is retained for its existing
+     * callers until the 3.x read paths are removed).
      *
      * @param role              The role to query (required — e.g. QUEUE, WORK, REVIEW).
      * @param parentId          Optional parent UUID to scope results to direct children only.
@@ -268,9 +270,10 @@ interface ClaimStore {
      * Count how many items match the selector filters used by [findClaimable] — same filter set
      * (minus [findClaimable]'s `orderBy`, `limit` and `requestingAgentId`, which affect ranking
      * and ancestor-claim isolation rather than which rows match) — without the active-claim
-     * exclusion [findClaimable] always applies. Used by `NextItemRecommender.explainEmpty` to
-     * distinguish an empty queue (`matched == 0`) from a queue that has matches but none are
-     * currently claimable.
+     * exclusion [findClaimable] always applies: an empty queue (`matched == 0`) versus a queue that
+     * has matches but none are currently claimable. `NextItemRecommender.explainEmpty` now uses
+     * [explainIneligible], which also counts the dependency-blocked rows exactly; this method is
+     * retained for its existing callers until the 3.x read paths are removed.
      *
      * @return [SelectorMatchCounts.matched] — total rows matching the filters, claimed or not.
      *   [SelectorMatchCounts.activelyClaimed] — subset of [SelectorMatchCounts.matched] with a
@@ -292,7 +295,98 @@ interface ClaimStore {
         roleChangedBefore: Instant? = null,
         rootIds: Set<UUID>? = null,
     ): SelectorMatchCounts
+
+    /**
+     * One page of the items eligible under [query], plus the exact eligible count, both decided in
+     * SQL in one transaction (no over-fetch window: an eligible item ranked behind any number of
+     * ineligible ones is found). An item is eligible when it:
+     * - matches every selector filter of [query] (the same filters as [findClaimable]);
+     * - is not dependency-blocked: every BLOCKS edge into it has a blocker whose role is at or
+     *   beyond the edge threshold (`unblock_at`, TERMINAL when null), and a BLOCKED or missing
+     *   blocker never satisfies; RELATES_TO edges are ignored;
+     * - unless [EligibilityQuery.includeClaimed]: has no active claim at the unit instant (an expiry
+     *   equal to "now" is expired), and no ancestor at any depth holds an active claim by a
+     *   disqualifying agent (any agent when [EligibilityQuery.requestingAgentId] is null, otherwise
+     *   only other agents).
+     *
+     * Ordered by [EligibilityQuery.orderBy] (priority rank then complexity ascending with nulls
+     * last; or `createdAt` ascending; or `createdAt` descending), then `id` ascending, so offset
+     * pages are disjoint and stable. An empty (non-null) [EligibilityQuery.rootIds] selects nothing.
+     */
+    suspend fun findEligible(
+        query: EligibilityQuery,
+        limit: Int,
+        offset: Int = 0,
+    ): ItemSlice
+
+    /**
+     * Why items matching [query]'s selector filters are or are not eligible, in ONE statement over
+     * the matched rows (claim state ignored when counting [EligibilityBreakdown.matched]):
+     * [EligibilityBreakdown.activelyClaimed] counts rows with an active claim (any holder, the
+     * caller included); [EligibilityBreakdown.dependencyBlocked] counts rows with no active claim,
+     * not shielded by an ancestor claim, and dependency-blocked. [EligibilityQuery.includeClaimed]
+     * is ignored here.
+     */
+    suspend fun explainIneligible(query: EligibilityQuery): EligibilityBreakdown
+
+    /**
+     * Claim-status counts over the items within the subtree(s) of [rootIds] (roots included; all
+     * items when null; all zeros for an empty set), in ONE `SUM(CASE ...)` statement built from
+     * the claim predicates.
+     */
+    suspend fun claimSummary(rootIds: Set<UUID>? = null): ClaimStatusCounts
+
+    /**
+     * Claim-status counts over the DIRECT children of each parent in [parentIds], in ONE grouped
+     * `SUM(CASE ...)` statement for up to 500 parents. Every requested id is a key (all zeros when
+     * it has no children). An empty [parentIds] returns an empty map without touching the database.
+     */
+    suspend fun claimSummaryByParent(parentIds: Set<UUID>): Map<UUID, ClaimStatusCounts>
 }
+
+/**
+ * The selector of [ClaimStore.findEligible] and [ClaimStore.explainIneligible]: the filters of
+ * [ClaimStore.findClaimable] plus [includeClaimed]. Timestamp bounds are inclusive; [tags] match
+ * ANY listed tag as a whole comma-separated token, exactly as [ClaimStore.findClaimable] matches
+ * them (the tag is trimmed and lower-cased); [complexityMax] excludes
+ * items without a complexity; [rootIds] restricts to those subtrees (roots included) and composes
+ * with [parentId] (direct children) by AND.
+ *
+ * @property includeClaimed When true, the claim predicates are off: claimed items stay eligible
+ *   and ancestor claims shield nothing. Dependency blocking still applies.
+ */
+data class EligibilityQuery(
+    val role: Role = Role.QUEUE,
+    val parentId: UUID? = null,
+    val tags: List<String>? = null,
+    val priority: Priority? = null,
+    val type: String? = null,
+    val complexityMax: Int? = null,
+    val createdAfter: Instant? = null,
+    val createdBefore: Instant? = null,
+    val modifiedAfter: Instant? = null,
+    val modifiedBefore: Instant? = null,
+    val roleChangedAfter: Instant? = null,
+    val roleChangedBefore: Instant? = null,
+    val orderBy: NextItemOrder = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
+    val requestingAgentId: String? = null,
+    val rootIds: Set<UUID>? = null,
+    val includeClaimed: Boolean = false,
+)
+
+/**
+ * Result of [ClaimStore.explainIneligible].
+ *
+ * @property matched Rows matching the selector filters, claimed or not.
+ * @property activelyClaimed Subset of [matched] with an active claim (any holder).
+ * @property dependencyBlocked Subset of [matched] with no active claim, no shielding ancestor
+ *   claim, and at least one unsatisfied blocking dependency.
+ */
+data class EligibilityBreakdown(
+    val matched: Int,
+    val activelyClaimed: Int,
+    val dependencyBlocked: Int,
+)
 
 /**
  * Three-way claim-status count returned by [WorkItemRepository.countByClaimStatus].

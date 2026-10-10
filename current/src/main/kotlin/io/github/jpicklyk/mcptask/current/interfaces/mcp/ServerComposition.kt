@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.EventSink
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
@@ -176,6 +177,8 @@ class ServerComposition(
         val configResolver = EffectiveConfigResolver(LayerBackedGlobalLookup(globalConfigFile.layer()), perRootConfigService)
         // The unit of work hands scopes the SAME provider the tools use.
         val unitOfWork: UnitOfWork = SqliteUnitOfWork(databaseManager, effectiveProvider, clock, apiWiring.eventRecorder)
+        // ONE read model for the whole server, over the same unit of work (served by the read tools as they move onto it).
+        val workViewQueries = WorkViewQueries(unitOfWork)
         val toolContext =
             ToolExecutionContext(
                 repositoryProvider = effectiveProvider,
@@ -188,6 +191,7 @@ class ServerComposition(
                 configResolver = configResolver,
                 clock = clock,
                 unitOfWork = unitOfWork,
+                workViewQueries = workViewQueries,
             )
         logger.info(
             "Repository provider and tool context initialized (API {})",

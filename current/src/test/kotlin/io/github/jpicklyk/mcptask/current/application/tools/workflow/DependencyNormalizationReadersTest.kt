@@ -156,12 +156,15 @@ class DependencyNormalizationReadersTest {
     // S12: NextItemRecommender.isBlocked is fail-closed
     // ------------------------------------------------------------------
 
-    /** Delegates to the real repository but reports one item as unreadable. */
+    /** Delegates to the real repository but reports one item as unreadable (by id and in the batched role read). */
     private class UnreadableItemRepository(
         private val delegate: WorkItemRepository,
         private val unreadable: UUID
     ) : WorkItemRepository by delegate {
         override suspend fun getById(id: UUID): WorkItem? = if (id == unreadable) null else delegate.getById(id)
+
+        // The recommender reads blocker roles in batch (Q14); the unreadable item is absent from that read too.
+        override suspend fun rolesOf(ids: Set<UUID>): Map<UUID, Role> = delegate.rolesOf(ids) - unreadable
     }
 
     @Test

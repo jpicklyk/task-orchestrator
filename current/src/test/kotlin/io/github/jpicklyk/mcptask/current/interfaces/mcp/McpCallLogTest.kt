@@ -447,7 +447,7 @@ class McpCallLogTest {
         }
 
     @Test
-    fun `S6 get_next_item over three dependency-blocked queue items records result 0 and eligible 3`() =
+    fun `S6 get_next_item over three dependency-blocked queue items records result 0 and eligible 0`() =
         runBlocking {
             val blocker = rig.seed("S6 blocker", role = Role.WORK)
             val items = (1..3).map { rig.seed("S6 blocked $it") }
@@ -460,7 +460,7 @@ class McpCallLogTest {
             assertTrue(result.isError != true, "${result.content}")
             val row = flush().single()
             assertEquals(0L, row["result_count"], "every candidate is dependency-blocked")
-            assertEquals(3L, row["eligible_count"], "the candidate list before the dependency-block filter")
+            assertEquals(0L, row["eligible_count"], "Q14: eligible_count is the exact eligible count, after the dependency-block filter")
         }
 
     @Test
