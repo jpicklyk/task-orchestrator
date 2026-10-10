@@ -209,7 +209,17 @@ class McpCallLogTest {
         val list =
             mutableListOf<Pair<String, JsonElement>>(
                 "operation" to jstr("create"),
-                "items" to buildJsonArray { titles.forEach { t -> add(buildJsonObject { put("title", t) }) } }
+                "items" to
+                    buildJsonArray {
+                        titles.forEach { t ->
+                            add(
+                                buildJsonObject {
+                                    put("type", "test-item")
+                                    put("title", t)
+                                }
+                            )
+                        }
+                    }
             )
         if (actorId != null) {
             list += "actor" to

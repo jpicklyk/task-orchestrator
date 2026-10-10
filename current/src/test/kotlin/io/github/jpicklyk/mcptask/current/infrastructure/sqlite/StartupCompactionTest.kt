@@ -42,7 +42,8 @@ import kotlin.test.assertTrue
 class StartupCompactionTest {
     // ────────────────────────────────────────────────────────────────────────
     // Schema fixture — hand-built, matching the verbatim DDL from the item's declarations
-    // (V1 base + V3/V5/V9 work_items ALTERs, V1+V4+V17 notes/role_transitions, V7 FTS5).
+    // (V1 base + V3/V5/V9 work_items ALTERs, V1+V4+V17 notes/role_transitions, V7 FTS5,
+    // V24 documents and its two FTS5 tables).
     // No existing test helper builds a Flyway DB pinned at an intermediate version (declared
     // NOT DECLARED gap), so per the item's dispatch instructions this schema is built by hand
     // with raw SQL, following the same technique as V17ActorProofScrubMigrationTest.
@@ -190,6 +191,52 @@ class StartupCompactionTest {
                         content_rowid='rowid',
                         tokenize='porter unicode61 remove_diacritics 2',
                         prefix='2 3'
+                    )
+                    """.trimIndent()
+                )
+            }
+
+            // V24 documents: the backing table of the two document FTS5 tables in StartupCompaction.FTS_TABLES.
+            stmt.execute(
+                """
+                CREATE TABLE documents (
+                    doc_rowid     INTEGER PRIMARY KEY,
+                    id            BLOB NOT NULL UNIQUE DEFAULT (randomblob(16)),
+                    root_item_id  BLOB NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+                    kind          TEXT NOT NULL,
+                    slug          TEXT NOT NULL,
+                    title         TEXT,
+                    body          TEXT NOT NULL,
+                    content_hash  TEXT NOT NULL,
+                    version       INTEGER NOT NULL DEFAULT 1,
+                    archived_at   TIMESTAMP,
+                    created_at    TIMESTAMP NOT NULL,
+                    modified_at   TIMESTAMP NOT NULL
+                )
+                """.trimIndent()
+            )
+            if ("documents_fts_trigram" in includeFtsTables) {
+                stmt.execute(
+                    """
+                    CREATE VIRTUAL TABLE documents_fts_trigram USING fts5(
+                        title,
+                        body,
+                        content='documents',
+                        content_rowid='doc_rowid',
+                        tokenize='trigram'
+                    )
+                    """.trimIndent()
+                )
+            }
+            if ("documents_fts_text" in includeFtsTables) {
+                stmt.execute(
+                    """
+                    CREATE VIRTUAL TABLE documents_fts_text USING fts5(
+                        title,
+                        body,
+                        content='documents',
+                        content_rowid='doc_rowid',
+                        tokenize='porter unicode61 remove_diacritics 2'
                     )
                     """.trimIndent()
                 )
@@ -446,7 +493,7 @@ class StartupCompactionTest {
     // ────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `S2 runOnce rebuilds all four FTS5 tables and search hits by id survive compaction`(
+    fun `S2 runOnce rebuilds every FTS5 table and search hits by id survive compaction`(
         @TempDir tempDir: Path
     ) {
         val dbFile = tempDir.resolve("s2.db").toFile()
@@ -507,7 +554,7 @@ class StartupCompactionTest {
             "MATCH results by note id must be unchanged by compaction, even though VACUUM may renumber rowids"
         )
 
-        // Integrity-check must not raise on any of the four FTS tables post-rebuild.
+        // Integrity-check must not raise on any FTS table post-rebuild.
         val verifyConn = DriverManager.getConnection(jdbcUrl)
         try {
             for (table in StartupCompaction.FTS_TABLES) {
@@ -647,8 +694,8 @@ class StartupCompactionTest {
         val jdbcUrl = "jdbc:sqlite:${dbFile.absolutePath}"
         val connection = DriverManager.getConnection(jdbcUrl)
         try {
-            // Omit notes_fts_text — one of the four StartupCompaction.FTS_TABLES entries.
-            createFullSchema(connection, includeFtsTables = setOf("work_items_fts_trigram", "work_items_fts_text", "notes_fts_trigram"))
+            // Omit notes_fts_text - one of the StartupCompaction.FTS_TABLES entries.
+            createFullSchema(connection, includeFtsTables = StartupCompaction.FTS_TABLES.toSet() - "notes_fts_text")
         } finally {
             connection.close()
         }

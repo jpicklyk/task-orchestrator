@@ -2,10 +2,10 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentAdoptOutcome
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStashOutcome
+import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLitePlanDocumentRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -27,7 +27,7 @@ class SQLitePlanDocumentRepositoryTest {
 
     private lateinit var database: Database
     private lateinit var databaseManager: DatabaseManager
-    private lateinit var planDocumentRepository: SQLitePlanDocumentRepository
+    private lateinit var planDocumentRepository: PlanDocumentStore
     private lateinit var workItemRepository: SQLiteWorkItemRepository
     private lateinit var rootItemId: UUID
 
@@ -36,7 +36,7 @@ class SQLitePlanDocumentRepositoryTest {
         runBlocking {
             database = sqliteDb.database
             databaseManager = sqliteDb.databaseManager
-            planDocumentRepository = SQLitePlanDocumentRepository(databaseManager)
+            planDocumentRepository = sqliteDb.repositoryProvider().planDocumentRepository()
             workItemRepository = SQLiteWorkItemRepository(databaseManager)
 
             val root = WorkItem(title = "Project Root")
@@ -213,10 +213,10 @@ class SQLitePlanDocumentRepositoryTest {
             assertNull(fetched, "Expected CASCADE delete to remove the plan_documents row")
         }
 
-    // --- FK set-null: deleting the adopting work item unlinks adoption without deleting the row ---
+    // --- Provenance (D16): the adopted_by link outlives the adopting work item ---
 
     @Test
-    fun `deleting the adopting work item sets adoptedByItemId to null without deleting the document`() =
+    fun `deleting the adopting work item keeps adoptedByItemId naming the deleted adopter`() =
         runBlocking {
             planDocumentRepository.stash(rootItemId, "plan-a", "a")
             val adopter = workItemRepository.create(WorkItem(title = "Adopter"))
@@ -226,7 +226,7 @@ class SQLitePlanDocumentRepositoryTest {
 
             val fetched = planDocumentRepository.get(rootItemId, "plan-a")
             assertNotNull(fetched, "Document row must survive the adopter's deletion")
-            assertNull(fetched.adoptedByItemId, "Expected ON DELETE SET NULL to unlink the adopter")
+            assertEquals(adopter.id, fetched.adoptedByItemId, "The adopted_by link keeps naming the deleted adopter (provenance)")
             assertEquals(
                 PlanDocumentStatus.ADOPTED,
                 fetched.status,

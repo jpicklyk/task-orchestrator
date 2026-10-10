@@ -24,6 +24,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureWrit
 import io.github.jpicklyk.mcptask.current.test.P11Driver
 import io.github.jpicklyk.mcptask.current.test.P11_BASE_YAML
 import io.github.jpicklyk.mcptask.current.test.P11_LEASE_KEY
+import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
 import io.github.jpicklyk.mcptask.current.test.rawCount
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.delete
@@ -100,7 +101,7 @@ class ItemCommandServiceTest {
         title: String,
         parent: WorkItem? = null,
         type: String? = null,
-    ): WorkItem = svc.create(ItemCreateCommand(parentId = parent?.id, title = title, type = type, tags = type)).orFail()
+    ): WorkItem = svc.create(ItemCreateCommand(parentId = parent?.id, title = title, type = type ?: TEST_ITEM_TYPE, tags = type)).orFail()
 
     private fun <T> Outcome<T>.errorOrFail(): DomainError =
         when (this) {
@@ -174,7 +175,13 @@ class ItemCommandServiceTest {
             assertEquals(2, p.depth, "fixture: p sits at depth 2")
             assertEquals(r.id, p.rootId, "fixture: p belongs to root r")
 
-            val (created, rows) = d.rig.written { d.svc.create(ItemCreateCommand(parentId = p.id, title = "C")).orFail() }
+            val (created, rows) =
+                d.rig.written {
+                    d.svc
+                        .create(
+                            ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = p.id, title = "C")
+                        ).orFail()
+                }
 
             assertEquals(3, created.depth)
             assertEquals(r.id, created.rootId)
@@ -199,7 +206,7 @@ class ItemCommandServiceTest {
         runBlocking {
             val d = driver(dir)
 
-            val root = d.svc.create(ItemCreateCommand(parentId = null, title = "lone root")).orFail()
+            val root = d.svc.create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = null, title = "lone root")).orFail()
 
             assertEquals(0, root.depth)
             assertEquals(root.id, root.rootId)
@@ -224,12 +231,14 @@ class ItemCommandServiceTest {
                         buildJsonArray {
                             add(
                                 buildJsonObject {
+                                    put("type", "test-item")
                                     put("title", "by full id")
                                     put("parentId", p.id.toString())
                                 }
                             )
                             add(
                                 buildJsonObject {
+                                    put("type", "test-item")
                                     put("title", "by prefix")
                                     put("parentId", p.id.toString().substring(0, 8))
                                 }
@@ -261,13 +270,18 @@ class ItemCommandServiceTest {
             val created =
                 d.rig.callOk(
                     CreateWorkTreeTool(),
-                    "root" to buildJsonObject { put("title", "tree root") },
+                    "root" to
+                        buildJsonObject {
+                            put("type", "test-item")
+                            put("title", "tree root")
+                        },
                     "parentId" to JsonPrimitive(p.id.toString()),
                     "children" to
                         buildJsonArray {
                             add(
                                 buildJsonObject {
                                     put("ref", "k")
+                                    put("type", "test-item")
                                     put("title", "tree kid")
                                 }
                             )
@@ -307,6 +321,7 @@ class ItemCommandServiceTest {
                             add(
                                 buildJsonObject {
                                     put("ref", "k2")
+                                    put("type", "test-item")
                                     put("title", "attached kid")
                                 }
                             )
@@ -767,7 +782,7 @@ class ItemCommandServiceTest {
                     .errorOrFail()
                     .code
             )
-            val orphaned = d.svc.create(ItemCreateCommand(parentId = parent.id, title = "late child")).errorOrFail()
+            val orphaned = d.svc.create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = parent.id, title = "late child")).errorOrFail()
 
             assertEquals(ErrorCode.NOT_FOUND, orphaned.code, "a parent deleted before the unit is not found")
             assertEquals(0, d.count("work_items"))
@@ -1131,7 +1146,7 @@ class ItemCommandServiceTest {
             val before = d.count("work_items")
             val marker = d.rig.maxSeq()
 
-            val rejected = d.svc.create(ItemCreateCommand(parentId = closed.id, title = "late child")).errorOrFail()
+            val rejected = d.svc.create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = closed.id, title = "late child")).errorOrFail()
 
             assertEquals(ErrorCode.INVALID_TRANSITION, rejected.code)
             assertTrue(ItemCommandErrors.isClosedParent(rejected), "classified as a closed parent: $rejected")
@@ -1143,7 +1158,7 @@ class ItemCommandServiceTest {
             assertEquals(
                 closed.id,
                 d.svc
-                    .create(ItemCreateCommand(parentId = closed.id, title = "timely child"))
+                    .create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = closed.id, title = "timely child"))
                     .orFail()
                     .parentId
             )
@@ -1158,7 +1173,7 @@ class ItemCommandServiceTest {
             for (type in listOf("p11-manual", "p11-permanent")) {
                 val closed = d.terminal(type)
 
-                val child = d.svc.create(ItemCreateCommand(parentId = closed.id, title = "$type child")).orFail()
+                val child = d.svc.create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = closed.id, title = "$type child")).orFail()
 
                 assertEquals(closed.id, child.parentId, "$type: create is accepted")
                 assertEquals(closed.depth + 1, child.depth)
@@ -1206,6 +1221,7 @@ class ItemCommandServiceTest {
                             buildJsonArray {
                                 add(
                                     buildJsonObject {
+                                        put("type", "test-item")
                                         put("title", "late")
                                         put("parentId", closed.id.toString())
                                     }
@@ -1262,13 +1278,18 @@ class ItemCommandServiceTest {
             val underClosed =
                 d.rig.call(
                     CreateWorkTreeTool(),
-                    "root" to buildJsonObject { put("title", "tree under closed") },
+                    "root" to
+                        buildJsonObject {
+                            put("type", "test-item")
+                            put("title", "tree under closed")
+                        },
                     "parentId" to JsonPrimitive(closed.id.toString()),
                     "children" to
                         buildJsonArray {
                             add(
                                 buildJsonObject {
                                     put("ref", "k")
+                                    put("type", "test-item")
                                     put("title", "kid")
                                 }
                             )
@@ -1286,6 +1307,7 @@ class ItemCommandServiceTest {
                             add(
                                 buildJsonObject {
                                     put("ref", "k")
+                                    put("type", "test-item")
                                     put("title", "kid")
                                 }
                             )
@@ -1307,6 +1329,7 @@ class ItemCommandServiceTest {
                             add(
                                 buildJsonObject {
                                     put("ref", "k")
+                                    put("type", "test-item")
                                     put("title", "kid")
                                 }
                             )
@@ -1333,6 +1356,7 @@ class ItemCommandServiceTest {
         role: String? = null,
     ): JsonObject =
         buildJsonObject {
+            put("type", "test-item")
             put("title", title)
             if (role != null) put("role", role)
         }
@@ -1395,7 +1419,15 @@ class ItemCommandServiceTest {
             val params =
                 arrayOf<Pair<String, JsonElement>>(
                     "operation" to JsonPrimitive("create"),
-                    "items" to buildJsonArray { add(buildJsonObject { put("title", "replayed") }) },
+                    "items" to
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("type", "test-item")
+                                    put("title", "replayed")
+                                }
+                            )
+                        },
                     "actor" to
                         buildJsonObject {
                             put("id", "agent-replay")
@@ -1425,8 +1457,12 @@ class ItemCommandServiceTest {
         runBlocking {
             val d = driver(dir)
 
-            val blank = d.svc.create(ItemCreateCommand(parentId = null, title = "")).errorOrFail()
-            val complex = d.svc.create(ItemCreateCommand(parentId = null, title = "too complex", complexity = 11)).errorOrFail()
+            val blank = d.svc.create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = null, title = "")).errorOrFail()
+            val complex =
+                d.svc
+                    .create(
+                        ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = null, title = "too complex", complexity = 11)
+                    ).errorOrFail()
 
             assertEquals(ErrorCode.INVALID_REQUEST, blank.code)
             assertEquals(ErrorCode.INVALID_REQUEST, complex.code)
@@ -1455,6 +1491,7 @@ class ItemCommandServiceTest {
         params +=
             "root" to
             buildJsonObject {
+                put("type", "test-item")
                 put("title", "Feature X")
                 put(
                     "noteAnchors",
@@ -1477,6 +1514,7 @@ class ItemCommandServiceTest {
                 add(
                     buildJsonObject {
                         put("ref", "t1")
+                        put("type", "test-item")
                         put("title", "Task 1")
                         put(
                             "noteAnchors",
@@ -1495,6 +1533,7 @@ class ItemCommandServiceTest {
                 add(
                     buildJsonObject {
                         put("ref", "t2")
+                        put("type", "test-item")
                         put("title", "Task 2")
                     }
                 )
@@ -1548,7 +1587,7 @@ class ItemCommandServiceTest {
                     "note.upserted",
                     "note.upserted",
                     "note.upserted",
-                    "plan_document.adopted",
+                    "document.adopted",
                 ),
                 rows.types(),
                 "items root first, then dependencies, then notes, then the adoption, nothing twice",
@@ -1615,7 +1654,7 @@ class ItemCommandServiceTest {
                 emptyList(),
                 written.filter {
                     it in
-                        setOf("item.created", "dependency.added", "note.upserted", "plan_document.adopted")
+                        setOf("item.created", "dependency.added", "note.upserted", "document.adopted")
                 }
             )
             // control: the same tree without the bad dependencies applies, so the rejections above were the dependencies
@@ -1652,7 +1691,7 @@ class ItemCommandServiceTest {
                 emptyList(),
                 d.rig.rowsAfter(marker).map { it.type }.filter {
                     it in
-                        setOf("item.created", "dependency.added", "note.upserted", "plan_document.adopted")
+                        setOf("item.created", "dependency.added", "note.upserted", "document.adopted")
                 },
             )
         }
@@ -1699,7 +1738,7 @@ class ItemCommandServiceRestTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"late child","parentId":"${closed.id}"}""")
+                    setBody("""{"type":"test-item","title":"late child","parentId":"${closed.id}"}""")
                 }
 
             val body = response.bodyAsText()

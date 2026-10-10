@@ -105,6 +105,21 @@ class FlywayOnlyMigrationTest {
                 it.getString(1)
             }
         exec(url, "DROP TABLE dependencies", *v17Dependencies.toTypedArray())
+        // V24 re-homed `plan_documents` into documents/document_versions/links (+ two FTS tables): drop those and restore
+        // the exact V17 `plan_documents` DDL (table and indexes) from the same reference copy.
+        exec(
+            url,
+            "DROP TABLE documents_fts_trigram",
+            "DROP TABLE documents_fts_text",
+            "DROP TABLE links",
+            "DROP TABLE document_versions",
+            "DROP TABLE documents"
+        )
+        val v17PlanDocuments =
+            query(reference, "SELECT sql FROM sqlite_master WHERE tbl_name = 'plan_documents' AND sql IS NOT NULL ORDER BY type DESC") {
+                it.getString(1)
+            }
+        exec(url, *v17PlanDocuments.toTypedArray())
         exec(url, "DROP TABLE flyway_schema_history")
         assertFalse(tableExists(url, "flyway_schema_history"), "fixture: history must be gone")
 

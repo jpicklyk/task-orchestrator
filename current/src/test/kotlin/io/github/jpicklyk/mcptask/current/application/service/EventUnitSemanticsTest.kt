@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
+import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -67,7 +68,7 @@ class EventUnitSemanticsTest {
                     val item =
                         (
                             rig.ctx.itemCommandService.createInUnit(
-                                ItemCreateCommand(parentId = null, title = "rolled back")
+                                ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = null, title = "rolled back")
                             ) as Outcome.Ok
                         ).value
                     rolledBackId = item.id
@@ -86,7 +87,7 @@ class EventUnitSemanticsTest {
                     val item =
                         (
                             rig.ctx.itemCommandService.createInUnit(
-                                ItemCreateCommand(parentId = null, title = "committed")
+                                ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = null, title = "committed")
                             ) as Outcome.Ok
                         ).value
                     events.record(DomainEvent.ItemUpdated(item.id, item.id, listOf("title")))
@@ -258,7 +259,15 @@ class EventUnitSemanticsTest {
             val params =
                 arrayOf(
                     "operation" to JsonPrimitive("create"),
-                    "items" to buildJsonArray { add(buildJsonObject { put("title", "idem") }) },
+                    "items" to
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("type", "test-item")
+                                    put("title", "idem")
+                                }
+                            )
+                        },
                     "requestId" to JsonPrimitive(requestId),
                     "actor" to
                         buildJsonObject {

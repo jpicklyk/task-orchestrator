@@ -1,5 +1,38 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
+import org.slf4j.LoggerFactory
+
+/**
+ * `FTS_INTEGRITY`: whether startup runs the per-table FTS5 `integrity-check` (cost grows with the indexed bytes:
+ * about 2.6 s at 100k notes). [OFF] skips only that check; the FTS inventory check always runs.
+ */
+enum class FtsIntegrityMode {
+    STARTUP,
+    OFF,
+    ;
+
+    companion object {
+        private val logger = LoggerFactory.getLogger(FtsIntegrityMode::class.java)
+
+        /**
+         * Parses `FTS_INTEGRITY` (`startup` | `off`, case-insensitive, trimmed). Unset returns [STARTUP] silently; any
+         * other value logs a WARN naming the variable and the raw value, then returns [STARTUP] (the [EnvBoolean.parse]
+         * convention: a bad value never fails startup).
+         */
+        fun parse(raw: String?): FtsIntegrityMode {
+            if (raw == null) return STARTUP
+            return when (raw.trim().lowercase()) {
+                "startup" -> STARTUP
+                "off" -> OFF
+                else -> {
+                    logger.warn("Environment variable 'FTS_INTEGRITY' has unrecognized value '{}'; using default startup", raw)
+                    STARTUP
+                }
+            }
+        }
+    }
+}
+
 /**
  * Immutable, typed snapshot of every environment variable the application reads.
  *
@@ -56,6 +89,8 @@ data class AppConfig(
     val ignoredUseFlywaySet: Boolean = false,
     /** Raw `SCHEMA_MODE` (`migrate` | `validate`); parsed by `SchemaMode.parse` where the schema manager is built, so a bad value still fails startup there. */
     val schemaModeRaw: String? = null,
+    /** `FTS_INTEGRITY` (`startup` default | `off`) -- whether startup runs the FTS5 integrity check ([FtsIntegrityMode]). */
+    val ftsIntegrity: FtsIntegrityMode = FtsIntegrityMode.STARTUP,
     // ---- REST API: SSE / events ----
     val apiAllowQueryTokenForSse: Boolean,
     val apiSseAuthCheckIntervalSeconds: Int,
@@ -116,6 +151,7 @@ data class AppConfig(
                 dbCompactOnUpgrade = EnvBoolean.parse("DB_COMPACT_ON_UPGRADE", env("DB_COMPACT_ON_UPGRADE"), true),
                 ignoredUseFlywaySet = env("USE_FLYWAY") != null,
                 schemaModeRaw = env("SCHEMA_MODE"),
+                ftsIntegrity = FtsIntegrityMode.parse(env("FTS_INTEGRITY")),
                 // REST API SSE / events.
                 apiAllowQueryTokenForSse =
                     EnvBoolean.parse("API_ALLOW_QUERY_TOKEN_FOR_SSE", env("API_ALLOW_QUERY_TOKEN_FOR_SSE"), false),

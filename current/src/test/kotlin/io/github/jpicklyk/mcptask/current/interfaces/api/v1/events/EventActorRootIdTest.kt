@@ -28,6 +28,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
+import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
 import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.testClaimService
@@ -159,12 +160,12 @@ class EventActorRootIdTest {
             }
 
         suspend fun newRoot(title: String): WorkItem =
-            ctx.itemCommandService.create(ItemCreateCommand(parentId = null, title = title)).value()
+            ctx.itemCommandService.create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = null, title = title)).value()
 
         suspend fun newChild(
             title: String,
             parent: WorkItem,
-        ): WorkItem = ctx.itemCommandService.create(ItemCreateCommand(parentId = parent.id, title = title)).value()
+        ): WorkItem = ctx.itemCommandService.create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = parent.id, title = title)).value()
 
         suspend fun patch(
             item: WorkItem,
@@ -484,9 +485,15 @@ class EventActorRootIdTest {
             val ctx = provider.ctx
             withEventActor(agentA) {
                 ctx.unitOfWork.inUnit {
-                    ctx.itemCommandService.createInUnit(ItemCreateCommand(id = rootId, parentId = null, title = "Tree Root s4d"))
-                    ctx.itemCommandService.createInUnit(ItemCreateCommand(id = c1Id, parentId = rootId, title = "C1 s4d"))
-                    ctx.itemCommandService.createInUnit(ItemCreateCommand(id = c2Id, parentId = rootId, title = "C2 s4d"))
+                    ctx.itemCommandService.createInUnit(
+                        ItemCreateCommand(type = TEST_ITEM_TYPE, id = rootId, parentId = null, title = "Tree Root s4d")
+                    )
+                    ctx.itemCommandService.createInUnit(
+                        ItemCreateCommand(type = TEST_ITEM_TYPE, id = c1Id, parentId = rootId, title = "C1 s4d")
+                    )
+                    ctx.itemCommandService.createInUnit(
+                        ItemCreateCommand(type = TEST_ITEM_TYPE, id = c2Id, parentId = rootId, title = "C2 s4d")
+                    )
                     ctx.dependencyCommandService.createInUnit(
                         listOf(Dependency(fromItemId = c1Id, toItemId = c2Id, type = DependencyType.BLOCKS))
                     )
@@ -698,6 +705,7 @@ class EventActorRootIdTest {
                 buildJsonArray {
                     add(
                         buildJsonObject {
+                            put("type", "test-item")
                             put("title", title)
                             put("parentId", parent.id.toString())
                         },
@@ -859,13 +867,20 @@ class EventActorRootIdTest {
             val result =
                 CreateWorkTreeTool().execute(
                     buildJsonObject {
-                        put("root", buildJsonObject { put("title", "Tree-s11f") })
+                        put(
+                            "root",
+                            buildJsonObject {
+                                put("type", "test-item")
+                                put("title", "Tree-s11f")
+                            }
+                        )
                         put(
                             "children",
                             buildJsonArray {
                                 add(
                                     buildJsonObject {
                                         put("ref", "c1")
+                                        put("type", "test-item")
                                         put("title", "Child-s11f")
                                     },
                                 )

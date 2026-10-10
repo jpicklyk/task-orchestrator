@@ -55,6 +55,9 @@ interface GlobalConfigLookup {
     /** True when [tag] names an exact schema (no "default" fold). Drives the LEGACY tag probe (D2). */
     fun hasExactTagSchema(tag: String): Boolean
 
+    /** Every schema key the global config declares (types, tags and `"default"` alike); empty when none. */
+    fun schemaKeys(): Set<String>
+
     /** The global document's `schema_resolution`, or null when absent/unrecognized. */
     fun schemaResolution(): SchemaResolutionMode?
 

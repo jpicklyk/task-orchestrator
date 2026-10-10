@@ -97,14 +97,17 @@ is computed automatically from the parent; nesting depth is unbounded at creatio
 | `parentId` | string (UUID) | No | shared `parentId` or null | |
 | `tags` | string | No | null | |
 | `metadata` | string | No | null | |
-| `type` | string | No | null | Schema type identifier. Selects the `work_item_schemas` entry that determines lifecycle mode and required notes. One-to-one lookup (unlike tags, only one type per item). |
+| `type` | string | **Yes** | — | Schema type identifier. Selects the `work_item_schemas` entry that determines lifecycle mode and required notes. One-to-one lookup (unlike tags, only one type per item). A missing or blank `type` fails the element with `errorCode: "schema_violation"` (`errorKind: "permanent"`); so does a `type` that is not one of the root's declared schema keys (per-root and global, per the root's `schema_resolution` mode, `default` included) whenever any schema is configured. The failure element is `{ index, error, errorCode, errorKind, availableTypes }` with the sorted declared keys in `availableTypes` (omitted when no schema is configured, where any non-blank `type` is accepted); sibling elements still run. Matching is exact and case-sensitive. `untyped` is the residue value the 4.0 upgrade gives pre-4.0 items that matched no schema; it is not a creatable type when any schema is configured. |
 | `properties` | string | No | null | JSON string for extensible item metadata. Traits are stored here automatically when using the `traits` parameter. |
 | `traits` | string | No | null | Comma-separated trait names (e.g., `needs-security-review,needs-perf-review`). Adds additional note requirements from the `traits:` config section. Merged into `properties` JSON automatically. |
 | `requiresVerification` | boolean | No | false | |
 
 **Item object fields (update):** Same fields as create plus required `itemId` (UUID), including `type`,
 `properties`, and `traits`. Only provided fields are changed; omitted fields retain existing values.
-Setting `parentId` to JSON null moves the item to root.
+Setting `parentId` to JSON null moves the item to root. `type` cannot be cleared: `null` or a blank string fails the
+element with `schema_violation` (shape `{ id, error, errorCode, errorKind, availableTypes }`), and a changed `type` must be a
+declared one whenever any schema is configured. A patch that leaves `type` unchanged is never re-checked, so an `untyped`
+item stays editable.
 
 **Note:** The `role` field is accepted in neither create nor update operations. Use `advance_item` with an
 appropriate trigger instead.
@@ -531,9 +534,9 @@ under it at `existing.depth + 1`. Providing both `root.id` and `parentId` is rej
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `root` | object | Yes | Create mode: `{ title (required), priority?, tags?, type?, traits?, summary?, description?, requiresVerification?, noteAnchors? }`. Attach mode: `{ id? (UUID or hex prefix of existing item), title? (optional when id provided), priority?, tags?, type?, traits?, summary?, description?, requiresVerification?, noteAnchors? }`. When `id` is present, `title` is optional and ignored. `noteAnchors` is documented below alongside `docRef`. |
+| `root` | object | Yes | Create mode: `{ title (required), type (required), priority?, tags?, traits?, summary?, description?, requiresVerification?, noteAnchors? }`. Attach mode: `{ id? (UUID or hex prefix of existing item), title? (optional when id provided), priority?, tags?, traits?, summary?, description?, requiresVerification?, noteAnchors? }`. When `id` is present, `title` is optional and ignored. `noteAnchors` is documented below alongside `docRef`. |
 | `parentId` | string (UUID) | No | Existing parent; root depth = parent.depth + 1. Cannot be combined with `root.id`. |
-| `children` | array | No | Child item specs: `[{ ref, title, parentRef?, priority?, tags?, type?, traits?, summary?, description?, requiresVerification?, noteAnchors? }]`. `ref` is a local name used to wire `deps`, `notes`, and other children's `parentRef`. `parentRef` (another child's `ref` or `"root"`, default `"root"`) sets the child's parent — nesting is expressed via `parentRef` only; a nested `children` key inside a child spec is rejected. |
+| `children` | array | No | Child item specs: `[{ ref, title, type (required), parentRef?, priority?, tags?, traits?, summary?, description?, requiresVerification?, noteAnchors? }]`. A spec without a `type`, or with an undeclared one (any schema configured), fails the whole call with `VALIDATION_ERROR` naming the offending ref (`root` or the child ref) and listing the available types; nothing is written. Attach mode does not re-validate the existing root's type. `ref` is a local name used to wire `deps`, `notes`, and other children's `parentRef`. `parentRef` (another child's `ref` or `"root"`, default `"root"`) sets the child's parent — nesting is expressed via `parentRef` only; a nested `children` key inside a child spec is rejected. |
 | `deps` | array | No | Dependency specs: `[{ from: ref, to: ref, type?: BLOCKS\|IS_BLOCKED_BY\|RELATES_TO, unblockAt?: queue\|work\|review\|terminal }]`. Use `"root"` to reference the root item. `IS_BLOCKED_BY` is an input alias: it is stored as `BLOCKS` with the refs swapped, and the response `dependencies` carry that stored form. A restated pair (for example `x BLOCKS y` plus `y IS_BLOCKED_BY x`) is rejected as a duplicate and a cycle as `Circular dependency detected involving ref ...`; nothing is written. |
 | `createNotes` | boolean | No | Auto-create blank notes for each item from its resolved schema (looked up by `type` first, then by `tags`). Default: false. |
 | `notes` | array | No | Notes to create with bodies: `[{ itemRef (required, "root" or child ref), key (required), role (required: queue\|work\|review), body? (defaults to empty string) }]`. Explicit notes win over `noteAnchors` AND `createNotes=true` blanks per `(itemRef, key)`. **Strict role enforcement:** when an explicit note's `key` is declared in the resolved schema for the target item, the note's `role` must equal the schema role; mismatch returns `VALIDATION_ERROR`. Off-schema keys and items without a schema are unconstrained. |

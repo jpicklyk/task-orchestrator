@@ -109,6 +109,9 @@ internal class EventLogRig(
 
         const val GATED_CONFIG =
             "work_item_schemas:\n" +
+                // The sweep's default item type: declared (no notes) so items created through the tools stay valid here.
+                "  test-item:\n" +
+                "    notes: []\n" +
                 "  feature-task:\n" +
                 "    notes:\n" +
                 "      - key: spec\n" +

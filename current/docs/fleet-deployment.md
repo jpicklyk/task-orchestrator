@@ -79,6 +79,16 @@ which exits before them. Remedy for a `DATA_STEPS` failure: fix the cause named 
 restart; the failed step's transaction rolled back, so it is retried from scratch. Deleting a row
 from `data_steps` makes that step run again on the next boot.
 
+The first shipped step is `type-backfill` (phase `ITEM_BACKFILL`, once). 4.0 requires every item to carry a `type`, so on the
+first start of a 3.x database it gives each item whose `type` is NULL or blank the schema key the 3.x tag step resolved it
+to, or `untyped` when none matched, so no in-flight item changes schema or required notes at the upgrade. It reads the
+global `.taskorchestrator/config.yaml` and every stored per-root config for their `schema_resolution` and schema keys only
+(an unparseable document counts as no layer, with a WARN, and never fails startup), writes the `type` column only (no
+`version` or `modified_at` bump, no events; the `data_steps` row is the record), and never retypes an already-typed item. The
+startup integrity report WARNs about untyped items before the step runs, so on that first boot the WARN is expected and the
+step fills the rows right after; a WARN on any later boot names residue. Back up the volume before the first 4.0 start: the
+backfill is not reversible from the data alone.
+
 **Readiness marker.** Once DB init and schema update have both succeeded and the configured
 transport has bound, the server writes a readiness marker file at `READINESS_FILE` (default
 `/tmp/mcp-task-orchestrator.ready`; see the CLAUDE.md env-var table). The marker is cleared on
@@ -109,6 +119,10 @@ retries on the next boot, but it becomes a crash loop until someone intervenes).
 deployment with a multi-GB database, either raise `--start-period`/the liveness grace period to
 comfortably exceed the estimated compaction time, or set `DB_COMPACT_ON_UPGRADE=false` to defer to
 the offline runbook on your own schedule instead.
+
+**Every boot checks the FTS indexes.** Each start runs the FTS5 `integrity-check` on every FTS table; its
+cost grows with the indexed text (measured about 2.6 s at 100 000 notes). On a large hub, set
+`FTS_INTEGRITY=off` to skip it (see "Schema management, locking and startup integrity" below).
 
 ---
 
@@ -859,6 +873,7 @@ V17 only when its schema matches the V17 shape exactly; otherwise it is refused 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `FTS_INTEGRITY` | `startup` | `startup` runs the FTS5 `integrity-check` on every FTS table at each start and rebuilds a desynced one. `off` skips only that check and logs one WARN; the inventory check (every FTS table and trigger exists) still runs and still fails startup when an object is missing. Any other value falls back to `startup` with a WARN. |
 | `SCHEMA_MODE` | `migrate` | `migrate` applies pending migrations. `validate` runs no migrate and no baseline: a pending or future version, or an empty database, fails startup. Any other value fails startup. `FLYWAY_REPAIR` takes precedence, but only over a valid value: an invalid `SCHEMA_MODE` fails startup even with `FLYWAY_REPAIR=true`. `validate` is not read-only: it takes the `<db>.migrate.lock` file, may create an empty database file when `DATABASE_PATH` points at a missing path, and still runs the FTS integrity check, which may rebuild an index. |
 
 - **Future versions fail closed.** A database whose history is ahead of the binary refuses to start. The remedy is to upgrade the binary to the release that wrote the schema; `FLYWAY_REPAIR` is not a way past it.
@@ -866,11 +881,13 @@ V17 only when its schema matches the V17 shape exactly; otherwise it is refused 
   the database file, so concurrent boots serialize. A second boot waits (INFO log every 10 s) and gives
   up after 300 s, naming the lock file. The lock file is never deleted; leaving it in place is normal.
   A bounded retry on `SQLITE_BUSY` covers filesystems where the lock is advisory only.
-- **Startup integrity.** After migrate, startup verifies that the four FTS5 tables and the FTS and
-  parent-cycle triggers exist (a missing one fails startup and nothing is re-created), runs the FTS5
-  `integrity-check` on each FTS table and rebuilds one that is desynced. It also logs WARN-only reports
-  (never failing, never writing) for placement drift (depth or `root_id` inconsistent with the parent,
-  orphans) and mutually blocking dependency pairs, each with a count and the first 10 ids.
+- **Startup integrity.** After migrate, startup verifies that the six FTS5 tables (work items, notes and
+  documents, two each) and the FTS and parent-cycle triggers exist (a missing one fails startup and nothing
+  is re-created), runs the FTS5 `integrity-check` on each FTS table and rebuilds one that is desynced
+  (unless `FTS_INTEGRITY=off`). It also logs WARN-only reports (never failing, never writing) for
+  placement drift (depth or `root_id` inconsistent with the parent, orphans), mutually blocking
+  dependency pairs, and links whose target no longer exists (links are provenance and outlive their
+  targets), each with a count and the first 10 ids.
 - **Backups.** Do not `VACUUM` or dump/restore without rebuilding the FTS indexes (the startup compaction and the offline runbook do both): they can renumber `rowid`s and desync the
   external-content FTS indexes. Use the sqlite3 `.backup` command, or copy the
   file with the server stopped (include the `-wal`/`-shm` files or checkpoint first).
