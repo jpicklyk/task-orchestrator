@@ -20,7 +20,7 @@ its **absolute path** from every Step 3, 4, 4b and 5 dispatch prompt.
   Commit discipline · Compile self-check · File ownership · Test author protocol ·
   Contract-change sweep · Docs · Notes · Review scoping.
 
-The Review scoping slot's commit map and the per-item red-proof results are filled as the wave
+The Review scoping slot's commit map and the per-item red-proof budget results are filled as the wave
 runs, not at Step 2. Every other slot is complete before the first dispatch.
 
 ## Adoption reach
@@ -112,7 +112,7 @@ missing-api-or-seam: <proposed NEW signature for a missing surface, or none>
 test-plan-status: <filled (<n> chars) | open — and why>
 main-files: <comma list>
 test-files: <comma list of NEW test files>
-red-proof-shape: <per scenario — EXISTING-SURFACE | NEW-SURFACE + narrowest-revert recipe | no behavioural red possible, reviewer verifies <X>>
+red-proof-shape: <the item's red-proof budget (test-author rule section 5): bug-fix revert | up to ~5 decision-point mutations, each EXISTING-SURFACE | NEW-SURFACE + narrowest-revert recipe | no behavioural red possible, reviewer verifies <X> | skip: <category>>
 ```
 
 ## Commit discipline
@@ -161,7 +161,7 @@ points here instead of restating it):
 | Seat | Gradle it runs |
 |---|---|
 | Implementer, test author | ONLY the three pinned tasks above, ONCE, through the lock helper. Never `:current:test`, never `:current:ktlintCheck`. |
-| Orchestrator | `:current:test` and `:current:ktlintCheck` for the whole wave, serialized, plus the red-proof reverts. |
+| Orchestrator | `:current:test` and `:current:ktlintCheck` for the whole wave, serialized, plus the item's budgeted red-proofs (one batched round per item). |
 | Reviewer | None. The build state reviewers rely on is recorded in the Review scoping slot; a reviewer who wants a number reads it there or asks the orchestrator. |
 
 ## File ownership
@@ -282,7 +282,7 @@ violation.
 
 Build state reviewers rely on: `<:current:test N tests / 0 failed and :current:ktlintCheck green
 at <sha>>`. Reviewers run no gradle — see the Compile self-check slot's "Who runs gradle" table.
-Red-proof results (orchestrator-run, fix reverted in a scratch worktree, item tests only; every
+Red-proof budget results (orchestrator-run, fix reverted or mutated in a scratch worktree, item tests only; every
 mutation or partial revert applied with `.claude/skills/implement/references/patch-anchored.py`,
 spec written with the Write tool, `DRY=1` first):
-`<per item — "N/M failed", or "compile-red (tests bind to NEW surface <name>)">`.
+`<per item - proofs run, gaps found, equivalents, approx minutes; "N/M failed", or "compile-red (tests bind to NEW surface <name>)", or "skip: <category>">`.

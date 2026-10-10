@@ -29,9 +29,10 @@ that keep authorship independent, the scenario-labelling discipline, and the tes
 - Label every scenario **EXISTING-SURFACE** (every declaration it touches predates the fix; a
   plain revert of the fix yields real behavioral red) or **NEW-SURFACE** (the scenario binds to a
   declaration the fix introduces; a plain revert produces only a compile failure, which proves
-  nothing about behavior). A NEW-SURFACE scenario must carry a narrowest-revert recipe (typically:
-  keep the new type or parameter, revert only its call sites) or, where no such revert can work, an
-  explicit substitute verification named in the plan, not improvised later.
+  nothing about behavior). Where the item's red-proof budget (section 5) covers a NEW-SURFACE
+  scenario, it carries a narrowest-revert recipe (typically: keep the new type or parameter,
+  revert only its call sites) or, where no such revert can work, an explicit substitute
+  verification named in the plan, not improvised later.
 - The plan seat assigns these labels, not the test author -- the author is blind to the
   implementation by design and cannot tell which surfaces are new.
 
@@ -76,13 +77,45 @@ function body in front of an author trying, in good faith, to resolve a signatur
   return report and in the manifest. A disclosed breach costs a re-dispatch; an undisclosed one
   costs the item's independence verdict entirely.
 
-## 5. Red-first
+## 5. Red-first and the red-proof budget
 
-Where behavioral red is achievable before the fix exists, the test must actually observe it.
-EXISTING-SURFACE scenarios reach it by a plain revert. NEW-SURFACE scenarios need the plan's
-narrowest-revert recipe, or the substitute verification it named. For bug-fix regressions, run the
-test against the pre-fix code and confirm it actually fails -- never assume a reproduction
-description implies a failing assertion.
+This section is the single statement of the red-proof policy; other docs point here. A red-proof
+is a mutation or revert run against the item's own tests to confirm they can fail. It is a
+targeted spend, not a per-scenario mandate.
+
+1. **Bug fix: always.** Revert the fix and confirm the regression test fails before the fix and
+   passes after. One run. Write the test from the `diagnosis` reproduction and observe it red
+   against the pre-fix code; never assume a reproduction description implies a failing
+   assertion. A waiver needs a stated reason (a failing reproduction is impractical).
+2. **New behaviour in guards, gates, transitions, classification, boundaries, or security
+   predicates: a capped budget of about 5 mutations per item** (a cap, not a target): one per
+   distinct decision point, at most one per line, only on changed lines the new tests reach.
+   Preferred operators: drop one of several parallel enforcement paths, flip or shift a boundary
+   comparison, invert a predicate, remove a guard, give a source-scan guard an alternate
+   spelling. All budget mutations run in ONE batched round per item.
+3. **Concurrency or atomicity items:** the same budget, aimed at a fault injected at each write
+   inside the unit and at the lock or ordering seam.
+4. **Escalate on evidence.** If a budget mutation exposes a real gap, expand to the rest of that
+   item's scenarios. A clean budget stops there.
+5. **Skip:** test-only items (tests for already-correct behaviour), pure refactors and package
+   moves (the existing suite staying green is the check), migrations (the upgrade harness is the
+   check), and glue, config, wiring, logging or docs.
+6. **Coupled authorship exception.** When test authorship is not independent (the same agent
+   wrote code and tests, or the author read the implementation), every scenario asserting new
+   behaviour gets a red check.
+7. **A surviving mutation is triage, not an automatic failure.** Classify it as weak test,
+   equivalent mutant, unreachable, or covered at another seam (name the test) before demanding a
+   new test.
+8. **Reviewers read the recorded results; they do not re-run them**, except to verify a specific
+   result they doubt.
+9. **Record per item:** proofs run, gaps found, equivalents, and approximate minutes.
+
+The plan seat's `red-proof-shape` field carries this budget for the item: the bug-fix revert, up
+to about 5 decision-point mutations, or `skip: <category>`. The surface labels in section 2 still
+choose the recipe: EXISTING-SURFACE scenarios reach red by a plain revert; for NEW-SURFACE ones
+use the narrowest-revert recipe (keep the new type or parameter, revert its call sites) or the
+plan's named substitute. The test author lists at most the budget's decision-point recipes, not a
+recipe for every scenario, and observes red itself only where it can do so safely (below).
 
 In a worktree shared with other seats, never run `git stash`, `git checkout -- <path>`,
 `git restore`, `git reset`, or any other tree-wide write: they discard or hide another seat's
@@ -148,7 +181,7 @@ range test authorship spans; a scenario-id-to-test mapping (covered, naming the 
 not-covered with a reason); every probe attempted and its result; every forbidden-construct
 instance present, each with a justification (an empty declaration is itself a checked claim); the
 domain invariant each fixture satisfies by construction; the red-proof shape actually obtained for
-each NEW-SURFACE scenario; the arbitration record for every ambiguity raised; and any
+each scenario the item's budget covers (section 5); the arbitration record for every ambiguity raised; and any
 implementer-made change to a test file after the author's commits, with what changed and why. An
 omitted field reads as "not done," not as "not applicable" -- use an explicit not-applicable marker
 with a reason for genuinely inapplicable fields.
