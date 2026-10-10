@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite
 
+import io.github.jpicklyk.mcptask.current.infrastructure.config.FtsIntegrityMode
 import org.slf4j.LoggerFactory
 import java.sql.Connection
 import java.sql.SQLException
@@ -17,16 +18,32 @@ class StartupIntegrityException(
  *   hand-written copy of the DDL).
  * - [checkFts]: per FTS5 table `integrity-check` with rank=1 (the default form passes a desynced
  *   external-content index); on failure `rebuild` then re-check; a second failure is a hard
- *   failure. SQLITE_BUSY means WARN and skip.
- * - [reportPlacementDrift] / [reportMutualBlocks]: WARN-only reports; never fail, never write.
+ *   failure. SQLITE_BUSY means WARN and skip. Skipped (one WARN) under [FtsIntegrityMode.OFF]
+ *   (`FTS_INTEGRITY=off`), whose cost grows with the indexed bytes; [verifyInventory] always runs.
+ * - [reportPlacementDrift] / [reportMutualBlocks] / [reportDanglingLinks]: WARN-only reports;
+ *   never fail, never write.
  */
 object StartupIntegrity {
     private val logger = LoggerFactory.getLogger(StartupIntegrity::class.java)
 
-    val FTS_TABLES: List<String> =
-        listOf("work_items_fts_trigram", "work_items_fts_text", "notes_fts_trigram", "notes_fts_text")
+    /**
+     * Every FTS5 table, mapped to the backing table it indexes (V7 for work items and notes, V23 for documents).
+     * The single source of the FTS inventory: [FTS_TABLES], [FTS_TRIGGERS] and `StartupCompaction`'s rebuild list
+     * all derive from it.
+     */
+    val FTS_BACKING: Map<String, String> =
+        linkedMapOf(
+            "work_items_fts_trigram" to "work_items",
+            "work_items_fts_text" to "work_items",
+            "notes_fts_trigram" to "notes",
+            "notes_fts_text" to "notes",
+            "documents_fts_trigram" to "documents",
+            "documents_fts_text" to "documents"
+        )
 
-    /** The 12 FTS sync triggers (V7, with the V8 update-trigger replacements). */
+    val FTS_TABLES: List<String> = FTS_BACKING.keys.toList()
+
+    /** The 18 FTS sync triggers (V7 with the V8 update-trigger replacements, and V23). */
     val FTS_TRIGGERS: List<String> =
         FTS_TABLES.flatMap { t -> listOf("${t}_ai", "${t}_ad", "${t}_au") }
 
@@ -36,12 +53,24 @@ object StartupIntegrity {
     private const val SAMPLE_LIMIT = 10
     private const val SQLITE_BUSY = 5
 
-    /** Runs every check in order. Throws [StartupIntegrityException] on a hard failure. */
-    fun run(connection: Connection) {
+    /**
+     * Runs every check in order. Throws [StartupIntegrityException] on a hard failure. [ftsIntegrity]
+     * [FtsIntegrityMode.OFF] skips only [checkFts] (logging one WARN); the inventory check and the
+     * reports always run.
+     */
+    fun run(
+        connection: Connection,
+        ftsIntegrity: FtsIntegrityMode = FtsIntegrityMode.STARTUP
+    ) {
         verifyInventory(connection)
-        checkFts(connection)
+        if (ftsIntegrity == FtsIntegrityMode.OFF) {
+            logger.warn("FTS integrity check skipped (FTS_INTEGRITY=off); the FTS inventory was still verified")
+        } else {
+            checkFts(connection)
+        }
         reportPlacementDrift(connection)
         reportMutualBlocks(connection)
+        reportDanglingLinks(connection)
     }
 
     fun verifyInventory(connection: Connection) {
@@ -146,6 +175,21 @@ object StartupIntegrity {
                 "ON a.type = 'BLOCKS' AND b.type = 'BLOCKS' " +
                 "AND a.from_item_id = b.to_item_id AND a.to_item_id = b.from_item_id " +
                 "WHERE a.from_item_id < a.to_item_id"
+        )
+    }
+
+    /**
+     * WARN-only: links whose resolved target (`to_id`) names no row of its `to_kind` table. Links are provenance and
+     * outlive their targets (a deleted adopter stays named), so this only reports them.
+     */
+    fun reportDanglingLinks(connection: Connection) {
+        report(
+            connection,
+            "links whose target no longer exists",
+            "SELECT lower(hex(l.id)) AS ident FROM links l WHERE l.to_id IS NOT NULL AND (" +
+                "(l.to_kind = 'item' AND NOT EXISTS (SELECT 1 FROM work_items w WHERE w.id = l.to_id)) OR " +
+                "(l.to_kind = 'note' AND NOT EXISTS (SELECT 1 FROM notes n WHERE n.id = l.to_id)) OR " +
+                "(l.to_kind = 'document' AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.id = l.to_id)))"
         )
     }
 

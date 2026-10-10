@@ -25,6 +25,11 @@ import java.sql.Connection
  *   for columns present in the row (guard with `"col" in row`): earlier steps dump older schemas.
  * - [verify] runs after the whole chain has been migrated to the latest version, on the migration's own step only,
  *   and asserts the transformation took effect.
+ * - [relocated] is the DROPPED-TABLE contract. When a table present before the chain is missing after it, the harness
+ *   asks the applicable seeds (in version order) where each of its rows went; the first non-null [Relocated] names the
+ *   new table, the row's `id` key there (lowercase hex for a BLOB id, as the dump keys it) and the exact expected values
+ *   of the columns to compare. The row is passed AFTER every seed's [expected] transform. A missing table whose rows no
+ *   seed relocates is still reported as "table X disappeared".
  */
 abstract class MigrationSeed(
     val version: Int
@@ -38,6 +43,22 @@ abstract class MigrationSeed(
     ): Map<String, Any?> = emptyMap()
 
     open fun verify(conn: Connection) {}
+
+    /** Where [row] of [table] lives after this migration dropped [table], or null when this seed does not relocate it. */
+    open fun relocated(
+        table: String,
+        row: Map<String, Any?>
+    ): Relocated? = null
+
+    /**
+     * A relocated row: it now lives in [table] under the dump key [id], and every column in [expected] must hold exactly
+     * that value there (columns the new table lacks are skipped, as for an in-place row).
+     */
+    data class Relocated(
+        val table: String,
+        val id: String,
+        val expected: Map<String, Any?>
+    )
 
     companion object {
         val SEEDS_PACKAGE: String = MigrationSeed::class.java.packageName + ".seeds"

@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management
 
 import io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean
+import io.github.jpicklyk.mcptask.current.infrastructure.config.FtsIntegrityMode
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.StartupCompaction
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.StartupIntegrity
 import org.flywaydb.core.Flyway
@@ -44,6 +45,8 @@ import java.util.UUID
  * @param lockTimeoutMs how long to wait for the migration lock before failing startup (default [LOCK_TIMEOUT_MS]).
  * @param lockAttempt one non-blocking lock attempt on the lock file's channel (default [FileChannel.tryLock]); a seam
  *   so the IOException policy can be exercised.
+ * @param ftsIntegrity `FTS_INTEGRITY` from [io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig]:
+ *   [FtsIntegrityMode.OFF] skips only the startup FTS5 integrity check (the inventory check still runs).
  */
 class FlywayDatabaseSchemaManager(
     private val jdbcUrl: String,
@@ -51,7 +54,8 @@ class FlywayDatabaseSchemaManager(
     private val busyTimeoutMs: Long = 5000L,
     private val schemaMode: SchemaMode = SchemaMode.MIGRATE,
     private val lockTimeoutMs: Long = LOCK_TIMEOUT_MS,
-    private val lockAttempt: (FileChannel) -> FileLock? = { it.tryLock() }
+    private val lockAttempt: (FileChannel) -> FileLock? = { it.tryLock() },
+    private val ftsIntegrity: FtsIntegrityMode = FtsIntegrityMode.STARTUP
 ) : DatabaseSchemaManager {
     private val logger = LoggerFactory.getLogger(FlywayDatabaseSchemaManager::class.java)
 
@@ -293,7 +297,7 @@ class FlywayDatabaseSchemaManager(
     /** Runs the inventory, FTS integrity check and drift reports on one short-lived connection. */
     private fun runIntegrity() {
         val config = SQLiteConfig().apply { setBusyTimeout(busyTimeoutMs.toInt()) }
-        DriverManager.getConnection(jdbcUrl, config.toProperties()).use { StartupIntegrity.run(it) }
+        DriverManager.getConnection(jdbcUrl, config.toProperties()).use { StartupIntegrity.run(it, ftsIntegrity) }
     }
 
     /**

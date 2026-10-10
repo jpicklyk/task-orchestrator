@@ -1548,7 +1548,7 @@ class ItemCommandServiceTest {
                     "note.upserted",
                     "note.upserted",
                     "note.upserted",
-                    "plan_document.adopted",
+                    "document.adopted",
                 ),
                 rows.types(),
                 "items root first, then dependencies, then notes, then the adoption, nothing twice",
@@ -1615,7 +1615,7 @@ class ItemCommandServiceTest {
                 emptyList(),
                 written.filter {
                     it in
-                        setOf("item.created", "dependency.added", "note.upserted", "plan_document.adopted")
+                        setOf("item.created", "dependency.added", "note.upserted", "document.adopted")
                 }
             )
             // control: the same tree without the bad dependencies applies, so the rejections above were the dependencies
@@ -1652,7 +1652,7 @@ class ItemCommandServiceTest {
                 emptyList(),
                 d.rig.rowsAfter(marker).map { it.type }.filter {
                     it in
-                        setOf("item.created", "dependency.added", "note.upserted", "plan_document.adopted")
+                        setOf("item.created", "dependency.added", "note.upserted", "document.adopted")
                 },
             )
         }

@@ -1,0 +1,2 @@
+index|idx_document_versions_doc_version|document_versions|CREATE UNIQUE INDEX idx_document_versions_doc_version ON document_versions(document_id, version)
+table|document_versions|document_versions|CREATE TABLE document_versions ( id BLOB PRIMARY KEY DEFAULT (randomblob(16)), document_id BLOB NOT NULL REFERENCES documents(id) ON DELETE CASCADE, version INTEGER NOT NULL, body TEXT NOT NULL, content_hash TEXT NOT NULL, actor_id TEXT, created_at TIMESTAMP NOT NULL )

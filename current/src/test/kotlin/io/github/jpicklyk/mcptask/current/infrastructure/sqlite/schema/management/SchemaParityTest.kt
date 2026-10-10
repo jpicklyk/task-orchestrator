@@ -196,11 +196,16 @@ class SchemaParityTest {
                 "dependencies",
                 "role_transitions",
                 "project_config",
-                "plan_documents",
+                "documents",
+                "document_versions",
+                "links",
                 "resource_leases",
                 "resource_lease_history"
             )
-        assertTrue(tables.containsAll(expectedAtLeast), "all 8 V17 tables must be covered, got $tables")
+        assertTrue(
+            tables.containsAll(expectedAtLeast),
+            "all 10 tables (the V17 set with plan_documents re-homed by V23) must be covered, got $tables"
+        )
     }
 
     @Test

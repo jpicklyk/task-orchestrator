@@ -16,8 +16,8 @@ import java.util.UUID
  * a future fan-in ("semaphore", `maxHolders > 1`) enforcement mode can store multiple concurrent
  * holder rows for the same key without a schema change. v1 enforcement still only ever allows a
  * single active holder per key (checked in application code, not by this constraint — see
- * `SQLiteResourceLeaseRepository.acquireAll`). Follows [PlanDocumentsTable]'s style: BLOB id
- * default, a plain unique-index pair rather than an inline `UNIQUE` column.
+ * `SQLiteResourceLeaseRepository.acquireAll`). Uses the `V10__Project_Config.sql` convention: BLOB
+ * id default, a separate unique index rather than an inline `UNIQUE` column.
  *
  * [acquiredAt] / [expiresAt] / [originalAcquiredAt] are declared via [utcTimestampText] exactly like
  * [WorkItemsTable]'s `claimedAt` / `claimExpiresAt` / `originalClaimedAt` claim columns — both

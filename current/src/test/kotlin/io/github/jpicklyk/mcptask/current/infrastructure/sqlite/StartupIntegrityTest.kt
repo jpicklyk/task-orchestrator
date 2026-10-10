@@ -32,7 +32,14 @@ class StartupIntegrityTest {
     lateinit var dir: Path
 
     private val expectedFtsTables =
-        setOf("work_items_fts_trigram", "work_items_fts_text", "notes_fts_trigram", "notes_fts_text")
+        setOf(
+            "work_items_fts_trigram",
+            "work_items_fts_text",
+            "notes_fts_trigram",
+            "notes_fts_text",
+            "documents_fts_trigram",
+            "documents_fts_text"
+        )
     private val expectedFtsTriggers =
         expectedFtsTables.flatMap { t -> listOf("ai", "ad", "au").map { "${t}_$it" } }.toSet()
     private val expectedCycleTriggers = setOf("work_items_cycle_check", "work_items_cycle_check_update")
@@ -53,8 +60,8 @@ class StartupIntegrityTest {
         assertEquals(expectedFtsTables, StartupIntegrity.FTS_TABLES.toSet())
         assertEquals(expectedFtsTriggers, StartupIntegrity.FTS_TRIGGERS.toSet())
         assertEquals(expectedCycleTriggers, StartupIntegrity.CYCLE_TRIGGERS.toSet())
-        assertEquals(4, StartupIntegrity.FTS_TABLES.size, "no duplicates")
-        assertEquals(12, StartupIntegrity.FTS_TRIGGERS.size, "no duplicates")
+        assertEquals(6, StartupIntegrity.FTS_TABLES.size, "no duplicates")
+        assertEquals(18, StartupIntegrity.FTS_TRIGGERS.size, "no duplicates")
         assertEquals(2, StartupIntegrity.CYCLE_TRIGGERS.size, "no duplicates")
     }
 

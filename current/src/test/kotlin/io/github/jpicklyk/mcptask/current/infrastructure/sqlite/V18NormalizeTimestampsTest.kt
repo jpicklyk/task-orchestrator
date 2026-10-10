@@ -121,14 +121,24 @@ class V18NormalizeTimestampsTest {
         return expected
     }
 
+    /**
+     * The post-migration home of a pre-migration table: V23 re-homed `plan_documents` rows into `documents`, keeping
+     * each row's rowid (`doc_rowid`) and column names, so a cell is re-read there by the same rowid.
+     */
+    private fun live(table: String) = if (table == "plan_documents") "documents" else table
+
     private fun readCell(
         url: String,
         cell: Cell
-    ): String? = P7Raw.text(url, "SELECT CAST(${cell.column} AS TEXT) FROM ${cell.table} WHERE rowid = ?", cell.rowid)
+    ): String? = P7Raw.text(url, "SELECT CAST(${cell.column} AS TEXT) FROM ${live(cell.table)} WHERE rowid = ?", cell.rowid)
 
-    private fun rowCounts(url: String): Map<String, Int> =
+    private fun rowCounts(
+        url: String,
+        afterMigration: Boolean = true
+    ): Map<String, Int> =
         timestampColumns.map { it.first }.distinct().associateWith {
-            P7Raw.query(url, "SELECT count(*) FROM $it") { rs -> rs.getInt(1) }.single()
+            val table = if (afterMigration) live(it) else it
+            P7Raw.query(url, "SELECT count(*) FROM $table") { rs -> rs.getInt(1) }.single()
         }
 
     private fun assertV18Applied(url: String) {
@@ -146,7 +156,7 @@ class V18NormalizeTimestampsTest {
     fun `S12 every injected legacy shape in every timestamp column normalizes to the specified canonical text`() {
         val url = UpgradeHarness.copyAt(17, File(dir, "shapes.db"))
         DriverManager.getConnection(url).use { BaselineDataset.seed(it) }
-        val countsBefore = rowCounts(url)
+        val countsBefore = rowCounts(url, afterMigration = false)
         val expected = inject(url)
         assertTrue(expected.size >= timestampColumns.size, "at least one row per column must have been injected")
         // The injection must really have covered every shape, otherwise the check below is partly vacuous.
@@ -206,7 +216,7 @@ class V18NormalizeTimestampsTest {
                 P7Raw
                     .query(
                         url,
-                        "SELECT count(*) FROM $table WHERE $column IS NOT NULL AND " +
+                        "SELECT count(*) FROM ${live(table)} WHERE $column IS NOT NULL AND " +
                             "NOT ($column GLOB '${P7Raw.CANONICAL_GLOB}' AND length($column) = 23)"
                     ) { it.getInt(1) }
                     .single()

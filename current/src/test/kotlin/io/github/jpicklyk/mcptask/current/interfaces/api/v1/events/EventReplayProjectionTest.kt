@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
 import io.github.jpicklyk.mcptask.current.domain.event.DeleteCause
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
+import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.domain.event.ReparentSide
 import io.github.jpicklyk.mcptask.current.domain.event.TransitionOrigin
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
@@ -410,8 +411,8 @@ class EventReplayProjectionTest {
                     DomainEvent.LeaseExpired(itemId, rootId, "k"),
                     DomainEvent.ProjectConfigUpserted(rootId, "fp"),
                     DomainEvent.ProjectConfigDeleted(rootId),
-                    DomainEvent.PlanDocumentStashed(noteId, rootId, "slug"),
-                    DomainEvent.PlanDocumentAdopted(noteId, rootId, "slug", itemId),
+                    DomainEvent.DocumentCreated(noteId, rootId, DocumentKind.PLAN, "slug", 1),
+                    DomainEvent.DocumentAdopted(noteId, rootId, "slug", itemId),
                 )
             for (event in tableOnly) {
                 assertNull(projectedOf(event), "${event.type} stays table-only until W2/W6 (F7)")

@@ -55,7 +55,11 @@ class MigrationLocationContinuityTest {
         val expected = snapshot()
         assertEquals(18, expected.size, "snapshot must list V1..V18")
         assertEquals(expected, actual.take(18), "history scripts (bare names) and checksums must equal the snapshot captured at 327690d2")
-        assertEquals(listOf("19", "20", "21", "22"), actual.drop(18).map { it.version }, "after V18 only V19, V20, V21 and V22 follow")
+        assertEquals(
+            listOf("19", "20", "21", "22", "23"),
+            actual.drop(18).map { it.version },
+            "after V18 only V19, V20, V21, V22 and V23 follow"
+        )
         assertTrue(actual.none { it.script.contains("/") }, "script names must be bare, never sqlite/V1__...")
     }
 

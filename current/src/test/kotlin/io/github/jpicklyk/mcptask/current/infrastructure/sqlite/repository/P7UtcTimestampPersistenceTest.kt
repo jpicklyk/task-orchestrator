@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
+import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -126,7 +127,7 @@ class P7UtcTimestampPersistenceTest {
     )
 
     @Test
-    fun `S13 one row written by each store has all nineteen timestamp columns as canonical UTC text within the write window`(): Unit =
+    fun `S13 one row written by each store has all twenty-two timestamp columns as canonical UTC text within the write window`(): Unit =
         runBlocking {
             TimeZone.setDefault(TimeZone.getTimeZone("Asia/Kolkata")) // 5h30m away from UTC: a local-time write is far outside the window
             val ttl = 600L
@@ -142,6 +143,9 @@ class P7UtcTimestampPersistenceTest {
                 RoleTransition(itemId = root.id, fromRole = "queue", toRole = "work", trigger = "start")
             )
             provider.planDocumentRepository().stash(root.id, "plan-a", "# Plan\n")
+            provider.planDocumentRepository().markAdopted(root.id, "plan-a", other.id)
+            val planDoc = assertNotNull(provider.documentStore().get(root.id, DocumentKind.PLAN, "plan-a"))
+            provider.documentStore().setArchived(planDoc.id, Instant.now())
             provider.projectConfigRepository().upsert(root.id, "work_item_schemas:\n  default: {}\n")
             val leases = provider.resourceLeaseRepository()
             assertIs<LeaseAcquireResult.Success>(leases.acquireAll(root.id, "agent-a", listOf("k1" to ttl.toInt())))
@@ -161,8 +165,11 @@ class P7UtcTimestampPersistenceTest {
                     Col("notes", "created_at"),
                     Col("notes", "modified_at"),
                     Col("dependencies", "created_at"),
-                    Col("plan_documents", "created_at"),
-                    Col("plan_documents", "modified_at"),
+                    Col("documents", "created_at"),
+                    Col("documents", "modified_at"),
+                    Col("documents", "archived_at"),
+                    Col("document_versions", "created_at"),
+                    Col("links", "created_at"),
                     Col("project_config", "updated_at"),
                     Col("role_transitions", "transitioned_at"),
                     Col("resource_leases", "acquired_at"),
@@ -172,7 +179,7 @@ class P7UtcTimestampPersistenceTest {
                     Col("resource_lease_history", "expires_at", ttl),
                     Col("resource_lease_history", "released_at")
                 )
-            assertEquals(19, columns.size, "the migration normalizes exactly nineteen timestamp columns")
+            assertEquals(22, columns.size, "nineteen V18-normalized timestamp columns, with plan_documents' two replaced by V23's five")
 
             for (col in columns) {
                 val name = "${col.table}.${col.column}"

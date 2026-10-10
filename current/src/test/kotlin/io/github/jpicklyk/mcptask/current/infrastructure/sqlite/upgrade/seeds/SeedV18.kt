@@ -87,11 +87,14 @@ object SeedV18 : MigrationSeed(18) {
 
     private fun hex(name: String): String = BaselineDataset.id(name).joinToString("") { "%02x".format(it) }
 
+    /** Where a pre-V23 table lives at the latest schema: V23 re-homed `plan_documents` rows into `documents`. */
+    private fun live(table: String) = if (table == "plan_documents") "documents" else table
+
     override fun verify(conn: Connection) {
         for ((table, columns) in COLUMNS) {
             for (column in columns) {
                 conn.createStatement().use { st ->
-                    st.executeQuery("SELECT $column FROM $table WHERE $column IS NOT NULL").use { rs ->
+                    st.executeQuery("SELECT $column FROM ${live(table)} WHERE $column IS NOT NULL").use { rs ->
                         while (rs.next()) {
                             val v = rs.getString(1)
                             assertTrue(CANONICAL.matches(v), "$table.$column holds a non-canonical value '$v' after V18")

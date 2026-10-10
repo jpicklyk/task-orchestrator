@@ -2,10 +2,10 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentAdoptOutcome
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStashOutcome
+import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLitePlanDocumentRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
@@ -27,7 +27,7 @@ class SQLitePlanDocumentRepositoryTest {
 
     private lateinit var database: Database
     private lateinit var databaseManager: DatabaseManager
-    private lateinit var planDocumentRepository: SQLitePlanDocumentRepository
+    private lateinit var planDocumentRepository: PlanDocumentStore
     private lateinit var workItemRepository: SQLiteWorkItemRepository
     private lateinit var rootItemId: UUID
 
@@ -36,7 +36,7 @@ class SQLitePlanDocumentRepositoryTest {
         runBlocking {
             database = sqliteDb.database
             databaseManager = sqliteDb.databaseManager
-            planDocumentRepository = SQLitePlanDocumentRepository(databaseManager)
+            planDocumentRepository = sqliteDb.repositoryProvider().planDocumentRepository()
             workItemRepository = SQLiteWorkItemRepository(databaseManager)
 
             val root = WorkItem(title = "Project Root")
