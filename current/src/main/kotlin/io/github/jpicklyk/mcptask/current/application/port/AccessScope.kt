@@ -1,18 +1,19 @@
-package io.github.jpicklyk.mcptask.current.application.knowledge.search
+package io.github.jpicklyk.mcptask.current.application.port
 
 import java.util.UUID
 
 /**
- * What a caller may see, applied by the search engine as a filter BEFORE ranking and capping, so a restricted
- * caller gets full pages of in-scope hits.
+ * What a caller may see, applied by the store or search engine as a filter BEFORE paging, ranking and capping, so a
+ * restricted caller gets full pages of in-scope rows and exact totals.
  *
  * Two forms:
  * - [unrestricted] — everything. The MCP tools use it explicitly (one call site each), so introducing a principal
  *   scope on MCP changes exactly those call sites.
  * - [principal] — a REST principal's scope: [rootIds] (an item is visible when its ancestor chain, itself
  *   included, contains one of them; ids need not be depth-0) and [tagsInclude] (the item, or the note's owning
- *   item, carries one of these tags, compared exactly). The interfaces layer builds it from the authenticated
- *   principal.
+ *   item, carries one of these tags: the comma-separated `tags` column is split, each element trimmed, and an
+ *   element must equal a listed tag exactly — case-sensitive, empty elements never match). The interfaces layer
+ *   builds it from the authenticated principal.
  *
  * @property rootIds Root allowlist, or null for no root restriction. An empty set admits nothing.
  * @property tagsInclude Tag allowlist; empty means no tag restriction.

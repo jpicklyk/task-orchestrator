@@ -1,8 +1,12 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
-import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.api.IdFormatDefect
+import io.github.jpicklyk.mcptask.current.application.api.IdResolution
+import io.github.jpicklyk.mcptask.current.application.api.IdResolver
+import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import kotlinx.serialization.json.*
@@ -472,11 +476,11 @@ abstract class BaseToolDefinition : ToolDefinition {
     // ──────────────────────────────────────────────
 
     companion object {
-        /** Minimum hex prefix length for short-ID resolution. */
-        const val MIN_PREFIX_LENGTH = 4
+        /** Minimum hex prefix length for short-ID resolution (the 3.x rule, defined by [IdResolver]). */
+        const val MIN_PREFIX_LENGTH = IdResolver.LEGACY_MIN_PREFIX_LENGTH
 
-        /** Regex for a valid hex string (UUID prefix). */
-        val HEX_PATTERN: Regex = Regex("^[0-9a-fA-F]+$")
+        /** Regex for a valid hex string (UUID prefix); the 3.x rule, defined by [IdResolver]. */
+        val HEX_PATTERN: Regex = IdResolver.LEGACY_HEX_PATTERN
 
         /** Canonical RFC 4122 textual UUID form: 36 chars, 8-4-4-4-12 hex, case-insensitive. */
         val CANONICAL_UUID_PATTERN: Regex =
@@ -495,24 +499,15 @@ abstract class BaseToolDefinition : ToolDefinition {
         value: String,
         fieldLabel: String
     ) {
-        if (value.length == 36) {
-            try {
-                UUID.fromString(value)
-            } catch (_: IllegalArgumentException) {
-                throw ToolValidationException("$fieldLabel must be a valid UUID or hex prefix, got: $value")
+        val invalid = IdResolver.legacyFormatDefect(value) ?: return
+        throw ToolValidationException(
+            when (invalid.defect) {
+                IdFormatDefect.MALFORMED_UUID -> "$fieldLabel must be a valid UUID or hex prefix, got: $value"
+                IdFormatDefect.TOO_SHORT ->
+                    "ID prefix too short for $fieldLabel: minimum $MIN_PREFIX_LENGTH hex characters required, got ${value.length}"
+                else -> "$fieldLabel must be a UUID or hex prefix ($MIN_PREFIX_LENGTH-35 chars), got: $value"
             }
-            return
-        }
-        if (!value.matches(HEX_PATTERN)) {
-            throw ToolValidationException(
-                "$fieldLabel must be a UUID or hex prefix ($MIN_PREFIX_LENGTH-35 chars), got: $value"
-            )
-        }
-        if (value.length < MIN_PREFIX_LENGTH) {
-            throw ToolValidationException(
-                "ID prefix too short for $fieldLabel: minimum $MIN_PREFIX_LENGTH hex characters required, got ${value.length}"
-            )
-        }
+        )
     }
 
     /**
@@ -563,76 +558,53 @@ abstract class BaseToolDefinition : ToolDefinition {
     protected suspend fun resolveIdString(
         idStr: String,
         context: ToolExecutionContext
-    ): Pair<UUID?, JsonElement?> {
-        // Fast path: full UUID (36 chars)
-        if (idStr.length == 36) {
-            return try {
-                Pair(UUID.fromString(idStr), null)
-            } catch (_: IllegalArgumentException) {
-                Pair(null, errorResponse("Invalid UUID format: $idStr", LegacyMcpCode.VALIDATION_ERROR))
-            }
-        }
-
-        // Prefix resolution path
-        if (!idStr.matches(HEX_PATTERN)) {
-            return Pair(
-                null,
-                errorResponse(
-                    "Invalid ID format: must be a UUID or hex prefix ($MIN_PREFIX_LENGTH-35 chars), got: $idStr",
-                    LegacyMcpCode.VALIDATION_ERROR
+    ): Pair<UUID?, JsonElement?> =
+        when (val resolution = IdResolver(context.workItemRepository()).resolveLegacy(idStr)) {
+            is IdResolution.Resolved -> Pair(resolution.id, null)
+            is IdResolution.Invalid ->
+                Pair(
+                    null,
+                    errorResponse(
+                        when (resolution.defect) {
+                            IdFormatDefect.MALFORMED_UUID -> "Invalid UUID format: $idStr"
+                            IdFormatDefect.TOO_SHORT ->
+                                "ID prefix too short: minimum $MIN_PREFIX_LENGTH hex characters required, got ${idStr.length}"
+                            else -> "Invalid ID format: must be a UUID or hex prefix ($MIN_PREFIX_LENGTH-35 chars), got: $idStr"
+                        },
+                        LegacyMcpCode.VALIDATION_ERROR
+                    )
                 )
-            )
-        }
-        if (idStr.length < MIN_PREFIX_LENGTH) {
-            return Pair(
-                null,
-                errorResponse(
-                    "ID prefix too short: minimum $MIN_PREFIX_LENGTH hex characters required, got ${idStr.length}",
-                    LegacyMcpCode.VALIDATION_ERROR
+            is IdResolution.Failed ->
+                Pair(
+                    null,
+                    errorResponse("Failed to resolve ID prefix: ${LegacyFaults.message(resolution.cause)}", LegacyMcpCode.INTERNAL_ERROR)
                 )
-            )
+            is IdResolution.NotFound ->
+                Pair(null, errorResponse("No WorkItem found matching prefix: $idStr", LegacyMcpCode.RESOURCE_NOT_FOUND))
+            is IdResolution.Ambiguous ->
+                Pair(
+                    null,
+                    errorResponse(
+                        "Ambiguous prefix: $idStr matches ${resolution.candidates.size} items",
+                        LegacyMcpCode.VALIDATION_ERROR,
+                        additionalData =
+                            buildJsonObject {
+                                put("prefix", JsonPrimitive(idStr))
+                                put(
+                                    "matches",
+                                    JsonArray(
+                                        resolution.candidates.map { id ->
+                                            buildJsonObject {
+                                                put("id", JsonPrimitive(id.toString()))
+                                                put("title", JsonPrimitive(resolution.titles[id] ?: ""))
+                                            }
+                                        }
+                                    )
+                                )
+                            }
+                    )
+                )
         }
-
-        val matches =
-            legacyRead({
-                return Pair(null, errorResponse("Failed to resolve ID prefix: $it", LegacyMcpCode.INTERNAL_ERROR))
-            }) { context.workItemRepository().findByIdPrefix(idStr) }
-        return run {
-            run {
-                when {
-                    matches.isEmpty() ->
-                        Pair(
-                            null,
-                            errorResponse("No WorkItem found matching prefix: $idStr", LegacyMcpCode.RESOURCE_NOT_FOUND)
-                        )
-                    matches.size > 1 ->
-                        Pair(
-                            null,
-                            errorResponse(
-                                "Ambiguous prefix: $idStr matches ${matches.size} items",
-                                LegacyMcpCode.VALIDATION_ERROR,
-                                additionalData =
-                                    buildJsonObject {
-                                        put("prefix", JsonPrimitive(idStr))
-                                        put(
-                                            "matches",
-                                            JsonArray(
-                                                matches.map { match ->
-                                                    buildJsonObject {
-                                                        put("id", JsonPrimitive(match.id.toString()))
-                                                        put("title", JsonPrimitive(match.title))
-                                                    }
-                                                }
-                                            )
-                                        )
-                                    }
-                            )
-                        )
-                    else -> Pair(matches.first().id, null)
-                }
-            }
-        }
-    }
 
     /**
      * Resolves an item ID parameter that may be a full UUID or a short hex prefix.
@@ -735,3 +707,40 @@ abstract class BaseToolDefinition : ToolDefinition {
             }
         )
 }
+
+/**
+ * Resolves a raw ID string under the 3.x format (a full UUID or a hex prefix of
+ * [BaseToolDefinition.MIN_PREFIX_LENGTH]+ chars) via [IdResolver.resolveLegacy], throwing
+ * [ToolValidationException] on failure (invalid format, not found, ambiguous, store fault).
+ *
+ * For handler classes that don't extend [BaseToolDefinition] but still need short-ID resolution
+ * (e.g. [items.CreateItemHandler], [items.UpdateItemHandler], [items.DeleteItemHandler]).
+ *
+ * @param fieldLabel Human-readable label for error messages (e.g., "'id'", "'parentId'")
+ */
+suspend fun resolveWorkItemIdString(
+    idStr: String,
+    context: ToolExecutionContext,
+    fieldLabel: String = "id"
+): UUID =
+    when (val resolution = IdResolver(context.workItemRepository()).resolveLegacy(idStr)) {
+        is IdResolution.Resolved -> resolution.id
+        is IdResolution.Invalid ->
+            throw ToolValidationException(
+                when (resolution.defect) {
+                    IdFormatDefect.MALFORMED_UUID -> "$fieldLabel is not a valid UUID: $idStr"
+                    IdFormatDefect.TOO_SHORT ->
+                        "$fieldLabel prefix too short: minimum ${BaseToolDefinition.MIN_PREFIX_LENGTH} hex characters, got ${idStr.length}"
+                    else -> "$fieldLabel must be a UUID or hex prefix (${BaseToolDefinition.MIN_PREFIX_LENGTH}+ chars), got: $idStr"
+                }
+            )
+        is IdResolution.Failed ->
+            throw ToolValidationException("Failed to resolve $fieldLabel prefix: ${LegacyFaults.message(resolution.cause)}")
+        is IdResolution.NotFound ->
+            throw ToolValidationException("No WorkItem found matching $fieldLabel prefix: $idStr", ErrorCode.NOT_FOUND)
+        is IdResolution.Ambiguous ->
+            throw ToolValidationException(
+                "Ambiguous $fieldLabel prefix: $idStr matches ${resolution.candidates.size} items",
+                ErrorCode.AMBIGUOUS_ID
+            )
+    }
