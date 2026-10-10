@@ -83,7 +83,7 @@ class P5bWriteUnitGuardsTest {
                 "infrastructure/sqlite/repository/SqliteItemStore.kt",
                 "infrastructure/sqlite/repository/SqliteHierarchyStore.kt",
                 "infrastructure/sqlite/repository/SqliteClaimStore.kt",
-                "infrastructure/sqlite/repository/SqliteSearchIndex.kt",
+                "infrastructure/sqlite/knowledge/search/SqliteSearchEngine.kt",
                 "infrastructure/sqlite/repository/WorkItemRows.kt",
                 "infrastructure/sqlite/repository/SQLiteResourceLeaseRepository.kt",
                 "interfaces/api/v1/routes/ItemWriteRoutes.kt",

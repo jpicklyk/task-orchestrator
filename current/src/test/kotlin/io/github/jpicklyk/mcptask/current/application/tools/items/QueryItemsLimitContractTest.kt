@@ -1,15 +1,29 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
+import io.github.jpicklyk.mcptask.current.application.port.Candidate
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.application.port.ItemFetchResult
-import io.github.jpicklyk.mcptask.current.application.port.SearchResult
+import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
+import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions
 import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.slot
+import io.modelcontextprotocol.kotlin.sdk.client.Client
+import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
+import io.modelcontextprotocol.kotlin.sdk.server.Server
+import io.modelcontextprotocol.kotlin.sdk.testing.ChannelTransport
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.ClientCapabilities
+import io.modelcontextprotocol.kotlin.sdk.types.Implementation
+import io.modelcontextprotocol.kotlin.sdk.types.buildCallToolRequest
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
@@ -21,6 +35,7 @@ import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -38,6 +53,10 @@ import kotlin.test.assertTrue
  * Oracle for S1-S8 is `current/docs/api-reference.md` at base `768f7f3` (L201, L224, L237, L238,
  * L369), per the frozen `test-plan`. Negative `limit` on anchored overview (`List.take(-1)` crash)
  * is out of scope for this item (diagnosis C3) and is deliberately NOT tested here.
+ *
+ * Item 4a15997e (unified search core) re-points S1 and S2 at the `SearchIndex` port mock: the FTS-mode page size is now observed
+ * on the returned hits, and S2's oracle changes from "capped at 100" to "rejected" (task-scope item 8, plan 8.1: FTS-mode `limit`
+ * above 100 answers `VALIDATION_ERROR`, driven through the real adapter so the runtime validate-then-execute order decides).
  */
 class QueryItemsLimitContractTest {
     private fun params(vararg pairs: Pair<String, kotlinx.serialization.json.JsonElement>) = JsonObject(mapOf(*pairs))
@@ -46,22 +65,60 @@ class QueryItemsLimitContractTest {
     // S1 / S2 — FTS search mode (`query` set): default 20, cap 100
     // ──────────────────────────────────────────────
 
+    private fun candidates(count: Int) =
+        (0 until count).map { i ->
+            Candidate(
+                id = UUID(0L, 5000L - i),
+                ownerItemId = UUID(0L, 5000L - i),
+                noteKey = null,
+                rank = -1000.0 + i,
+                field = "title",
+                snippet = "s <mark>needle</mark>",
+            )
+        }
+
+    private fun stubIndex(
+        mocks: MockRepositoryProvider,
+        count: Int,
+    ) {
+        coEvery { mocks.searchIndex.candidates(any(), any(), any(), any(), any()) } returns candidates(count)
+        coEvery { mocks.searchIndex.titles(any()) } returns emptyMap()
+    }
+
+    /** Drives [tool] through the real adapter, so the runtime order (validateParams, then execute) decides the envelope. */
+    private suspend fun callThroughAdapter(
+        mocks: MockRepositoryProvider,
+        tool: ToolDefinition,
+        args: Map<String, JsonElement>,
+    ): CallToolResult {
+        val server =
+            Server(serverInfo = Implementation(name = "limit-contract-server", version = "1.0.0"), options = inMemoryTestServerOptions())
+        McpToolAdapter().registerToolWithServer(server, tool, mocks.context())
+        val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
+        val client =
+            Client(
+                clientInfo = Implementation(name = "limit-contract-client", version = "1.0.0"),
+                options = ClientOptions(capabilities = ClientCapabilities()),
+            )
+        server.createSession(serverTransport)
+        client.connect(clientTransport)
+        try {
+            return client.callTool(
+                buildCallToolRequest {
+                    name = tool.name
+                    arguments(JsonObject(args))
+                }
+            )
+        } finally {
+            closeInMemoryPair(client, server)
+        }
+    }
+
     @Test
     fun `S1 FTS search omitted limit defaults to 20`() =
         runBlocking {
             val mocks = MockRepositoryProvider()
-            val limitSlot = slot<Int>()
-            val sentinel = SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
-
-            coEvery {
-                mocks.workItemRepo.ftsSearch(
-                    sanitizedFtsQuery = any(),
-                    matchMode = any(),
-                    scope = any(),
-                    limit = capture(limitSlot),
-                    offset = any(),
-                )
-            } returns sentinel
+            stubIndex(mocks, count = 30)
 
             val tool = QueryItemsTool()
             val result =
@@ -74,41 +131,57 @@ class QueryItemsLimitContractTest {
                 ) as JsonObject
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean)
-            assertEquals(20, limitSlot.captured, "FTS-mode default must be 20 (L201)")
+            val data = result["data"] as JsonObject
+            assertEquals(20, data["hits"]!!.jsonArray.size, "FTS-mode default must be 20 (L201)")
+            assertEquals(30, data["totalHits"]!!.jsonPrimitive.int, "totalHits counts the whole result list, not the page")
         }
 
     @Test
-    fun `S2 FTS search limit above 100 is capped at 100`() =
+    fun `S2 FTS search limit of exactly 100 is accepted and returns a full page`() =
         runBlocking {
             val mocks = MockRepositoryProvider()
-            val limitSlot = slot<Int>()
-            val sentinel = SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
+            stubIndex(mocks, count = 150)
 
-            coEvery {
-                mocks.workItemRepo.ftsSearch(
-                    sanitizedFtsQuery = any(),
-                    matchMode = any(),
-                    scope = any(),
-                    limit = capture(limitSlot),
-                    offset = any(),
-                )
-            } returns sentinel
-
-            val tool = QueryItemsTool()
             val result =
-                tool.execute(
+                QueryItemsTool().execute(
                     params(
                         "operation" to JsonPrimitive("search"),
                         "query" to JsonPrimitive("needle"),
-                        "limit" to JsonPrimitive(500),
+                        "limit" to JsonPrimitive(100),
                     ),
                     mocks.context(),
                 ) as JsonObject
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean)
-            assertEquals(100, limitSlot.captured, "FTS-mode cap must be 100 (L201)")
+            val data = result["data"] as JsonObject
+            assertEquals(100, data["hits"]!!.jsonArray.size)
+            assertEquals(100, data["totalHits"]!!.jsonPrimitive.int, "the result list is capped at 100")
         }
 
+    @Test
+    fun `S2 FTS search limit above 100 is rejected with VALIDATION_ERROR before the index is touched`() =
+        runBlocking {
+            listOf(101, 500).forEach { tooBig ->
+                val mocks = MockRepositoryProvider()
+                stubIndex(mocks, count = 150)
+
+                val result =
+                    callThroughAdapter(
+                        mocks,
+                        QueryItemsTool(),
+                        mapOf(
+                            "operation" to JsonPrimitive("search"),
+                            "query" to JsonPrimitive("needle"),
+                            "limit" to JsonPrimitive(tooBig),
+                        ),
+                    )
+
+                assertEquals(true, result.isError, "limit=$tooBig must be rejected, not coerced to 100")
+                val error = assertNotNull(result.structuredContent?.get("error")?.jsonObject, "limit=$tooBig: ${result.content}")
+                assertEquals(ErrorCodes.VALIDATION_ERROR, error["code"]?.jsonPrimitive?.content, "limit=$tooBig")
+                coVerify(exactly = 0) { mocks.searchIndex.candidates(any(), any(), any(), any(), any()) }
+            }
+        }
     // ──────────────────────────────────────────────
     // S3 — FTS search mode, limit=0 is rejected (validation is search-arm only; unchanged by this fix)
     // ──────────────────────────────────────────────

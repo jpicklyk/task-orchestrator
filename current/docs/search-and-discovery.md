@@ -50,19 +50,16 @@ contributions from both lists; documents in only one table receive a lower combi
 text index (stemmed "run") will score higher than one that only matches one table. Items relevant to
 both exact-match and semantic-match queries surface first.
 
-### Input Sanitization
+### Input Handling
 
-User-supplied query strings pass through `FtsQuerySanitizer` before reaching FTS5:
+Both MCP tools and both REST search routes run through one search service. The query string is
+split on ASCII whitespace into plain terms, matched with AND semantics; a term carries no query
+syntax. The SQLite adapter is the only place FTS5 syntax is produced: it wraps each term in double
+quotes (doubling any embedded `"`), so `*`, `:`, `-`, parentheses and the operator words `AND`,
+`OR`, `NOT`, `NEAR` are matched literally.
 
-1. Split on whitespace into tokens.
-2. Escape double-quote characters inside each token (`"` → `\"`).
-3. Wrap each token in double-quotes — making it an FTS5 phrase term.
-4. Join with spaces (implicit AND in FTS5's default mode).
-5. FTS5 operator words (`AND`, `OR`, `NOT`, `NEAR`) are neutralized by wrapping — they become
-   literal search terms rather than boolean operators.
-
-For `matchMode="substring"`, an additional guard rejects inputs where every token is shorter than
-3 characters (the trigram index minimum).
+An empty or whitespace-only query is rejected. For `matchMode="substring"`, a query whose every
+term is shorter than 3 characters is rejected too (the trigram index minimum).
 
 You do not need to escape or quote search terms — pass them as plain text.
 
@@ -70,8 +67,8 @@ You do not need to escape or quote search terms — pass them as plain text.
 
 ## Scope Filtering
 
-All FTS5 search operations accept a `scope` object to narrow the result set structurally before
-or alongside the FTS5 match.
+All FTS5 search operations accept a `scope` object to narrow the result set structurally. Every
+filter is applied inside the FTS5 query, before ranking and before the 100-hit cap.
 
 ### scope.ancestorId
 
@@ -96,14 +93,24 @@ a specific item.
 
 ### scope.tags (query_items only)
 
-OR-matches: only items that have at least one of the listed tags are included.
+OR-matches: only items that have at least one of the listed tags are included (case-insensitive).
 
 ### scope.role (query_items only)
 
 Exact role filter on the work item (`queue`, `work`, `review`, `terminal`, `blocked`).
 
-**Note for note search:** `query_notes.search` does not support `scope.role`. To list notes
-filtered by phase, use `query_notes(operation="list", role="queue")` instead.
+**Note for note search:** `query_notes.search` supports only `scope.itemId` and
+`scope.ancestorId`. A `scope.role` or `scope.tags` value is rejected with `VALIDATION_ERROR`
+(an explicit `null` counts as absent). To list notes filtered by phase, use
+`query_notes(operation="list", role="queue")` instead.
+
+### REST principal scope
+
+On `GET /api/v1/search` and `GET /api/v1/notes/search`, a token's `root_ids` and `tags_include`
+are applied the same way: inside the query, before ranking and the 50-hit page, so a restricted
+token gets a full page of in-scope hits. `tags_include` is exact and case-sensitive against the
+item's own tags (for a note hit, its owning item's tags); `root_ids` admits an item whose ancestor
+chain, itself included, contains a listed id, at any depth.
 
 ---
 
@@ -131,6 +138,7 @@ All FTS5 search operations return the same shape:
     {
       "kind": "item",
       "itemId": "uuid",
+      "title": "Owning item title",
       "field": "title",
       "snippet": "…~32 tokens with <mark>matched term</mark>…",
       "score": 0.0325,
@@ -143,7 +151,17 @@ All FTS5 search operations return the same shape:
 }
 ```
 
+`field` names the field that actually contains a match (`title` or `summary`; `title` when both
+do), and `snippet` is taken from that field. `title` is the item's own title for an item hit and the
+owning item's title for a note hit (omitted if the item could not be read).
+
 For note search, hits additionally include `noteKey` and `field` is always `"body"`.
+
+### limit
+
+FTS mode accepts `limit` from 1 to 100 (default 20); a value above 100 is rejected with
+`VALIDATION_ERROR` instead of being capped. An `offset` at or beyond `totalHits` still returns an
+empty page.
 
 ### Score Interpretation
 
@@ -162,7 +180,7 @@ distribution of ranks across both tables.
 
 Every page is a slice of one deterministic, totally ordered list: a fixed-size candidate window is
 fetched from each FTS5 table regardless of `offset`, fused by RRF into a single order (score
-descending, ties broken by id), then capped at 100 entries before the `offset`/`limit` slice is
+descending, then hit kind, then ascending id), then capped at 100 entries before the `offset`/`limit` slice is
 taken. `totalHits` is the size of that capped, fused list — it is identical on every page of the
 same query (it is **not** the raw database match count) and is at most 100. When `truncated=true`,
 more than 100 matches existed before the cap; refine the query or add scope filters. `truncated` can

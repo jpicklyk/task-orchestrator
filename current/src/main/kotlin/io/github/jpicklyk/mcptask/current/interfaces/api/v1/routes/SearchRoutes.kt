@@ -1,22 +1,27 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchRequest
+import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
+import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchValidationException
+import io.github.jpicklyk.mcptask.current.application.port.Corpus
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
-import io.github.jpicklyk.mcptask.current.application.port.SearchScope
-import io.github.jpicklyk.mcptask.current.application.service.search.FtsQuerySanitizer
+import io.github.jpicklyk.mcptask.current.application.port.SearchResult
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowedItemIdsForTagScope
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.resolveSearchAccess
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.SearchHitDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.ktor.http.HttpStatusCode
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
+
+/** Page size of the REST search routes (they take no paging parameters). */
+internal const val REST_SEARCH_LIMIT = 50
 
 /**
  * Registers the FTS5 item search route under the `/api/v1` route prefix.
@@ -30,29 +35,20 @@ import io.ktor.server.routing.get
  * - `role` (optional) — filter by item role
  * - `tag` (optional) — filter by tag (comma-separated OR match)
  *
- * Scope filtering: when the principal has `root_ids`, results are filtered to descendants of
- * ALL roots (multi-root). An optional `?ancestorId=` further narrows to a single subtree;
- * if the requested ancestorId is outside the principal's scope, 403 is returned.
- *
- * When the principal has `tags_include`, hits are additionally filtered by the owning item's
- * tags after the FTS query returns — the tag allowlist cannot be pushed into the FTS scope,
- * and a hit carries only an item id, so the tags are looked up per result page.
+ * Scope filtering: the principal's `root_ids` and `tags_include` become the search's access scope
+ * ([resolveSearchAccess]), applied inside the search before ranking and the 50-hit page, so a restricted principal
+ * gets a full page of in-scope hits. An optional `?ancestorId=` further narrows to a single subtree; if the
+ * requested ancestorId is outside the principal's scope, 403 is returned.
  */
 fun Route.searchRoutes(repositoryProvider: RepositoryProvider) {
     val workItemRepo = repositoryProvider.workItemRepository()
+    val searchService by lazy { SearchService(repositoryProvider.searchIndex()) }
 
     requireCapability(ApiCapability.READ) {
         get("/search") {
-            val principal = call.attributes.getOrNull(ApiPrincipalKey)
             val rawQuery =
                 call.request.queryParameters["q"]?.takeIf { it.isNotBlank() } ?: run {
                     call.respondError(LegacyRestCode.BAD_REQUEST, "Query parameter 'q' is required")
-                    return@get
-                }
-
-            val sanitizedQuery =
-                FtsQuerySanitizer.sanitize(rawQuery) ?: run {
-                    call.respondError(LegacyRestCode.BAD_REQUEST, "Search query produced no usable tokens")
                     return@get
                 }
 
@@ -66,56 +62,53 @@ fun Route.searchRoutes(repositoryProvider: RepositoryProvider) {
                     ?.map { it.trim() }
                     ?.filter { it.isNotEmpty() }
 
-            val principalRoots = principal?.scope?.rootIds
-
-            // Resolve effective scope:
-            // 1. If caller supplied ?ancestorId: verify it falls within the principal's scope,
-            //    then use it as a single-subtree filter (singular ancestorId path).
-            // 2. Else if principal has rootIds: apply multi-root filter (closes the leak for
-            //    tokens with 2+ roots that previously received unscoped results).
-            // 3. Else (unscoped/admin): no subtree filter.
-            val scope: SearchScope =
-                when {
-                    requestedAncestorId != null -> {
-                        // Validate caller-requested narrowing against principal scope
-                        if (principalRoots != null && !enforceScopeForItem(call, requestedAncestorId, workItemRepo)) {
-                            call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Requested ancestorId is outside your scope")
-                            return@get
-                        }
-                        SearchScope(ancestorId = requestedAncestorId, role = role, tags = tags)
-                    }
-                    principalRoots != null -> SearchScope(ancestorIds = principalRoots, role = role, tags = tags)
-                    else -> SearchScope(role = role, tags = tags)
+            val access =
+                resolveSearchAccess(call, requestedAncestorId, workItemRepo) ?: run {
+                    call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Requested ancestorId is outside your scope")
+                    return@get
                 }
 
-            // Dispatched via the WorkItemRepository interface (a read; no event-recording decorator
-            // since 4.0).
             val result =
-                workItemRepo.ftsSearch(
-                    sanitizedFtsQuery = sanitizedQuery,
-                    matchMode = SearchMatchMode.AUTO,
-                    scope = scope,
-                    limit = 50,
-                    offset = 0,
-                )
-
-            // tags_include has no FTS representation, so hits are filtered after the fact.
-            // SearchHitDto carries only itemId, hence the id -> tags lookup.
-            val allowedItemIds =
-                allowedItemIdsForTagScope(principal, result.hits.map { it.itemId }.toSet(), workItemRepo)
+                call.searchOrRespond(searchService) {
+                    SearchRequest(
+                        query = rawQuery,
+                        corpus = Corpus.ITEM,
+                        matchMode = SearchMatchMode.AUTO,
+                        ancestorId = requestedAncestorId,
+                        roles = role?.let { setOf(it) },
+                        tags = tags,
+                        limit = REST_SEARCH_LIMIT,
+                        offset = 0,
+                        access = access,
+                    )
+                } ?: return@get
 
             val hits =
-                result.hits
-                    .filter { it.itemId in allowedItemIds }
-                    .map { hit ->
-                        SearchHitDto(
-                            itemId = hit.itemId.toString(),
-                            field = hit.field,
-                            snippet = hit.snippet,
-                            score = hit.score,
-                        )
-                    }
+                result.hits.map { hit ->
+                    SearchHitDto(
+                        itemId = hit.itemId.toString(),
+                        field = hit.field,
+                        snippet = hit.snippet,
+                        score = hit.score,
+                        title = hit.title,
+                    )
+                }
             call.respond(HttpStatusCode.OK, hits)
         }
     }
 }
+
+/**
+ * Runs the search [request] builds, answering 400 with the service's message for a request it rejects (and
+ * returning null, so the route stops). Any other failure propagates to the error mapper.
+ */
+internal suspend fun ApplicationCall.searchOrRespond(
+    service: SearchService,
+    request: () -> SearchRequest,
+): SearchResult? =
+    try {
+        service.search(request())
+    } catch (e: SearchValidationException) {
+        respondError(LegacyRestCode.BAD_REQUEST, e.message ?: "Invalid search query")
+        null
+    }
