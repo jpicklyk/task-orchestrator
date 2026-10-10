@@ -81,6 +81,8 @@ internal object WalScenarios {
         val loser = results.rejected().single()
         assertEquals("gate_blocked", loser.text("errorCode"), "$loser")
         assertEquals(listOf("impl"), loser.missing(), "$loser")
+        assertEquals("work", loser.text("previousRole"), "the loser sees the winner's committed role: $loser")
+        assertEquals("terminal", loser.text("targetRole"), "$loser")
         assertEquals(Role.WORK, d.role(item))
         val rejections = fx.rig.rowsAfter(mark).rejections()
         assertEquals(1, rejections.size, "exactly one rejection row: $rejections")
@@ -181,6 +183,7 @@ internal object WalScenarios {
         val holder = d.item("L2 holder ${fx.next()}", Role.WORK, type = "p11-leased")
         d.holdLease(holder)
         val contender = d.item("L2 contender", Role.QUEUE, type = "p11-leased")
+        val mark = fx.rig.maxSeq()
 
         val results =
             fx.go(2) { i ->
@@ -191,14 +194,21 @@ internal object WalScenarios {
         assertEquals(Role.TERMINAL, d.role(holder))
         val held = d.raw.resourceLeaseRepository().findActiveByKeys(listOf(P11_LEASE_KEY))
         val c = results[1]
+        val leaseRejected = fx.rig.rowsAfter(mark).count { it.type == "lease.rejected" }
+        // Holder first: its release frees the key and the contender takes it. Contender first: it is refused.
+        fx.ordering(index0First = c.flag("applied") == true, detail = results)
         if (c.flag("applied") == true) {
             assertEquals(Role.WORK, d.role(contender))
             assertEquals(listOf(contender.id), held.map { it.holderItemId }, "the contender holds the lease alone")
+            assertEquals(1, d.transitions(contender).size)
+            assertEquals(0, leaseRejected, "no refusal when the holder released first")
         } else {
             assertEquals("resource_unavailable", c.text("errorCode"), "$c")
             assertEquals(LEASE_RETRY_MS.toString(), c.text("retryAfterMs"), "$c")
             assertEquals(Role.QUEUE, d.role(contender))
             assertTrue(held.isEmpty(), "the holder release left no lease rows: $held")
+            assertEquals(0, d.transitions(contender).size, "a refused contender records no transition row")
+            assertEquals(1, leaseRejected, "exactly one lease.rejected row")
         }
         d.freeLease(contender)
         d.freeLease(holder)
@@ -298,6 +308,8 @@ internal object WalScenarios {
         val ra = assertIs<ClaimResult.Success>(results[0])
         assertEquals(listOf(x.id), ra.releasedItemIds, "the move of A to Y releases X in either order")
         assertEquals(a, d.reload(y).claimedBy)
+        // A first: X is free when B claims it. B first: A still holds X.
+        fx.ordering(index0First = results[1] is ClaimResult.Success, detail = results)
         when (val rb = results[1]) {
             is ClaimResult.Success -> assertEquals(b, d.reload(x).claimedBy, "B claimed X after A let it go")
             is ClaimResult.AlreadyClaimed -> {
@@ -330,6 +342,8 @@ internal object WalScenarios {
 
         assertIs<ClaimResult.Success>(results[0])
         val advance = results[1] as JsonObject
+        // Claim first: B is not the holder. Advance first: B starts the unclaimed item.
+        fx.ordering(index0First = advance.flag("applied") != true, detail = results)
         if (advance.flag("applied") == true) {
             assertEquals(Role.WORK, d.role(item), "advance first")
         } else {

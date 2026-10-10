@@ -56,7 +56,22 @@ internal object WalRace {
         n: Int,
         body: suspend (Int) -> T
     ): List<T> = runBlocking { (0 until n).map { body(it) } }
+
+    /** The same operations one after another, highest index first; results still come back in index order. */
+    fun <T> reversed(
+        n: Int,
+        body: suspend (Int) -> T
+    ): List<T> =
+        runBlocking {
+            val out = arrayOfNulls<Any?>(n)
+            for (i in (0 until n).reversed()) out[i] = body(i)
+            @Suppress("UNCHECKED_CAST")
+            out.toList() as List<T>
+        }
 }
+
+/** How a fixture runs the racers: the two sequential oracle orders, or a real race. */
+internal enum class WalPass { FORWARD, REVERSED, RACE }
 
 /**
  * A file-backed WAL database through the production [DatabaseManager], with one production composition per manager
@@ -69,7 +84,7 @@ internal class WalFixture private constructor(
     val db: SqliteTestDatabase,
     val drivers: List<P11Driver>,
     private val closeables: List<AutoCloseable>,
-    private val concurrent: Boolean
+    val pass: WalPass
 ) : AutoCloseable {
     private val counter = AtomicInteger()
 
@@ -84,11 +99,32 @@ internal class WalFixture private constructor(
     /** The driver racer [i] uses: alternates between the managers when there are two. */
     fun driverFor(i: Int): P11Driver = drivers[i % drivers.size]
 
-    /** Races [body] on [n] threads, or runs it sequentially on the oracle fixture. */
+    /** Races [body] on [n] threads, or runs it sequentially (forward or reversed) on an oracle fixture. */
     fun <T> go(
         n: Int,
         body: suspend (Int) -> T
-    ): List<T> = if (concurrent) WalRace.race(n, body) else WalRace.sequential(n, body)
+    ): List<T> =
+        when (pass) {
+            WalPass.RACE -> WalRace.race(n, body)
+            WalPass.FORWARD -> WalRace.sequential(n, body)
+            WalPass.REVERSED -> WalRace.reversed(n, body)
+        }
+
+    /**
+     * For an order-dependent pair: [index0First] says whether the observed outcome is the one where racer 0 ran
+     * before racer 1. The forward oracle must take that branch and the reversed oracle the other, so both enumerated
+     * orderings are hand-verified without a race; a racing pass may take either.
+     */
+    fun ordering(
+        index0First: Boolean,
+        detail: Any?
+    ) {
+        when (pass) {
+            WalPass.FORWARD -> check(index0First) { "forward oracle must observe racer 0 first: $detail" }
+            WalPass.REVERSED -> check(!index0First) { "reversed oracle must observe racer 1 first: $detail" }
+            WalPass.RACE -> Unit
+        }
+    }
 
     override fun close() {
         closeables.asReversed().forEach { runCatching { it.close() } }
@@ -97,7 +133,7 @@ internal class WalFixture private constructor(
 
     companion object {
         fun open(
-            concurrent: Boolean,
+            pass: WalPass,
             twoManagers: Boolean
         ): WalFixture {
             val clock = SettableClock(WAL_T)
@@ -115,7 +151,7 @@ internal class WalFixture private constructor(
                     closeables += AutoCloseable { other.shutdown() }
                     drivers += P11Driver(EventLogRig.build(db, tempDir(closeables), P11_BASE_YAML, clock, other))
                 }
-                return WalFixture(clock, db, drivers, closeables, concurrent)
+                return WalFixture(clock, db, drivers, closeables, pass)
             } catch (e: Throwable) {
                 closeables.asReversed().forEach { runCatching { it.close() } }
                 runCatching { db.close() }
@@ -132,14 +168,17 @@ internal class WalFixture private constructor(
 }
 
 /**
- * Runs [scenario] once sequentially on an oracle fixture (the hand-derived expectations must hold with no race at all),
- * then [repeats] times on a racing fixture with fresh items per iteration.
+ * Runs [scenario] sequentially on two oracle fixtures, in index order and in reverse (the hand-derived expectations must
+ * hold with no race at all, and an order-dependent scenario must take each enumerated ordering once, see
+ * [WalFixture.ordering]), then [repeats] times on a racing fixture with fresh items per iteration.
  */
 internal fun runScenario(
     repeats: Int,
     twoManagers: Boolean = false,
     scenario: suspend (WalFixture) -> Unit
 ) {
-    WalFixture.open(concurrent = false, twoManagers = twoManagers).use { oracle -> runBlocking { scenario(oracle) } }
-    WalFixture.open(concurrent = true, twoManagers = twoManagers).use { fx -> repeat(repeats) { runBlocking { scenario(fx) } } }
+    for (pass in listOf(WalPass.FORWARD, WalPass.REVERSED)) {
+        WalFixture.open(pass, twoManagers = twoManagers).use { oracle -> runBlocking { scenario(oracle) } }
+    }
+    WalFixture.open(WalPass.RACE, twoManagers = twoManagers).use { fx -> repeat(repeats) { runBlocking { scenario(fx) } } }
 }

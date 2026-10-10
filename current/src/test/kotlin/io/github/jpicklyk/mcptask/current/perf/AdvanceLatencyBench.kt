@@ -33,9 +33,9 @@ import java.util.concurrent.atomic.AtomicLong
  * Seeds a file-backed SQLite fixture with 8 roots x 50 queue children (no notes-gated schema), then
  * drives `advance_item(start)` through [AdvanceItemTool.execute] (the MCP code path) with 1 and 8
  * concurrent agents, 50 advances each on distinct items, and prints one `PERF_RESULT` line per
- * configuration. Uses only APIs present both before and after the unit-of-work/pool change, so the
- * same file compiles on either base. Pool statistics are read reflectively and report `na` where the
- * server has no Hikari pools.
+ * configuration. The context uses the production unit of work (`db.unitOfWork()`), so each advance
+ * commits as one unit exactly as the server runs it, not the default unscoped unit where every write
+ * auto-commits. Pool statistics are read reflectively and report `na` where the server has no Hikari pools.
  */
 @Tag("serial")
 class AdvanceLatencyBench {
@@ -56,7 +56,7 @@ class AdvanceLatencyBench {
     ) {
         SqliteTestDatabase.open().use { db ->
             val provider = db.repositoryProvider()
-            val context = ToolExecutionContext(provider)
+            val context = ToolExecutionContext(provider, unitOfWork = db.unitOfWork())
             val tool = AdvanceItemTool()
             val seeded: List<List<UUID>> = runBlocking { seed(context) }
 

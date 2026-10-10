@@ -1,5 +1,8 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management
 
+import ch.qos.logback.classic.Level
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.at
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.captureLogs
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.dbFile
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.scalarInt
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.urlFor
@@ -7,6 +10,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
+import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.file.Path
 import java.util.concurrent.CyclicBarrier
@@ -90,8 +94,37 @@ class FlywayMigrationLockTest {
     }
 
     @Test
-    fun `lock timeout constant is a positive number of milliseconds`() {
-        assertTrue(FlywayDatabaseSchemaManager.LOCK_TIMEOUT_MS > 0L)
+    fun `the default lock timeout is the documented 300 seconds`() {
+        assertEquals(300_000L, FlywayDatabaseSchemaManager.LOCK_TIMEOUT_MS)
+    }
+
+    /**
+     * Policy (item 36c719db C3, carry-in P2a Obs 7): an IOException from the lock attempt other than the same-JVM
+     * overlap (for example ENOLCK on an NFS mount without lockd) fails startup closed, with a message naming the lock
+     * file, and migrates nothing. The timeout path across processes is in [FlywayMigrationLockCrossProcessTest].
+     */
+    @Test
+    fun `C3 an IOException from the lock attempt fails startup closed and names the lock file`() {
+        val db = dbFile(dir)
+        val url = urlFor(db)
+        var ok = true
+        val errors =
+            captureLogs {
+                ok =
+                    FlywayDatabaseSchemaManager(
+                        url,
+                        repair = false,
+                        lockAttempt = { throw IOException("No locks available") }
+                    ).updateSchema()
+            }.at(Level.ERROR)
+        assertFalse(ok, "startup must fail when the lock cannot be taken")
+        assertTrue(
+            errors.any {
+                it.contains("Could not acquire the migration lock ${lockFileFor(db).path}") && it.contains("No locks available")
+            },
+            "the ERROR must name the lock file and the cause: $errors"
+        )
+        assertEquals(0, if (db.exists()) SchemaTestSupport.userTableCount(url) else 0, "nothing may be migrated without the lock")
     }
 
     @Test

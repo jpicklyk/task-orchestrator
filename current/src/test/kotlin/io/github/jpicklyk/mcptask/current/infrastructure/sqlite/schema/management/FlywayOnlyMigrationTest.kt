@@ -200,7 +200,8 @@ class FlywayOnlyMigrationTest {
     fun `S10 probe failed version 99 row also fails`() {
         val url = migrated(dir)
         insertHistory(url, "99", 0)
-        errorsOf { assertFalse(manager(url).updateSchema()) }
+        val errors = errorsOf { assertFalse(manager(url).updateSchema()) }
+        assertTrue(errors.any { it.contains("99") }, "the ERROR must identify the failed version 99: $errors")
     }
 
     // ---- S15: applied version with no local file below the latest is tolerated ----
@@ -217,7 +218,8 @@ class FlywayOnlyMigrationTest {
     @Test
     fun `S11 validate on an empty database fails and creates no tables`() {
         val url = newUrl(dir)
-        assertFalse(manager(url, mode = SchemaMode.VALIDATE).updateSchema())
+        val errors = errorsOf { assertFalse(manager(url, mode = SchemaMode.VALIDATE).updateSchema()) }
+        assertTrue(errors.any { it.contains("database has no applied migrations") }, "the ERROR must give the reason: $errors")
         assertEquals(0, userTableCount(url), "validate must create nothing")
     }
 
@@ -232,7 +234,11 @@ class FlywayOnlyMigrationTest {
         val url = newUrl(dir)
         manager(url).flywayConfiguration(target = "16").load().migrate()
         val before = scalarInt(url, "SELECT count(*) FROM flyway_schema_history")
-        assertFalse(manager(url, mode = SchemaMode.VALIDATE).updateSchema(), "pending V17 must fail validate")
+        val errors = errorsOf { assertFalse(manager(url, mode = SchemaMode.VALIDATE).updateSchema(), "pending V17 must fail validate") }
+        assertTrue(
+            errors.any { it.contains("Detected resolved migration not applied to database: 17") },
+            "the ERROR must name the pending version: $errors"
+        )
         assertEquals(before, scalarInt(url, "SELECT count(*) FROM flyway_schema_history"), "validate must not migrate")
     }
 
@@ -240,7 +246,8 @@ class FlywayOnlyMigrationTest {
     fun `S11 validate refuses a history-less current database and does not baseline it`() {
         val url = migrated(dir)
         exec(url, "DROP TABLE flyway_schema_history")
-        assertFalse(manager(url, mode = SchemaMode.VALIDATE).updateSchema())
+        val errors = errorsOf { assertFalse(manager(url, mode = SchemaMode.VALIDATE).updateSchema()) }
+        assertTrue(errors.any { it.contains("SCHEMA_MODE=validate never baselines") }, "the ERROR must give the reason: $errors")
         assertFalse(tableExists(url, "flyway_schema_history"), "validate must never baseline")
     }
 
@@ -280,6 +287,19 @@ class FlywayOnlyMigrationTest {
         }
     }
 
+    /**
+     * foreign_keys=0 is also SQLite's default, so the test above cannot tell an explicit OFF from no setting. A JDBC URL
+     * that asks for foreign_keys=true (a DATABASE_PATH carrying it, AR-36) shows `enforceForeignKeys(false)` winning.
+     */
+    @Test
+    fun `S5 foreign_keys=true in the JDBC URL still yields foreign_keys off on the Flyway connection`() {
+        val url = newUrl(dir) + "?foreign_keys=true"
+        withConn(url) { c -> assertEquals(1, pragmaInt(c, "foreign_keys"), "fixture: the URL parameter turns foreign keys on") }
+        manager(url).flywayConfiguration().dataSource.connection.use { c ->
+            assertEquals(0, pragmaInt(c, "foreign_keys"), "enforceForeignKeys(false) must win over the URL parameter")
+        }
+    }
+
     @Test
     fun `S5 default busy timeout is 5000 ms on the Flyway connection`() {
         val cfg = FlywayDatabaseSchemaManager(newUrl(dir), repair = false).flywayConfiguration()
@@ -291,6 +311,26 @@ class FlywayOnlyMigrationTest {
     @Test
     fun `S5 V7 table recreation does not cascade-delete child rows of a populated V6 database`() {
         // V7 drops and recreates work_items; with foreign_keys ON that DROP would delete notes.
+        val url = populatedV6()
+
+        assertTrue(manager(url).updateSchema())
+
+        assertEquals(1, scalarInt(url, "SELECT count(*) FROM work_items"))
+        assertEquals(1, scalarInt(url, "SELECT count(*) FROM notes"), "child note must survive the V7 recreation")
+    }
+
+    @Test
+    fun `S5 V7 recreation keeps child rows even when the JDBC URL asks for foreign_keys=true`() {
+        val url = populatedV6()
+
+        assertTrue(manager("$url?foreign_keys=true").updateSchema())
+
+        assertEquals(1, scalarInt(url, "SELECT count(*) FROM work_items"))
+        assertEquals(1, scalarInt(url, "SELECT count(*) FROM notes"), "enforceForeignKeys(false) must beat the URL parameter")
+    }
+
+    /** A file at V6 holding one work item and one note that references it. */
+    private fun populatedV6(): String {
         val url = newUrl(dir)
         manager(url).flywayConfiguration(target = "6").load().migrate()
         val id = UUID.randomUUID()
@@ -313,11 +353,7 @@ class FlywayOnlyMigrationTest {
                     ps.executeUpdate()
                 }
         }
-
-        assertTrue(manager(url).updateSchema())
-
-        assertEquals(1, scalarInt(url, "SELECT count(*) FROM work_items"))
-        assertEquals(1, scalarInt(url, "SELECT count(*) FROM notes"), "child note must survive the V7 recreation")
+        return url
     }
 
     // ---- Flyway configuration contract (declaration KDoc) ----

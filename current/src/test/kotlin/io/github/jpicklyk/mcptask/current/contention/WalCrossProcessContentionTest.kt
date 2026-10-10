@@ -37,6 +37,10 @@ class WalCrossProcessContentionTest {
     fun `K1 eight holders on two managers race one lease key`() =
         runScenario(REPEATS, twoManagers = true) { WalScenarios.k1LeaseAcquireRace(it, holders = 8) }
 
+    @Test
+    fun `R1 a reparent on two managers races a create under and a start of a descendant`() =
+        runScenario(REPEATS, twoManagers = true) { WalReparentScenarios.r1ReparentVersusAdvanceAndCreate(it) }
+
     private companion object {
         const val REPEATS = 8
     }
