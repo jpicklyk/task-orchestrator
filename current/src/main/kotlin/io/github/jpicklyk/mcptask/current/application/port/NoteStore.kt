@@ -39,22 +39,4 @@ interface NoteStore {
      */
     suspend fun findRefsByItemIds(itemIds: Set<UUID>): Map<UUID, List<NoteRef>> =
         findByItemIds(itemIds).mapValues { (_, notes) -> notes.map { NoteRef(it.id, it.itemId, it.key, it.role) } }
-
-    /**
-     * Full-text search on note bodies using the V7 FTS5 virtual tables.
-     *
-     * @param sanitizedFtsQuery FTS5 query string, already sanitized by the caller (QueryNotesTool).
-     * @param matchMode Which FTS table(s) to query.
-     * @param scope     Optional structural scope filters. [SearchScope.itemId] narrows to notes on
-     *   that specific item; [SearchScope.ancestorId] narrows to notes whose item_id is in the subtree.
-     * @param limit     Maximum hits to return (enforced at 100; default 20).
-     * @param offset    Zero-based page offset.
-     */
-    suspend fun ftsSearch(
-        sanitizedFtsQuery: String,
-        matchMode: SearchMatchMode = SearchMatchMode.AUTO,
-        scope: SearchScope? = null,
-        limit: Int = 20,
-        offset: Int = 0,
-    ): SearchResult
 }

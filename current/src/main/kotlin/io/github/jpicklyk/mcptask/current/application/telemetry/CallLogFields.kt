@@ -127,8 +127,34 @@ object CallLogFields {
      * Only the param SHAPE is kept, never a string or an id. A key must match `^[A-Za-z0-9_.-]{1,64}$` (others are
      * dropped silently) and at most [MAX_SHAPE_KEYS] keys (the first in sorted order) are kept.
      */
-    fun requestShapeJson(arguments: JsonObject?): String? {
-        if (arguments == null) return null
+    fun requestShapeJson(arguments: JsonObject?): String? = requestShapeJson(arguments, null)
+
+    /**
+     * [requestShapeJson] plus the server-derived [searchShape] of a search call (`queryHash`, `termCount`,
+     * `matchMode`), which always survive the [MAX_SHAPE_KEYS] limit and replace a client flag of the same name.
+     * The query text is never part of it.
+     */
+    fun requestShapeJson(
+        arguments: JsonObject?,
+        searchShape: CallTelemetry.SearchShape?
+    ): String? {
+        val extras = searchShape?.let { searchShapeFields(it) } ?: emptyMap()
+        val client = clientShape(arguments).filterKeys { it !in extras }
+        if (client.isEmpty() && extras.isEmpty()) return null
+        val kept = client.entries.take(MAX_SHAPE_KEYS - extras.size).associate { it.key to it.value }
+        return JsonObject((kept + extras).toSortedMap()).toString()
+    }
+
+    /** The `request_shape` fields of a search call. */
+    fun searchShapeFields(shape: CallTelemetry.SearchShape): Map<String, JsonElement> =
+        mapOf(
+            "queryHash" to JsonPrimitive(shape.queryHash),
+            "termCount" to JsonPrimitive(shape.termCount),
+            "matchMode" to JsonPrimitive(shape.matchMode)
+        )
+
+    private fun clientShape(arguments: JsonObject?): Map<String, JsonElement> {
+        if (arguments == null) return emptyMap()
         val shape = sortedMapOf<String, JsonElement>()
         for ((key, value) in arguments) {
             if (!SHAPE_KEY_PATTERN.matches(key)) continue
@@ -140,8 +166,7 @@ object CallLogFields {
                 primitive.longOrNull?.let { shape[key] = JsonPrimitive(it) }
             }
         }
-        if (shape.isEmpty()) return null
-        return JsonObject(shape.entries.take(MAX_SHAPE_KEYS).associate { it.key to it.value }).toString()
+        return shape
     }
 
     /** Length of the first present top-level array among the batch keys, else null. */
