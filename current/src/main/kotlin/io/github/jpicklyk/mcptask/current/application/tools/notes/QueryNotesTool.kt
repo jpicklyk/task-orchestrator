@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.application.tools.notes
 
-import io.github.jpicklyk.mcptask.current.application.knowledge.search.AccessScope
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.Ranker
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchRequest
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchValidationException
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.Corpus
 import io.github.jpicklyk.mcptask.current.application.port.MAX_FTS_RESULTS
 import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode

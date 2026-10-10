@@ -54,7 +54,7 @@ class NextItemRecommender(
         /**
          * Optional subtree scope forwarded to [WorkItemRepository.findClaimable]. When null
          * (default), unscoped. When non-null, candidates are restricted to the subtree(s)
-         * rooted at these UUIDs (roots included) — same resolution as [WorkItemRepository.findInScope].
+         * rooted at these UUIDs (roots included) — same resolution as [WorkItemRepository.find]'s `AccessScope.rootIds`.
          */
         val ancestorIds: Set<UUID>? = null,
     )

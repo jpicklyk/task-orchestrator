@@ -8,6 +8,8 @@ import io.github.jpicklyk.mcptask.current.application.port.ScopeFilter
 import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
 import io.github.jpicklyk.mcptask.current.application.port.TextQuery
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.LikeLiteral
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.TagAllowlistSql
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.rawQuery
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.readTx
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.uuidOf
@@ -95,15 +97,6 @@ class SqliteSearchEngine(
         private const val MARK_CLOSE = "</mark>"
         private const val ELLIPSIS = "…"
         private const val SNIPPET_TOKENS = 32
-
-        /** Every BMP character Kotlin's `trim()` strips, as the character set for SQLite's `trim(X, Y)`. */
-        val TRIM_CHARS: String =
-            buildString {
-                for (code in 0..0xFFFF) {
-                    val c = Char(code)
-                    if (!c.isSurrogate() && c.isWhitespace()) append(c)
-                }
-            }
 
         private val uuidType = UUIDColumnType()
         private val textType = VarCharColumnType(4000)
@@ -194,34 +187,27 @@ class SqliteSearchEngine(
                     ?.filter { it.isNotEmpty() }
                     .orEmpty()
             if (requestTags.isNotEmpty()) {
-                // 3.x semantics, unchanged: case-insensitive membership of the comma-separated list.
+                // 3.x semantics: case-insensitive membership of the comma-separated list. The tag is a literal:
+                // LIKE metacharacters in it are escaped (LikeLiteral), never wildcards.
+                val esc = LikeLiteral.ESCAPE_CLAUSE
                 where +=
                     requestTags.joinToString(" OR ", prefix = "(", postfix = ")") {
-                        "(LOWER(wi.tags) = ? OR LOWER(wi.tags) LIKE ? OR LOWER(wi.tags) LIKE ? OR LOWER(wi.tags) LIKE ?)"
+                        "(LOWER(wi.tags) = ? OR LOWER(wi.tags) LIKE ? $esc OR LOWER(wi.tags) LIKE ? $esc" +
+                            " OR LOWER(wi.tags) LIKE ? $esc)"
                     }
                 for (t in requestTags) {
+                    val e = LikeLiteral.escape(t)
                     whereArgs += textType to t
-                    whereArgs += textType to "$t,%"
-                    whereArgs += textType to "%,$t,%"
-                    whereArgs += textType to "%,$t"
+                    whereArgs += textType to "$e,%"
+                    whereArgs += textType to "%,$e,%"
+                    whereArgs += textType to "%,$e"
                 }
                 needsItemRow = true
             }
             filter.principalTagsAny?.takeIf { it.isNotEmpty() }?.let { allowed ->
-                where +=
-                    """
-                    EXISTS (
-                        WITH RECURSIVE tag_split(rest, tag) AS (
-                            SELECT wi.tags || ',', NULL
-                            UNION ALL
-                            SELECT substr(rest, instr(rest, ',') + 1), trim(substr(rest, 1, instr(rest, ',') - 1), ?)
-                            FROM tag_split WHERE rest <> ''
-                        )
-                        SELECT 1 FROM tag_split WHERE tag <> '' AND tag IN (${allowed.joinToString(", ") { "?" }})
-                    )
-                    """.trimIndent()
-                whereArgs += textType to TRIM_CHARS
-                allowed.forEach { whereArgs += textType to it }
+                // The same predicate the item store applies (one SQL form of the tags_include rule).
+                where += TagAllowlistSql.render("wi.tags", allowed.size)
+                TagAllowlistSql.args(allowed).forEach { whereArgs += textType to it }
                 needsItemRow = true
             }
 

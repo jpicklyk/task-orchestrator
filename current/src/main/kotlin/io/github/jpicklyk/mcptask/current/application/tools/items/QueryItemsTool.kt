@@ -1,15 +1,19 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.knowledge.search.AccessScope
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.Ranker
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchRequest
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchValidationException
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.Corpus
-import io.github.jpicklyk.mcptask.current.application.port.ItemSortFields
+import io.github.jpicklyk.mcptask.current.application.port.ItemFilter
+import io.github.jpicklyk.mcptask.current.application.port.ItemPage
+import io.github.jpicklyk.mcptask.current.application.port.ItemSort
+import io.github.jpicklyk.mcptask.current.application.port.ItemSortField
 import io.github.jpicklyk.mcptask.current.application.port.MAX_FTS_RESULTS
 import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.application.port.SearchResult
+import io.github.jpicklyk.mcptask.current.application.port.SortDirection
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
@@ -498,15 +502,15 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                     throw ToolValidationException("offset must be non-negative")
                 }
                 val sortByVal = optionalString(params, "sortBy")
-                if (sortByVal != null && ItemSortFields.canonicalField(sortByVal) == null) {
+                if (sortByVal != null && ItemSortField.parse(sortByVal) == null) {
                     throw ToolValidationException(
-                        "Invalid sortBy: \"$sortByVal\". Valid values: ${ItemSortFields.FIELDS.joinToString(", ")}"
+                        "Invalid sortBy: \"$sortByVal\". Valid values: ${ItemSortField.WIRE_NAMES.joinToString(", ")}"
                     )
                 }
                 val sortOrderVal = optionalString(params, "sortOrder")
-                if (sortOrderVal != null && sortOrderVal.lowercase() !in ItemSortFields.ORDERS) {
+                if (sortOrderVal != null && SortDirection.parse(sortOrderVal) == null) {
                     throw ToolValidationException(
-                        "Invalid sortOrder: \"$sortOrderVal\". Valid values: ${ItemSortFields.ORDERS.joinToString(", ")}"
+                        "Invalid sortOrder: \"$sortOrderVal\". Valid values: ${SortDirection.WIRE_NAMES.joinToString(", ")}"
                     )
                 }
             }
@@ -937,15 +941,18 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
         // claimStatus filter — validated in validateParams; safe to use directly here
         val claimStatusFilter = ClaimStatus.fromWire(optionalString(params, "claimStatus"))
 
-        // Validate time ranges — reject inverted ranges early
-        if (createdAfter != null && createdBefore != null && createdAfter > createdBefore) {
-            return errorResponse("createdAfter must be before createdBefore", LegacyMcpCode.VALIDATION_ERROR)
-        }
-        if (modifiedAfter != null && modifiedBefore != null && modifiedAfter > modifiedBefore) {
-            return errorResponse("modifiedAfter must be before modifiedBefore", LegacyMcpCode.VALIDATION_ERROR)
-        }
-        if (roleChangedAfter != null && roleChangedBefore != null && roleChangedAfter > roleChangedBefore) {
-            return errorResponse("roleChangedAfter must be before roleChangedBefore", LegacyMcpCode.VALIDATION_ERROR)
+        // Reject inverted time ranges early (the first one, in created/modified/roleChanged order).
+        val timeFilter =
+            ItemFilter(
+                createdAfter = createdAfter,
+                createdBefore = createdBefore,
+                modifiedAfter = modifiedAfter,
+                modifiedBefore = modifiedBefore,
+                roleChangedAfter = roleChangedAfter,
+                roleChangedBefore = roleChangedBefore,
+            )
+        timeFilter.validate().firstOrNull()?.let { violation ->
+            return errorResponse("${violation.field} ${violation.reason}", LegacyMcpCode.VALIDATION_ERROR)
         }
 
         // Parse role
@@ -968,121 +975,31 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
         // Parse tags
         val tags = tagsStr?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
 
-        // Get full match count (no limit/offset) for accurate pagination metadata.
-        // When ancestorId is set, route through countInScope/findInScope (T2.2 scoped variants)
-        // instead of countByFilters/findByFilters — same filter set, additionally restricted to
-        // the ancestor's subtree (inclusive). Omitted ancestorId preserves whole-DB behavior.
-        val totalCount =
-            if (ancestorId != null) {
-                run {
-                    val countResult =
-                        legacyRead({ return errorResponse(it, LegacyMcpCode.DATABASE_ERROR) }) {
-                            context.workItemRepository().countInScope(
-                                rootIds = setOf(ancestorId),
-                                parentId = parentId,
-                                depth = depth,
-                                role = role,
-                                priority = priority,
-                                tags = tags,
-                                query = null,
-                                createdAfter = createdAfter,
-                                createdBefore = createdBefore,
-                                modifiedAfter = modifiedAfter,
-                                modifiedBefore = modifiedBefore,
-                                roleChangedAfter = roleChangedAfter,
-                                roleChangedBefore = roleChangedBefore,
-                                type = typeFilter,
-                                claimStatus = claimStatusFilter
-                            )
-                        }
-                    countResult
-                }
-            } else {
-                run {
-                    val countResult =
-                        legacyRead({ return errorResponse(it, LegacyMcpCode.DATABASE_ERROR) }) {
-                            context.workItemRepository().countByFilters(
-                                parentId = parentId,
-                                depth = depth,
-                                role = role,
-                                priority = priority,
-                                tags = tags,
-                                query = null, // LIKE-based query removed; FTS goes through executeFtsSearch
-                                createdAfter = createdAfter,
-                                createdBefore = createdBefore,
-                                modifiedAfter = modifiedAfter,
-                                modifiedBefore = modifiedBefore,
-                                roleChangedAfter = roleChangedAfter,
-                                roleChangedBefore = roleChangedBefore,
-                                type = typeFilter,
-                                claimStatus = claimStatusFilter
-                            )
-                        }
-                    countResult
-                }
-            }
+        // ancestorId restricts the same filter set to the ancestor's subtree (inclusive); omitted
+        // ancestorId preserves whole-DB behavior.
+        val filter =
+            timeFilter.copy(
+                parentId = parentId,
+                ancestorId = ancestorId,
+                depth = depth,
+                role = role,
+                priority = priority,
+                tagsAny = tags,
+                type = typeFilter,
+                claimStatus = claimStatusFilter,
+            )
+        // validateParams already rejected unknown values, so the parse cannot fail here.
+        val sort = ItemSort.parse(sortBy, sortOrder) ?: ItemSort.DEFAULT
 
-        // findInScope returns a plain List<WorkItem> (no per-row validation-drop tracking like
-        // ItemFetchResult.skipped), so the scoped path always reports skipped=0.
-        val itemsAndSkipped: Pair<List<WorkItem>, Int> =
-            if (ancestorId != null) {
-                run {
-                    val result =
-                        legacyRead({ return errorResponse(it, LegacyMcpCode.DATABASE_ERROR) }) {
-                            context.workItemRepository().findInScope(
-                                rootIds = setOf(ancestorId),
-                                parentId = parentId,
-                                depth = depth,
-                                role = role,
-                                priority = priority,
-                                tags = tags,
-                                query = null,
-                                createdAfter = createdAfter,
-                                createdBefore = createdBefore,
-                                modifiedAfter = modifiedAfter,
-                                modifiedBefore = modifiedBefore,
-                                roleChangedAfter = roleChangedAfter,
-                                roleChangedBefore = roleChangedBefore,
-                                sortBy = sortBy,
-                                sortOrder = sortOrder,
-                                limit = limit,
-                                offset = offset,
-                                type = typeFilter,
-                                claimStatus = claimStatusFilter
-                            )
-                        }
-                    Pair(result, 0)
-                }
-            } else {
-                run {
-                    val result =
-                        legacyRead({ return errorResponse(it, LegacyMcpCode.DATABASE_ERROR) }) {
-                            context.workItemRepository().findByFilters(
-                                parentId = parentId,
-                                depth = depth,
-                                role = role,
-                                priority = priority,
-                                tags = tags,
-                                query = null, // LIKE-based query removed; FTS goes through executeFtsSearch
-                                createdAfter = createdAfter,
-                                createdBefore = createdBefore,
-                                modifiedAfter = modifiedAfter,
-                                modifiedBefore = modifiedBefore,
-                                roleChangedAfter = roleChangedAfter,
-                                roleChangedBefore = roleChangedBefore,
-                                sortBy = sortBy,
-                                sortOrder = sortOrder,
-                                limit = limit,
-                                offset = offset,
-                                type = typeFilter,
-                                claimStatus = claimStatusFilter
-                            )
-                        }
-                    Pair(result.items, result.skipped)
-                }
+        // Full match count (no limit/offset) for accurate pagination metadata.
+        val totalCount =
+            legacyRead({ return errorResponse(it, LegacyMcpCode.DATABASE_ERROR) }) {
+                context.workItemRepository().count(filter)
             }
-        val items = itemsAndSkipped.first
-        val skipped = itemsAndSkipped.second
+        val items: List<WorkItem> =
+            legacyRead({ return errorResponse(it, LegacyMcpCode.DATABASE_ERROR) }) {
+                context.workItemRepository().find(filter, page = ItemPage(limit, offset), sort = sort)
+            }
 
         val chains: Map<java.util.UUID, List<WorkItem>> =
             if (includeAncestors && items.isNotEmpty()) {
@@ -1105,11 +1022,9 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                         }
                     )
                 )
-                // total = raw SQL count (countByFilters/countInScope), unaffected by validation drops.
-                // Invariant: total = returned + skipped + notFetched (rows beyond limit/offset).
+                // total = raw SQL count, unaffected by limit/offset.
                 put("total", JsonPrimitive(totalCount))
                 put("returned", JsonPrimitive(items.size))
-                if (skipped > 0) put("skipped", JsonPrimitive(skipped))
                 put("limit", JsonPrimitive(limit))
                 put("offset", JsonPrimitive(offset))
             }

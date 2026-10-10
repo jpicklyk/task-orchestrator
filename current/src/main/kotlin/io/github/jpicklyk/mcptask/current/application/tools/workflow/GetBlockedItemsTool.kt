@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.port.ItemFilter
+import io.github.jpicklyk.mcptask.current.application.port.ItemPage
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
@@ -129,12 +131,13 @@ Call when work appears stalled or someone asks why an item cannot start.
                     logger.warn("Failed to query items for role $role: $it")
                     continue
                 }) {
-                    if (ancestorId != null) {
-                        // Scoped path: findInScope composes ancestorId's subtree restriction with the
-                        // existing optional parentId filter in a single call.
-                        workItemRepo.findInScope(rootIds = setOf(ancestorId), parentId = parentId, role = role, limit = 500)
-                    } else if (parentId != null) {
-                        workItemRepo.findByFilters(parentId = parentId, role = role, limit = 500).items
+                    if (ancestorId != null || parentId != null) {
+                        // One filtered query: ancestorId's subtree restriction (when set) AND-ed with the
+                        // optional parentId filter.
+                        workItemRepo.find(
+                            ItemFilter(parentId = parentId, ancestorId = ancestorId, role = role),
+                            page = ItemPage(limit = 500),
+                        )
                     } else {
                         workItemRepo.findByRole(role, limit = 500)
                     }
@@ -142,7 +145,7 @@ Call when work appears stalled or someone asks why an item cannot start.
             allCandidates.addAll(items)
         }
 
-        // Deduplicate by ID (in case findByFilters returns overlapping results)
+        // Deduplicate by ID (in case the role queries return overlapping results)
         val candidateMap = allCandidates.associateBy { it.id }
 
         // Process each candidate to determine if it is truly blocked
