@@ -144,7 +144,8 @@ class CallLogWriterTest {
                 writer.start()
                 val lost = sampleCallLogRecord(testReqId(1))
                 writer.submit(lost)
-                waitUntil { writer.failed >= 1L }
+                // The writer counts the failure before it logs the WARN, so wait for both.
+                waitUntil { writer.failed >= 1L && capture.events.any { it.level == Level.WARN } }
                 assertEquals(0L, writer.written, "nothing was written by the failed batch")
                 assertTrue(capture.events.any { it.level == Level.WARN }, "a failed batch is WARN-logged")
 
