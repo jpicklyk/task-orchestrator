@@ -45,7 +45,32 @@ internal object ErrorFixtures {
         }
 
     /** fix args filling exactly the slot set of [code]. */
-    fun fixArgs(code: ErrorCode): Map<String, String> = ErrorFixTemplates.slots(code).associateWith { "val-$it" }
+    fun fixArgs(code: ErrorCode): Map<String, String> =
+        ErrorFixTemplates.slots(code).associateWith { slot -> literalFixArgs[code]?.get(slot) ?: "val-$slot" }
+
+    /** Literal values agreeing with [detail]; deliberately independent of the production slot mapping. */
+    private val literalFixArgs: Map<ErrorCode, Map<String, String>> =
+        mapOf(
+            ErrorCode.NOT_FOUND to mapOf("kind" to "item", "id" to "11111111-1111-1111-1111-111111111111"),
+            ErrorCode.AMBIGUOUS_ID to mapOf("prefix" to "ab12"),
+            ErrorCode.VERSION_CONFLICT to mapOf("kind" to "item", "id" to "11111111-1111-1111-1111-111111111111", "actual" to "4"),
+            ErrorCode.DUPLICATE to mapOf("kind" to "dependency", "existingId" to "22222222-2222-2222-2222-222222222222"),
+            ErrorCode.IDEMPOTENCY_MISMATCH to mapOf("idempotencyKey" to "key-1"),
+            ErrorCode.INVALID_TRANSITION to
+                mapOf("itemId" to "11111111-1111-1111-1111-111111111111", "trigger" to "complete", "fromRole" to "queue"),
+            ErrorCode.GATE_BLOCKED to mapOf("itemId" to "11111111-1111-1111-1111-111111111111"),
+            ErrorCode.DEPENDENCY_UNMET to mapOf("itemId" to "11111111-1111-1111-1111-111111111111"),
+            ErrorCode.CLAIM_HELD to mapOf("itemId" to "11111111-1111-1111-1111-111111111111"),
+            ErrorCode.NOT_CLAIM_HOLDER to mapOf("itemId" to "11111111-1111-1111-1111-111111111111"),
+            ErrorCode.SEAT_FORBIDDEN to mapOf("itemId" to "11111111-1111-1111-1111-111111111111", "action" to "write"),
+            ErrorCode.NOTE_OWNED_BY_OTHER to mapOf("itemId" to "11111111-1111-1111-1111-111111111111", "key" to "task-scope"),
+            ErrorCode.NOTE_TOO_LONG to mapOf("key" to "task-scope", "max" to "100"),
+            ErrorCode.RESOURCE_UNAVAILABLE to mapOf("itemId" to "11111111-1111-1111-1111-111111111111"),
+            ErrorCode.SCHEMA_PINNED_CONFLICT to
+                mapOf("itemId" to "11111111-1111-1111-1111-111111111111", "pinnedVersion" to "v1", "currentVersion" to "v2"),
+            ErrorCode.PAYLOAD_TOO_LARGE to mapOf("max" to "1000"),
+            ErrorCode.FORBIDDEN to mapOf("scope" to "root", "required" to "root-1")
+        )
 
     fun error(code: ErrorCode): DomainError = DomainError(code, "Something happened.", detail(code), fixArgs(code))
 }

@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.config.LayeredConfig
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
 import io.github.jpicklyk.mcptask.current.application.config.ServiceBackedGlobalLookup
+import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
@@ -130,6 +131,12 @@ class ToolExecutionContext(
 
     /** The plan-document write owner (stash, and the adoption `create_work_tree` runs in its unit). */
     val planDocumentService: PlanDocumentService by lazy { PlanDocumentService(repositoryProvider, unitOfWork) }
+
+    /**
+     * Full-text search over items and notes, built from [RepositoryProvider.searchIndex] on first use (a provider
+     * without a search index fails only when a search actually runs).
+     */
+    val searchService: SearchService by lazy { SearchService(repositoryProvider.searchIndex()) }
 
     /** Access to WorkItem CRUD and query operations. */
     fun workItemRepository(): WorkItemRepository = repositoryProvider.workItemRepository()

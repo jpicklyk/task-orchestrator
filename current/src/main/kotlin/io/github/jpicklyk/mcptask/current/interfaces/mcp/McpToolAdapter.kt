@@ -323,7 +323,7 @@ class McpToolAdapter(
                     tool = toolDefinition.name,
                     operation = CallLogFields.operation(arguments),
                     targetIds = CallLogFields.targetIdsJson(arguments),
-                    requestShape = CallLogFields.requestShapeJson(shapeSource),
+                    requestShape = CallLogFields.requestShapeJson(shapeSource, telemetry.searchShape),
                     isError = isError,
                     errorCode = errorCode,
                     latencyMs = latencyMs,

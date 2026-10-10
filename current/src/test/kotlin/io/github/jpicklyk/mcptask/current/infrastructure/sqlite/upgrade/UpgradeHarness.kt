@@ -1,7 +1,15 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade
 
+import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
+import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepKind
+import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepReport
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.StartupIntegrity
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.FlywayDatabaseSchemaManager
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
+import kotlinx.coroutines.runBlocking
 import org.flywaydb.core.api.callback.Callback
 import org.flywaydb.core.api.callback.Context
 import org.flywaydb.core.api.callback.Event
@@ -185,9 +193,12 @@ object UpgradeHarness {
         conn: Connection,
         before: Dump,
         transforms: List<MigrationSeed>,
-        probe: FkProbe?
+        probe: FkProbe?,
+        dataSteps: DataStepReport? = null,
+        registeredDataSteps: List<DataStep> = emptyList()
     ): List<String> {
         val failures = mutableListOf<String>()
+        failures += dataStepFailures(conn, dataSteps, registeredDataSteps)
         if (probe != null && probe.observed.isEmpty()) failures += "the foreign-key probe never fired (vacuous check)"
         probe?.violations()?.forEach { failures += "foreign_keys was '$it' (not 0) on Flyway's connection during a migration" }
 
@@ -221,6 +232,25 @@ object UpgradeHarness {
         failures += ftsFailures(conn)
         runCatching { StartupIntegrity.verifyInventory(conn) }.onFailure { failures += "inventory: ${it.message}" }
         return failures
+    }
+
+    /**
+     * A once step that is registered (or that the run reported as applied or skipped) but has no `data_steps` row
+     * means the readiness gate would have refused this database. Vacuous while no production step exists.
+     */
+    private fun dataStepFailures(
+        conn: Connection,
+        report: DataStepReport?,
+        registered: List<DataStep>
+    ): List<String> {
+        if (report == null && registered.isEmpty()) return emptyList()
+        val recorded =
+            conn.createStatement().use { st ->
+                st.executeQuery("SELECT name FROM data_steps").use { rs -> buildSet { while (rs.next()) add(rs.getString(1)) } }
+            }
+        val expected =
+            registered.filter { it.kind == DataStepKind.ONCE }.map { it.name } + (report?.applied.orEmpty()) + (report?.skipped.orEmpty())
+        return expected.distinct().filter { it !in recorded }.map { "data step '$it' has no data_steps row" }
     }
 
     private fun ftsFailures(conn: Connection): List<String> {
@@ -261,6 +291,37 @@ object UpgradeHarness {
     ): List<MigrationSeed> = seeds.filter { it.version >= version }
 
     /**
+     * Boots the production data-step runner against the already migrated database at [url] (the same composition the
+     * server builds, with an empty AGENT_CONFIG_DIR so no config or network is touched) and returns its report.
+     */
+    fun runProductionDataSteps(
+        url: String,
+        dir: File
+    ): DataStepReport = runProductionDataStepsWithPlan(url, dir).first
+
+    /** Like [runProductionDataSteps], also returning the registered steps in run order (for [checkUpgrade]). */
+    fun runProductionDataStepsWithPlan(
+        url: String,
+        dir: File,
+        extraSteps: List<DataStep> = emptyList()
+    ): Pair<DataStepReport, List<DataStep>> {
+        val configDir = File(dir, "empty-agent-config").also { it.mkdirs() }
+        val appConfig = AppConfig.fromEnv { key -> if (key == "AGENT_CONFIG_DIR") configDir.absolutePath else null }
+        val databaseManager = DatabaseManager(appConfig = appConfig)
+        check(databaseManager.initialize(url)) { "could not open $url for the data-step run" }
+        try {
+            val runner =
+                ServerComposition(appConfig, databaseManager, ShutdownCoordinator(), extraDataSteps = extraSteps)
+                    .build()
+                    .dataStepRunner
+            val plan = runner.plan()
+            return runBlocking { runner.run() } to plan
+        } finally {
+            databaseManager.shutdown()
+        }
+    }
+
+    /**
      * Runs the whole step for migration [version]: fresh file at version-1, baseline plus that version's seed,
      * bare migrate to latest, then [checkUpgrade] and the seed's own [MigrationSeed.verify].
      */
@@ -280,9 +341,10 @@ object UpgradeHarness {
         }
         val before = DriverManager.getConnection(url).use { dump(it) }
         val probe = migrate(url)
+        val (report, registered) = runProductionDataStepsWithPlan(url, dir)
         val failures =
             DriverManager.getConnection(url).use { conn ->
-                val found = checkUpgrade(conn, before, applicableSeeds(version, seeds), probe).toMutableList()
+                val found = checkUpgrade(conn, before, applicableSeeds(version, seeds), probe, report, registered).toMutableList()
                 if (ownSeed != null) {
                     runCatching { ownSeed.verify(conn) }.onFailure { found += "seed V$version verify: ${it.message}" }
                 }

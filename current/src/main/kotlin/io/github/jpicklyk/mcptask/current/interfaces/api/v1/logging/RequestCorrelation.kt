@@ -299,7 +299,7 @@ private fun submitRestCall(
                 tool = tool,
                 operation = null,
                 targetIds = CallLogFields.targetIdsJson(null, uuidSegments),
-                requestShape = restRequestShape(call.request.queryString()),
+                requestShape = restRequestShape(call.request.queryString(), telemetry.searchShape),
                 isError = isError,
                 errorCode = errorCode,
                 latencyMs = latencyMs,
@@ -316,9 +316,15 @@ private fun submitRestCall(
     }
 }
 
-/** Boolean query params plus a numeric `limit`, as the MCP request shape; null when none. */
-private fun restRequestShape(queryString: String): String? {
-    if (queryString.isEmpty()) return null
+/**
+ * Boolean query params plus a numeric `limit`, as the MCP request shape, plus a search call's [searchShape]
+ * (query hash, term count, match mode; never the `q` text); null when none.
+ */
+private fun restRequestShape(
+    queryString: String,
+    searchShape: CallTelemetry.SearchShape?
+): String? {
+    if (queryString.isEmpty() && searchShape == null) return null
     val args = HashMap<String, kotlinx.serialization.json.JsonElement>()
     for (pair in queryString.split('&')) {
         val eq = pair.indexOf('=')
@@ -330,5 +336,5 @@ private fun restRequestShape(queryString: String): String? {
             key == "limit" -> value.toLongOrNull()?.let { args[key] = kotlinx.serialization.json.JsonPrimitive(it) }
         }
     }
-    return CallLogFields.requestShapeJson(kotlinx.serialization.json.JsonObject(args))
+    return CallLogFields.requestShapeJson(kotlinx.serialization.json.JsonObject(args), searchShape)
 }

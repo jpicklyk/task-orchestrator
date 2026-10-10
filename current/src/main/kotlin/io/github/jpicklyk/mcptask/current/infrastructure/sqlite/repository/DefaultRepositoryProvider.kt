@@ -9,9 +9,11 @@ import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.knowledge.search.SqliteSearchEngine
 import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
 
 /**
@@ -35,8 +37,11 @@ class DefaultRepositoryProvider(
     private val resourceLeaseRepo by lazy { SQLiteResourceLeaseRepository(databaseManager, clock) }
     private val idempotencyStoreInstance by lazy { SqliteIdempotencyStore(databaseManager) }
     private val eventStoreInstance by lazy { SqliteEventStore(databaseManager) }
+    private val searchEngine by lazy { SqliteSearchEngine(databaseManager) }
 
     override fun workItemRepository(): WorkItemRepository = workItemRepo
+
+    override fun searchIndex(): SearchIndex = searchEngine
 
     override fun noteRepository(): NoteStore = noteRepo
 

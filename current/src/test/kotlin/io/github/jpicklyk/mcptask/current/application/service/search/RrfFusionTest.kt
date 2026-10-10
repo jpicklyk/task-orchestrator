@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service.search
 
+import io.github.jpicklyk.mcptask.current.application.knowledge.search.RrfFusion
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test

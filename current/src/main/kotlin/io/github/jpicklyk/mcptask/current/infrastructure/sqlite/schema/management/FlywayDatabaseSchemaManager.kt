@@ -65,11 +65,14 @@ class FlywayDatabaseSchemaManager(
      * - `ignoreMigrationPatterns("*:missing")` replaces Flyway's default `*:future`, so a database
      *   whose history is AHEAD of this binary fails validation (fail closed, AR-37) while an applied
      *   version with no local file below the latest is still tolerated.
+     * - Repair (`ignoreFuture = true`) also ignores `*:future`, so `FLYWAY_REPAIR` never marks a newer
+     *   applied version as deleted (that would erase the evidence the fail-closed guard relies on).
      * - The DataSource is Flyway's own connection (see [flywayDataSource]).
      */
     internal fun flywayConfiguration(
         url: String = jdbcUrl,
-        target: String? = null
+        target: String? = null,
+        ignoreFuture: Boolean = false
     ): FluentConfiguration {
         val config =
             Flyway
@@ -78,7 +81,7 @@ class FlywayDatabaseSchemaManager(
                 .locations(MIGRATION_LOCATION)
                 .validateMigrationNaming(true)
                 .cleanDisabled(true)
-                .ignoreMigrationPatterns("*:missing")
+                .ignoreMigrationPatterns(*(if (ignoreFuture) arrayOf("*:missing", "*:future") else arrayOf("*:missing")))
         if (target != null) config.target(target)
         return config
     }
@@ -305,7 +308,7 @@ class FlywayDatabaseSchemaManager(
         try {
             logger.info("Starting Flyway repair...")
 
-            flywayConfiguration().load().repair()
+            flywayConfiguration(ignoreFuture = true).load().repair()
             logger.info("Flyway repair completed successfully")
 
             true

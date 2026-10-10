@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
@@ -33,6 +34,9 @@ class MockRepositoryProvider {
     val eventStore = InMemoryEventStore()
     val provider: RepositoryProvider = mockk()
 
+    /** Full-text search is its own port since 4.0 (no longer part of the work-item composite). */
+    val searchIndex: SearchIndex = mockk()
+
     init {
         every { provider.workItemRepository() } returns workItemRepo
         every { provider.noteRepository() } returns noteRepo
@@ -47,7 +51,7 @@ class MockRepositoryProvider {
         every { provider.itemStore() } returns workItemRepo
         every { provider.hierarchyStore() } returns workItemRepo
         every { provider.claimStore() } returns workItemRepo
-        every { provider.searchIndex() } returns workItemRepo
+        every { provider.searchIndex() } returns searchIndex
         // Default: noteRepo returns empty lists for any query
         coEvery { noteRepo.findByItemId(any()) } returns emptyList()
         coEvery { noteRepo.findByItemId(any(), any()) } returns emptyList()

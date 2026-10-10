@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
-import io.github.jpicklyk.mcptask.current.application.port.SearchScope
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.AncestorChain
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -28,12 +27,13 @@ import kotlin.test.assertTrue
 /**
  * Cycle-guard regression tests for the SQLite recursive-CTE traversal paths on
  * [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository]:
- * [WorkItemRepository.findDescendants], [WorkItemRepository.findInScope],
- * [WorkItemRepository.countInScope] and [WorkItemRepository.ftsSearch].
+ * [WorkItemRepository.findDescendants], [WorkItemRepository.findInScope] and
+ * [WorkItemRepository.countInScope]. (The search ancestor-scope cycle case, S10, moved to
+ * SqliteSearchIndexContractTest when full-text search left the work-item repository.)
  *
- * Item 71bc3d09 test-plan (S1, S3a, S4, S5, S10, S11a). Runs on a migrated SQLite database (SqliteTestDatabase); CycleTriggers drops the V7 `work_items_cycle_check*` triggers — exactly
- * the "harness omits work_items_cycle_check*" seam the test-plan calls for — while still
- * providing the real FTS5 virtual tables S10 needs. [forceParentId] then writes a corrupt
+ * Item 71bc3d09 test-plan (S1, S3a, S4, S5, S11a). Runs on a migrated SQLite database (SqliteTestDatabase); CycleTriggers drops the V7 `work_items_cycle_check*` triggers — exactly
+ * the "harness omits work_items_cycle_check*" seam the test-plan calls for.
+ * [forceParentId] then writes a corrupt
  * `parent_id` directly (bypassing [WorkItem.validate], which never rejects `parentId == id`
  * or a mutual pair), simulating pre-guard / pre-V7 data.
  *
@@ -205,33 +205,6 @@ class SQLiteWorkItemRepositoryCycleGuardTest {
                     repository.findDescendants(rootId!!)
                 }
             assertIs<IllegalStateException>(result)
-        }
-
-    // ── S10: ftsSearch subtree-scope CTE on a cycle (SQLite only) ──
-
-    @Test
-    @Timeout(value = 10, unit = TimeUnit.SECONDS)
-    fun `ftsSearch with an ancestor scope rooted at a cyclic node returns bounded results, not an error`(): Unit =
-        runBlocking {
-            val root = createItem("S10 root")
-            val a = createItem("S10 A", parentId = root.id, depth = 1)
-            val b = createItem("CycleScopeProbeQx19", parentId = a.id, depth = 2)
-
-            // b.parent_id is already a.id; forcing a.parent_id := b.id closes the mutual cycle.
-            // b is still a first-hop child of the scope root a, so a correct bounded walk must
-            // still find it even though continuing the walk would otherwise loop forever.
-            forceParentId(a.id, b.id)
-
-            val result =
-                repository.ftsSearch(
-                    sanitizedFtsQuery = "CycleScopeProbeQx19",
-                    scope = SearchScope(ancestorId = a.id),
-                )
-
-            assertTrue(
-                result.hits.any { it.itemId == b.id },
-                "expected the scoped search to still find the reachable descendant despite the cycle"
-            )
         }
 
     // ── S11a: findInScope / countInScope on cyclic SQLite data ─────────────

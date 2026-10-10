@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
+import io.github.jpicklyk.mcptask.current.application.BuildInfo
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.port.Clock
@@ -13,6 +14,8 @@ import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommende
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
+import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepRunner
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.ApiAuthConfigLoader
@@ -28,6 +31,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordi
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SqliteUnitOfWork
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteDataStepStore
 import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
@@ -85,6 +89,7 @@ class CompositionResult(
     val configResolver: EffectiveConfigResolver,
     val advanceServiceFactory: AdvanceServiceFactory,
     val unitOfWork: UnitOfWork,
+    val dataStepRunner: DataStepRunner,
 )
 
 /**
@@ -103,6 +108,7 @@ class CompositionResult(
  * @param databaseManager An already-initialized [DatabaseManager] (schema applied).
  * @param shutdownCoordinator Coordinator used to register cleanup of JWKS key providers.
  * @param clock The one clock bound into the whole graph; production uses [SystemClock], tests inject a settable one.
+ * @param extraDataSteps Test seam: data steps registered beside the production steps (none in production).
  */
 class ServerComposition(
     private val appConfig: AppConfig,
@@ -110,6 +116,7 @@ class ServerComposition(
     private val shutdownCoordinator: ShutdownCoordinator,
     private val logger: Logger = LoggerFactory.getLogger(ServerComposition::class.java),
     private val clock: Clock = SystemClock,
+    private val extraDataSteps: List<DataStep> = emptyList(),
 ) {
     /**
      * Wires the object graph and returns a [CompositionResult].
@@ -201,6 +208,14 @@ class ServerComposition(
             configResolver = configResolver,
             advanceServiceFactory = toolContext.advanceServiceFactory(),
             unitOfWork = unitOfWork,
+            dataStepRunner =
+                DataStepRunner(
+                    steps = PRODUCTION_DATA_STEPS + extraDataSteps,
+                    unitOfWork = unitOfWork,
+                    store = SqliteDataStepStore(databaseManager),
+                    clock = clock,
+                    binaryVersion = BuildInfo.version,
+                ),
         )
     }
 
@@ -346,5 +361,10 @@ class ServerComposition(
                 }
             }
         return Pair(verifier, config.degradedModePolicy)
+    }
+
+    private companion object {
+        /** The data steps the server ships. Later work items register theirs here; none exist yet. */
+        val PRODUCTION_DATA_STEPS: List<DataStep> = emptyList()
     }
 }
