@@ -585,7 +585,8 @@ data class AdvanceResponseDto(
 /**
  * A single FTS5 search hit returned by `/api/v1/search` (items) and `/api/v1/notes/search` (notes).
  *
- * `noteKey` is populated only for note-body hits; it is null/omitted for item hits.
+ * `noteKey` is populated only for note-body hits; it is null/omitted for item hits. `field` names the field that
+ * contains a match (`title`/`summary`/`body`) and `snippet` is taken from it.
  * `score` is the RRF-fused relevance score from the repository search layer.
  *
  * This is a serializable replacement for the raw `Map<String, Any>` previously emitted by the
@@ -599,6 +600,8 @@ data class SearchHitDto(
     val snippet: String,
     val score: Double,
     val noteKey: String? = null,
+    /** Title of the owning work item (the item's own title for an item hit); omitted when unreadable. */
+    val title: String? = null,
 )
 
 /**

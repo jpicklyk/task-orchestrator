@@ -213,7 +213,9 @@ drift apart.
   scope root are hidden); ancestors that fail `tags_include` are dropped from the returned chain
 - `GET /items/{id}/tree` — paginated flat list; scope check applies on the root item only
 - `GET /notes/search` and `GET /search` — `?ancestorId` is validated against the principal's scope;
-  a `tags_include` token also has its search hits filtered to items carrying an allowed tag
+  `root_ids` and `tags_include` are applied inside the search query itself, before ranking and the
+  50-hit page, so a restricted token gets a full page of in-scope hits (for `/notes/search`, the
+  tag is checked on each note's owning item)
 - `GET /transitions` and `GET /items/{id}/breadcrumbs` — a `tags_include` token sees only rows for
   items it is allowed to see; `GET /items/{id}?include=children` is filtered the same way
 - `GET /items/{id}/dependencies` and `GET /items/{id}/backlinks` — the subject item's own scope
@@ -1709,6 +1711,10 @@ FTS5 full-text search over item titles and summaries.
 - `tag` — comma-separated tag filter
 
 Results are ranked by RRF-fused relevance (trigram + porter tokenizer). Returns up to 50 hits.
+Each hit carries `title` (the item's title; omitted if the item could not be read); `field` names
+the field that actually contains a match (`title` or `summary`, `title` when both do) and `snippet`
+comes from that field. The principal's `root_ids`/`tags_include` scope is applied before the 50-hit
+page is taken.
 
 **Response:** `200 OK` → `List<SearchHitDto>`
 
@@ -1720,7 +1726,9 @@ FTS5 full-text search over note bodies.
 - `q` (required) — search query
 - `ancestorId` — scope results to a subtree (invalid UUID -> `400 validation_error`)
 
-Returns up to 50 hits. `noteKey` is populated on every hit (note-body search always has a key).
+Returns up to 50 hits. `noteKey` is populated on every hit (note-body search always has a key), and
+`title` is the owning item's title. The principal's scope (`tags_include` checked on the owning
+item) is applied before the 50-hit page is taken.
 
 **Response:** `200 OK` → `List<SearchHitDto>`
 

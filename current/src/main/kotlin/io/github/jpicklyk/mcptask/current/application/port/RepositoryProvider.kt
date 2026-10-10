@@ -9,7 +9,7 @@ interface RepositoryProvider {
 
     /**
      * The narrow work-item stores. Defaults to the composite [workItemRepository], which implements
-     * all four, so a provider that only supplies the composite (mocks) needs no change.
+     * all three, so a provider that only supplies the composite (mocks) needs no change.
      */
     fun itemStore(): ItemStore = workItemRepository()
 
@@ -17,7 +17,11 @@ interface RepositoryProvider {
 
     fun claimStore(): ClaimStore = workItemRepository()
 
-    fun searchIndex(): SearchIndex = workItemRepository()
+    /**
+     * Full-text candidate retrieval over every searchable corpus. Not part of the work-item composite;
+     * the default throws, so a provider that serves search must override it.
+     */
+    fun searchIndex(): SearchIndex = throw UnsupportedOperationException("This RepositoryProvider has no search index")
 
     fun noteRepository(): NoteStore
 
