@@ -1,4 +1,4 @@
--- V23: Documents and links (plan 3.11, AR-99).
+-- V24: Documents and links (plan 3.11, AR-99).
 --
 -- Replaces the 3.x `plan_documents` table with three tables:
 --   * documents          - one row per (root, kind, slug); holds the CURRENT body denormalized so reads and

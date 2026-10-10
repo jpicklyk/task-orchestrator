@@ -294,7 +294,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S6 a page document is a first-class kind`() =
+    fun `S6 a page document is a first-class kind`(): Unit =
         runBlocking {
             val doc = created("notes-page", "# Page\n", DocumentKind.PAGE)
             assertEquals(DocumentKind.PAGE, doc.kind)
@@ -381,7 +381,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S13 rule cap is 16384 bytes while plan and page documents may be larger`() =
+    fun `S13 rule cap is 16384 bytes while plan and page documents may be larger`(): Unit =
         runBlocking {
             assertEquals(RuleService.MAX_RULE_BODY_BYTES, DocumentService.maxBodyBytes(DocumentKind.RULE))
             assertEquals(16384, DocumentService.maxBodyBytes(DocumentKind.RULE))
@@ -576,7 +576,7 @@ class DocumentServiceTest {
         }
 
     @Test
-    fun `S8 an adopted document may be archived`() =
+    fun `S8 an adopted document may be archived`(): Unit =
         runBlocking {
             created("plan-a", "first\n")
             service.adopt(rootId, "plan-a", newItem("Adopter")).value()

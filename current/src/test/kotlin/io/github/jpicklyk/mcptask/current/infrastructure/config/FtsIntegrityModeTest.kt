@@ -190,7 +190,8 @@ class FtsIntegrityModeTest {
     @Test
     fun `S16 off skips the FTS check - a desynced index stays desynced and exactly one WARN is logged`() {
         val url = desyncedNotesDb()
-        val warns = warnsOf { withConn(url) { StartupIntegrity.run(it, FtsIntegrityMode.OFF) } }
+        // Only FTS warnings count: other WARN-only reports (e.g. Q2b's untyped-items report on this fixture) are unrelated.
+        val warns = warnsOf { withConn(url) { StartupIntegrity.run(it, FtsIntegrityMode.OFF) } }.filter { "fts" in it.lowercase() }
         assertEquals(0, ftsMatches(url, "notes_fts_text", "zebra"), "off must not rebuild the index")
         assertEquals(1, warns.size, "off logs exactly one WARN: $warns")
         assertTrue("fts" in warns.single().lowercase(), "the WARN must say what was skipped: $warns")
