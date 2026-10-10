@@ -38,7 +38,7 @@ import kotlin.test.assertTrue
  * Oracles: fix-decisions-r1 H1; api-reference "Read-error fallback" paragraph (advance_item, complete_tree and the previews
  * read config inside a unit, so a read fault answers a transient `config_unavailable` even with a warm cache); the existing
  * element shape of AdvanceItemToolConfigUnavailableTest (`applied=false`, `errorKind=transient`, `errorCode=config_unavailable`).
- * The fault is real: the project_config table is renamed away after the cache is warm (P5bPerRootConfigInUnitTest recipe). Every
+ * The fault is real: the config_heads table is renamed away after the cache is warm (P5bPerRootConfigInUnitTest recipe). Every
  * fault test has a same-fixture control proving the advance would otherwise apply.
  *
  * Fail-closed means: no role change, no status-label / role-change-instant change, no transition row, no event row.

@@ -1,12 +1,13 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
-import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
@@ -21,7 +22,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.str
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.header
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
@@ -239,7 +242,7 @@ class NoteWritePolicyRestTest {
         testApplication {
             val repos = db.repositoryProvider()
             val root = runBlocking { repos.workItemRepository().create(WorkItem(title = "root")) }
-            runBlocking { repos.projectConfigRepository().upsert(root.id, "note_limits:\n  mode: reject\n") }
+            runBlocking { repos.configStore().upsert(root.id, "note_limits:\n  mode: reject\n") }
             val target = item(rootId = root.id)
             application { configureWriteTestApp(repos, serverConfig = schema("warn"), unitOfWork = db.unitOfWork()) }
 
@@ -255,7 +258,7 @@ class NoteWritePolicyRestTest {
         testApplication {
             val repos = db.repositoryProvider()
             val root = runBlocking { repos.workItemRepository().create(WorkItem(title = "root")) }
-            runBlocking { repos.projectConfigRepository().upsert(root.id, "note_limits:\n  mode: warn\n") }
+            runBlocking { repos.configStore().upsert(root.id, "note_limits:\n  mode: warn\n") }
             val target = item(rootId = root.id)
             application { configureWriteTestApp(repos, serverConfig = schema("reject"), unitOfWork = db.unitOfWork()) }
 
@@ -414,19 +417,21 @@ class NoteWritePolicyRestTest {
     // ---------------------------------------------------------------------------------------------
 
     private class NoteTestFailableConfigStore(
-        private val delegate: ProjectConfigStore
-    ) : ProjectConfigStore by delegate {
+        private val delegate: ConfigStore
+    ) : ConfigStore by delegate {
         @Volatile var failFingerprint: Boolean = false
 
-        override suspend fun getFingerprint(rootItemId: UUID) =
-            if (failFingerprint) throw IllegalStateException("x") else delegate.getFingerprint(rootItemId)
+        override suspend fun head(
+            scope: ConfigScope,
+            rootId: UUID?
+        ) = if (failFingerprint) throw IllegalStateException("x") else delegate.head(scope, rootId)
     }
 
     private class NoteTestFailableProvider(
         private val delegate: RepositoryProvider,
         private val failable: NoteTestFailableConfigStore
     ) : RepositoryProvider by delegate {
-        override fun projectConfigRepository(): ProjectConfigStore = failable
+        override fun configStore(): ConfigStore = failable
     }
 
     private fun Application.configureNoteApp(
@@ -443,7 +448,7 @@ class NoteWritePolicyRestTest {
                     this.authConfig = authConfig
                     tokenEntries = authConfig.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) }
                 }
-                val perRoot = PerRootConfigService(provider.projectConfigRepository())
+                val perRoot = PerRootConfigService(provider.configStore())
                 val toolContext =
                     ToolExecutionContext(
                         provider,
@@ -469,7 +474,7 @@ class NoteWritePolicyRestTest {
             val root = runBlocking { sqlite.workItemRepository().create(WorkItem(title = "failing root")) }
             val under = runBlocking { sqlite.workItemRepository().create(WorkItem(title = "under root", rootId = root.id)) }
             val rootless = runBlocking { sqlite.workItemRepository().create(WorkItem(title = "rootless")) }
-            val failable = NoteTestFailableConfigStore(sqlite.projectConfigRepository())
+            val failable = NoteTestFailableConfigStore(sqlite.configStore())
             failable.failFingerprint = true // armed before the first read: cold, no last-known-good
             application { configureNoteApp(NoteTestFailableProvider(sqlite, failable), schema("warn"), db.unitOfWork()) }
 

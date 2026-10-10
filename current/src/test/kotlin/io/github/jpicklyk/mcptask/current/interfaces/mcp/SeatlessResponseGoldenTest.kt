@@ -15,7 +15,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.WRITE_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeTestAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeWriteAuthConfig
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -232,7 +234,7 @@ class SeatlessResponseGoldenTest {
                 ) ?: error("fixture: root item creation failed")
 
             repo
-                .projectConfigRepository()
+                .configStore()
                 .upsert(ROOT_ID, classpathResourceText(REPO_CONFIG_RESOURCE))
                 ?: error("fixture: per-root config push failed")
 

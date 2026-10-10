@@ -8,8 +8,10 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
+import io.github.jpicklyk.mcptask.current.test.configYaml
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.every
 import io.mockk.mockk
@@ -27,7 +29,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Exercises [ManageProjectConfigTool] against a real SQLite-backed [SQLiteProjectConfigRepository] and
+ * Exercises [ManageProjectConfigTool] against a real SQLite-backed [SqliteConfigStore] and
  * [SQLiteWorkItemRepository] (mirroring [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContextPerRootIntegrationTest]'s
  * DB-backed style) rather than mocking the repository — push validation depends on real WorkItem
  * rows (depth, type) and the parse-before-store contract depends on nothing being written when
@@ -40,7 +42,7 @@ class ManageProjectConfigToolTest {
     private lateinit var tool: ManageProjectConfigTool
     private lateinit var databaseManager: DatabaseManager
     private lateinit var workItemRepository: SQLiteWorkItemRepository
-    private lateinit var projectConfigRepository: SQLiteProjectConfigRepository
+    private lateinit var projectConfigRepository: SqliteConfigStore
     private lateinit var context: ToolExecutionContext
     private lateinit var rootId: UUID
 
@@ -62,11 +64,11 @@ class ManageProjectConfigToolTest {
             databaseManager = db.databaseManager
 
             workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
-            projectConfigRepository = db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository
+            projectConfigRepository = db.repositoryProvider().configStore() as SqliteConfigStore
 
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository
-            every { repositoryProvider.projectConfigRepository() } returns projectConfigRepository
+            every { repositoryProvider.configStore() } returns projectConfigRepository
 
             context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
 
@@ -144,7 +146,7 @@ class ManageProjectConfigToolTest {
     fun `push surfaces ignoredSections when the doc has an unhonored top-level key`() {
         // Plain concatenation (not a nested trimIndent template) — interpolating an already-
         // trimIndent'd multi-line constant into another trimIndent block would get its indentation
-        // re-mangled by the outer trim's common-margin computation (see ProjectConfigPushServiceTest).
+        // re-mangled by the outer trim's common-margin computation (see ConfigServiceTest).
         val yamlWithActorAuth = "$validYaml\nactor_authentication:\n  mode: jwks\n"
 
         val result = push(rootId.toString(), yamlWithActorAuth)
@@ -518,7 +520,7 @@ class ManageProjectConfigToolTest {
                 ToolExecutionContext(
                     mockk<RepositoryProvider>(relaxed = true).also {
                         every { it.workItemRepository() } returns workItemRepository
-                        every { it.projectConfigRepository() } returns projectConfigRepository
+                        every { it.configStore() } returns projectConfigRepository
                     },
                     perRootConfigService = perRootConfigService,
                     unitOfWork = db.unitOfWork()

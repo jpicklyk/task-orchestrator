@@ -3,8 +3,9 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.every
 import io.mockk.mockk
@@ -18,7 +19,7 @@ import kotlin.test.assertTrue
 
 /**
  * Independently authored against the frozen `test-plan` note on item `df7d579a` (scenario S13).
- * Mirrors [ProjectConfigPushServiceTest]'s existing SQLite-backed harness style.
+ * Mirrors [ConfigServiceTest]'s existing SQLite-backed harness style.
  *
  * Per `task-scope` (item `8879f554`, build 7): C4 adds `schema_resolution` to
  * [ConfigDocument.PER_ROOT_HONORED_SECTIONS] — it is now HONORED, not ignored. A push whose
@@ -28,26 +29,26 @@ import kotlin.test.assertTrue
  * `ignoredSections` (schema_resolution is honored even though its value is invalid), and the
  * parser's build-8 warning for the invalid value surfaces via `schemaWarnings`.
  */
-class ProjectConfigPushIgnoredSectionsTest {
+class ConfigServiceIgnoredSectionsTest {
     @RegisterExtension
     val db = SqliteTestDatabase.perMethod()
 
-    private lateinit var service: ProjectConfigPushService
+    private lateinit var service: ConfigService
     private lateinit var workItemRepository: SQLiteWorkItemRepository
-    private lateinit var projectConfigRepository: SQLiteProjectConfigRepository
+    private lateinit var projectConfigRepository: SqliteConfigStore
     private lateinit var rootId: UUID
 
     @BeforeEach
     fun setUp() =
         runBlocking {
             workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
-            projectConfigRepository = db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository
+            projectConfigRepository = db.repositoryProvider().configStore() as SqliteConfigStore
 
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository
-            every { repositoryProvider.projectConfigRepository() } returns projectConfigRepository
+            every { repositoryProvider.configStore() } returns projectConfigRepository
 
-            service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser, db.unitOfWork())
+            service = ConfigService(repositoryProvider, YamlConfigDocumentParser, db.unitOfWork())
 
             rootId = workItemRepository.create(WorkItem(title = "Root", type = "project")).id
         }
@@ -75,8 +76,8 @@ class ProjectConfigPushIgnoredSectionsTest {
 
             val result = service.push(rootId, yaml)
 
-            assertTrue(result is ProjectConfigPushResult.Success, "expected Success, got: $result")
-            val success = result as ProjectConfigPushResult.Success
+            assertTrue(result is ConfigPushResult.Success, "expected Success, got: $result")
+            val success = result as ConfigPushResult.Success
             assertEquals(listOf("retrospective", "actor_authentication", "schema_resolution", "resources"), success.ignoredSections)
             assertEquals(
                 1,

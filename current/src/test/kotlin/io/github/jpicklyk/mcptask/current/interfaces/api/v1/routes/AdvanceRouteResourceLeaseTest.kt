@@ -21,6 +21,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.Defau
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -228,7 +229,7 @@ private fun Application.configureLeaseTestApp(
                 provider,
                 DegradedModePolicy.ACCEPT_CACHED,
                 IdempotencyService(unitOfWork),
-                PerRootConfigService(provider.projectConfigRepository()).let { perRoot ->
+                PerRootConfigService(provider.configStore()).let { perRoot ->
                     ToolExecutionContext(
                         provider,
                         statusLabelService = NoOpStatusLabelService,

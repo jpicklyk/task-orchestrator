@@ -30,6 +30,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.test.CountingUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
@@ -311,7 +312,7 @@ class ItemWriteRoutesFailurePathTest {
                     repositoryProvider,
                     DegradedModePolicy.ACCEPT_CACHED,
                     IdempotencyService(uow),
-                    PerRootConfigService(repositoryProvider.projectConfigRepository()).let { perRoot ->
+                    PerRootConfigService(repositoryProvider.configStore()).let { perRoot ->
                         ToolExecutionContext(
                             repositoryProvider,
                             statusLabelService = NoOpStatusLabelService,

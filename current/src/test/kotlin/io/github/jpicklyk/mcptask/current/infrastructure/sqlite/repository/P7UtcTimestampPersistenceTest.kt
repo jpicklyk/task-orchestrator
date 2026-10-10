@@ -8,7 +8,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Tag
@@ -146,7 +148,7 @@ class P7UtcTimestampPersistenceTest {
             provider.planDocumentRepository().markAdopted(root.id, "plan-a", other.id)
             val planDoc = assertNotNull(provider.documentStore().get(root.id, DocumentKind.PLAN, "plan-a"))
             provider.documentStore().setArchived(planDoc.id, Instant.now())
-            provider.projectConfigRepository().upsert(root.id, "work_item_schemas:\n  default: {}\n")
+            provider.configStore().upsert(root.id, "work_item_schemas:\n  default: {}\n")
             val leases = provider.resourceLeaseRepository()
             assertIs<LeaseAcquireResult.Success>(leases.acquireAll(root.id, "agent-a", listOf("k1" to ttl.toInt())))
             assertIs<LeaseReleaseResult.Success>(leases.releaseAllForItem(root.id))
@@ -170,7 +172,7 @@ class P7UtcTimestampPersistenceTest {
                     Col("documents", "archived_at"),
                     Col("document_versions", "created_at"),
                     Col("links", "created_at"),
-                    Col("project_config", "updated_at"),
+                    Col("config_heads", "updated_at"),
                     Col("role_transitions", "transitioned_at"),
                     Col("resource_leases", "acquired_at"),
                     Col("resource_leases", "expires_at", ttl),
@@ -179,7 +181,11 @@ class P7UtcTimestampPersistenceTest {
                     Col("resource_lease_history", "expires_at", ttl),
                     Col("resource_lease_history", "released_at")
                 )
-            assertEquals(22, columns.size, "nineteen V18-normalized timestamp columns, with plan_documents' two replaced by V24's five")
+            assertEquals(
+                22,
+                columns.size,
+                "nineteen V18-normalized timestamp columns, with plan_documents' two replaced by V24's five and project_config's by V25's config_heads"
+            )
 
             for (col in columns) {
                 val name = "${col.table}.${col.column}"

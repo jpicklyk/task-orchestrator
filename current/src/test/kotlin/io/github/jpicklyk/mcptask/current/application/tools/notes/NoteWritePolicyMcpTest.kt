@@ -8,7 +8,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -389,7 +391,7 @@ class NoteWritePolicyMcpTest {
             val repos = db.repositoryProvider()
             val root = repos.workItemRepository().create(WorkItem(title = "root"))
             val itemId = item(rootId = root.id)
-            val perRoot = PerRootConfigService(repos.projectConfigRepository())
+            val perRoot = PerRootConfigService(repos.configStore())
             val ctx = context(globalMode = "reject", perRoot = perRoot)
             val requestId = UUID.randomUUID().toString()
             val params =
@@ -418,7 +420,7 @@ class NoteWritePolicyMcpTest {
             )
             assertNull(stored(itemId, "lim"))
 
-            repos.projectConfigRepository().upsert(root.id, "note_limits:\n  mode: warn\n")
+            repos.configStore().upsert(root.id, "note_limits:\n  mode: warn\n")
 
             val retried = run(ctx, params)
             assertTrue(retried["success"]!!.jsonPrimitive.boolean, "result: $retried")

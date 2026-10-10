@@ -1,18 +1,26 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
+import io.github.jpicklyk.mcptask.current.test.delete
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.getFingerprint
+import io.github.jpicklyk.mcptask.current.test.rootItemId
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
+import java.sql.DriverManager
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -29,7 +37,7 @@ class PerRootConfigServiceTest {
 
     private lateinit var database: Database
     private lateinit var databaseManager: DatabaseManager
-    private lateinit var repository: SQLiteProjectConfigRepository
+    private lateinit var repository: SqliteConfigStore
     private lateinit var workItemRepository: SQLiteWorkItemRepository
     private lateinit var service: PerRootConfigService
     private lateinit var rootItemId: UUID
@@ -39,7 +47,7 @@ class PerRootConfigServiceTest {
         runBlocking {
             database = sqliteDb.database
             databaseManager = sqliteDb.databaseManager
-            repository = SQLiteProjectConfigRepository(databaseManager)
+            repository = SqliteConfigStore(databaseManager)
             workItemRepository = SQLiteWorkItemRepository(databaseManager)
             service = PerRootConfigService(repository)
 
@@ -157,14 +165,17 @@ project:
             assertTrue(schemas.isEmpty())
         }
 
-    // --- Parse failure -> null (fall through to global config) ---
+    // --- Missing canonical form -> fail closed (never a fall-through to global config) ---
 
     @Test
-    fun `malformed YAML returns null rather than throwing`() =
+    fun `NULL canonical_json throws PerRootConfigInvalidException`() =
         runBlocking {
-            repository.upsert(rootItemId, "work_item_schemas: [\ninvalid yaml: :\n  - broken")
+            repository.upsert(rootItemId, "work_item_schemas:\n  default: {}\n")
+            DriverManager.getConnection(sqliteDb.jdbcUrl).use { c ->
+                c.createStatement().use { it.execute("UPDATE config_versions SET canonical_json = NULL, model_version = NULL") }
+            }
 
-            assertNull(service.getSchemas(rootItemId))
+            assertFailsWith<PerRootConfigInvalidException> { service.getSchemas(rootItemId) }
         }
 
     // --- Cache hit: identical fingerprint reuses the cached parse ---

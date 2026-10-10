@@ -106,8 +106,11 @@ class DataStepsStartupTest {
         assertTrue("stop-at-transport" in outcome.detail, "the sentinel hook must be what stopped the run: ${outcome.detail}")
     }
 
-    /** The once step the production composition registers (the first shipped data step). */
-    private val productionStep = "type-backfill"
+    /** The once steps the production composition registers (the shipped data steps). */
+    private val productionSteps = listOf("config-canonicalize", "type-backfill")
+
+    /** The ledger [ledger] reads (ordered by name) after the production steps and the [extra] once steps ran. */
+    private fun expectedLedger(vararg extra: String): List<String> = (productionSteps + extra).sorted()
 
     private fun ledger(db: Path): List<String> =
         DriverManager.getConnection("jdbc:sqlite:" + db.toAbsolutePath().toString().replace('\\', '/')).use { c ->
@@ -215,7 +218,7 @@ class DataStepsStartupTest {
 
         assertStoppedAtTransport(outcome)
         assertEquals(listOf("step", "transport:http"), events.toList(), "the data step must run before the transport stage")
-        assertEquals(listOf("ordered-step", productionStep), ledger(db))
+        assertEquals(expectedLedger("ordered-step"), ledger(db))
     }
 
     @Test
@@ -236,14 +239,14 @@ class DataStepsStartupTest {
         assertEquals(1, boot1.runs.get())
         assertEquals(1, boot2.runs.get(), "an EVERY_BOOT step runs on every boot")
         assertEquals(
-            listOf("once-step", productionStep),
+            expectedLedger("once-step"),
             ledger(db),
-            "only ONCE steps are ever recorded (the injected one and the production step)"
+            "only ONCE steps are ever recorded (the injected one and the production steps)"
         )
     }
 
     @Test
-    fun `with no extra steps startup reaches the transport stage and the ledger holds only the production step`(
+    fun `with no extra steps startup reaches the transport stage and the ledger holds only the production steps`(
         @TempDir tempDir: Path
     ) {
         val db = dbIn(tempDir)
@@ -253,7 +256,7 @@ class DataStepsStartupTest {
 
         assertStoppedAtTransport(outcome)
         assertEquals(listOf("transport:http"), events.toList())
-        assertEquals(listOf(productionStep), ledger(db), "the first shipped step is the only one recorded")
+        assertEquals(expectedLedger(), ledger(db), "the shipped steps are the only ones recorded")
     }
 
     // ---- S14: a FLYWAY_REPAIR run exits before composition and never runs a step ----
@@ -301,7 +304,7 @@ class DataStepsStartupTest {
         assertStoppedAtTransport(outcome)
         assertEquals(1, once.runs.get(), "validate guards DDL, not data: the ONCE step must run")
         assertEquals(1, boot.runs.get())
-        assertEquals(listOf(productionStep, "validate-once"), ledger(db))
+        assertEquals(expectedLedger("validate-once"), ledger(db))
     }
 
     @Test

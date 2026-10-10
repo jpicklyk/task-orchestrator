@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.Clock
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.DocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
@@ -9,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.LinkStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
-import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
@@ -36,7 +36,7 @@ class DefaultRepositoryProvider(
     private val noteRepo by lazy { SQLiteNoteRepository(databaseManager) }
     private val dependencyRepo by lazy { SQLiteDependencyRepository(databaseManager) }
     private val roleTransitionRepo by lazy { SQLiteRoleTransitionRepository(databaseManager) }
-    private val projectConfigRepo by lazy { SQLiteProjectConfigRepository(databaseManager) }
+    private val configStore by lazy { SqliteConfigStore(databaseManager) }
     private val documentStoreInstance by lazy { SqliteDocumentStore(databaseManager) }
     private val linkStoreInstance by lazy { SqliteLinkStore(databaseManager) }
     private val planDocumentRepo by lazy { DocumentBackedPlanDocumentStore(databaseManager, documentStoreInstance, linkStoreInstance) }
@@ -55,7 +55,7 @@ class DefaultRepositoryProvider(
 
     override fun roleTransitionRepository(): TransitionStore = roleTransitionRepo
 
-    override fun projectConfigRepository(): ProjectConfigStore = projectConfigRepo
+    override fun configStore(): ConfigStore = configStore
 
     override fun planDocumentRepository(): PlanDocumentStore = planDocumentRepo
 

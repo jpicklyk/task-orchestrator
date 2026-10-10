@@ -95,6 +95,9 @@ class FlywayOnlyMigrationTest {
         // Rebuild the exact V17 shape: drop what later migrations added, then the history.
         // Every table later migrations added (including the data_steps ledger) must go for an exact V17 shape.
         exec(url, "DROP TABLE data_steps")
+        exec(url, "DROP TABLE config_heads")
+        exec(url, "DROP TABLE config_known_fingerprints")
+        exec(url, "DROP TABLE config_versions")
         exec(url, "DROP TABLE call_log")
         exec(url, "DROP TABLE events")
         exec(url, "DROP TABLE idempotency_records")
@@ -120,6 +123,12 @@ class FlywayOnlyMigrationTest {
                 it.getString(1)
             }
         exec(url, *v17PlanDocuments.toTypedArray())
+        // V25 replaced project_config with the versioned config tables: restore its exact V17 DDL from the same reference.
+        val v17ProjectConfig =
+            query(reference, "SELECT sql FROM sqlite_master WHERE tbl_name = 'project_config' AND sql IS NOT NULL ORDER BY type DESC") {
+                it.getString(1)
+            }
+        exec(url, *v17ProjectConfig.toTypedArray())
         exec(url, "DROP TABLE flyway_schema_history")
         assertFalse(tableExists(url, "flyway_schema_history"), "fixture: history must be gone")
 

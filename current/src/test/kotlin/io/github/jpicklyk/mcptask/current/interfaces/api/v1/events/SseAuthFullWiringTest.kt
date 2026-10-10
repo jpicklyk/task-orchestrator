@@ -16,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.get
@@ -137,7 +138,7 @@ class SseAuthFullWiringTest {
                 ToolExecutionContext(
                     provider,
                     statusLabelService = YamlStatusLabelService(),
-                    perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                    perRootConfigService = PerRootConfigService(provider.configStore()),
                     unitOfWork = db.unitOfWork()
                 ),
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,

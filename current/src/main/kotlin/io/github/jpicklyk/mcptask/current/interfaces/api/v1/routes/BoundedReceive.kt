@@ -19,7 +19,7 @@ import kotlinx.io.readByteArray
  * and comfortably exceeds any legitimate item/note/dependency JSON payload.
  *
  * This is a NEW cap, not a change to an existing one — the two routes that already had a
- * documented limit ([io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushService.MAX_CONFIG_YAML_BYTES],
+ * documented limit ([io.github.jpicklyk.mcptask.current.application.service.ConfigService.MAX_CONFIG_YAML_BYTES],
  * [io.github.jpicklyk.mcptask.current.application.service.PlanDocumentService.MAX_BODY_BYTES])
  * keep their own numeric value unchanged, passed to [receiveBounded] directly instead of this
  * constant.

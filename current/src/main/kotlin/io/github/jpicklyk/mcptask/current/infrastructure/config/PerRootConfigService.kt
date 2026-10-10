@@ -1,227 +1,193 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
+import io.github.jpicklyk.mcptask.current.application.config.CanonicalConfigJson
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
-import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitElement
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigHead
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersionSource
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import org.slf4j.LoggerFactory
+import java.util.Collections
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.coroutineContext
 
 /**
- * Parses and caches per-root config YAML documents (stored via [ProjectConfigStore]),
- * exposing the same schema/trait surface as [YamlWorkItemSchemaService] but scoped to a single
- * project root (a depth-0 WorkItem UUID) instead of the single global `.taskorchestrator/config.yaml`.
+ * Serves the per-root config document of each project root from the versioned [ConfigStore], exposing the same
+ * schema/trait surface as [YamlWorkItemSchemaService] but scoped to a single project root (a depth-0 WorkItem UUID)
+ * instead of the single global `.taskorchestrator/config.yaml`.
  *
- * This is the storage + service layer ONLY. Nothing here decides *when* a per-root config should
- * override the global one, or merges the two: that resolution logic belongs to the
- * application-layer `EffectiveConfigResolver`/`LayeredConfig`, which consume this class through
- * [PerRootConfigSource.layer].
+ * This is the storage + service layer ONLY. Nothing here decides *when* a per-root config should override the
+ * global one, or merges the two: that resolution logic belongs to the application-layer
+ * `EffectiveConfigResolver`/`LayeredConfig`, which consume this class through [PerRootConfigSource.layer].
  *
  * ## Hot-reload contract
  *
- * Every read ([getSchemas], [getSchemaForType], [getTraitNotes], [getAllTraits]) goes through
- * [resolve], which:
- *  1. Issues a cheap fingerprint-only read ([ProjectConfigStore.getFingerprint]) — this never
- *     touches the `config_yaml` TEXT column.
- *  2. Compares it against this instance's in-memory cache for that root.
- *  3. On a match, returns the cached parse with no further I/O.
- *  4. On a mismatch (including "no cache entry yet"), reads the full row, re-parses, and replaces
- *     the cache entry.
+ * Every read goes through [layer], which issues one cheap head read ([ConfigStore.head]) and then serves the
+ * document of the head version from an immutable, bounded cache keyed by version id (a version never changes, so
+ * its entry is never invalidated). A config pushed from this process or from another one sharing the SQLite file
+ * becomes visible on the very next read: the head moved, the new version is loaded once. No restart, no explicit
+ * cache-bust call.
  *
- * Because step 1 runs on *every* call rather than relying on a push-based invalidation signal, a
- * config pushed by [ProjectConfigStore.upsert] — from this process or from a different one
- * entirely (e.g. another server instance sharing the same SQLite file) — becomes visible on the
- * very next read. No restart, no explicit cache-bust call, no coordination between instances
- * beyond the shared DB row. This is what "hot-reload" means for this service: it is a property of
- * every read path, not a separate mechanism that must be remembered to invoke.
+ * The document is built from the version's stored `canonical_json` (decoded map handed to the parser), never by
+ * re-parsing the YAML.
  *
  * ## Failure handling
  *
- * Two distinct failure modes are handled differently, and the difference is load-bearing:
+ * Three distinct failure modes are handled differently, and the difference is load-bearing:
  *
- *  - **Absence.** The repository read succeeds and reports "no row for this root" (a fingerprint
- *    or row of `null`), or the stored YAML fails to parse (malformed document). Both are logged
- *    (parse failures as a warning) and treated as "no per-root config" — [resolve] evicts any
- *    cached entry and returns null, and callers fall through to the global
- *    `.taskorchestrator/config.yaml` loader. This is unchanged from before per-root error handling
- *    existed, and is NOT cached as a negative result — a cold or config-less root re-checks on
- *    every call.
- *  - **Read failure.** The repository read itself throws (e.g. a transient database
- *    error) — this is NOT the same as absence and must never be treated as "no per-root config".
- *    [resolve] logs a WARN naming the root and the error, and serves the last-known-good (LKG)
- *    cached parse for that root, if one exists, WITHOUT evicting it (an error can never evict —
- *    only a confirmed absence or a fresher fingerprint can replace an LKG entry). The LKG entry has
- *    no TTL; the next successful read refreshes it via the normal fingerprint-comparison path. When
- *    there is no LKG entry to serve (a cold cache, e.g. this process's first read for this root),
- *    [resolve] throws [PerRootConfigUnavailableException] — this class does NOT silently fall back
- *    to the global layer on a read failure. Every public accessor on this class propagates that
- *    exception unchanged; callers that need to translate it into a specific tool/HTTP outcome catch
- *    it at their own boundary.
- *
- * Implements [PerRootConfigSource] so it can be handed to the shared config-resolution layer
- * (`EffectiveConfigResolver`) the same way [GlobalConfigFile] implements `GlobalConfigSource` for
- * the global file: [layer] wraps the same [resolve] pass every other accessor on this class uses.
+ *  - **Absence.** The read succeeds and there is no head, or the head is a reset version. Both are "no per-root
+ *    config": [layer] drops any last-known-good entry and returns null, and callers fall through to the global
+ *    `.taskorchestrator/config.yaml` loader. NOT cached as a negative result.
+ *  - **Invalid data.** The head version has NULL or undecodable `canonical_json`. This is NOT absence and never
+ *    falls through to the global layer: [layer] throws [PerRootConfigInvalidException].
+ *  - **Read failure.** A store read itself throws (e.g. a transient database error). [layer] logs a WARN naming the
+ *    root and the error, and serves the last-known-good head+document for that root, if one exists, WITHOUT evicting
+ *    it. Inside a unit of work no last-known-good is served (a cached document would hide a read fault the unit
+ *    boundary translates and retries). With nothing to serve, [layer] throws [PerRootConfigUnavailableException] -
+ *    this class does NOT silently fall back to the global layer on a read failure. Every public accessor propagates
+ *    these exceptions unchanged; callers that need to translate them into a tool/HTTP outcome catch them at their
+ *    own boundary.
  */
 class PerRootConfigService(
-    private val repository: ProjectConfigStore,
+    private val store: ConfigStore,
     private val parser: ConfigDocumentParser = YamlConfigDocumentParser,
 ) : PerRootConfigSource {
     private val logger = LoggerFactory.getLogger(PerRootConfigService::class.java)
 
-    private data class CacheEntry(
-        val fingerprint: String,
-        val parsed: ConfigDocument
+    private data class LastKnownGood(
+        val head: ConfigHead,
+        val document: ConfigDocument
     )
 
-    /** In-memory cache keyed by root item UUID. Populated lazily on first [resolve] per root. */
-    private val cache = ConcurrentHashMap<UUID, CacheEntry>()
+    /** The last head + document successfully served for each root; evicted only by a confirmed absence. */
+    private val lastKnownGood = ConcurrentHashMap<UUID, LastKnownGood>()
+
+    /** Immutable cache: version id -> its document. Versions never change, so entries are never invalidated. */
+    private val documents: MutableMap<UUID, ConfigDocument> =
+        Collections.synchronizedMap(
+            object : LinkedHashMap<UUID, ConfigDocument>(DOCUMENT_CACHE_SIZE, 0.75f, true) {
+                override fun removeEldestEntry(eldest: MutableMap.MutableEntry<UUID, ConfigDocument>): Boolean = size > DOCUMENT_CACHE_SIZE
+            }
+        )
 
     /**
-     * Returns [rootId]'s current [ConfigLayer] (document + fingerprint, tagged
-     * [ConfigSource.PER_ROOT]) from a SINGLE [resolve] pass, or `null` when there is no config row
-     * for [rootId] or the stored YAML fails to parse (both fall through to the global layer). Callers
-     * needing several facets for the same root (e.g. the application-layer
-     * `EffectiveConfigResolver`) should call this once and read the document locally, instead of
-     * calling the single-facet accessors below once each: each of those independently re-invokes
-     * [resolve], costing at least one fingerprint-only DB read apiece even when the cache is warm.
-     * Same last-known-good and [PerRootConfigUnavailableException] contract as every other accessor
-     * on this class; see the class kdoc's "Failure handling" section.
+     * Returns [rootId]'s current [ConfigLayer] (document + head fingerprint, tagged [ConfigSource.PER_ROOT]), or
+     * `null` when there is no config for [rootId] or its head is a reset (both fall through to the global layer).
+     * Callers needing several facets for the same root should call this once and read the document locally.
+     * Throws [PerRootConfigInvalidException] / [PerRootConfigUnavailableException] per the class kdoc.
      */
     override suspend fun layer(rootId: UUID): ConfigLayer? {
-        val document = resolve(rootId) ?: return null
-        val fingerprint = cache[rootId]?.fingerprint ?: return null
-        return ConfigLayer(document = document, fingerprint = fingerprint, source = ConfigSource.PER_ROOT)
+        val head =
+            try {
+                store.head(ConfigScope.ROOT, rootId)
+            } catch (e: Throwable) {
+                e.rethrowIfCancellation()
+                return lastKnownGoodOrThrow(rootId, e)
+            }
+        if (head == null || head.source == ConfigVersionSource.RESET) {
+            lastKnownGood.remove(rootId)
+            return null
+        }
+
+        val document =
+            documents[head.versionId] ?: loadDocument(rootId, head)?.also { documents[head.versionId] = it }
+                ?: return lastKnownGoodOrThrow(rootId, IllegalStateException("version row unreadable"))
+        lastKnownGood.put(rootId, LastKnownGood(head, document))
+        return ConfigLayer(document = document, fingerprint = head.fingerprint, source = ConfigSource.PER_ROOT)
     }
 
-    /** Returns the resolved `work_item_schemas` map for [rootItemId], or null when no config row exists or it fails to parse. */
-    suspend fun getSchemas(rootItemId: UUID): Map<String, WorkItemSchema>? = resolve(rootItemId)?.workItemSchemas
+    /** Loads and builds the document of [head]'s version; null only when the store read itself failed under LKG rules. */
+    private suspend fun loadDocument(
+        rootId: UUID,
+        head: ConfigHead
+    ): ConfigDocument? {
+        val version =
+            try {
+                store.version(head.versionId)
+            } catch (e: Throwable) {
+                e.rethrowIfCancellation()
+                return null
+            } ?: throw PerRootConfigInvalidException(rootId, head.version, "the head version row is missing")
+        val json = version.canonicalJson ?: throw PerRootConfigInvalidException(rootId, head.version, "no canonical JSON stored")
+        val root =
+            CanonicalConfigJson.decode(json) ?: throw PerRootConfigInvalidException(rootId, head.version, "canonical JSON is undecodable")
+        return try {
+            @Suppress("UNCHECKED_CAST")
+            parser.fromRoot(root as Map<String, Any>, warnOnMissingSchemas = false)
+        } catch (
+            @Suppress("TooGenericExceptionCaught") e: Exception
+        ) {
+            throw PerRootConfigInvalidException(rootId, head.version, "canonical JSON does not build a config document: ${e.message}")
+        }
+    }
 
-    /** Returns the [WorkItemSchema] for [type] under [rootItemId]'s config, or null if no row/parse/type match. */
+    /** Returns the resolved `work_item_schemas` map for [rootItemId], or null when it has no config. */
+    suspend fun getSchemas(rootItemId: UUID): Map<String, WorkItemSchema>? = layer(rootItemId)?.document?.workItemSchemas
+
+    /** Returns the [WorkItemSchema] for [type] under [rootItemId]'s config, or null if no config/type match. */
     suspend fun getSchemaForType(
         rootItemId: UUID,
         type: String
-    ): WorkItemSchema? = resolve(rootItemId)?.workItemSchemas?.get(type)
+    ): WorkItemSchema? = layer(rootItemId)?.document?.workItemSchemas?.get(type)
 
     /** Returns the note schema entries for trait [traitName] under [rootItemId]'s config, or null. */
     suspend fun getTraitNotes(
         rootItemId: UUID,
         traitName: String
-    ): List<NoteSchemaEntry>? = resolve(rootItemId)?.traits?.get(traitName)
+    ): List<NoteSchemaEntry>? = layer(rootItemId)?.document?.traits?.get(traitName)
 
-    /** Returns all trait definitions for [rootItemId]'s config, or null when no config row exists or it fails to parse. */
-    suspend fun getAllTraits(rootItemId: UUID): Map<String, List<NoteSchemaEntry>>? = resolve(rootItemId)?.traits
+    /** Returns all trait definitions for [rootItemId]'s config, or null when it has no config. */
+    suspend fun getAllTraits(rootItemId: UUID): Map<String, List<NoteSchemaEntry>>? = layer(rootItemId)?.document?.traits
 
     /**
-     * Returns the cached config fingerprint for [rootItemId], or null when no config row exists or
-     * it fails to parse; a read error serves the last-known-good fingerprint or throws
-     * [PerRootConfigUnavailableException]. Goes through [resolve]'s normal fingerprint-check hot-reload path first
-     * (so this never returns a stale fingerprint after a concurrent push) — callers needing to
-     * report which config version supplied a resolved schema (e.g. `query_items`'s `schema`
-     * operation) should call this immediately after a [getSchemaForType]/[getSchemas] lookup that
-     * resolved from this root's per-root layer.
+     * Returns the head config fingerprint for [rootItemId], or null when it has no config. Always reflects the head
+     * read by this call, so it is never stale after a concurrent push.
      */
-    suspend fun getFingerprint(rootItemId: UUID): String? {
-        resolve(rootItemId) ?: return null
-        return cache[rootItemId]?.fingerprint
-    }
+    suspend fun getFingerprint(rootItemId: UUID): String? = layer(rootItemId)?.fingerprint
 
     /**
-     * Returns [rootItemId]'s explicitly-configured `note_limits.mode`, or null when there is no
-     * config row for this root, the row fails to parse, or the row's document has no top-level
-     * `note_limits` key at all — see [ConfigDocument.noteLimitsMode] for the
-     * absent-vs-explicit distinction this preserves. Callers (see
-     * [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext.resolveNoteLimitsMode])
-     * treat a null return as "fall through to the global note-limits mode", not as "warn".
+     * Returns [rootItemId]'s explicitly-configured `note_limits.mode`, or null when it has no config or its document
+     * has no top-level `note_limits` key at all - see [ConfigDocument.noteLimitsMode]. Callers treat null as "fall
+     * through to the global note-limits mode".
      */
-    suspend fun getNoteLimitsMode(rootItemId: UUID): String? = resolve(rootItemId)?.noteLimitsMode
+    suspend fun getNoteLimitsMode(rootItemId: UUID): String? = layer(rootItemId)?.document?.noteLimitsMode
 
     /**
-     * Returns [rootItemId]'s explicitly-configured `status_labels` trigger→label map, or null when
-     * there is no config row for this root, the row fails to parse, or the row's document has no
-     * top-level `status_labels` key at all. A non-null return may still be a PARTIAL map — see
-     * [ConfigDocument.statusLabels] — callers fall through to the global status label
-     * service on a per-trigger basis when a trigger key is absent from this map (see
-     * [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext.resolveStatusLabel]).
+     * Returns [rootItemId]'s explicitly-configured `status_labels` trigger->label map, or null when it has no config
+     * or no top-level `status_labels` key. A non-null return may still be a PARTIAL map - see
+     * [ConfigDocument.statusLabels].
      */
-    suspend fun getStatusLabels(rootItemId: UUID): Map<String, String?>? = resolve(rootItemId)?.statusLabels
+    suspend fun getStatusLabels(rootItemId: UUID): Map<String, String?>? = layer(rootItemId)?.document?.statusLabels
 
     /**
-     * Returns the parsed config for [rootItemId], reusing the cached parse when the DB
-     * fingerprint hasn't changed since it was cached. Returns null when there is no config row
-     * for this root, or the stored YAML fails to parse (see class doc — both are absence, and fall
-     * through to the global loader). Serves the last-known-good cached parse, without evicting it,
-     * when the repository read itself fails — and throws [PerRootConfigUnavailableException] if
-     * there is no cached parse to serve in that case (see class doc "Failure handling").
-     */
-    private suspend fun resolve(rootItemId: UUID): ConfigDocument? {
-        val currentFingerprint =
-            try {
-                repository.getFingerprint(rootItemId)
-            } catch (e: Throwable) {
-                e.rethrowIfCancellation()
-                return lastKnownGoodOrThrow(rootItemId, e)
-            }
-        if (currentFingerprint == null) {
-            // No config row for this root — drop any stale cache entry (e.g. the row was deleted
-            // since we last cached it) and report "no config".
-            cache.remove(rootItemId)
-            return null
-        }
-
-        cache[rootItemId]?.let { cached ->
-            if (cached.fingerprint == currentFingerprint) return cached.parsed
-        }
-
-        val stored =
-            try {
-                repository.get(rootItemId)
-            } catch (e: Throwable) {
-                e.rethrowIfCancellation()
-                return lastKnownGoodOrThrow(rootItemId, e)
-            }
-        if (stored == null) {
-            cache.remove(rootItemId)
-            return null
-        }
-
-        val parsed =
-            parseYaml(rootItemId, stored.configYaml) ?: run {
-                cache.remove(rootItemId)
-                return null
-            }
-
-        cache[rootItemId] = CacheEntry(stored.fingerprint, parsed)
-        return parsed
-    }
-
-    /**
-     * Handles a fault thrown by either read in [resolve]: logs a WARN naming [rootItemId] and
-     * [error], and serves the last-known-good cached parse for that root WITHOUT evicting it — an
-     * error must never evict a cache entry, only a confirmed absence or a fresher fingerprint can.
-     * Throws [PerRootConfigUnavailableException] when there is no cached entry to serve (a cold
-     * cache), since silently falling back to "no per-root config" would let the global layer's
-     * gates/traits/leases apply where this root's config should have governed instead.
+     * Handles a fault thrown by a store read in [layer]: logs a WARN naming [rootItemId] and [error], and serves the
+     * last-known-good head+document for that root WITHOUT evicting it. Throws [PerRootConfigUnavailableException]
+     * when there is nothing to serve (cold cache) or when called inside a unit of work.
      */
     private suspend fun lastKnownGoodOrThrow(
         rootItemId: UUID,
         error: Throwable
-    ): ConfigDocument? {
+    ): ConfigLayer {
         val insideUnit = coroutineContext[UnitElement] != null
         logger.warn("Per-root config read failed for root {}: {}", rootItemId, error.message)
-        // Inside a unit the last-known-good fallback is disabled: serving a cached parse would hide a read
-        // fault that the unit boundary translates (and retries) instead of masking it.
-        if (!insideUnit) cache[rootItemId]?.let { return it.parsed }
-        // The full repository error (which may carry SQL/driver text) stays in the server log above;
-        // the exception message reaches MCP and REST clients, so it names only the root.
+        if (!insideUnit) {
+            lastKnownGood[rootItemId]?.let {
+                return ConfigLayer(document = it.document, fingerprint = it.head.fingerprint, source = ConfigSource.PER_ROOT)
+            }
+        }
+        // The full store error (which may carry SQL/driver text) stays in the server log above; the exception
+        // message reaches MCP and REST clients, so it names only the root.
         throw PerRootConfigUnavailableException(
             rootItemId,
             "Per-root config for root $rootItemId is temporarily unavailable " +
@@ -230,31 +196,7 @@ class PerRootConfigService(
         )
     }
 
-    /**
-     * Parses [configYaml] via the shared [parser] (same [ConfigDocument] shape as
-     * [YamlWorkItemSchemaService]). Unknown top-level keys (e.g. a `project:` block used by other
-     * per-root settings) are ignored silently. Passes `warnOnMissingSchemas = false`: unlike the
-     * global config file, a per-root document legitimately may carry no
-     * `work_item_schemas:`/`note_schemas:` section at all (it might exist purely for other
-     * per-root settings), so this must NOT emit the global loader's "no schemas loaded" warning.
-     *
-     * A [ConfigDocumentParser.Outcome.Failed] outcome logs a WARN naming [rootItemId] and the
-     * failure detail, and this returns `null` (absence — same "fall through to global" contract as
-     * every other malformed-document case; see class kdoc "Failure handling"). Parsing itself uses
-     * [SafeConstructor][org.yaml.snakeyaml.constructor.SafeConstructor]-based parsing (see
-     * [YamlConfigDocumentParser]): [configYaml] originates from [ProjectConfigStore], which
-     * stores whatever a caller pushed over the MCP protocol (see `ManageProjectConfigTool`) —
-     * attacker-reachable input, not a trusted local file.
-     */
-    private fun parseYaml(
-        rootItemId: UUID,
-        configYaml: String
-    ): ConfigDocument? =
-        when (val outcome = parser.parse(configYaml, warnOnMissingSchemas = false)) {
-            is ConfigDocumentParser.Outcome.Parsed -> outcome.document
-            is ConfigDocumentParser.Outcome.Failed -> {
-                logger.warn("Failed to parse per-root config for root {}: {}", rootItemId, outcome.detail)
-                null
-            }
-        }
+    private companion object {
+        const val DOCUMENT_CACHE_SIZE = 128
+    }
 }

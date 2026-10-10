@@ -26,7 +26,10 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.EffectiveConfigDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.StatusGraphDto
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.getFingerprint
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -66,7 +69,7 @@ import kotlin.test.assertTrue
 // global-layer drift between the two params — R1 in the test-plan's red-proof table — cannot occur
 // by construction), mirroring
 // EffectiveConfigResolverTest/AvailableTraitsOrderTest's proven pattern. Per-root layers use
-// PerRootConfigService over a real SQLite-backed ProjectConfigStore (mirroring
+// PerRootConfigService over a real SQLite-backed ConfigStore (mirroring
 // ProjectConfigRoutesTest/ConfigUnavailableRoutesTest), except where a scenario needs a fixed
 // or instrumented PerRootConfigSource fake, per that scenario's own note.
 
@@ -234,13 +237,13 @@ class EffectiveConfigRoutesHappyPathTest {
             val (schemaService, global) = globalFixture(GLOBAL_S1)
             val repo = db.repositoryProvider()
             val root = createRootItem(repo)
-            runBlocking { repo.projectConfigRepository().upsert(root.id, PER_ROOT_S1) }
-            val rowFingerprint = runBlocking { repo.projectConfigRepository().getFingerprint(root.id) }
+            runBlocking { repo.configStore().upsert(root.id, PER_ROOT_S1) }
+            val rowFingerprint = runBlocking { repo.configStore().getFingerprint(root.id) }
             assertNotNull(rowFingerprint, "sanity: the per-root push must persist a fingerprint")
             val globalFingerprint = schemaService.getConfigFingerprint()
             assertNotNull(globalFingerprint, "sanity: the global YAML must produce a fingerprint")
 
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
 
             val response =
@@ -294,9 +297,9 @@ class EffectiveConfigRoutesHappyPathTest {
             val (schemaService, global) = globalFixture(globalYaml)
             val repo = db.repositoryProvider()
             val root = createRootItem(repo)
-            runBlocking { repo.projectConfigRepository().upsert(root.id, perRootYaml) }
+            runBlocking { repo.configStore().upsert(root.id, perRootYaml) }
 
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
 
             val response =
@@ -321,9 +324,9 @@ class EffectiveConfigRoutesHappyPathTest {
             val (schemaService, global) = globalFixture(GLOBAL_S1)
             val repo = db.repositoryProvider()
             val root = createRootItem(repo)
-            runBlocking { repo.projectConfigRepository().upsert(root.id, PER_ROOT_S1) }
+            runBlocking { repo.configStore().upsert(root.id, PER_ROOT_S1) }
 
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
 
             val response =
@@ -349,9 +352,9 @@ class EffectiveConfigRoutesHappyPathTest {
             val (schemaService, global) = globalFixture(GLOBAL_S1)
             val repo = db.repositoryProvider()
             val root = createRootItem(repo)
-            runBlocking { repo.projectConfigRepository().upsert(root.id, PER_ROOT_S1) }
+            runBlocking { repo.configStore().upsert(root.id, PER_ROOT_S1) }
 
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveAndLegacyConfigTestApp(repo, resolver, schemaService) }
 
             val effective =
@@ -408,9 +411,9 @@ class EffectiveConfigRoutesHappyPathTest {
             val (schemaService, global) = globalFixture(globalYaml)
             val repo = db.repositoryProvider()
             val root = createRootItem(repo)
-            runBlocking { repo.projectConfigRepository().upsert(root.id, perRootYaml) }
+            runBlocking { repo.configStore().upsert(root.id, perRootYaml) }
 
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
 
             val response =
@@ -439,7 +442,7 @@ class EffectiveConfigRoutesHappyPathTest {
             val root = createRootItem(repo)
             // Deliberately no upsert() — no per-root config row exists for this root.
 
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
 
             val response =
@@ -493,8 +496,8 @@ class EffectiveConfigRoutesEtagTest {
             val (schemaService, global) = globalFixture(globalYaml)
             val repo = db.repositoryProvider()
             val root = createRootItem(repo)
-            runBlocking { repo.projectConfigRepository().upsert(root.id, perRootYamlA) }
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            runBlocking { repo.configStore().upsert(root.id, perRootYamlA) }
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
 
             val r1 = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
@@ -521,15 +524,15 @@ class EffectiveConfigRoutesEtagTest {
             val (schemaService, global) = globalFixture(globalYaml)
             val repo = db.repositoryProvider()
             val root = createRootItem(repo)
-            runBlocking { repo.projectConfigRepository().upsert(root.id, perRootYamlA) }
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            runBlocking { repo.configStore().upsert(root.id, perRootYamlA) }
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
 
             val r1 = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
             val etagBefore = r1.headers[HttpHeaders.ETag]
             assertNotNull(etagBefore)
 
-            runBlocking { repo.projectConfigRepository().upsert(root.id, perRootYamlB) }
+            runBlocking { repo.configStore().upsert(root.id, perRootYamlB) }
 
             val r2 = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
             assertEquals(HttpStatusCode.OK, r2.status)
@@ -548,12 +551,12 @@ class EffectiveConfigRoutesEtagTest {
     fun `S9 - the same per-root row under two different global fingerprints yields two different ETags`() {
         val repo = db.repositoryProvider()
         val root = createRootItem(repo)
-        runBlocking { repo.projectConfigRepository().upsert(root.id, perRootYamlA) }
+        runBlocking { repo.configStore().upsert(root.id, perRootYamlA) }
 
         var etag1: String? = null
         testApplication {
             val (schemaService, global) = globalFixture(globalYaml)
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
             val r1 = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
             assertEquals(HttpStatusCode.OK, r1.status)
@@ -571,7 +574,7 @@ class EffectiveConfigRoutesEtagTest {
             """.trimIndent()
         testApplication {
             val (schemaService, global) = globalFixture(globalYamlV2)
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
             val r2 = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
             assertEquals(HttpStatusCode.OK, r2.status)
@@ -602,8 +605,8 @@ class EffectiveConfigRoutesEtagTest {
             val (schemaService, global) = globalFixture(globalYaml)
             val repo = db.repositoryProvider()
             val root = createRootItem(repo)
-            runBlocking { repo.projectConfigRepository().upsert(root.id, perRootYamlA) }
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            runBlocking { repo.configStore().upsert(root.id, perRootYamlA) }
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveAndLegacyConfigTestApp(repo, resolver, schemaService) }
 
             val effectiveEtag =
@@ -823,8 +826,8 @@ class EffectiveConfigRoutesEdgeTest {
             val (schemaService, global) = globalFixture("work_item_schemas: {}")
             val repo = db.repositoryProvider()
             val root = createRootItem(repo)
-            runBlocking { repo.projectConfigRepository().upsert(root.id, "work_item_schemas:\n  t:\n    notes: []\n") }
-            val counting = CountingPerRootConfigSource(PerRootConfigService(repo.projectConfigRepository()))
+            runBlocking { repo.configStore().upsert(root.id, "work_item_schemas:\n  t:\n    notes: []\n") }
+            val counting = CountingPerRootConfigSource(PerRootConfigService(repo.configStore()))
             val resolver = EffectiveConfigResolver(global, counting)
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
 
@@ -879,7 +882,7 @@ class EffectiveConfigRoutesEdgeTest {
                 )
             val repo = db.repositoryProvider()
             val root = createRootItem(repo)
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveAndLegacyConfigTestApp(repo, resolver, schemaService) }
 
             val before = client.get("/api/v1/config") { header("Authorization", "Bearer $TEST_TOKEN") }
@@ -887,7 +890,7 @@ class EffectiveConfigRoutesEdgeTest {
             val beforeEtag = before.headers[HttpHeaders.ETag]
 
             runBlocking {
-                repo.projectConfigRepository().upsert(
+                repo.configStore().upsert(
                     root.id,
                     "work_item_schemas:\n  bug:\n    notes:\n      - key: x\n        role: queue\n"
                 )
@@ -904,7 +907,7 @@ class EffectiveConfigRoutesEdgeTest {
             val (schemaService, global) = absentGlobalFixture()
             val repo = db.repositoryProvider()
             val root = createRootItem(repo)
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
 
             val r1 = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
@@ -938,7 +941,7 @@ class EffectiveConfigRoutesEdgeTest {
             val root = createRootItem(repo)
             val (schemaService, _) = globalFixture("work_item_schemas:\n  bug:\n    notes: []\n")
             runBlocking {
-                repo.projectConfigRepository().upsert(root.id, "work_item_schemas:\n  bug:\n    notes: []\n")
+                repo.configStore().upsert(root.id, "work_item_schemas:\n  bug:\n    notes: []\n")
             }
             val authConfig = makeTestAuthConfig()
             val tokenEntries = authConfig.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) }
@@ -959,7 +962,7 @@ class EffectiveConfigRoutesEdgeTest {
                         ToolExecutionContext(
                             repo,
                             statusLabelService = NoOpStatusLabelService,
-                            perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
+                            perRootConfigService = PerRootConfigService(repo.configStore()),
                             unitOfWork = db.unitOfWork(),
                         ),
                     degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
@@ -997,7 +1000,7 @@ class EffectiveConfigRoutesProbeTest {
             val (schemaService, global) = globalFixture(globalYaml)
             val repo = db.repositoryProvider()
             val root = createRootItem(repo)
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
 
             val response =
@@ -1013,7 +1016,7 @@ class EffectiveConfigRoutesProbeTest {
             val (schemaService, global) = globalFixture(globalYaml)
             val repo = db.repositoryProvider()
             val root = createRootItem(repo)
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
 
             val etag =
@@ -1043,7 +1046,7 @@ class EffectiveConfigRoutesProbeTest {
             val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             runBlocking {
-                repo.projectConfigRepository().upsert(
+                repo.configStore().upsert(
                     root.id,
                     """
                     work_item_schemas:
@@ -1055,7 +1058,7 @@ class EffectiveConfigRoutesProbeTest {
                     """.trimIndent(),
                 )
             }
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
 
             val response =
@@ -1082,15 +1085,15 @@ class EffectiveConfigRoutesProbeTest {
         val (schemaServiceA, globalA) = globalFixture(globalWithTrait)
         val repoA = db.repositoryProvider()
         val rootA = createRootItem(repoA)
-        runBlocking { repoA.projectConfigRepository().upsert(rootA.id, "work_item_schemas: {}\ntraits: {}\n") }
-        val resolverA = EffectiveConfigResolver(globalA, PerRootConfigService(repoA.projectConfigRepository()))
+        runBlocking { repoA.configStore().upsert(rootA.id, "work_item_schemas: {}\ntraits: {}\n") }
+        val resolverA = EffectiveConfigResolver(globalA, PerRootConfigService(repoA.configStore()))
 
         SqliteTestDatabase.open().use { dbB ->
             val (schemaServiceB, globalB) = globalFixture(globalWithTrait)
             val repoB = dbB.repositoryProvider()
             val rootB = createRootItem(repoB)
-            runBlocking { repoB.projectConfigRepository().upsert(rootB.id, "work_item_schemas: {}\n") }
-            val resolverB = EffectiveConfigResolver(globalB, PerRootConfigService(repoB.projectConfigRepository()))
+            runBlocking { repoB.configStore().upsert(rootB.id, "work_item_schemas: {}\n") }
+            val resolverB = EffectiveConfigResolver(globalB, PerRootConfigService(repoB.configStore()))
 
             lateinit var namesWithExplicitEmpty: List<String>
             testApplication {
@@ -1160,9 +1163,9 @@ class EffectiveConfigRoutesSchemaResolutionTest {
             val repo = db.repositoryProvider()
             val root = createRootItem(repo, title = "S15 removed field")
             runBlocking {
-                repo.projectConfigRepository().upsert(root.id, "schema_resolution: layered\nwork_item_schemas: {}\n")
+                repo.configStore().upsert(root.id, "schema_resolution: layered\nwork_item_schemas: {}\n")
             }
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
 
             val response = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
@@ -1200,8 +1203,8 @@ class EffectiveConfigRoutesOrderingTest {
             val (schemaService, global) = globalFixture(globalYaml)
             val repo = db.repositoryProvider()
             val root = createRootItem(repo)
-            runBlocking { repo.projectConfigRepository().upsert(root.id, perRootYaml) }
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            runBlocking { repo.configStore().upsert(root.id, perRootYaml) }
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
 
             val response = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
@@ -1238,8 +1241,8 @@ class EffectiveConfigRoutesDefaultSchemaTest {
             val (schemaService, global) = globalFixture(globalYaml)
             val repo = db.repositoryProvider()
             val root = createRootItem(repo)
-            runBlocking { repo.projectConfigRepository().upsert(root.id, perRootYaml) }
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            runBlocking { repo.configStore().upsert(root.id, perRootYaml) }
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
 
             val response = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
@@ -1267,7 +1270,7 @@ class EffectiveConfigRoutesDefaultSchemaTest {
             val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             // Deliberately no upsert() — no per-root row, so the default must come from global.
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
 
             val response = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
@@ -1308,7 +1311,7 @@ class EffectiveConfigRoutesEntryFieldsTest {
             val (schemaService, global) = globalFixture(globalYaml)
             val repo = db.repositoryProvider()
             val root = createRootItem(repo)
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
 
             val response = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
@@ -1381,7 +1384,7 @@ class EffectiveConfigRoutesRootLookupFailureTest {
                     EffectiveConfigFailingWorkItemRepository(repo.workItemRepository(), root.id),
                 )
             val (schemaService, global) = globalFixture("work_item_schemas: {}")
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveConfigTestApp(failingProvider, resolver, schemaService) }
 
             val failing =
@@ -1438,7 +1441,7 @@ class EffectiveConfigRoutesTypesMatchSchemasTest {
             val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             runBlocking {
-                repo.projectConfigRepository().upsert(
+                repo.configStore().upsert(
                     root.id,
                     """
                     schema_resolution: isolated
@@ -1448,7 +1451,7 @@ class EffectiveConfigRoutesTypesMatchSchemasTest {
                     """.trimIndent(),
                 )
             }
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
 
             val response =
@@ -1477,7 +1480,7 @@ class EffectiveConfigRoutesTypesMatchSchemasTest {
             val repo = db.repositoryProvider()
             val root = createRootItem(repo)
             runBlocking {
-                repo.projectConfigRepository().upsert(
+                repo.configStore().upsert(
                     root.id,
                     """
                     schema_resolution: layered
@@ -1487,7 +1490,7 @@ class EffectiveConfigRoutesTypesMatchSchemasTest {
                     """.trimIndent(),
                 )
             }
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
             application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
 
             val response =

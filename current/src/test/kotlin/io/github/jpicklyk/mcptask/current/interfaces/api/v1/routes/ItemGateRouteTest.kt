@@ -21,7 +21,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -354,7 +356,7 @@ class ItemGateRouteTest {
                                 required: true
                                 description: "Per-root required note"
                         """.trimIndent()
-                    repo.projectConfigRepository().upsert(r.id, yaml)
+                    repo.configStore().upsert(r.id, yaml)
                         ?: error("fixture: per-root config upsert failed")
                     r to i
                 }
@@ -531,7 +533,7 @@ class ItemGateRouteTest {
                     actorAuthEnabled = false,
                     noteSchemaService = NoOpNoteSchemaService,
                     toolContext =
-                        PerRootConfigService(repo.projectConfigRepository()).let { perRoot ->
+                        PerRootConfigService(repo.configStore()).let { perRoot ->
                             ToolExecutionContext(
                                 repo,
                                 perRootConfigService = perRoot,
@@ -761,7 +763,7 @@ class ItemGateRouteTest {
         schemaService: ConfigDocument,
         itemId: UUID,
     ): JsonObject {
-        val perRoot = PerRootConfigService(repo.projectConfigRepository())
+        val perRoot = PerRootConfigService(repo.configStore())
         val context =
             ToolExecutionContext(
                 repo,
@@ -801,7 +803,7 @@ private fun Application.configureGateApp(
 ) {
     configureTestApp(authConfig) {
         if (includeItemRoute) itemRoutes(repo)
-        val perRoot = PerRootConfigService(repo.projectConfigRepository())
+        val perRoot = PerRootConfigService(repo.configStore())
         ToolExecutionContext(
             repo,
             perRootConfigService = perRoot,

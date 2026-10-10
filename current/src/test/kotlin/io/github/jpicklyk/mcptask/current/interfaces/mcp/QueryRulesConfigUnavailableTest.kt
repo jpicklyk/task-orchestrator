@@ -1,13 +1,17 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
-import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.config.QueryRulesTool
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.getFingerprint
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -39,7 +43,7 @@ import kotlin.test.assertNull
  * [ChannelTransport.createLinkedPair], but drives the REAL [QueryRulesTool] (not an anonymous
  * always-throwing tool) registered via [McpToolAdapter.registerToolWithServer] -- item mode
  * (`itemId`+`noteKey`) forces `ToolExecutionContext.resolveSchema(item)` to perform a per-root
- * config read, which is made to fail cold via a [ProjectConfigStore] wrapper whose
+ * config read, which is made to fail cold via a [ConfigStore] wrapper whose
  * `getFingerprint`/`get` return `Result.Error`, mirroring [ConfigUnavailableRoutesTest] /
  * [ManageNotesConfigUnavailableTest]'s "own copy per file" `FailableProjectConfigRepository`
  * pattern (this item's file-ownership rule forbids a shared harness file). The second half of S9
@@ -89,7 +93,7 @@ class QueryRulesConfigUnavailableTest {
                 // resolve() only reaches the .get() read (the one failGet intercepts) once the
                 // fingerprint check has NOT short-circuited on Success(null)/absence. Mirrors
                 // ConfigUnavailableRoutesTest's S11 / ItemSchemaRouteTest's S11b 503 fixtures.
-                sqlite.projectConfigRepository().upsert(r.id, "work_item_schemas:\n  s9-type:\n    notes: []\n")
+                sqlite.configStore().upsert(r.id, "work_item_schemas:\n  s9-type:\n    notes: []\n")
                 val i =
                     sqlite
                         .workItemRepository()
@@ -106,13 +110,13 @@ class QueryRulesConfigUnavailableTest {
                 r to i
             }
 
-        val failable = FailableProjectConfigRepository(sqlite.projectConfigRepository())
+        val failable = FailableProjectConfigRepository(sqlite.configStore())
         failable.failGet = true
         val provider = FailableRepositoryProvider(sqlite, failable)
         val context =
             ToolExecutionContext(
                 provider,
-                perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                perRootConfigService = PerRootConfigService(provider.configStore()),
                 unitOfWork = db.unitOfWork(),
             )
         return Triple(context, item, failable)
@@ -175,22 +179,24 @@ class QueryRulesConfigUnavailableTest {
 }
 
 /**
- * Wraps a real [ProjectConfigStore] and lets tests force [get]/[getFingerprint] to return
+ * Wraps a real [ConfigStore] and lets tests force [get]/[getFingerprint] to return
  * `throw IllegalStateException("x")` on demand. Own copy for this file -- see the
  * identical class in the sibling config-unavailable test files for the full rationale (no shared
  * harness file per this item's file-ownership rule).
  */
 private class FailableProjectConfigRepository(
-    private val delegate: ProjectConfigStore,
-) : ProjectConfigStore by delegate {
+    private val delegate: ConfigStore,
+) : ConfigStore by delegate {
     @Volatile var failFingerprint: Boolean = false
 
     @Volatile var failGet: Boolean = false
 
-    override suspend fun getFingerprint(rootItemId: UUID) =
-        if (failFingerprint) throw IllegalStateException("x") else delegate.getFingerprint(rootItemId)
+    override suspend fun head(
+        scope: ConfigScope,
+        rootId: UUID?
+    ) = if (failFingerprint) throw IllegalStateException("x") else delegate.head(scope, rootId)
 
-    override suspend fun get(rootItemId: UUID) = if (failGet) throw IllegalStateException("x") else delegate.get(rootItemId)
+    override suspend fun version(id: UUID) = if (failGet) throw IllegalStateException("x") else delegate.version(id)
 }
 
 /** An SQLite-backed provider with only [projectConfigRepository] swapped. */
@@ -198,5 +204,5 @@ private class FailableRepositoryProvider(
     private val delegate: RepositoryProvider,
     private val failable: FailableProjectConfigRepository,
 ) : RepositoryProvider by delegate {
-    override fun projectConfigRepository(): ProjectConfigStore = failable
+    override fun configStore(): ConfigStore = failable
 }

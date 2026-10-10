@@ -854,8 +854,10 @@ internal object YamlSchemaParser {
                     continue
                 }
 
-            val phases = mutableMapOf<Role, DispatchProfile>()
-            val phasesBySeat = mutableMapOf<Role, Map<String, SeatDispatchOverride>>()
+            // EnumMap: iteration (and so the wire order) follows the phase order, not the YAML key order, so a stored
+            // version rebuilt from its key-sorted canonical JSON serializes exactly like the YAML it came from.
+            val phases: MutableMap<Role, DispatchProfile> = java.util.EnumMap(Role::class.java)
+            val phasesBySeat: MutableMap<Role, Map<String, SeatDispatchOverride>> = java.util.EnumMap(Role::class.java)
 
             for ((phaseKey, phaseRaw) in dispatchMap) {
                 val role = VALID_SCHEMA_ROLES[phaseKey]

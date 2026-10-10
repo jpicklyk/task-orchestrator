@@ -18,7 +18,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
@@ -386,9 +388,9 @@ class NoteCommandServiceTest {
             val strictRoot = persist(WorkItem(title = "strict root"))
             val laxRoot = persist(WorkItem(title = "lax root"))
             val bareRoot = persist(WorkItem(title = "bare root"))
-            repos.projectConfigRepository().upsert(strictRoot.id, "note_limits:\n  mode: reject\n")
-            repos.projectConfigRepository().upsert(laxRoot.id, "note_limits:\n  mode: warn\n")
-            val perRoot = PerRootConfigService(repos.projectConfigRepository())
+            repos.configStore().upsert(strictRoot.id, "note_limits:\n  mode: reject\n")
+            repos.configStore().upsert(laxRoot.id, "note_limits:\n  mode: warn\n")
+            val perRoot = PerRootConfigService(repos.configStore())
             val over = "x".repeat(11)
 
             val globalWarn = service(schema(globalMode = "warn"), perRoot)

@@ -1,13 +1,18 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
-import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.getFingerprint
+import io.github.jpicklyk.mcptask.current.test.rootItemId
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
@@ -24,7 +29,7 @@ import kotlin.test.assertNull
  * S11). Exercises [PerRootConfigService]'s new [PerRootConfigService.layer] port method — the
  * DB-backed harness style mirrors [PerRootConfigServiceTest]'s existing database setup. S11's
  * cold-read-error / warm-LKG cases reuse the `FailableProjectConfigRepository` wrapper technique
- * from `AdvanceItemToolConfigUnavailableTest` (a `ProjectConfigStore` delegate whose
+ * from `AdvanceItemToolConfigUnavailableTest` (a `ConfigStore` delegate whose
  * `getFingerprint` can be switched to fail), authored fresh here since that fixture is file-private
  * there and not a shared/importable fake.
  */
@@ -35,7 +40,7 @@ class PerRootConfigLayerTest {
 
     private lateinit var database: Database
     private lateinit var databaseManager: DatabaseManager
-    private lateinit var repository: SQLiteProjectConfigRepository
+    private lateinit var repository: SqliteConfigStore
     private lateinit var workItemRepository: SQLiteWorkItemRepository
     private lateinit var service: PerRootConfigService
     private lateinit var rootItemId: UUID
@@ -45,7 +50,7 @@ class PerRootConfigLayerTest {
         runBlocking {
             database = sqliteDb.database
             databaseManager = sqliteDb.databaseManager
-            repository = SQLiteProjectConfigRepository(databaseManager)
+            repository = SqliteConfigStore(databaseManager)
             workItemRepository = SQLiteWorkItemRepository(databaseManager)
             service = PerRootConfigService(repository)
 
@@ -114,10 +119,11 @@ class PerRootConfigLayerTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S11 layer returns null for unparseable per-root YAML`() =
+    fun `S11 layer fails closed for a head without canonical JSON`() =
         runBlocking {
+            // The ConfigTestSupport shim stores NULL canonical_json for YAML that does not parse.
             repository.upsert(rootItemId, "work_item_schemas: [\ninvalid yaml: :\n  - broken")
-            assertNull(service.layer(rootItemId))
+            assertFailsWith<io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException> { service.layer(rootItemId) }
         }
 
     @Test
@@ -162,14 +168,16 @@ class PerRootConfigLayerTest {
 }
 
 private class FailableProjectConfigRepository(
-    private val delegate: ProjectConfigStore,
-) : ProjectConfigStore by delegate {
+    private val delegate: ConfigStore,
+) : ConfigStore by delegate {
     @Volatile var failFingerprint: Boolean = false
 
-    override suspend fun getFingerprint(rootItemId: UUID) =
-        if (failFingerprint) {
-            throw IllegalStateException("x")
-        } else {
-            delegate.getFingerprint(rootItemId)
-        }
+    override suspend fun head(
+        scope: ConfigScope,
+        rootId: UUID?
+    ) = if (failFingerprint) {
+        throw IllegalStateException("x")
+    } else {
+        delegate.head(scope, rootId)
+    }
 }

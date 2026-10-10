@@ -6,20 +6,23 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
-import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorFixTemplates
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.writeTx
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
@@ -319,21 +322,23 @@ class UnitRunnerTranslationTest {
         }
 
     private class FailableProjectConfigRepository(
-        private val delegate: ProjectConfigStore,
+        private val delegate: ConfigStore,
         private val cause: Throwable?
-    ) : ProjectConfigStore by delegate {
+    ) : ConfigStore by delegate {
         @Volatile var failFingerprint: Boolean = false
 
-        override suspend fun getFingerprint(rootItemId: UUID) =
-            if (failFingerprint) {
-                throw IllegalStateException("fingerprint read failed", cause)
-            } else {
-                delegate.getFingerprint(rootItemId)
-            }
+        override suspend fun head(
+            scope: ConfigScope,
+            rootId: UUID?
+        ) = if (failFingerprint) {
+            throw IllegalStateException("fingerprint read failed", cause)
+        } else {
+            delegate.head(scope, rootId)
+        }
     }
 
     private suspend fun warmService(cause: Throwable?): Triple<PerRootConfigService, FailableProjectConfigRepository, UUID> {
-        val real = db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository
+        val real = db.repositoryProvider().configStore() as SqliteConfigStore
         val items = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
         val wrapper = FailableProjectConfigRepository(real, cause)
         val service = PerRootConfigService(wrapper)

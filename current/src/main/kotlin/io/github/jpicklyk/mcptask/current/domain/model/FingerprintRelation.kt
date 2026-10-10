@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.domain.model
 
 /**
- * Classifies a caller-supplied fingerprint against a root's stored [ProjectConfig] state — the
+ * Classifies a caller-supplied fingerprint against a root's stored config state — the
  * fast-forward push guard's core signal. Computed by
- * [io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore.classifyFingerprint]
- * and consumed by [io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushService.push]
+ * [io.github.jpicklyk.mcptask.current.application.port.ConfigStore.classifyFingerprint]
+ * and consumed by [io.github.jpicklyk.mcptask.current.application.service.ConfigService.push]
  * (rejects a push classified [SUPERSEDED] unless `force: true`) and surfaced read-side by
  * `GET /roots/{rootId}/config?fingerprint=...` and the MCP `manage_project_config` `get` operation.
  */

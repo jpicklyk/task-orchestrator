@@ -7,10 +7,12 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
 import io.github.jpicklyk.mcptask.current.test.MutableServerConfig
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
@@ -25,7 +27,7 @@ import kotlin.test.assertTrue
 /**
  * DB-backed integration test proving [ToolExecutionContext.resolveSchema] actually layers a
  * REAL [PerRootConfigService] (backed by a real `project_config` row via
- * [SQLiteProjectConfigRepository]) over a real global server config document — as opposed to the
+ * [SqliteConfigStore]) over a real global server config document — as opposed to the
  * sibling [ToolExecutionContextResolveSchemaTest], which mocks [PerRootConfigService] itself and
  * therefore never exercises the DB round-trip or [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlSchemaParser]
  * parsing path.
@@ -58,7 +60,7 @@ class ToolExecutionContextPerRootIntegrationTest {
             database = db.database
             databaseManager = db.databaseManager
 
-            val repository = db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository
+            val repository = db.repositoryProvider().configStore() as SqliteConfigStore
             perRootConfigService = PerRootConfigService(repository)
 
             // project_config.root_item_id has a real FK to work_items(id) — both roots must exist

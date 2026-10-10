@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
+import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
@@ -16,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaServ
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepRunner
+import io.github.jpicklyk.mcptask.current.application.upgrade.steps.ConfigCanonicalizeStep
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.ApiAuthConfigLoader
@@ -25,6 +27,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.GlobalConfigFile
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlActorAuthenticationConfigService
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlNoteSchemaService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
@@ -92,6 +95,7 @@ class CompositionResult(
     val advanceServiceFactory: AdvanceServiceFactory,
     val unitOfWork: UnitOfWork,
     val dataStepRunner: DataStepRunner,
+    val configService: ConfigService,
 )
 
 /**
@@ -168,14 +172,16 @@ class ServerComposition(
             )
         // Per-root schema layer (T3.2): resolveSchema() consults this root's pushed config before
         // falling back to the global config layer. Shares effectiveProvider so MCP tools
-        // and REST routes see the same project_config access.
-        val perRootConfigService = PerRootConfigService(effectiveProvider.projectConfigRepository())
+        // and REST routes see the same versioned config store.
+        val perRootConfigService = PerRootConfigService(effectiveProvider.configStore())
         // Both MCP and REST resolve config through this ONE resolver — see O1 (task-scope f2c50e6d):
         // REST previously built its own PerRootConfigService (a separate last-known-good cache);
         // sharing this instance is the only intended observable behavior change in this item.
         val configResolver = EffectiveConfigResolver(LayerBackedGlobalLookup(globalConfigFile.layer()), perRootConfigService)
         // The unit of work hands scopes the SAME provider the tools use.
         val unitOfWork: UnitOfWork = SqliteUnitOfWork(databaseManager, effectiveProvider, clock, apiWiring.eventRecorder)
+        // The ONE config service: MCP's manage_project_config and the REST config routes both drive it.
+        val configService = ConfigService(effectiveProvider, YamlConfigDocumentParser, unitOfWork)
         val toolContext =
             ToolExecutionContext(
                 repositoryProvider = effectiveProvider,
@@ -187,6 +193,7 @@ class ServerComposition(
                 configResolver = configResolver,
                 clock = clock,
                 unitOfWork = unitOfWork,
+                configService = configService,
             )
         logger.info(
             "Repository provider and tool context initialized (API {})",
@@ -209,9 +216,10 @@ class ServerComposition(
             configResolver = configResolver,
             advanceServiceFactory = toolContext.advanceServiceFactory(),
             unitOfWork = unitOfWork,
+            configService = configService,
             dataStepRunner =
                 DataStepRunner(
-                    steps = productionDataSteps(globalConfigPath) + extraDataSteps,
+                    steps = productionDataSteps(configService, globalConfigPath) + extraDataSteps,
                     unitOfWork = unitOfWork,
                     store = SqliteDataStepStore(databaseManager),
                     clock = clock,
@@ -365,7 +373,13 @@ class ServerComposition(
     }
 
     private companion object {
-        /** The data steps the server ships; later work items register theirs here. */
-        fun productionDataSteps(globalConfigPath: Path): List<DataStep> = listOf(TypeBackfillStep(globalConfigPath))
+        /**
+         * The data steps the server ships; later work items register theirs here. Phase order runs config-canonicalize
+         * (CONFIG_CANONICALIZE) before type-backfill (ITEM_BACKFILL).
+         */
+        fun productionDataSteps(
+            configService: ConfigService,
+            globalConfigPath: Path,
+        ): List<DataStep> = listOf(ConfigCanonicalizeStep(configService), TypeBackfillStep(globalConfigPath))
     }
 }

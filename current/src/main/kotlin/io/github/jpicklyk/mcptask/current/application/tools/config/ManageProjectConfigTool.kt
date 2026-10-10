@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.tools.config
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
-import io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushResult
-import io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushService
+import io.github.jpicklyk.mcptask.current.application.service.ConfigPushResult
+import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
@@ -20,8 +20,8 @@ import kotlinx.serialization.json.*
  *
  * Supports two operations:
  * - **push**: validates the target root (must exist, must be depth 0), parse-validates the YAML
- *   BEFORE storing it, then upserts via [io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore].
- * - **get**: reads back the stored config + fingerprint for a root, or a not-found error.
+ *   BEFORE storing it, then appends a new version via [ConfigService].
+ * - **get**: reads back the head config + fingerprint for a root, or a not-found error.
  */
 class ManageProjectConfigTool(
     private val configDocumentParser: ConfigDocumentParser,
@@ -188,9 +188,9 @@ the root's stored fingerprint history.
         val configYaml = requireString(params, "configYaml")
         val force = optionalBoolean(params, "force")
 
-        val service = ProjectConfigPushService(context.repositoryProvider, configDocumentParser, context.unitOfWork)
+        val service = configService(context)
         return when (val result = service.push(rootId!!, configYaml, force)) {
-            is ProjectConfigPushResult.Success ->
+            is ConfigPushResult.Success ->
                 successResponse(
                     buildJsonObject {
                         put("rootId", JsonPrimitive(result.rootItemId.toString()))
@@ -205,51 +205,51 @@ the root's stored fingerprint history.
                         }
                     }
                 )
-            is ProjectConfigPushResult.NotFound ->
+            is ConfigPushResult.NotFound ->
                 errorResponse(
                     "Root WorkItem not found: ${result.rootItemId}",
                     LegacyMcpCode.RESOURCE_NOT_FOUND
                 )
-            is ProjectConfigPushResult.NotDepthZero ->
+            is ConfigPushResult.NotDepthZero ->
                 errorResponse(
                     "rootId must reference a depth-0 (root) WorkItem; '${result.rootItemId}' has depth ${result.depth}",
                     LegacyMcpCode.VALIDATION_ERROR
                 )
-            is ProjectConfigPushResult.TooLarge ->
+            is ConfigPushResult.TooLarge ->
                 errorResponse(
                     "configYaml is ${result.sizeBytes} bytes, exceeds the ${result.maxBytes} byte " +
                         "(${result.maxBytes / 1024} KiB) limit",
                     LegacyMcpCode.VALIDATION_ERROR
                 )
-            is ProjectConfigPushResult.ParseError ->
+            is ConfigPushResult.ParseError ->
                 errorResponse(
                     "configYaml failed to parse: ${result.detail}",
                     LegacyMcpCode.VALIDATION_ERROR,
                     details = result.detail
                 )
-            is ProjectConfigPushResult.RootIdMismatch ->
+            is ConfigPushResult.RootIdMismatch ->
                 errorResponse(
                     "configYaml embeds project.rootId '${result.embeddedRootId}', which differs from " +
                         "the target rootId '${result.targetRootId}'; fix project.rootId in the " +
                         "document or pass force: true to push anyway",
                     LegacyMcpCode.VALIDATION_ERROR
                 )
-            is ProjectConfigPushResult.Superseded ->
+            is ConfigPushResult.Superseded ->
                 errorResponse(
                     "local config is older than the server's (updated ${result.currentUpdatedAt}); " +
                         "pull or copy back before editing, or pass force: true to overwrite anyway",
                     LegacyMcpCode.CONFLICT_ERROR
                 )
-            is ProjectConfigPushResult.PreconditionFailed ->
+            is ConfigPushResult.PreconditionFailed ->
                 // Unreachable from this tool today (no expectedFingerprint MCP param exists yet;
                 // ManageProjectConfigTool never passes one to push) -- present only so this when
-                // stays exhaustive against ProjectConfigPushResult without an else branch masking
+                // stays exhaustive against ConfigPushResult without an else branch masking
                 // a future forgotten case.
                 errorResponse(
                     "Project config was modified concurrently; current fingerprint is ${result.currentFingerprint}",
                     LegacyMcpCode.CONFLICT_ERROR
                 )
-            is ProjectConfigPushResult.RepositoryError ->
+            is ConfigPushResult.RepositoryError ->
                 errorResponse(
                     "Failed to store project config: ${result.message}",
                     LegacyMcpCode.DATABASE_ERROR,
@@ -270,7 +270,7 @@ the root's stored fingerprint history.
         if (idError != null) return idError
         val fingerprint = optionalString(params, "fingerprint")
 
-        val service = ProjectConfigPushService(context.repositoryProvider, configDocumentParser, context.unitOfWork)
+        val service = configService(context)
         val config =
             legacyRead({ return errorResponse("Failed to read project config: $it", LegacyMcpCode.DATABASE_ERROR) }) {
                 service.get(rootId!!)
@@ -283,10 +283,10 @@ the root's stored fingerprint history.
             run {
                 successResponse(
                     buildJsonObject {
-                        put("rootId", JsonPrimitive(config.rootItemId.toString()))
-                        put("configYaml", JsonPrimitive(config.configYaml))
+                        put("rootId", JsonPrimitive(rootId.toString()))
+                        put("configYaml", JsonPrimitive(config.yaml))
                         put("fingerprint", JsonPrimitive(config.fingerprint))
-                        put("updatedAt", JsonPrimitive(config.updatedAt.toString()))
+                        put("updatedAt", JsonPrimitive(config.createdAt.toString()))
                         relation?.let { put("relation", JsonPrimitive(it)) }
                     }
                 )
@@ -294,13 +294,17 @@ the root's stored fingerprint history.
         }
     }
 
+    /** The shared service wired at composition, or one built over the context's own stores (tests). */
+    private fun configService(context: ToolExecutionContext): ConfigService =
+        context.configService ?: ConfigService(context.repositoryProvider, configDocumentParser, context.unitOfWork)
+
     companion object {
         /**
          * `configYaml` size limit for `push`, in bytes — delegates to
-         * [ProjectConfigPushService.MAX_CONFIG_YAML_BYTES], the single source of truth now that the
+         * [ConfigService.MAX_CONFIG_YAML_BYTES], the single source of truth now that the
          * validate+persist pipeline lives in the service. Kept as a public alias here for backward
          * compatibility (existing callers/tests reference `ManageProjectConfigTool.MAX_CONFIG_YAML_BYTES`).
          */
-        const val MAX_CONFIG_YAML_BYTES = ProjectConfigPushService.MAX_CONFIG_YAML_BYTES
+        const val MAX_CONFIG_YAML_BYTES = ConfigService.MAX_CONFIG_YAML_BYTES
     }
 }

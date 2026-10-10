@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigSer
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.delete
 import io.ktor.client.request.header
@@ -139,7 +140,7 @@ class ItemPatchConflictMappingTest {
                     ToolExecutionContext(
                         repositoryProvider,
                         statusLabelService = NoOpStatusLabelService,
-                        perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()),
+                        perRootConfigService = PerRootConfigService(repositoryProvider.configStore()),
                         unitOfWork = db.unitOfWork()
                     ).advanceServiceFactory(),
                     db.unitOfWork(),

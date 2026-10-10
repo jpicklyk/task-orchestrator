@@ -13,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.delete
 import io.ktor.client.request.header
@@ -89,7 +90,7 @@ class WriteRouteAuthInvariantTest {
                 val toolContext =
                     ToolExecutionContext(
                         repo,
-                        perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
+                        perRootConfigService = PerRootConfigService(repo.configStore()),
                         unitOfWork = db.unitOfWork()
                     )
                 itemWriteRoutes(

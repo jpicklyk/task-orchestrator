@@ -1,10 +1,13 @@
 package io.github.jpicklyk.mcptask.current.application.tools.notes
 
-import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.getFingerprint
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -43,7 +46,7 @@ import kotlin.test.assertTrue
  * that [io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesToolTest]
  * confirms carries a zero-based `index` matching the request array's position.
  *
- * Harness: a REAL [PerRootConfigService] backed by a REAL [ProjectConfigStore] (SQLite-backed
+ * Harness: a REAL [PerRootConfigService] backed by a REAL [ConfigStore] (SQLite-backed
  * [DefaultRepositoryProvider], schema via [SqliteTestDatabase]) wrapped in a private
  * [FailableProjectConfigRepository] whose reads can be switched to `Result.Error` — the same "own
  * copy per file" harness pattern used by the sibling `AdvanceItemToolConfigUnavailableTest` /
@@ -73,7 +76,7 @@ class ManageNotesConfigUnavailableTest {
         runBlocking {
             repositoryProvider = db.repositoryProvider()
 
-            failable = FailableProjectConfigRepository(repositoryProvider.projectConfigRepository())
+            failable = FailableProjectConfigRepository(repositoryProvider.configStore())
             // Armed before any read is ever attempted through this PerRootConfigService instance,
             // so root `rootId` starts cold with no last-known-good entry (D1/D3).
             failable.failFingerprint = true
@@ -210,20 +213,22 @@ class ManageNotesConfigUnavailableTest {
 }
 
 /**
- * Wraps a real [ProjectConfigStore] and lets tests force [get]/[getFingerprint] to return
+ * Wraps a real [ConfigStore] and lets tests force [get]/[getFingerprint] to return
  * `throw IllegalStateException("x")` on demand. Own copy for this file — see the
  * identical class in the sibling config-unavailable test files for the full rationale (no shared
  * harness file per this item's file-ownership rule).
  */
 private class FailableProjectConfigRepository(
-    private val delegate: ProjectConfigStore
-) : ProjectConfigStore by delegate {
+    private val delegate: ConfigStore
+) : ConfigStore by delegate {
     @Volatile var failFingerprint: Boolean = false
 
     @Volatile var failGet: Boolean = false
 
-    override suspend fun getFingerprint(rootItemId: UUID) =
-        if (failFingerprint) throw IllegalStateException("x") else delegate.getFingerprint(rootItemId)
+    override suspend fun head(
+        scope: ConfigScope,
+        rootId: UUID?
+    ) = if (failFingerprint) throw IllegalStateException("x") else delegate.head(scope, rootId)
 
-    override suspend fun get(rootItemId: UUID) = if (failGet) throw IllegalStateException("x") else delegate.get(rootItemId)
+    override suspend fun version(id: UUID) = if (failGet) throw IllegalStateException("x") else delegate.version(id)
 }

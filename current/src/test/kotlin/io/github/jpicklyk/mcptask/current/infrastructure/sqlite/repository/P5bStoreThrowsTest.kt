@@ -6,12 +6,12 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.error.VersionConflictException
-import io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.PersistenceFaults
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.RawWriterLock
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.writeTx
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Tag
@@ -20,10 +20,8 @@ import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
@@ -132,62 +130,5 @@ class P5bStoreThrowsTest {
             val ok = assertIs<Outcome.Ok<LeaseAcquireResult>>(result, "the unit absorbs writer contention: $result")
             val success = assertIs<LeaseAcquireResult.Success>(ok.value, "an uncontended key must be granted: ${ok.value}")
             assertEquals(listOf("s7-key"), success.leases.map { it.resourceKey })
-        }
-
-    // ---------------------------------------------------------------- S8
-    private suspend fun seedRoot(): UUID =
-        db
-            .repositoryProvider()
-            .workItemRepository()
-            .create(WorkItem(title = "S8 root", type = "project"))
-            .id
-
-    @Test
-    fun `S8 a lost compare-and-set makes exactly one attempt and surfaces a failure that is not exhaustion`(): Unit =
-        runBlocking {
-            val rootId = seedRoot()
-            val seedRepo = SQLiteProjectConfigRepository(dm)
-            val fpA = seedRepo.upsert(rootId, "work_item_schemas:\n  a: {}\n").fingerprint
-            val hookCalls = AtomicInteger()
-            val racing =
-                SQLiteProjectConfigRepository(dm) {
-                    hookCalls.incrementAndGet()
-                    dm.writeTx("S8.tamper") { exec("UPDATE project_config SET fingerprint = 'tampered', config_yaml = 'tampered: true'") }
-                }
-
-            val thrown =
-                assertFailsWith<IllegalStateException> {
-                    db.unitOfWork().write("S8.guarded") {
-                        Outcome.Ok(racing.upsertGuarded(rootId, "work_item_schemas:\n  b: {}\n", expectedFingerprint = fpA))
-                    }
-                }
-
-            assertEquals(1, hookCalls.get(), "the guarded write is attempted exactly once (no retry loop)")
-            assertFalse("exhausted" in thrown.message.orEmpty().lowercase(), "no retry-exhaustion text: ${thrown.message}")
-            val stored = assertNotNull(seedRepo.get(rootId))
-            assertEquals(
-                "work_item_schemas:\n  a: {}\n",
-                stored.configYaml,
-                "the unit rolled back as a whole: neither the competitor's tamper nor the losing write is committed"
-            )
-        }
-
-    @Test
-    fun `S8 control - without interference the same guarded upsert is applied after one hook call`(): Unit =
-        runBlocking {
-            val rootId = seedRoot()
-            val seedRepo = SQLiteProjectConfigRepository(dm)
-            val fpA = seedRepo.upsert(rootId, "work_item_schemas:\n  a: {}\n").fingerprint
-            val hookCalls = AtomicInteger()
-            val observing = SQLiteProjectConfigRepository(dm) { hookCalls.incrementAndGet() }
-
-            val result =
-                db.unitOfWork().write("S8.control") {
-                    Outcome.Ok(observing.upsertGuarded(rootId, "work_item_schemas:\n  b: {}\n", expectedFingerprint = fpA))
-                }
-
-            val applied = assertIs<GuardedUpsertOutcome.Applied>(assertIs<Outcome.Ok<GuardedUpsertOutcome>>(result).value)
-            assertEquals("work_item_schemas:\n  b: {}\n", applied.config.configYaml)
-            assertEquals(1, hookCalls.get())
         }
 }

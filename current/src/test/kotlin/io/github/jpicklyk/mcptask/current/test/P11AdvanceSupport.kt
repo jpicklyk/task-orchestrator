@@ -315,7 +315,7 @@ internal suspend fun P11Driver.cleanup(
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Config-fault fixtures (r1, H1): a per-root config is pushed and warmed, then the project_config table is renamed away so
+// Config-fault fixtures (r1, H1): a per-root config is pushed and warmed, then the config_heads table is renamed away so
 // every later config read raises a real store fault.
 // ---------------------------------------------------------------------------------------------------------------------
 
@@ -361,7 +361,7 @@ internal suspend fun P11Driver.configFaultFixture(): P11ConfigFixture {
     val root = item("config root", Role.WORK)
     val child = item("config item", Role.QUEUE, type = "p11-gated", parent = root)
     note(child, "spec", "queue")
-    raw.projectConfigRepository().upsert(root.id, P11_ROOT_YAML)
+    raw.configStore().upsert(root.id, P11_ROOT_YAML)
     val warm = rig.callOk(GetContextTool(), "itemId" to JsonPrimitive(child.id.toString()))
     val gate = warm["data"]!!.jsonObject["gateStatus"]!!.jsonObject
     check(gate.flag("canAdvance") == true) { "fixture: a healthy warm read must report canAdvance=true: $gate" }
@@ -370,5 +370,5 @@ internal suspend fun P11Driver.configFaultFixture(): P11ConfigFixture {
 
 /** Every later per-root config read now fails with a real SQL error (the cache stays warm). */
 internal fun P11Driver.breakConfigReads() {
-    rawExec(jdbcUrl, "ALTER TABLE project_config RENAME TO project_config_gone")
+    rawExec(jdbcUrl, "ALTER TABLE config_heads RENAME TO config_heads_gone")
 }

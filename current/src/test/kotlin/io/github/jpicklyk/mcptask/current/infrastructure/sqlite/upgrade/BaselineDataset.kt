@@ -457,6 +457,40 @@ object BaselineDataset {
             "fingerprint_history" to "[\"baseline-fingerprint-0000\"]"
         )
 
+        // V25: the versioned config store. Absent below V25, so insert drops these rows there; project_config is
+        // gone from V25 on, so the insert above is dropped there. The golden V17 stays byte-stable.
+        insert(
+            conn,
+            "config_versions",
+            "id" to id("config-version"),
+            "scope" to "root",
+            "root_id" to id("root"),
+            "version" to 1,
+            "yaml" to "project:\n  name: synthetic-baseline\n",
+            "fingerprint" to "baseline-fingerprint-0001",
+            "canonical_json" to "{\"project\":{\"name\":\"synthetic-baseline\"}}",
+            "model_version" to 1,
+            "source" to "push",
+            "principal_id" to "baseline-principal",
+            "req_id" to "baseline-req",
+            "created_at" to TS,
+            "warnings_json" to "[\"baseline warning\"]"
+        )
+        insert(
+            conn,
+            "config_heads",
+            "scope" to "root",
+            "root_id" to id("root"),
+            "version_id" to id("config-version"),
+            "updated_at" to TS_PLUS_1
+        )
+        insert(
+            conn,
+            "config_known_fingerprints",
+            "root_id" to id("root"),
+            "fingerprint" to "baseline-fingerprint-0000"
+        )
+
         insert(
             conn,
             "plan_documents",

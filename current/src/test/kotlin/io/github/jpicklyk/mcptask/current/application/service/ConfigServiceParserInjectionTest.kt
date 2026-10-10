@@ -7,8 +7,9 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.every
 import io.mockk.mockk
@@ -30,26 +31,26 @@ import kotlin.test.assertTrue
  * Independently authored against the frozen `task-scope`/`test-plan` notes on item `f2c50e6d` —
  * scenarios S10 and S11 map to this file per the test-plan's file list. Oracle for S10:
  * `task-scope`'s Part B mapping in `parseAndValidateYaml`/`push` — a [ConfigDocumentParser.Outcome.Failed]
- * maps to `ProjectConfigPushResult.ParseError(detail)` carrying the SAME detail string, and a
- * [ConfigDocumentParser.Outcome.Parsed] maps to `ProjectConfigPushResult.Success` carrying the
+ * maps to `ConfigPushResult.ParseError(detail)` carrying the SAME detail string, and a
+ * [ConfigDocumentParser.Outcome.Parsed] maps to `ConfigPushResult.Success` carrying the
  * parsed document's `warnings` as `schemaWarnings` and the raw root map's keys as `ignoredSections`
  * — confirmed verbatim in the declarations' `parseAndValidateYaml`/`push` excerpt. Oracle for S11:
  * the same Failed->ParseError mapping, surfaced through [ManageProjectConfigTool]'s push operation
  * response, mirroring [ManageProjectConfigToolTest]'s existing "push unparseable YAML returns error
  * containing parse detail" style but with an INJECTED fake parser rather than real YAML.
  *
- * NEW-SURFACE (both scenarios): the [ConfigDocumentParser] injection point on [ProjectConfigPushService]
+ * NEW-SURFACE (both scenarios): the [ConfigDocumentParser] injection point on [ConfigService]
  * and [ManageProjectConfigTool] is introduced by this feature. No source revert can yield behavioral
  * red; per the frozen plan, the substitute is "keep param, inline old parse" (an orchestrator-run
  * mutation).
  */
-class ProjectConfigParserInjectionTest {
+class ConfigServiceParserInjectionTest {
     @RegisterExtension
     val db = SqliteTestDatabase.perMethod()
 
     private lateinit var databaseManager: DatabaseManager
     private lateinit var workItemRepository: SQLiteWorkItemRepository
-    private lateinit var projectConfigRepository: SQLiteProjectConfigRepository
+    private lateinit var projectConfigRepository: SqliteConfigStore
     private lateinit var repositoryProvider: RepositoryProvider
     private lateinit var rootId: UUID
 
@@ -59,11 +60,11 @@ class ProjectConfigParserInjectionTest {
             databaseManager = db.databaseManager
 
             workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
-            projectConfigRepository = db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository
+            projectConfigRepository = db.repositoryProvider().configStore() as SqliteConfigStore
 
             val provider = mockk<RepositoryProvider>(relaxed = true)
             every { provider.workItemRepository() } returns workItemRepository
-            every { provider.projectConfigRepository() } returns projectConfigRepository
+            every { provider.configStore() } returns projectConfigRepository
             repositoryProvider = provider
 
             val root = workItemRepository.create(WorkItem(title = "PCPS Root", type = "project"))
@@ -80,14 +81,14 @@ class ProjectConfigParserInjectionTest {
     }
 
     // ──────────────────────────────────────────────
-    // S10 — ProjectConfigPushService(p, fakeParser)
+    // S10 — ConfigService(p, fakeParser)
     // ──────────────────────────────────────────────
 
     @Test
     fun `S10 - a Failed outcome maps to ParseError carrying the same detail`(): Unit =
         runBlocking {
             val service =
-                ProjectConfigPushService(
+                ConfigService(
                     repositoryProvider,
                     FakeConfigDocumentParser(ConfigDocumentParser.Outcome.Failed("boom")),
                     db.unitOfWork()
@@ -95,7 +96,7 @@ class ProjectConfigParserInjectionTest {
 
             val result = service.push(rootId, "irrelevant: yaml")
 
-            val parseError = assertIs<ProjectConfigPushResult.ParseError>(result)
+            val parseError = assertIs<ConfigPushResult.ParseError>(result)
             assertEquals("boom", parseError.detail)
         }
 
@@ -104,11 +105,11 @@ class ProjectConfigParserInjectionTest {
         runBlocking {
             val doc = ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap(), warnings = listOf("w1"))
             val outcome = ConfigDocumentParser.Outcome.Parsed(doc, rawRoot = mapOf("x" to 1))
-            val service = ProjectConfigPushService(repositoryProvider, FakeConfigDocumentParser(outcome), db.unitOfWork())
+            val service = ConfigService(repositoryProvider, FakeConfigDocumentParser(outcome), db.unitOfWork())
 
             val result = service.push(rootId, "irrelevant: yaml")
 
-            val success = assertIs<ProjectConfigPushResult.Success>(result)
+            val success = assertIs<ConfigPushResult.Success>(result)
             assertEquals(listOf("w1"), success.schemaWarnings)
             assertEquals(listOf("x"), success.ignoredSections)
         }

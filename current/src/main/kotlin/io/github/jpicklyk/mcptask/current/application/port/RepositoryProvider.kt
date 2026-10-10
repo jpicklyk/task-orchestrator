@@ -29,7 +29,7 @@ interface RepositoryProvider {
 
     fun roleTransitionRepository(): TransitionStore
 
-    fun projectConfigRepository(): ProjectConfigStore
+    fun configStore(): ConfigStore
 
     /**
      * The 3.x plan-document view, backed by [documentStore] and [linkStore] since 4.0 (a `rule/<key>` slug is the

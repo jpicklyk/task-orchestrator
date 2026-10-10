@@ -16,8 +16,9 @@ fun interface GlobalConfigSource {
 
 /**
  * A per-root config layer, keyed by a project root's WorkItem UUID. `null` = absence: no config
- * row exists for [rootId], or the stored document failed to parse — both fall through to the
- * global layer. A transient read failure with no last-known-good entry to serve throws
+ * version exists for [rootId], or its head is a reset version — both fall through to the
+ * global layer. A head whose stored canonical form is missing or undecodable throws
+ * `PerRootConfigInvalidException` (fail closed; never absence). A transient read failure with no last-known-good entry to serve throws
  * `PerRootConfigUnavailableException` (contract unchanged from `PerRootConfigService`) rather than
  * returning `null` — callers must not confuse "no per-root config" with "per-root config
  * temporarily unreadable".
@@ -28,7 +29,7 @@ interface PerRootConfigSource {
 
 /**
  * Shared YAML -> [ConfigDocument] parse for per-root config readers and writers (currently
- * `PerRootConfigService` and `ProjectConfigPushService`), so there is exactly one
+ * `PerRootConfigService` and `ConfigService`), so there is exactly one
  * SafeConstructor-parsing implementation for attacker-reachable (pushed) config YAML, instead of
  * one per caller.
  */
@@ -63,4 +64,13 @@ interface ConfigDocumentParser {
         yaml: String,
         warnOnMissingSchemas: Boolean,
     ): Outcome
+
+    /**
+     * Builds a [ConfigDocument] from an already-parsed document [root] (a null root yields [ConfigDocument.EMPTY]).
+     * Used to rebuild a stored version from its canonical JSON without re-parsing YAML.
+     */
+    fun fromRoot(
+        root: Map<String, Any>?,
+        warnOnMissingSchemas: Boolean,
+    ): ConfigDocument = throw UnsupportedOperationException("This parser cannot build a document from a parsed root")
 }

@@ -13,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -96,7 +97,7 @@ class McpRestAuthBypassTest {
                         ToolExecutionContext(
                             provider,
                             statusLabelService = YamlStatusLabelService(),
-                            perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                            perRootConfigService = PerRootConfigService(provider.configStore()),
                             unitOfWork = db.unitOfWork()
                         ),
                     degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,

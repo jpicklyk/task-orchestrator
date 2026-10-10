@@ -2,6 +2,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.configYaml
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.put
@@ -23,7 +25,7 @@ import kotlin.test.assertTrue
 /**
  * Exercises `PUT /api/v1/roots/{rootId}/config`'s `schemaWarnings` field -- the additive array
  * surfacing
- * [io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushResult.Success.schemaWarnings]
+ * [io.github.jpicklyk.mcptask.current.application.service.ConfigPushResult.Success.schemaWarnings]
  * on the REST response, present only when non-empty. The push still returns 200 with an ETag and
  * stores the document.
  *
@@ -82,7 +84,7 @@ class ProjectConfigRoutesSchemaWarningsTest {
             assertTrue(body.contains("feature-task"), "schemaWarnings text should name the schema: $body")
             assertTrue(body.contains("not-a-role"), "schemaWarnings text should name the bad value: $body")
 
-            val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
+            val persisted = runBlocking { repo.configStore().get(root.id) }
             assertEquals(
                 yaml,
                 persisted?.configYaml,
