@@ -93,6 +93,13 @@ deployment with a multi-GB database, either raise `--start-period`/the liveness 
 comfortably exceed the estimated compaction time, or set `DB_COMPACT_ON_UPGRADE=false` to defer to
 the offline runbook on your own schedule instead.
 
+**A database migrated by a newer version is refused.** From 3.17, a server whose database history
+contains a migration newer than the binary (for example a database a 4.0 server has already
+upgraded) logs an ERROR naming that version and refuses to start, rather than serving a schema it
+does not know. Stop every older process that shares the database file before starting the newer
+version, and do not point an older binary back at an upgraded file; restore a pre-upgrade backup
+instead.
+
 ---
 
 ## Logging
