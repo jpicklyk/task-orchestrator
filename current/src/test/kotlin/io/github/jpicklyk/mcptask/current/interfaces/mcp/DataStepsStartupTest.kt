@@ -14,6 +14,7 @@ import io.mockk.mockkConstructor
 import io.mockk.unmockkAll
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -38,6 +39,7 @@ import kotlin.test.assertTrue
  * first statement of the transport start, so reaching it proves the step ran BEFORE the transport stage, and the outcome
  * is `Failed(TRANSPORT_START)`, without binding a port or reading stdin.
  */
+@Timeout(60)
 class DataStepsStartupTest {
     @AfterEach
     fun tearDown() {

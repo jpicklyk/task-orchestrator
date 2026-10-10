@@ -310,7 +310,7 @@ class DataStepRunnerTest {
 
     @Test
     fun `S6 an after naming a step in ANOTHER phase is rejected in both directions`() {
-        // Earlier-phase dependency: the order would be satisfied anyway, so only the explicit rule rejects it.
+        // Without the explicit cross-phase rule these would fail later as a bogus cycle, so assert the rule's own message.
         val earlier =
             assertFailsWith<DataStepException> {
                 planOnly(
@@ -321,6 +321,7 @@ class DataStepRunnerTest {
                 ).plan()
             }
         assertTrue("late-dependent" in earlier.message.orEmpty(), "message must name the step: ${earlier.message}")
+        assertTrue("after is within a phase" in earlier.message.orEmpty(), "must be the cross-phase rule, not a cycle: ${earlier.message}")
         val later =
             assertFailsWith<DataStepException> {
                 planOnly(
@@ -331,6 +332,7 @@ class DataStepRunnerTest {
                 ).plan()
             }
         assertTrue("early-dependent" in later.message.orEmpty(), "message must name the step: ${later.message}")
+        assertTrue("after is within a phase" in later.message.orEmpty(), "must be the cross-phase rule, not a cycle: ${later.message}")
     }
 
     @Test
