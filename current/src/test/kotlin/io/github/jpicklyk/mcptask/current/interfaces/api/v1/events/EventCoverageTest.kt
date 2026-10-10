@@ -89,6 +89,7 @@ class EventCoverageTest {
                     buildJsonArray {
                         add(
                             buildJsonObject {
+                                put("type", "test-item")
                                 put("title", title)
                                 if (parentId != null) put("parentId", parentId.toString())
                             },
@@ -781,18 +782,24 @@ class EventCoverageTest {
                 rig.written {
                     rig.callOk(
                         CreateWorkTreeTool(),
-                        "root" to buildJsonObject { put("title", "tree root") },
+                        "root" to
+                            buildJsonObject {
+                                put("type", "test-item")
+                                put("title", "tree root")
+                            },
                         "children" to
                             buildJsonArray {
                                 add(
                                     buildJsonObject {
                                         put("ref", "c1")
+                                        put("type", "test-item")
                                         put("title", "tree c1")
                                     },
                                 )
                                 add(
                                     buildJsonObject {
                                         put("ref", "c2")
+                                        put("type", "test-item")
                                         put("title", "tree c2")
                                     },
                                 )
@@ -973,13 +980,18 @@ class EventCoverageTest {
                 rig.written {
                     rig.callOk(
                         CreateWorkTreeTool(),
-                        "root" to buildJsonObject { put("title", "adopting root") },
+                        "root" to
+                            buildJsonObject {
+                                put("type", "test-item")
+                                put("title", "adopting root")
+                            },
                         "parentId" to JsonPrimitive(project.id.toString()),
                         "children" to
                             buildJsonArray {
                                 add(
                                     buildJsonObject {
                                         put("ref", "c1")
+                                        put("type", "test-item")
                                         put("title", "adopting child")
                                     },
                                 )
@@ -1177,7 +1189,14 @@ class EventCoverageTest {
                             "requestId" to JsonPrimitive(UUID.randomUUID().toString()),
                         ),
                     "complete_tree" to arrayOf("rootId" to JsonPrimitive(treeRoot.id.toString()), "trigger" to JsonPrimitive("complete")),
-                    "create_work_tree" to arrayOf("root" to buildJsonObject { put("title", "S17 tree") }),
+                    "create_work_tree" to
+                        arrayOf(
+                            "root" to
+                                buildJsonObject {
+                                    put("type", "test-item")
+                                    put("title", "S17 tree")
+                                }
+                        ),
                     "manage_project_config" to
                         arrayOf(
                             "operation" to JsonPrimitive("push"),

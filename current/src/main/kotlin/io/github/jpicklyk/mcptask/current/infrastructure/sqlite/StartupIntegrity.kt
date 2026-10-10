@@ -18,7 +18,7 @@ class StartupIntegrityException(
  * - [checkFts]: per FTS5 table `integrity-check` with rank=1 (the default form passes a desynced
  *   external-content index); on failure `rebuild` then re-check; a second failure is a hard
  *   failure. SQLITE_BUSY means WARN and skip.
- * - [reportPlacementDrift] / [reportMutualBlocks]: WARN-only reports; never fail, never write.
+ * - [reportPlacementDrift] / [reportMutualBlocks] / [reportUntypedItems]: WARN-only reports; never fail, never write.
  */
 object StartupIntegrity {
     private val logger = LoggerFactory.getLogger(StartupIntegrity::class.java)
@@ -42,6 +42,7 @@ object StartupIntegrity {
         checkFts(connection)
         reportPlacementDrift(connection)
         reportMutualBlocks(connection)
+        reportUntypedItems(connection)
     }
 
     fun verifyInventory(connection: Connection) {
@@ -146,6 +147,18 @@ object StartupIntegrity {
                 "ON a.type = 'BLOCKS' AND b.type = 'BLOCKS' " +
                 "AND a.from_item_id = b.to_item_id AND a.to_item_id = b.from_item_id " +
                 "WHERE a.from_item_id < a.to_item_id"
+        )
+    }
+
+    /**
+     * WARN-only: items with no (or a blank) `type`. Runs before the data steps, so on the first 4.0 boot of a 3.x database
+     * these rows are expected and the `type-backfill` step fills them right after; on any later boot they are residue.
+     */
+    fun reportUntypedItems(connection: Connection) {
+        report(
+            connection,
+            "work items with no type (expected on the first 4.0 start of a 3.x database: the type-backfill data step types them next)",
+            "SELECT lower(hex(id)) AS ident FROM work_items WHERE type IS NULL OR trim(type) = ''"
         )
     }
 

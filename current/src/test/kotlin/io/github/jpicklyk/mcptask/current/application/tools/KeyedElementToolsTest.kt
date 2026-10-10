@@ -134,7 +134,19 @@ class KeyedElementToolsTest {
     ): JsonObject =
         buildJsonObject {
             put("operation", "create")
-            put("items", buildJsonArray { titles.forEach { t -> add(buildJsonObject { put("title", t) }) } })
+            put(
+                "items",
+                buildJsonArray {
+                    titles.forEach { t ->
+                        add(
+                            buildJsonObject {
+                                put("type", "test-item")
+                                put("title", t)
+                            }
+                        )
+                    }
+                }
+            )
             if (requestId != null) put("requestId", requestId)
             if (actorId != null) put("actor", actor(actorId))
         }
@@ -325,7 +337,11 @@ class KeyedElementToolsTest {
 
             fun treeParams(title: String) =
                 obj(
-                    "root" to buildJsonObject { put("title", title) },
+                    "root" to
+                        buildJsonObject {
+                            put("type", "test-item")
+                            put("title", title)
+                        },
                     "requestId" to JsonPrimitive(key),
                     "actor" to actor()
                 )

@@ -53,6 +53,8 @@ class ServiceBackedGlobalLookup(
 
     override fun hasExactTagSchema(tag: String): Boolean = noteSchemaService.getSchemaForTags(listOf(tag)) != null
 
+    override fun schemaKeys(): Set<String> = noteSchemaService.getAllSchemas().keys
+
     override fun schemaResolution(): SchemaResolutionMode? = schemaResolution
 
     private companion object {

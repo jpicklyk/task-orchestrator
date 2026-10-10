@@ -89,6 +89,7 @@ class DependencyDirectionTreeToolsTest {
     ): JsonObject =
         buildJsonObject {
             put("ref", JsonPrimitive(ref))
+            put("type", JsonPrimitive("test-item"))
             put("title", JsonPrimitive(title))
         }
 
@@ -182,7 +183,13 @@ class DependencyDirectionTreeToolsTest {
         runBlocking {
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("Root"))
+                        }
+                    )
                     put(
                         "children",
                         buildJsonArray {

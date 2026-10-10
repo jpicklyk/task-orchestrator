@@ -231,6 +231,7 @@ class LifecycleResponseBudgetTest {
                     put(
                         "root",
                         buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("Add CSV export to reports"))
                             put("priority", JsonPrimitive("high"))
                             put("summary", JsonPrimitive("Users need to export report data as CSV from the reports page."))

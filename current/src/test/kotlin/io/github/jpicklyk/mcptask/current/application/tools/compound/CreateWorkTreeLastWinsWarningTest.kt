@@ -52,13 +52,20 @@ class CreateWorkTreeLastWinsWarningTest {
     private suspend fun limEntry(bodies: List<String>): JsonObject {
         val params =
             buildJsonObject {
-                put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                put(
+                    "root",
+                    buildJsonObject {
+                        put("type", JsonPrimitive("test-item"))
+                        put("title", JsonPrimitive("Root"))
+                    }
+                )
                 put(
                     "children",
                     JsonArray(
                         listOf(
                             buildJsonObject {
                                 put("ref", JsonPrimitive("c1"))
+                                put("type", JsonPrimitive("test-item"))
                                 put("title", JsonPrimitive("C1"))
                                 put("tags", JsonPrimitive("lim-type"))
                             }

@@ -79,6 +79,16 @@ which exits before them. Remedy for a `DATA_STEPS` failure: fix the cause named 
 restart; the failed step's transaction rolled back, so it is retried from scratch. Deleting a row
 from `data_steps` makes that step run again on the next boot.
 
+The first shipped step is `type-backfill` (phase `ITEM_BACKFILL`, once). 4.0 requires every item to carry a `type`, so on the
+first start of a 3.x database it gives each item whose `type` is NULL or blank the schema key the 3.x tag step resolved it
+to, or `untyped` when none matched, so no in-flight item changes schema or required notes at the upgrade. It reads the
+global `.taskorchestrator/config.yaml` and every stored per-root config for their `schema_resolution` and schema keys only
+(an unparseable document counts as no layer, with a WARN, and never fails startup), writes the `type` column only (no
+`version` or `modified_at` bump, no events; the `data_steps` row is the record), and never retypes an already-typed item. The
+startup integrity report WARNs about untyped items before the step runs, so on that first boot the WARN is expected and the
+step fills the rows right after; a WARN on any later boot names residue. Back up the volume before the first 4.0 start: the
+backfill is not reversible from the data alone.
+
 **Readiness marker.** Once DB init and schema update have both succeeded and the configured
 transport has bound, the server writes a readiness marker file at `READINESS_FILE` (default
 `/tmp/mcp-task-orchestrator.ready`; see the CLAUDE.md env-var table). The marker is cleared on

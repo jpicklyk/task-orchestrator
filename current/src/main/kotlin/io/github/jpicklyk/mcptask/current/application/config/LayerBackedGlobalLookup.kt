@@ -62,6 +62,8 @@ class LayerBackedGlobalLookup(
 
     override fun hasExactTagSchema(tag: String): Boolean = document.workItemSchemas.containsKey(tag)
 
+    override fun schemaKeys(): Set<String> = document.workItemSchemas.keys
+
     override fun schemaResolution(): SchemaResolutionMode? = document.schemaResolution
 
     override fun traitSeats(name: String): List<SeatDefinition> = document.traitSeats[name] ?: emptyList()

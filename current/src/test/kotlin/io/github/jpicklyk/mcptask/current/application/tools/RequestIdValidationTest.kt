@@ -130,7 +130,12 @@ class RequestIdValidationTest {
                         put(
                             "items",
                             JsonArray(
-                                listOf(buildJsonObject { put("title", JsonPrimitive("RID-${UUID.randomUUID()}")) })
+                                listOf(
+                                    buildJsonObject {
+                                        put("type", JsonPrimitive("test-item"))
+                                        put("title", JsonPrimitive("RID-${UUID.randomUUID()}"))
+                                    }
+                                )
                             )
                         )
                         put("actor", actorJson(actorId))
@@ -232,7 +237,13 @@ class RequestIdValidationTest {
                 val baseline = (context.workItemRepository().findRootItems()!!).items.size
                 val params =
                     buildJsonObject {
-                        put("root", buildJsonObject { put("title", JsonPrimitive("Tree Root ${UUID.randomUUID()}")) })
+                        put(
+                            "root",
+                            buildJsonObject {
+                                put("type", JsonPrimitive("test-item"))
+                                put("title", JsonPrimitive("Tree Root ${UUID.randomUUID()}"))
+                            }
+                        )
                         put("actor", actorJson(actorId))
                     }
                 val check: suspend () -> Boolean = {

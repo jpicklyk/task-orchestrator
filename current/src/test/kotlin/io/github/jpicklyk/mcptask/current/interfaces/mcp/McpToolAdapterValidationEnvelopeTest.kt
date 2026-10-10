@@ -327,7 +327,7 @@ class McpToolAdapterValidationEnvelopeTest {
                     arguments =
                         mapOf(
                             "operation" to "create",
-                            "items" to listOf(mapOf("title" to "S8 item"))
+                            "items" to listOf(mapOf("title" to "S8 item", "type" to "test-item"))
                         )
                 )
             assertTrue(createResult.isError != true, "Setup precondition: item creation must succeed, got: ${createResult.content}")

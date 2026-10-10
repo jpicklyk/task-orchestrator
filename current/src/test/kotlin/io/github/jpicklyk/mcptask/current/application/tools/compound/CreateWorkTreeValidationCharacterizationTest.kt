@@ -40,7 +40,11 @@ import kotlin.test.assertFailsWith
 class CreateWorkTreeValidationCharacterizationTest {
     private val tool = CreateWorkTreeTool()
 
-    private fun validRoot(title: String = "Root Task") = buildJsonObject { put("title", JsonPrimitive(title)) }
+    private fun validRoot(title: String = "Root Task") =
+        buildJsonObject {
+            put("type", JsonPrimitive("test-item"))
+            put("title", JsonPrimitive(title))
+        }
 
     private fun assertRejected(
         expectedMessage: String,
@@ -71,7 +75,17 @@ class CreateWorkTreeValidationCharacterizationTest {
     @Test
     fun `S1c root title required and must be non-blank`() {
         assertRejected("'root.title' is required and must be a non-blank string") {
-            tool.validateParams(buildJsonObject { put("root", buildJsonObject { put("title", JsonPrimitive("  ")) }) })
+            tool.validateParams(
+                buildJsonObject {
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("  "))
+                        }
+                    )
+                }
+            )
         }
     }
 
@@ -134,6 +148,7 @@ class CreateWorkTreeValidationCharacterizationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("root"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("X"))
                                 }
                             )
@@ -156,6 +171,7 @@ class CreateWorkTreeValidationCharacterizationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("c0"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("C0 Title"))
                                 }
                             )
@@ -173,7 +189,17 @@ class CreateWorkTreeValidationCharacterizationTest {
             tool.validateParams(
                 buildJsonObject {
                     put("root", validRoot())
-                    put("children", buildJsonArray { add(buildJsonObject { put("title", JsonPrimitive("NoRef")) }) })
+                    put(
+                        "children",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
+                                    put("title", JsonPrimitive("NoRef"))
+                                }
+                            )
+                        }
+                    )
                 }
             )
         }
@@ -191,6 +217,7 @@ class CreateWorkTreeValidationCharacterizationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("a"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("A"))
                                     put("parentRef", JsonPrimitive("zz"))
                                 }
@@ -214,6 +241,7 @@ class CreateWorkTreeValidationCharacterizationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("a"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("A"))
                                     put("parentRef", JsonPrimitive("b"))
                                 }
@@ -221,6 +249,7 @@ class CreateWorkTreeValidationCharacterizationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("b"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("B"))
                                     put("parentRef", JsonPrimitive("a"))
                                 }
@@ -346,6 +375,7 @@ class CreateWorkTreeValidationCharacterizationTest {
                     put(
                         "root",
                         buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("Root"))
                             put("noteAnchors", JsonPrimitive("x"))
                         }
@@ -367,6 +397,7 @@ class CreateWorkTreeValidationCharacterizationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("c1"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("C1"))
                                     put("noteAnchors", buildJsonArray { add(JsonPrimitive("x")) })
                                 }
@@ -386,6 +417,7 @@ class CreateWorkTreeValidationCharacterizationTest {
                     put(
                         "root",
                         buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("Root"))
                             put(
                                 "noteAnchors",
@@ -424,6 +456,7 @@ class CreateWorkTreeValidationCharacterizationTest {
                     put(
                         "root",
                         buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("Root"))
                             put(
                                 "noteAnchors",
@@ -456,6 +489,7 @@ class CreateWorkTreeValidationCharacterizationTest {
                     put(
                         "root",
                         buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("Root"))
                             put("priority", JsonPrimitive("urgent"))
                         }
@@ -499,6 +533,7 @@ class CreateWorkTreeValidationCharacterizationTest {
                     put(
                         "root",
                         buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("Root"))
                             put(
                                 "noteAnchors",
@@ -542,6 +577,7 @@ class CreateWorkTreeValidationCharacterizationTest {
                 put(
                     "root",
                     buildJsonObject {
+                        put("type", JsonPrimitive("test-item"))
                         put("title", JsonPrimitive("Root"))
                         put("noteAnchors", buildJsonArray { })
                     }
@@ -564,6 +600,7 @@ class CreateWorkTreeValidationCharacterizationTest {
                     put(
                         "root",
                         buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("R"))
                             put("noteAnchors", JsonPrimitive("x"))
                         }
@@ -588,6 +625,7 @@ class CreateWorkTreeValidationCharacterizationTest {
                     put(
                         "root",
                         buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("R"))
                             put("noteAnchors", JsonPrimitive("x"))
                         }
@@ -611,6 +649,7 @@ class CreateWorkTreeValidationCharacterizationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("a"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("A"))
                                     put("parentRef", JsonPrimitive("b"))
                                 }
@@ -618,6 +657,7 @@ class CreateWorkTreeValidationCharacterizationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("b"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("B"))
                                     put("parentRef", JsonPrimitive("a"))
                                 }
@@ -655,6 +695,7 @@ class CreateWorkTreeValidationCharacterizationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("a"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("A"))
                                     put("parentRef", JsonPrimitive("zz"))
                                 }

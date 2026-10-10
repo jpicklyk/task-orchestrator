@@ -441,6 +441,11 @@ components:
         type:
           type: string
           nullable: true
+          description: >-
+            Required by the service: a missing or blank type is rejected with 400 validation_error
+            (details.reason, details.type, details.availableTypes), and so is a type that is not a declared
+            schema key whenever any schema is configured for the root. The field stays nullable in the schema so
+            the rejection is the typed one, not a deserialization error.
         priority:
           type: string
           nullable: true

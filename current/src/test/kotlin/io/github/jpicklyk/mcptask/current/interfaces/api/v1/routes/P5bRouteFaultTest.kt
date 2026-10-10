@@ -101,7 +101,7 @@ class P5bRouteFaultTest {
                     client.post("/api/v1/items") {
                         header("Authorization", "Bearer $WRITE_TOKEN")
                         contentType(ContentType.Application.Json)
-                        setBody("""{"title":"REST boom"}""")
+                        setBody("""{"type":"test-item","title":"REST boom"}""")
                     }
                 }
 
@@ -116,7 +116,7 @@ class P5bRouteFaultTest {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"REST boom"}""")
+                    setBody("""{"type":"test-item","title":"REST boom"}""")
                 }
             assertEquals(HttpStatusCode.Created, healthy.status, "control: the same request succeeds once the trigger is gone")
             assertEquals(1, rawInt("SELECT count(*) FROM work_items WHERE title = 'REST boom'"))

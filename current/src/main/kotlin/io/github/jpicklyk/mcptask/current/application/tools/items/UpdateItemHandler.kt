@@ -323,6 +323,8 @@ class UpdateItemHandler {
                             )
                         )
                     error.code == ErrorCode.INVALID_REQUEST -> throw ToolValidationException(error.message)
+                    ItemCommandErrors.isTypeViolation(error) ->
+                        ElementResult.Failed(updateFailure(itemId, error.message, error.code).withAvailableTypes(error))
                     else -> ElementResult.Failed(updateFailure(itemId, LegacyFaults.message(error), error.code))
                 }
             }

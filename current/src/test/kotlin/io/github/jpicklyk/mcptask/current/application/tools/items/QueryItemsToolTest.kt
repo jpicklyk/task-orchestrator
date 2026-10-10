@@ -95,6 +95,7 @@ class QueryItemsToolTest {
     ): String {
         val itemObj =
             buildJsonObject {
+                put("type", JsonPrimitive("test-item"))
                 put("title", JsonPrimitive(title))
                 parentId?.let { put("parentId", JsonPrimitive(it)) }
                 priority?.let { put("priority", JsonPrimitive(it)) }
@@ -777,9 +778,9 @@ class QueryItemsToolTest {
                         it.jsonObject["title"]!!.jsonPrimitive.content == "Plain Root"
                     }.jsonObject
 
-            // tags and type should be absent when not set
+            // tags are absent when not set; type is always present now (the create default is the fixture type)
             assertFalse(plainRoot.containsKey("tags"), "Root item should not include tags key when not set")
-            assertFalse(plainRoot.containsKey("type"), "Root item should not include type key when not set")
+            assertEquals("test-item", plainRoot["type"]!!.jsonPrimitive.content, "a fixture item carries the default type")
         }
 
     @Test

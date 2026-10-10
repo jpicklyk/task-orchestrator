@@ -351,7 +351,7 @@ class McpToolAdapterIntegrationTest {
                     arguments =
                         mapOf(
                             "operation" to "create",
-                            "items" to listOf(mapOf("title" to "Integration test item"))
+                            "items" to listOf(mapOf("title" to "Integration test item", "type" to "test-item"))
                         )
                 )
 
@@ -459,7 +459,7 @@ class McpToolAdapterIntegrationTest {
                         mapOf(
                             "operation" to "create",
                             "parentId" to "deadbeef", // valid hex prefix, matches nothing
-                            "items" to listOf(mapOf("title" to "Orphan item"))
+                            "items" to listOf(mapOf("title" to "Orphan item", "type" to "test-item"))
                         )
                 )
 
