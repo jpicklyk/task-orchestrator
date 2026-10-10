@@ -158,7 +158,102 @@ interface ItemStore {
      * When [rootIds] is empty, returns an empty map immediately.
      */
     suspend fun countInScopeByRole(rootIds: Set<UUID>): Map<Role, Int>
+
+    // ---------------------------------------------------------------------------------------------
+    // Batched read primitives (the read model's building blocks, used by WorkViewQueries). Each is
+    // ONE statement for an id set of any size (the ids are bound as one JSON-array parameter),
+    // however many rows, children or descendants lie behind the ids; the exception is [rolesOf],
+    // which is one statement per 500 ids (a larger set is chunked inside the same transaction). An
+    // empty id set returns an empty result without touching the database.
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * The stored role of each id in [ids]. An id with no row is absent from the result; callers
+     * that evaluate blockers treat an absent role as unsatisfied (fail-closed).
+     */
+    suspend fun rolesOf(ids: Set<UUID>): Map<UUID, Role>
+
+    /**
+     * The items with the ids in [ids], in no particular order, as ONE statement for any number of
+     * ids (unlike [findByIds], which chunks its IN list). An id with no row is absent.
+     */
+    suspend fun findByIdSet(ids: Set<UUID>): List<WorkItem>
+
+    /**
+     * Direct-children counts grouped by role, per parent in [parentIds]. Every requested id is a
+     * key; a parent with no children (or no row) maps to an empty map. Roles with zero children are
+     * omitted from the inner map.
+     */
+    suspend fun countByParentAndRole(parentIds: Set<UUID>): Map<UUID, Map<Role, Int>>
+
+    /**
+     * Descendant counts grouped by role, per top item in [topIds]: every item below the top at any
+     * depth, the top itself EXCLUDED. One recursive walk carries the top id, so overlapping tops
+     * (one inside another's subtree) each get their own full count. Every requested id is a key; a
+     * top with no descendants maps to an empty map.
+     */
+    suspend fun rollupByTopChild(topIds: Set<UUID>): Map<UUID, Map<Role, Int>>
+
+    /**
+     * Every direct child of each parent in [parentIds], grouped by parent. Every requested id is a
+     * key (an empty list when it has no children). Children are ordered newest `createdAt` first,
+     * then `id` ascending.
+     */
+    suspend fun findByParents(parentIds: Set<UUID>): Map<UUID, List<WorkItem>>
+
+    /**
+     * One page of the direct children of [parentId] (the parentless roots when [parentId] is null),
+     * newest `createdAt` first, then `id` ascending, plus the exact count of the whole filtered set.
+     *
+     * With [excludeTerminal], a TERMINAL child is dropped UNLESS it still has a non-terminal
+     * descendant (QUEUE, WORK, REVIEW or BLOCKED) anywhere below it: active work parked under a
+     * done container stays visible (bug 18fd99a7). The same rule applies to roots.
+     */
+    suspend fun findChildrenPage(
+        parentId: UUID?,
+        excludeTerminal: Boolean,
+        limit: Int,
+        offset: Int,
+    ): ItemSlice
+
+    /**
+     * One page of the items whose role is in [roles], optionally within the subtree(s) of
+     * [rootIds] (roots included; an empty set selects nothing), plus the exact count of the whole
+     * set. Ordered by role (queue, work, review, blocked, terminal), then `role_changed_at`
+     * ascending (longest in the role first), then `id` ascending.
+     */
+    suspend fun findByRoles(
+        roles: Set<Role>,
+        rootIds: Set<UUID>?,
+        limit: Int,
+        offset: Int,
+    ): ItemSlice
+
+    /**
+     * One page of the blocked items, plus the exact count of the whole set: role BLOCKED
+     * ("explicit"), or role QUEUE, WORK or REVIEW with at least one unsatisfied blocking dependency
+     * ("dependency"). A blocking dependency is unsatisfied when its blocker's role is not at or
+     * beyond the edge threshold (`unblock_at`, TERMINAL when null); a BLOCKED or missing blocker
+     * never satisfies. TERMINAL items are never returned. The optional [parentId] (direct children)
+     * and [ancestorId] (subtree, inclusive) filters are AND-ed. Ordered BLOCKED first, then QUEUE,
+     * WORK, REVIEW, then `id` ascending.
+     */
+    suspend fun findBlocked(
+        parentId: UUID?,
+        ancestorId: UUID?,
+        limit: Int,
+        offset: Int,
+    ): ItemSlice
 }
+
+/**
+ * One page of items plus [total]: the exact number of items the query selects across all pages,
+ * counted in the same transaction as [items].
+ */
+data class ItemSlice(
+    val items: List<WorkItem>,
+    val total: Int,
+)
 
 /**
  * Result of a bulk row-fetch.

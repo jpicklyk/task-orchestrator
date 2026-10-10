@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.application.read.WorkViewQueries
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
@@ -77,6 +78,11 @@ class ToolExecutionContext(
      * without a transaction so tests with mocked stores keep constructing the context unchanged.
      */
     val unitOfWork: UnitOfWork = UnscopedUnitOfWork(repositoryProvider, clock),
+    /**
+     * The read model (the `next`, `blocked`, `overview` and `context` views), one read unit per view. Production
+     * builds ONE instance in `ServerComposition`; the default builds one over [unitOfWork].
+     */
+    val workViewQueries: WorkViewQueries = WorkViewQueries(unitOfWork),
     /** The shared config service; null in tests, where tools build their own over [repositoryProvider]. */
     val configService: ConfigService? = null,
 ) {
