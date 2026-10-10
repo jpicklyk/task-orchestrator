@@ -22,6 +22,8 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetBlockedI
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
+import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
+import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepException
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.ExpirySweeper
 import io.github.jpicklyk.mcptask.current.infrastructure.IdempotencyPruner
@@ -109,6 +111,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  *   the server never touches System.in. Defaults to System.in.
  * @param stdioOutput Test seam supplying the stdio transport's output stream; a lambda so constructing
  *   the server never touches System.out. Defaults to System.out.
+ * @param extraDataSteps Test seam: data steps registered beside the production steps. Empty in production.
  */
 class CurrentMcpServer(
     private val version: String,
@@ -116,7 +119,8 @@ class CurrentMcpServer(
     private val appConfig: AppConfig = AppConfig.fromEnv(),
     internal val onBeforeTransportStart: (String) -> Unit = {},
     internal val stdioInput: () -> InputStream = { System.`in` },
-    internal val stdioOutput: () -> OutputStream = { System.out }
+    internal val stdioOutput: () -> OutputStream = { System.out },
+    internal val extraDataSteps: List<DataStep> = emptyList()
 ) {
     private val logger = LoggerFactory.getLogger(CurrentMcpServer::class.java)
 
@@ -202,7 +206,15 @@ class CurrentMcpServer(
             // verifier, REST/SSE wiring, tool context) to the manual composition root. This class
             // stays lifecycle-only.
             val composition =
-                ServerComposition(appConfig, databaseManager, shutdownCoordinator).build()
+                ServerComposition(appConfig, databaseManager, shutdownCoordinator, extraDataSteps = extraDataSteps).build()
+            // Data steps run after Flyway and before anything else touches the data: no background writer, no
+            // transport and no readiness marker exist yet. A failed step or an unapplied once step fails the start.
+            try {
+                composition.dataStepRunner.run()
+            } catch (e: DataStepException) {
+                logger.error("Data steps failed: {}", e.message, e)
+                return@runBlocking Failed(Reason.DATA_STEPS, "Data steps failed: ${e.message}")
+            }
             val toolContext = composition.toolContext
             val apiWiring = composition.apiWiring
             val noteSchemaService = composition.noteSchemaService

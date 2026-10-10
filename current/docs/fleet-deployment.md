@@ -38,7 +38,8 @@ This is **by design**: MCP-over-HTTP clients (Claude Code and other agents) conn
 Server startup returns a `StartupOutcome` (`Started` or `Failed(reason, detail)` with
 `reason` one of `DATABASE_INIT`, `SCHEMA_UPDATE`, `UNKNOWN_TRANSPORT`, `READINESS_MARKER`,
 `TRANSPORT_START` — the transport (stdio session creation or the HTTP Ktor engine) failed to
-bind/start after DB init and schema update had already succeeded). A
+bind/start after DB init and schema update had already succeeded — or `DATA_STEPS` — a data step
+failed or a registered once step is unapplied, see "Data steps" below). A
 `Failed` outcome throws `StartupFailedException` from `main()`, so the JVM exits non-zero and
 container orchestrators (Docker, Kubernetes, systemd) see a real startup failure instead of a
 process that silently logged an error and kept running.
@@ -61,6 +62,22 @@ now fails startup. Per-project config pushed via `manage_project_config` / `PUT
 /api/v1/roots/{rootId}/config` is unaffected — only the single, server-wide global file is on this
 fail-closed path. One key in that file is exempt: a malformed `status_labels:` block (display-only
 labels) still falls back to the default labels with a WARN.
+
+**Data steps.** After Flyway migrates and before any background service or transport starts, the
+server runs its registered data steps: idempotent, code-level upgrade steps that Flyway SQL cannot
+express (for example config canonicalization or an item backfill). Steps run in fixed phases
+(`CONFIG_CANONICALIZE`, `CONFIG_IMPORT`, `ITEM_BACKFILL`, `PIN`), and within a phase in dependency
+order with ties broken by step name. A `once` step and its row in the `data_steps` table commit in one
+transaction, so a step is applied exactly when its row exists and two processes booting on one
+database file cannot both apply it; an every-boot step runs on every start and leaves no row. If a
+step fails, or any registered once step has no row after the run, startup fails as `DATA_STEPS` and
+the readiness marker is never written, so the container reports unhealthy rather than serving a
+half-upgraded database. A step runs inside the same `--start-period` budget as the startup
+compaction, so a long backfill on a large database may need a longer start period. Data steps also
+run with `SCHEMA_MODE=validate` (validate guards DDL, not data) but never on a `FLYWAY_REPAIR` run,
+which exits before them. Remedy for a `DATA_STEPS` failure: fix the cause named in the log and
+restart; the failed step's transaction rolled back, so it is retried from scratch. Deleting a row
+from `data_steps` makes that step run again on the next boot.
 
 **Readiness marker.** Once DB init and schema update have both succeeded and the configured
 transport has bound, the server writes a readiness marker file at `READINESS_FILE` (default
