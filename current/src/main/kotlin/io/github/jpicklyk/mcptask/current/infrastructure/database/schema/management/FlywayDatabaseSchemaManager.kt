@@ -33,14 +33,18 @@ class FlywayDatabaseSchemaManager(
      * No migration pattern is ignored at validation. Flyway's default (`*:future`) would validate a database whose
      * history is AHEAD of this binary (for example one a 4.0 binary migrated past V17) and let this process serve
      * and write it; with no ignore patterns, such a database fails validation and startup refuses it (AR-37).
+     *
+     * The empty list is a validation-only choice. Repair loads the configuration with `*:future` ignored
+     * (`ignoreFuture = true`) so that `FLYWAY_REPAIR` never marks a newer applied version as deleted: that would
+     * erase the evidence this guard relies on and let the next start serve the database.
      */
-    internal fun flywayConfiguration(): FluentConfiguration =
+    internal fun flywayConfiguration(ignoreFuture: Boolean = false): FluentConfiguration =
         Flyway
             .configure()
             .dataSource(jdbcUrl, null, null) // SQLite: no username/password needed
             .locations("classpath:db/migration")
             .validateMigrationNaming(true)
-            .ignoreMigrationPatterns(*emptyArray<String>())
+            .ignoreMigrationPatterns(*(if (ignoreFuture) arrayOf("*:future") else emptyArray()))
             .cleanDisabled(true)
 
     /**
@@ -109,7 +113,7 @@ class FlywayDatabaseSchemaManager(
         try {
             logger.info("Starting Flyway repair...")
 
-            flywayConfiguration().load().repair()
+            flywayConfiguration(ignoreFuture = true).load().repair()
             logger.info("Flyway repair completed successfully")
 
             true
