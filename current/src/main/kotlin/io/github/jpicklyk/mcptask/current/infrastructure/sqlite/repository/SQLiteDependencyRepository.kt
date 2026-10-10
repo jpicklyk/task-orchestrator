@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.domain.graph.BlockingEdge
+import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
 import io.github.jpicklyk.mcptask.current.domain.model.BacklinkRow
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
@@ -180,6 +182,25 @@ class SQLiteDependencyRepository(
                 }
             }
             result
+        }
+    }
+
+    override suspend fun blockingEdgesFor(itemIds: Set<UUID>): List<BlockingEdge> {
+        if (itemIds.isEmpty()) return emptyList()
+        return databaseManager.readTx {
+            // Stored rows are BLOCKS (from = blocker, to = blocked) or RELATES_TO since V22, so the edges INTO the
+            // requested items are the rows whose to_item_id is one of them. Normalizing anyway keeps the stricter-
+            // threshold collapse rule in one place (DependencyEdges).
+            val rows =
+                itemIds.chunked(SQL_IN_CHUNK_SIZE).flatMap { chunk ->
+                    DependenciesTable
+                        .selectAll()
+                        .where {
+                            (DependenciesTable.toItemId inList chunk) and
+                                (DependenciesTable.type eq DependencyType.BLOCKS.name)
+                        }.map { mapRowToDependency(it) }
+                }
+            DependencyEdges.normalize(rows).blocking.filter { it.blocked in itemIds }
         }
     }
 

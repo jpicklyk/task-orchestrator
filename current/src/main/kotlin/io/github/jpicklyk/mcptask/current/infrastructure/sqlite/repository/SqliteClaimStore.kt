@@ -4,6 +4,9 @@ import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStore
 import io.github.jpicklyk.mcptask.current.application.port.Clock
+import io.github.jpicklyk.mcptask.current.application.port.EligibilityBreakdown
+import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
+import io.github.jpicklyk.mcptask.current.application.port.ItemSlice
 import io.github.jpicklyk.mcptask.current.application.port.ReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.SelectorMatchCounts
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
@@ -16,9 +19,13 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
+import org.jetbrains.exposed.v1.core.NotOp
 import org.jetbrains.exposed.v1.core.Op
+import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.Sum
 import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.isNotNull
@@ -26,6 +33,7 @@ import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.lessEq
 import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.core.or
+import org.jetbrains.exposed.v1.jdbc.Query
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
@@ -414,5 +422,170 @@ class SqliteClaimStore(
                     .toInt()
             SelectorMatchCounts(matched = matched, activelyClaimed = activelyClaimed)
         }
+    }
+
+    override suspend fun findEligible(
+        query: EligibilityQuery,
+        limit: Int,
+        offset: Int,
+    ): ItemSlice {
+        val now = clock.unitNow()
+        return databaseManager.readTx {
+            val selector = selectorConditions(query, now) ?: return@readTx ItemSlice(emptyList(), 0)
+            if (!query.includeClaimed) {
+                selector.add(ClaimPredicates.notActive(now))
+                selector.add(NotOp(shieldedByAncestorClaim(query.requestingAgentId, now)))
+            }
+            selector.add(NotOp(WorkViewSql.dependencyBlocked()))
+            val condition = selector.reduce { acc, op -> acc and op }
+            val items =
+                orderEligible(WorkItemsTable.selectAll().where { condition }, query.orderBy)
+                    .limit(limit)
+                    .offset(offset.coerceAtLeast(0).toLong())
+                    .map { WorkItemRows.toWorkItem(it) }
+            // The exact eligible count, always a second statement (never inferred from a short page) so the
+            // statement count of a call does not depend on how many rows match.
+            val total =
+                WorkItemsTable
+                    .selectAll()
+                    .where { condition }
+                    .count()
+                    .toInt()
+            ItemSlice(items, total)
+        }
+    }
+
+    override suspend fun explainIneligible(query: EligibilityQuery): EligibilityBreakdown {
+        val now = clock.unitNow()
+        return databaseManager.readTx {
+            val selector = selectorConditions(query, now) ?: return@readTx EligibilityBreakdown(0, 0, 0)
+            val matched = WorkItemsTable.id.count()
+            val activelyClaimed = WorkViewSql.countWhen(ClaimPredicates.active(now))
+            val dependencyBlocked =
+                WorkViewSql.countWhen(
+                    ClaimPredicates.notActive(now) and
+                        NotOp(shieldedByAncestorClaim(query.requestingAgentId, now)) and
+                        WorkViewSql.dependencyBlocked()
+                )
+            val condition = selector.reduce { acc, op -> acc and op }
+            val row =
+                WorkItemsTable
+                    .select(matched, activelyClaimed, dependencyBlocked)
+                    .where { condition }
+                    .single()
+            EligibilityBreakdown(
+                matched = row[matched].toInt(),
+                activelyClaimed = row[activelyClaimed] ?: 0,
+                dependencyBlocked = row[dependencyBlocked] ?: 0,
+            )
+        }
+    }
+
+    override suspend fun claimSummary(rootIds: Set<UUID>?): ClaimStatusCounts {
+        if (rootIds?.isEmpty() == true) return ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0)
+        val now = clock.unitNow()
+        return databaseManager.readTx {
+            val scope = rootIds?.let { ScopeResolver.resolve(it) }
+            if (scope == ResolvedScope.Empty) return@readTx ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0)
+            val buckets = claimBuckets(now)
+            val base = WorkItemsTable.select(buckets.active, buckets.expired, buckets.unclaimed)
+            val row = (if (scope != null) base.where { scope.toCondition() } else base).single()
+            buckets.read(row)
+        }
+    }
+
+    override suspend fun claimSummaryByParent(parentIds: Set<UUID>): Map<UUID, ClaimStatusCounts> {
+        if (parentIds.isEmpty()) return emptyMap()
+        val now = clock.unitNow()
+        return databaseManager.readTx {
+            val result = LinkedHashMap<UUID, ClaimStatusCounts>()
+            parentIds.forEach { result[it] = ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0) }
+            val buckets = claimBuckets(now)
+            WorkItemsTable
+                .select(WorkItemsTable.parentId, buckets.active, buckets.expired, buckets.unclaimed)
+                .where { WorkViewSql.inIdSet(WorkItemsTable.parentId, parentIds) }
+                .groupBy(WorkItemsTable.parentId)
+                .forEach { row -> row[WorkItemsTable.parentId]?.let { result[it] = buckets.read(row) } }
+            result
+        }
+    }
+
+    /** The three claim-status buckets as `SUM(CASE ...)` columns of one statement, from the claim predicates. */
+    private class ClaimBuckets(
+        val active: Sum<Int>,
+        val expired: Sum<Int>,
+        val unclaimed: Sum<Int>,
+    ) {
+        fun read(row: ResultRow): ClaimStatusCounts =
+            ClaimStatusCounts(active = row[active] ?: 0, expired = row[expired] ?: 0, unclaimed = row[unclaimed] ?: 0)
+    }
+
+    private fun claimBuckets(now: Instant): ClaimBuckets =
+        ClaimBuckets(
+            active = WorkViewSql.countWhen(ClaimPredicates.forStatus(ClaimStatus.CLAIMED, now)),
+            expired = WorkViewSql.countWhen(ClaimPredicates.forStatus(ClaimStatus.EXPIRED, now)),
+            unclaimed = WorkViewSql.countWhen(ClaimPredicates.forStatus(ClaimStatus.UNCLAIMED, now)),
+        )
+
+    /**
+     * The selector filters of [query] (the same builder as [findClaimable]), or null when its scope is empty.
+     * Must run inside a transaction: resolving `rootIds` may probe or walk the hierarchy.
+     */
+    private fun selectorConditions(
+        query: EligibilityQuery,
+        now: Instant,
+    ): MutableList<Op<Boolean>>? {
+        val spec =
+            ItemQuerySpec(
+                role = query.role,
+                parentId = query.parentId,
+                tags = query.tags,
+                priority = query.priority,
+                type = query.type,
+                complexityMax = query.complexityMax,
+                createdAfter = query.createdAfter,
+                createdBefore = query.createdBefore,
+                modifiedAfter = query.modifiedAfter,
+                modifiedBefore = query.modifiedBefore,
+                roleChangedAfter = query.roleChangedAfter,
+                roleChangedBefore = query.roleChangedBefore,
+            )
+        return ItemQueries.conditions(spec, query.rootIds?.let { ScopeResolver.resolve(it) }, now)
+    }
+
+    /**
+     * True when an ancestor (any depth) of the outer item holds an active claim at [now] by a disqualifying agent:
+     * any agent when [requestingAgentId] is null, otherwise only another agent. The claimed items are the seed of
+     * one downward walk ([WorkViewSql.shieldedByAncestorClaim]).
+     */
+    private fun shieldedByAncestorClaim(
+        requestingAgentId: String?,
+        now: Instant,
+    ): Op<Boolean> {
+        val claimed =
+            if (requestingAgentId == null) {
+                ClaimPredicates.active(now)
+            } else {
+                ClaimPredicates.active(now) and (WorkItemsTable.claimedBy neq requestingAgentId)
+            }
+        val seed: Query = WorkItemsTable.select(WorkItemsTable.id).where { claimed }
+        return WorkViewSql.shieldedByAncestorClaim(seed)
+    }
+
+    /** [orderBy] plus the `id ASC` tiebreak that makes offset pages disjoint and stable. */
+    private fun orderEligible(
+        query: Query,
+        orderBy: NextItemOrder,
+    ): Query {
+        val ordered =
+            when (orderBy) {
+                NextItemOrder.PRIORITY_THEN_COMPLEXITY ->
+                    query
+                        .orderBy(ItemQueries.priorityRank(), SortOrder.ASC)
+                        .orderBy(WorkItemsTable.complexity, SortOrder.ASC_NULLS_LAST)
+                NextItemOrder.OLDEST_FIRST -> query.orderBy(WorkItemsTable.createdAt, SortOrder.ASC)
+                NextItemOrder.NEWEST_FIRST -> query.orderBy(WorkItemsTable.createdAt, SortOrder.DESC)
+            }
+        return ordered.orderBy(WorkItemsTable.id, SortOrder.ASC)
     }
 }
