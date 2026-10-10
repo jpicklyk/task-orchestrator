@@ -98,7 +98,9 @@ contains a migration newer than the binary (for example a database a 4.0 server 
 upgraded) logs an ERROR naming that version and refuses to start, rather than serving a schema it
 does not know. Stop every older process that shares the database file before starting the newer
 version, and do not point an older binary back at an upgraded file; restore a pre-upgrade backup
-instead.
+instead, or run the newer binary. Do not run `FLYWAY_REPAIR` to clear this error: repair leaves newer
+history rows alone, so the server keeps refusing.
+
 
 ---
 

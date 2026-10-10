@@ -9,6 +9,7 @@ import org.junit.jupiter.api.io.TempDir
 import org.slf4j.LoggerFactory
 import java.nio.file.Path
 import java.sql.DriverManager
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -100,5 +101,36 @@ class FlywayFutureMigrationGuardTest {
     fun `S4 a database at the binary's latest version starts again`() {
         val url = migrated()
         assertTrue(manager(url).updateSchema())
+    }
+
+    private fun historyRows(url: String): List<String> =
+        DriverManager.getConnection(url).use { c ->
+            c.createStatement().use { st ->
+                val sql = "SELECT installed_rank, version, type, success FROM flyway_schema_history ORDER BY installed_rank"
+                st.executeQuery(sql).use { rs ->
+                    val rows = mutableListOf<String>()
+                    while (rs.next()) rows += "${rs.getInt(1)}|${rs.getString(2)}|${rs.getString(3)}|${rs.getInt(4)}"
+                    rows
+                }
+            }
+        }
+
+    @Test
+    fun `S5 repair leaves a newer successful row alone and the next start still refuses`() {
+        val url = migrated()
+        insertHistory(url, "99", 1)
+        val before = historyRows(url)
+        assertTrue(FlywayDatabaseSchemaManager(url, repair = true).updateSchema(), "repair itself succeeds")
+        assertEquals(before, historyRows(url), "repair must not delete or add any history row for a newer version")
+        val errors = errorsOf { assertFalse(manager(url).updateSchema(), "the database is still ahead of this binary") }
+        assertTrue(errors.any { it.contains("99") }, "the ERROR must still name version 99: $errors")
+    }
+
+    @Test
+    fun `S6 repair still removes a failed newer row as before`() {
+        val url = migrated()
+        insertHistory(url, "99", 0)
+        assertTrue(FlywayDatabaseSchemaManager(url, repair = true).updateSchema())
+        assertTrue(historyRows(url).none { it.split("|")[1] == "99" }, "failed row removed by repair: ${historyRows(url)}")
     }
 }
