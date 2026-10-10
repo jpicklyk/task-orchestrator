@@ -38,7 +38,7 @@ internal data class CorpusDescriptor(
     fun table(analyzer: Analyzer): String = tables.getValue(analyzer)
 
     companion object {
-        /** Work-item title and summary (V7 `work_items_fts_*`, columns title=0, summary=1). */
+        /** Work-item title, summary and description (V26 `work_items_fts_*`, columns title=0, summary=1, description=2). */
         val ITEM =
             CorpusDescriptor(
                 corpus = Corpus.ITEM,
@@ -47,7 +47,7 @@ internal data class CorpusDescriptor(
                 idColumn = "wi.id",
                 ownerColumn = "wi.id",
                 noteKeyColumn = null,
-                fields = listOf(FieldColumn(0, "title"), FieldColumn(1, "summary")),
+                fields = listOf(FieldColumn(0, "title"), FieldColumn(1, "summary"), FieldColumn(2, "description")),
                 ownerItemJoin = null,
             )
 

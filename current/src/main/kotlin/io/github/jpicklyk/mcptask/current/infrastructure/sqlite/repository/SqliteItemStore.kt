@@ -305,7 +305,8 @@ class SqliteItemStore(
             .where { condition }
             .groupBy(WorkItemsTable.role)
             .forEach { row ->
-                val role = Role.fromString(row[WorkItemsTable.role]) ?: Role.QUEUE
+                // role is nullable since V26; Q31a replaces this fallback with Role?.
+                val role = row[WorkItemsTable.role]?.let { Role.fromString(it) } ?: Role.QUEUE
                 counts[role] = (counts[role] ?: 0) + row[total].toInt()
             }
         return counts

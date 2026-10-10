@@ -129,6 +129,29 @@ class FlywayOnlyMigrationTest {
                 it.getString(1)
             }
         exec(url, *v17ProjectConfig.toTypedArray())
+        // V26 recreated `work_items` (nullable role, pin columns) and the two item FTS tables (description, no prefix):
+        // restore the exact V17 DDL from the same reference copy, carrying the rows across.
+        val v17WorkItems =
+            query(
+                reference,
+                "SELECT sql FROM sqlite_master WHERE tbl_name = 'work_items' AND sql IS NOT NULL " +
+                    "ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'index' THEN 1 ELSE 2 END"
+            ) { it.getString(1) }
+        val v17ItemFts =
+            query(
+                reference,
+                "SELECT sql FROM sqlite_master WHERE name IN ('work_items_fts_trigram', 'work_items_fts_text') ORDER BY name"
+            ) { it.getString(1) }
+        val v17Columns =
+            "id, parent_id, title, description, summary, role, status_label, previous_role, priority, complexity, " +
+                "requires_verification, depth, metadata, tags, type, properties, created_at, modified_at, role_changed_at, " +
+                "version, claimed_by, claimed_at, claim_expires_at, original_claimed_at, root_id"
+        exec(url, "CREATE TABLE work_items_v26_copy AS SELECT rowid AS rid, $v17Columns FROM work_items")
+        exec(url, "DROP TABLE work_items_fts_trigram", "DROP TABLE work_items_fts_text", "DROP TABLE work_items")
+        exec(url, *v17WorkItems.toTypedArray())
+        exec(url, *v17ItemFts.toTypedArray())
+        exec(url, "INSERT INTO work_items (rowid, $v17Columns) SELECT rid, $v17Columns FROM work_items_v26_copy")
+        exec(url, "DROP TABLE work_items_v26_copy")
         exec(url, "DROP TABLE flyway_schema_history")
         assertFalse(tableExists(url, "flyway_schema_history"), "fixture: history must be gone")
 
