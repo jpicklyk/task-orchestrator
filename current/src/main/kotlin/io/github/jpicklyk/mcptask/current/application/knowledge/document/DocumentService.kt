@@ -3,8 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.knowledge.document
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
-import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentService
-import io.github.jpicklyk.mcptask.current.application.service.RuleService
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
@@ -27,8 +25,8 @@ import java.util.UUID
  * The knowledge kernel's document service: every document write runs here, in ONE write unit per operation, and
  * records its `document.*` event in that same unit.
  *
- * Write pipeline ([write]), in order: size cap (UTF-8 bytes of the body as given: [PlanDocumentService.MAX_BODY_BYTES],
- * or [RuleService.MAX_RULE_BODY_BYTES] for [DocumentKind.RULE]) -> `expectedVersion` sign -> root exists -> root is
+ * Write pipeline ([write]), in order: size cap (UTF-8 bytes of the body as given: [MAX_PLAN_BODY_BYTES],
+ * or [MAX_RULE_BODY_BYTES] for [DocumentKind.RULE]) -> `expectedVersion` sign -> root exists -> root is
  * depth 0 -> CRLF to LF -> state checks (archived, adopted) -> compare-and-set. The content hash is the SHA-256 hex of
  * the NORMALIZED body's UTF-8 bytes (the algorithm 3.x used, applied after normalization).
  *
@@ -289,9 +287,17 @@ class DocumentService(
         /** `invalid_request` reason for deleting an adopted document. */
         const val REASON_ADOPTED = "adopted"
 
+        /**
+         * Hard cap on a plan (or page) document body's UTF-8 byte size (CWE-770: uncontrolled resource consumption),
+         * 64 KiB. `PlanDocumentService.MAX_BODY_BYTES` re-exports it.
+         */
+        const val MAX_PLAN_BODY_BYTES = 64 * 1024
+
+        /** Hard cap on a rule document body's UTF-8 byte size. `RuleService.MAX_RULE_BODY_BYTES` re-exports it. */
+        const val MAX_RULE_BODY_BYTES = 16384
+
         /** The body cap for [kind], in UTF-8 bytes. */
-        fun maxBodyBytes(kind: DocumentKind): Int =
-            if (kind == DocumentKind.RULE) RuleService.MAX_RULE_BODY_BYTES else PlanDocumentService.MAX_BODY_BYTES
+        fun maxBodyBytes(kind: DocumentKind): Int = if (kind == DocumentKind.RULE) MAX_RULE_BODY_BYTES else MAX_PLAN_BODY_BYTES
 
         /** CRLF to LF; nothing else is touched (a lone CR stays). */
         fun normalize(body: String): String = body.replace("\r\n", "\n")
@@ -322,7 +328,7 @@ class DocumentService(
                 code = ErrorCode.PAYLOAD_TOO_LARGE,
                 message = "Document body is $actual bytes, exceeds the $max byte cap",
                 detail = ErrorDetail.PayloadTooLarge(max.toLong(), actual.toLong()),
-                fixArgs = mapOf("max" to "$max bytes")
+                fixArgs = mapOf("max" to max.toString())
             )
 
         private fun rootNotFound(rootId: UUID): DomainError =

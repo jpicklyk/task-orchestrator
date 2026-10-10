@@ -5,7 +5,7 @@ import org.jetbrains.exposed.v1.core.Table
 
 /**
  * Append-only document history: one row per version of a document, version 1 included. Mirrors
- * `V23__Documents_And_Links.sql`; rows cascade away with their document.
+ * `V24__Documents_And_Links.sql`; rows cascade away with their document.
  */
 object DocumentVersionsTable : Table("document_versions") {
     val id = javaUuidSqlite("id")

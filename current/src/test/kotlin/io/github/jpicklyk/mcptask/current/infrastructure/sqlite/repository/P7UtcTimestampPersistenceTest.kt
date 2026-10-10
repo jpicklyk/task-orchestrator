@@ -179,7 +179,7 @@ class P7UtcTimestampPersistenceTest {
                     Col("resource_lease_history", "expires_at", ttl),
                     Col("resource_lease_history", "released_at")
                 )
-            assertEquals(22, columns.size, "nineteen V18-normalized timestamp columns, with plan_documents' two replaced by V23's five")
+            assertEquals(22, columns.size, "nineteen V18-normalized timestamp columns, with plan_documents' two replaced by V24's five")
 
             for (col in columns) {
                 val name = "${col.table}.${col.column}"

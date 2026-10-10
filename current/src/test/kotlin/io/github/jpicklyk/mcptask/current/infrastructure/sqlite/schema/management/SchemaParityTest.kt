@@ -204,7 +204,7 @@ class SchemaParityTest {
             )
         assertTrue(
             tables.containsAll(expectedAtLeast),
-            "all 10 tables (the V17 set with plan_documents re-homed by V23) must be covered, got $tables"
+            "all 10 tables (the V17 set with plan_documents re-homed by V24) must be covered, got $tables"
         )
     }
 

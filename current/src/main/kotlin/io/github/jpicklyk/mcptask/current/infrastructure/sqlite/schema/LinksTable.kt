@@ -4,7 +4,7 @@ import org.jetbrains.exposed.v1.core.ReferenceOption
 import org.jetbrains.exposed.v1.core.Table
 
 /**
- * Polymorphic links between entities of one root. Mirrors `V23__Documents_And_Links.sql`.
+ * Polymorphic links between entities of one root. Mirrors `V24__Documents_And_Links.sql`.
  *
  * The ends ([fromKind]/[fromId], [toKind]/[toId]) carry no foreign key: a link is provenance and outlives the entity
  * it names. [toId] is NULL while the target is unresolved ([toRef] then holds its text). Only [rootItemId] cascades.

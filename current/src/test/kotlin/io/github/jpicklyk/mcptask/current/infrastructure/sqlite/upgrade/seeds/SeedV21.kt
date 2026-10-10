@@ -86,7 +86,7 @@ object SeedV21 : MigrationSeed(21) {
 
         assertEquals(0, count(conn, "call_log"), "call_log starts empty (no backfill)")
         val pre = before ?: error("SeedV21.seed did not run before the migration")
-        for ((table, rows) in pre) assertEquals(rows, count(conn, table), "$table row count changed across V21")
+        for ((table, rows) in pre) assertEquals(rows, count(conn, live(table)), "$table row count changed across V21")
 
         // Accepted shape: the minimal valid row, with replayed taking its default of 0.
         insert(conn, "ok00001a")
@@ -124,6 +124,9 @@ object SeedV21 : MigrationSeed(21) {
                 buildList { while (rs.next()) add(rs.getString("name")) }
             }
         }
+
+    /** Where a table lives at the latest schema: V24 re-homed `plan_documents` rows into `documents`. */
+    private fun live(table: String) = if (table == "plan_documents") "documents" else table
 
     private fun count(
         conn: Connection,

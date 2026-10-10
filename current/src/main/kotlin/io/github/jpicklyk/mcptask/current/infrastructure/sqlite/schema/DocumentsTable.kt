@@ -5,7 +5,7 @@ import org.jetbrains.exposed.v1.core.Table
 
 /**
  * Versioned documents (plans, rules, pages), one row per `(rootItemId, kind, slug)`, holding the CURRENT body.
- * Mirrors `V23__Documents_And_Links.sql`.
+ * Mirrors `V24__Documents_And_Links.sql`.
  *
  * [docRowid] is the table's explicit rowid alias (`INTEGER PRIMARY KEY`): the document FTS tables key on it, and VACUUM
  * never renumbers it. It is assigned by SQLite on insert and never set by the store. [id] is the stable identity.

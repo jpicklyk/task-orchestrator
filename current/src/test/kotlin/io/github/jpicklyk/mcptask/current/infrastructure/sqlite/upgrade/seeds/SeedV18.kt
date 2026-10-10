@@ -87,7 +87,7 @@ object SeedV18 : MigrationSeed(18) {
 
     private fun hex(name: String): String = BaselineDataset.id(name).joinToString("") { "%02x".format(it) }
 
-    /** Where a pre-V23 table lives at the latest schema: V23 re-homed `plan_documents` rows into `documents`. */
+    /** Where a pre-V24 table lives at the latest schema: V24 re-homed `plan_documents` rows into `documents`. */
     private fun live(table: String) = if (table == "plan_documents") "documents" else table
 
     override fun verify(conn: Connection) {

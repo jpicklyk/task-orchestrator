@@ -1,10 +1,12 @@
 package io.github.jpicklyk.mcptask.current.test
 
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.DocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.application.port.IdempotencyStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
+import io.github.jpicklyk.mcptask.current.application.port.LinkStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
@@ -83,6 +85,10 @@ private class StoresOnlyProvider(
     override fun projectConfigRepository(): ProjectConfigStore = unsupported()
 
     override fun planDocumentRepository(): PlanDocumentStore = unsupported()
+
+    override fun documentStore(): DocumentStore = unsupported()
+
+    override fun linkStore(): LinkStore = unsupported()
 
     override fun idempotencyStore(): IdempotencyStore = unsupported()
 

@@ -85,7 +85,9 @@ class PlanDocumentService(
                 }
                 is Outcome.Err -> {
                     val existing =
-                        if (written.error.code == ErrorCode.DUPLICATE) repositoryProvider.planDocumentRepository().get(rootItemId, slug) else null
+                        written.error
+                            .takeIf { it.code == ErrorCode.DUPLICATE }
+                            ?.let { repositoryProvider.planDocumentRepository().get(rootItemId, slug) }
                     if (existing != null) {
                         UnitResult.Rollback(PlanDocumentStashResult.AdoptedConflict(existing))
                     } else {
@@ -169,15 +171,12 @@ class PlanDocumentService(
         )
 
     companion object {
-        /** `body` size limit for `stash`, in KiB — see [MAX_BODY_BYTES]. */
-        private const val MAX_BODY_KIB = 64
-
         /**
          * Hard cap on a stashed document body's UTF-8 byte size (CWE-770: uncontrolled resource
          * consumption), mirroring `ManageNotesTool.MAX_BODY_FILE_BYTES`. Enforced before any
          * repository call.
          */
-        const val MAX_BODY_BYTES = MAX_BODY_KIB * 1024
+        const val MAX_BODY_BYTES = DocumentService.MAX_PLAN_BODY_BYTES
     }
 }
 

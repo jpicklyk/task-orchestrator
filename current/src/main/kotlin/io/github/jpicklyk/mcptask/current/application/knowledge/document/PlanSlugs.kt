@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.knowledge.document
 
-import io.github.jpicklyk.mcptask.current.application.service.RuleService
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 
 /** A document address within one root: its kind and its slug. */
@@ -13,12 +12,12 @@ data class KindAndSlug(
  * The ONE mapping between a 3.x plan-document slug and a 4.0 document address.
  *
  * A slug starting with exactly [RULE_PREFIX] (`rule/`, case-sensitive) is the RULE-kind document named by the rest of
- * the slug; every other slug is the PLAN-kind document with the same slug. The migration (`V23`) applies the same
+ * the slug; every other slug is the PLAN-kind document with the same slug. The migration (`V24`) applies the same
  * split in SQL with `substr(slug, 1, 5) = 'rule/'`.
  */
 object PlanSlugs {
-    /** The 3.x slug prefix of a rule document (`rule/`). */
-    const val RULE_PREFIX = RuleService.RULE_SLUG_PREFIX
+    /** The 3.x slug prefix of a rule document (`rule/`). `RuleService.RULE_SLUG_PREFIX` re-exports it. */
+    const val RULE_PREFIX = "rule/"
 
     /** Maps a 3.x slug to its document address. */
     fun toKindAndSlug(slug: String): KindAndSlug =

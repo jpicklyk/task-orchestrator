@@ -27,7 +27,7 @@ object StartupIntegrity {
     private val logger = LoggerFactory.getLogger(StartupIntegrity::class.java)
 
     /**
-     * Every FTS5 table, mapped to the backing table it indexes (V7 for work items and notes, V23 for documents).
+     * Every FTS5 table, mapped to the backing table it indexes (V7 for work items and notes, V24 for documents).
      * The single source of the FTS inventory: [FTS_TABLES], [FTS_TRIGGERS] and `StartupCompaction`'s rebuild list
      * all derive from it.
      */
@@ -43,7 +43,7 @@ object StartupIntegrity {
 
     val FTS_TABLES: List<String> = FTS_BACKING.keys.toList()
 
-    /** The 18 FTS sync triggers (V7 with the V8 update-trigger replacements, and V23). */
+    /** The 18 FTS sync triggers (V7 with the V8 update-trigger replacements, and V24). */
     val FTS_TRIGGERS: List<String> =
         FTS_TABLES.flatMap { t -> listOf("${t}_ai", "${t}_ad", "${t}_au") }
 

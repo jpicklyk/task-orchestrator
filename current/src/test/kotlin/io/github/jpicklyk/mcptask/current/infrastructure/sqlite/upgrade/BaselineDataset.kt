@@ -481,7 +481,7 @@ object BaselineDataset {
             "modified_at" to TS_PLUS_1
         )
 
-        // V23 tables (skipped below V23, where they do not exist). Every column carries a distinct non-default value so
+        // V24 tables (skipped below V24, where they do not exist). Every column carries a distinct non-default value so
         // BaselineColumnCoverageTest sees it seeded.
         insert(
             conn,

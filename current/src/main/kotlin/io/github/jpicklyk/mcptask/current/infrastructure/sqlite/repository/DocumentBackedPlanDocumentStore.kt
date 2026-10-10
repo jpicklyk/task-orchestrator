@@ -175,7 +175,11 @@ class DocumentBackedPlanDocumentStore(
             modifiedAt = document.modifiedAt
         )
 
-    private fun statusOf(adoption: Link?): PlanDocumentStatus = if (adoption != null) PlanDocumentStatus.ADOPTED else PlanDocumentStatus.PENDING
+    private fun statusOf(adoption: Link?): PlanDocumentStatus =
+        when (adoption) {
+            null -> PlanDocumentStatus.PENDING
+            else -> PlanDocumentStatus.ADOPTED
+        }
 
     private companion object {
         /** The kinds the 3.x plan-document view can address. */

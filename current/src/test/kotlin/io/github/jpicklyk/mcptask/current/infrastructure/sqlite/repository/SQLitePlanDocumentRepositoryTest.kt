@@ -213,10 +213,10 @@ class SQLitePlanDocumentRepositoryTest {
             assertNull(fetched, "Expected CASCADE delete to remove the plan_documents row")
         }
 
-    // --- FK set-null: deleting the adopting work item unlinks adoption without deleting the row ---
+    // --- Provenance (D16): the adopted_by link outlives the adopting work item ---
 
     @Test
-    fun `deleting the adopting work item sets adoptedByItemId to null without deleting the document`() =
+    fun `deleting the adopting work item keeps adoptedByItemId naming the deleted adopter`() =
         runBlocking {
             planDocumentRepository.stash(rootItemId, "plan-a", "a")
             val adopter = workItemRepository.create(WorkItem(title = "Adopter"))
@@ -226,7 +226,7 @@ class SQLitePlanDocumentRepositoryTest {
 
             val fetched = planDocumentRepository.get(rootItemId, "plan-a")
             assertNotNull(fetched, "Document row must survive the adopter's deletion")
-            assertNull(fetched.adoptedByItemId, "Expected ON DELETE SET NULL to unlink the adopter")
+            assertEquals(adopter.id, fetched.adoptedByItemId, "The adopted_by link keeps naming the deleted adopter (provenance)")
             assertEquals(
                 PlanDocumentStatus.ADOPTED,
                 fetched.status,

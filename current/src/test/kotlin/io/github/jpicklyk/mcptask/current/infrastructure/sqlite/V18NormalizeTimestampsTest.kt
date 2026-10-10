@@ -122,7 +122,7 @@ class V18NormalizeTimestampsTest {
     }
 
     /**
-     * The post-migration home of a pre-migration table: V23 re-homed `plan_documents` rows into `documents`, keeping
+     * The post-migration home of a pre-migration table: V24 re-homed `plan_documents` rows into `documents`, keeping
      * each row's rowid (`doc_rowid`) and column names, so a cell is re-read there by the same rowid.
      */
     private fun live(table: String) = if (table == "plan_documents") "documents" else table
