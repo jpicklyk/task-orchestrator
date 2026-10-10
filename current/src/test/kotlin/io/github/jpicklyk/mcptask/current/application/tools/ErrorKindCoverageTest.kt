@@ -402,7 +402,7 @@ class ErrorKindCoverageTest {
                     "manage_items",
                     mapOf(
                         "operation" to "create",
-                        "items" to listOf(mapOf("title" to "orphan", "parentId" to UUID.randomUUID().toString()))
+                        "items" to listOf(mapOf("title" to "orphan", "type" to "test-item", "parentId" to UUID.randomUUID().toString()))
                     )
                 )
 
@@ -516,7 +516,14 @@ class ErrorKindCoverageTest {
     @Test
     fun `S5 probe successful create and update responses carry no failure entries and no error fields`(): Unit =
         runBlocking {
-            val created = call("manage_items", mapOf("operation" to "create", "items" to listOf(mapOf("title" to "fine"))))
+            val created =
+                call(
+                    "manage_items",
+                    mapOf(
+                        "operation" to "create",
+                        "items" to listOf(mapOf("title" to "fine", "type" to "test-item"))
+                    )
+                )
 
             assertTrue(created.isError != true, "control: create succeeds: ${created.content}")
             assertNull(created.data()["failures"], "no failures key on a clean batch: ${created.data()}")

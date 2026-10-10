@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
+import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.testClaimService
 import io.ktor.client.plugins.sse.sse
@@ -268,7 +269,7 @@ class EventRoutesTest {
             val itemId = UUID.randomUUID()
             val createResult =
                 context.itemCommandService
-                    .create(ItemCreateCommand(id = itemId, parentId = null, title = "MCP-path test item"))
+                    .create(ItemCreateCommand(type = TEST_ITEM_TYPE, id = itemId, parentId = null, title = "MCP-path test item"))
                     .orFail()
             assertNotNull(createResult, "Item creation should succeed: $createResult")
 
@@ -312,7 +313,7 @@ class EventRoutesTest {
             assertTrue(
                 ToolExecutionContext(decorated, unitOfWork = unitOfWork)
                     .itemCommandService
-                    .create(ItemCreateCommand(id = itemId, parentId = null, title = "Advance test"))
+                    .create(ItemCreateCommand(type = TEST_ITEM_TYPE, id = itemId, parentId = null, title = "Advance test"))
                     .orFail() != null
             )
 
@@ -387,7 +388,10 @@ class EventRoutesTest {
                             "items" to
                                 JsonArray(
                                     listOf(
-                                        buildJsonObject { put("title", JsonPrimitive("Production wiring item")) },
+                                        buildJsonObject {
+                                            put("type", JsonPrimitive("test-item"))
+                                            put("title", JsonPrimitive("Production wiring item"))
+                                        },
                                     ),
                                 ),
                         ),
@@ -658,9 +662,9 @@ class EventRoutesTest {
             val items = context.itemCommandService
 
             // Create two roots and a child under root1
-            val root1 = items.create(ItemCreateCommand(parentId = null, title = "Root1")).orFail()
-            val root2 = items.create(ItemCreateCommand(parentId = null, title = "Root2")).orFail()
-            val child = items.create(ItemCreateCommand(parentId = root1.id, title = "Child")).orFail()
+            val root1 = items.create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = null, title = "Root1")).orFail()
+            val root2 = items.create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = null, title = "Root2")).orFail()
+            val child = items.create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = root1.id, title = "Child")).orFail()
 
             // Subscribe to each root. The reparent delivers exactly one event to each root topic
             // (scope.left to root1, scope.entered to root2), so a bounded take(1) per subscriber

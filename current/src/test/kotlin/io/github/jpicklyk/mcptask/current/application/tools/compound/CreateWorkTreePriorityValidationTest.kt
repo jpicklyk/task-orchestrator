@@ -33,6 +33,7 @@ class CreateWorkTreePriorityValidationTest {
             put(
                 "root",
                 buildJsonObject {
+                    put("type", JsonPrimitive("test-item"))
                     put("title", JsonPrimitive("Root Task"))
                     if (priority != null) put("priority", JsonPrimitive(priority))
                 }
@@ -45,6 +46,7 @@ class CreateWorkTreePriorityValidationTest {
         priority: String? = null,
     ) = buildJsonObject {
         put("ref", JsonPrimitive(ref))
+        put("type", JsonPrimitive("test-item"))
         put("title", JsonPrimitive(title))
         if (priority != null) put("priority", JsonPrimitive(priority))
     }
@@ -73,7 +75,13 @@ class CreateWorkTreePriorityValidationTest {
     fun `S10 children 1 priority critical throws naming children index 1 and the invalid value`() {
         val params =
             buildJsonObject {
-                put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                put(
+                    "root",
+                    buildJsonObject {
+                        put("type", JsonPrimitive("test-item"))
+                        put("title", JsonPrimitive("Root"))
+                    }
+                )
                 put(
                     "children",
                     buildJsonArray {
@@ -130,7 +138,13 @@ class CreateWorkTreePriorityValidationTest {
     fun `probe children 0 priority invalid is rejected and named by index`() {
         val params =
             buildJsonObject {
-                put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                put(
+                    "root",
+                    buildJsonObject {
+                        put("type", JsonPrimitive("test-item"))
+                        put("title", JsonPrimitive("Root"))
+                    }
+                )
                 put(
                     "children",
                     buildJsonArray {

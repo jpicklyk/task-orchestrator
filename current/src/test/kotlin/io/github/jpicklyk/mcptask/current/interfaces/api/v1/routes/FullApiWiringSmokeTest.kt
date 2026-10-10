@@ -172,7 +172,7 @@ abstract class FullApiWiringSmokeScenarios(
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $TEST_TOKEN")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"should-not-create"}""")
+                    setBody("""{"type":"test-item","title":"should-not-create"}""")
                 }
             assertEquals(HttpStatusCode.Forbidden, forbidden.status, "READ token cannot write")
 
@@ -181,7 +181,7 @@ abstract class FullApiWiringSmokeScenarios(
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"smoke-created"}""")
+                    setBody("""{"type":"test-item","title":"smoke-created"}""")
                 }
             assertEquals(HttpStatusCode.Created, created.status, "WRITE token creates item")
 
@@ -204,7 +204,7 @@ abstract class FullApiWiringSmokeScenarios(
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"title":"smoke-config-root"}""")
+                    setBody("""{"type":"test-item","title":"smoke-config-root"}""")
                 }
             assertEquals(HttpStatusCode.Created, configCreated.status)
             val rootId = Regex(""""id":"([0-9a-fA-F-]{36})"""").find(configCreated.bodyAsText())!!.groupValues[1]

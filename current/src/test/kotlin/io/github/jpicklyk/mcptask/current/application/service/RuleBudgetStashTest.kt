@@ -296,7 +296,11 @@ class RuleBudgetStashTest {
             assertFailsWith<ToolValidationException> {
                 CreateWorkTreeTool().validateParams(
                     params(
-                        "root" to buildJsonObject { put("title", JsonPrimitive("Root")) },
+                        "root" to
+                            buildJsonObject {
+                                put("type", JsonPrimitive("test-item"))
+                                put("title", JsonPrimitive("Root"))
+                            },
                         "docRef" to buildJsonObject { put("slug", JsonPrimitive("rule/some-rule-key")) },
                     ),
                 )
@@ -347,7 +351,7 @@ class RuleBudgetStashTest {
                         name = "create_work_tree",
                         arguments =
                             mapOf(
-                                "root" to mapOf("title" to "Feature via rule doc"),
+                                "root" to mapOf("title" to "Feature via rule doc", "type" to "test-item"),
                                 "parentId" to root.id.toString(),
                                 "docRef" to mapOf("slug" to "rule/x"),
                             ),

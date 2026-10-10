@@ -32,6 +32,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SqliteUnitOfWork
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteDataStepStore
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.TypeBackfillStep
 import io.github.jpicklyk.mcptask.current.infrastructure.time.SystemClock
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
@@ -44,6 +45,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import java.nio.file.Path
 import java.nio.file.Paths
 
 /**
@@ -210,7 +212,7 @@ class ServerComposition(
             unitOfWork = unitOfWork,
             dataStepRunner =
                 DataStepRunner(
-                    steps = PRODUCTION_DATA_STEPS + extraDataSteps,
+                    steps = productionDataSteps(globalConfigPath) + extraDataSteps,
                     unitOfWork = unitOfWork,
                     store = SqliteDataStepStore(databaseManager),
                     clock = clock,
@@ -364,7 +366,7 @@ class ServerComposition(
     }
 
     private companion object {
-        /** The data steps the server ships. Later work items register theirs here; none exist yet. */
-        val PRODUCTION_DATA_STEPS: List<DataStep> = emptyList()
+        /** The data steps the server ships; later work items register theirs here. */
+        fun productionDataSteps(globalConfigPath: Path): List<DataStep> = listOf(TypeBackfillStep(globalConfigPath))
     }
 }

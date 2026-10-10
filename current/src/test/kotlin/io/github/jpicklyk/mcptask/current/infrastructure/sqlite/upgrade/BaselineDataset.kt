@@ -119,6 +119,9 @@ object BaselineDataset {
         "complexity" to 5,
         "requires_verification" to 0,
         "depth" to 2,
+        // Typed like every other baseline row: a NULL type would be filled by the production type-backfill step on
+        // every harness step and trip checkUpgrade's column-changed check.
+        "type" to "feature-task",
         "created_at" to TS,
         "modified_at" to TS_PLUS_1,
         "role_changed_at" to TS_PLUS_2,
