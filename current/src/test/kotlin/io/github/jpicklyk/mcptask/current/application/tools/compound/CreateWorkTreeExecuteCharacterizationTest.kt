@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.tools.compound
 import io.github.jpicklyk.mcptask.current.application.port.ChildPlacement
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
@@ -13,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.CountingUnitOfWork
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.sqlite.assertNoOutsideUnitWrites
 import kotlinx.coroutines.runBlocking
@@ -120,10 +120,11 @@ class CreateWorkTreeExecuteCharacterizationTest {
     private fun childSpec(
         ref: String,
         title: String,
-        tags: String? = null
+        tags: String? = null,
+        type: String = "test-item"
     ) = buildJsonObject {
         put("ref", JsonPrimitive(ref))
-        put("type", JsonPrimitive("test-item"))
+        put("type", JsonPrimitive(type))
         put("title", JsonPrimitive(title))
         if (tags != null) put("tags", JsonPrimitive(tags))
     }
@@ -648,12 +649,8 @@ class CreateWorkTreeExecuteCharacterizationTest {
 
     private fun taskSchemaContext(): ToolExecutionContext {
         val schemaEntries = listOf(NoteSchemaEntry(key = "task-scope", role = Role.QUEUE, required = true))
-        val noteSchemaService =
-            object : NoteSchemaService {
-                override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                    if (tags.contains("task")) schemaEntries else null
-            }
-        return ToolExecutionContext(repositoryProvider, noteSchemaService, unitOfWork = db.unitOfWork())
+        val noteSchemaService = TestConfigResolver.withoutTypeValidation(TestConfigResolver.forSchemas(mapOf("task" to schemaEntries)))
+        return ToolExecutionContext(repositoryProvider, configResolver = noteSchemaService, unitOfWork = db.unitOfWork())
     }
 
     @Test
@@ -674,7 +671,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("c1"))
-                                    put("type", JsonPrimitive("test-item"))
+                                    put("type", JsonPrimitive("task"))
                                     put("title", JsonPrimitive("S12 C1"))
                                     put("tags", JsonPrimitive("task"))
                                     put(
@@ -729,7 +726,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("c1"))
-                                    put("type", JsonPrimitive("test-item"))
+                                    put("type", JsonPrimitive("task"))
                                     put("title", JsonPrimitive("S13 C1"))
                                     put("tags", JsonPrimitive("task"))
                                     put(
@@ -841,7 +838,7 @@ class CreateWorkTreeExecuteCharacterizationTest {
                             put("title", JsonPrimitive("F4 Root"))
                         }
                     )
-                    put("children", buildJsonArray { add(childSpec("c1", "F4 C1", tags = "task")) })
+                    put("children", buildJsonArray { add(childSpec("c1", "F4 C1", tags = "task", type = "task")) })
                     put(
                         "notes",
                         buildJsonArray {

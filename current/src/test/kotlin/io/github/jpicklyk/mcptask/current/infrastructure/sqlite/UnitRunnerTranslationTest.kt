@@ -4,11 +4,9 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
-import io.github.jpicklyk.mcptask.current.application.config.ServiceBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
-import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
@@ -305,7 +303,7 @@ class UnitRunnerTranslationTest {
     fun `S12 each BUSY attempt gets a fresh config session so the source is read once per attempt`(): Unit =
         runBlocking {
             val source = CountingSource()
-            val resolver = EffectiveConfigResolver(ServiceBackedGlobalLookup(NoOpNoteSchemaService, NoOpStatusLabelService), source)
+            val resolver = EffectiveConfigResolver(LayerBackedGlobalLookup(null), source)
             val root = UUID.randomUUID()
             val attempts = AtomicInteger()
             val result =

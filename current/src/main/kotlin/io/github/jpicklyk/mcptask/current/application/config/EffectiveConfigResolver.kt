@@ -17,8 +17,9 @@ import kotlin.coroutines.coroutineContext
 /**
  * The single entry point for effective (layered) config resolution: schema, traits, resources,
  * dispatch, resource registry, note-limits mode, status labels and trait-name hints, each resolved
- * against [rootId]'s per-root layer ([perRoot]) over the [global] fallback per the root's effective
- * `schema_resolution` mode (see [LayeredConfig]'s facet table and [LayeredConfig.effectiveMode]).
+ * against [rootId]'s per-root layer ([perRoot]) over the [global] fallback by the one precedence rule in
+ * [LayeredConfig]'s table. Every cross-trait merge goes through [TraitResolver], in its one trait order
+ * (item traits, then the schema's `default_traits`).
  *
  * A null `rootId`, or no [perRoot] source wired, skips the per-root layer entirely: zero per-root
  * reads. Otherwise every public method reads the per-root layer independently (one read per call)
@@ -39,8 +40,8 @@ class EffectiveConfigResolver(
     /** Effective (trait-merged) schema for [item], or null when no schema matches (schema-free). */
     suspend fun resolveSchema(item: WorkItem): WorkItemSchema? {
         val layered = layered(item.rootId)
-        val baseSchema = layered.baseSchema(item.type, item.tagList())?.first ?: return null
-        return layered.mergeTraits(item, baseSchema)
+        val baseSchema = layered.baseSchema(item.type)?.first ?: return null
+        return TraitResolver(layered).mergeSchema(baseSchema, itemTraits(item), item.id)
     }
 
     /**
@@ -50,20 +51,20 @@ class EffectiveConfigResolver(
      */
     suspend fun resolveSchemaWithSource(item: WorkItem): SchemaMatch? {
         val layered = layered(item.rootId)
-        val (baseSchema, source) = layered.baseSchema(item.type, item.tagList()) ?: return null
-        val merged = layered.mergeTraits(item, baseSchema)
+        val (baseSchema, source) = layered.baseSchema(item.type) ?: return null
+        val merged = TraitResolver(layered).mergeSchema(baseSchema, itemTraits(item), item.id)
         return SchemaMatch(merged, source, layered.fingerprintFor(source))
     }
 
-    /** Type-only schema lookup (no tag step, no trait merging); null when neither layer defines [type]. */
+    /** Type-only schema lookup (no trait merging), `"default"` steps included; null when no layer matches. */
     suspend fun resolveTypeSchema(
         type: String,
         rootId: UUID?
     ): SchemaMatch? = layered(rootId).resolveTypeSchema(type)
 
     /**
-     * The types an item under [rootId] may be created or retyped with: both layers' declared schema keys per the
-     * root's resolution mode, sorted (see [LayeredConfig.typeKeys]). Empty when no schema is configured.
+     * The types an item under [rootId] may be created or retyped with: the union of both layers' declared schema
+     * keys, sorted (see [LayeredConfig.typeKeys]). Empty when no schema is configured.
      */
     suspend fun availableTypes(rootId: UUID?): List<String> = layered(rootId).typeKeys()
 
@@ -71,31 +72,25 @@ class EffectiveConfigResolver(
     suspend fun resolveHasReviewPhase(item: WorkItem): Boolean = resolveSchema(item)?.hasReviewPhase() ?: false
 
     /**
-     * Resource requirements for [item]'s traits: `(base schema's defaultTraits, if any) + item
-     * traits`, distinct; a null base schema is tolerated (item traits are still honored).
+     * Resource requirements for [item]'s traits in [TraitResolver.order] (item traits, then the base
+     * schema's defaultTraits); a null base schema is tolerated (item traits are still honored).
      */
     suspend fun resolveResourceRequirements(item: WorkItem): List<ResourceRequirement> {
         val layered = layered(item.rootId)
-        val baseSchema = layered.baseSchema(item.type, item.tagList())?.first
-        val defaultTraits = baseSchema?.defaultTraits ?: emptyList()
-        val itemTraits = PropertiesHelper.extractTraits(item.properties)
-        val allTraits = (defaultTraits + itemTraits).distinct()
-        return layered.mergeResourceRequirements(allTraits)
+        val defaultTraits = layered.baseSchema(item.type)?.first?.defaultTraits ?: emptyList()
+        return TraitResolver(layered).resources(TraitResolver.order(itemTraits(item), defaultTraits))
     }
 
     /** Resource requirements for a type's [defaultTraits] alone (no item). */
     suspend fun resolveResourceRequirementsForType(
         defaultTraits: List<String>,
         rootId: UUID?
-    ): List<ResourceRequirement> {
-        val layered = layered(rootId)
-        return layered.mergeResourceRequirements(defaultTraits.distinct())
-    }
+    ): List<ResourceRequirement> = TraitResolver(layered(rootId)).resources(defaultTraits.distinct())
 
     /**
      * Dispatch profile for [item] at [role], using [resolvedSchema]'s defaultTraits. Trait order is
-     * item traits FIRST, then defaultTraits (the reverse of note merging); the first trait with a
-     * profile for [role] wins outright.
+     * [TraitResolver.order] (item traits, then defaultTraits); the first trait with a profile for
+     * [role] wins outright.
      */
     suspend fun resolveDispatchProfile(
         item: WorkItem,
@@ -128,7 +123,7 @@ class EffectiveConfigResolver(
         val traits = dispatchTraitsFor(item, resolvedSchema)
         val seats = resolvedSchema?.seats ?: emptyList()
         if (traits.isEmpty() || seats.isEmpty()) return emptyMap()
-        return layered(item.rootId).mergeDispatchBySeat(traits, seats)
+        return TraitResolver(layered(item.rootId)).dispatchBySeat(traits, seats)
     }
 
     /** Type-only counterpart to [resolveDispatchBySeat]: [defaultTraits] is the complete trait set. */
@@ -139,10 +134,10 @@ class EffectiveConfigResolver(
     ): Map<Role, Map<String, DispatchProfile>> {
         val traits = defaultTraits.distinct()
         if (traits.isEmpty() || seats.isEmpty()) return emptyMap()
-        return layered(rootId).mergeDispatchBySeat(traits, seats)
+        return TraitResolver(layered(rootId)).dispatchBySeat(traits, seats)
     }
 
-    /** Resource registry visible to [rootId]; global wins on a key collision (see [LayeredConfig.resourceRegistry]). */
+    /** Resource registry visible to [rootId]: the server registry only (see [LayeredConfig.resourceRegistry]). */
     suspend fun resolveResourceRegistry(rootId: UUID?): Map<String, ResourceDefinition> = layered(rootId).resourceRegistry()
 
     /** `note_limits.mode` for [rootId]: per-root explicit value, else global. */
@@ -193,15 +188,14 @@ class EffectiveConfigResolver(
         return (perRootTraits + global.traitNames()).distinct()
     }
 
-    /** Trait list for dispatch resolution: item traits first, then [resolvedSchema]'s defaultTraits. */
+    /** Trait list for dispatch resolution: [TraitResolver.order] of [item]'s traits and [resolvedSchema]'s defaultTraits. */
     private fun dispatchTraitsFor(
         item: WorkItem,
         resolvedSchema: WorkItemSchema?
-    ): List<String> {
-        val itemTraits = PropertiesHelper.extractTraits(item.properties)
-        val defaultTraits = resolvedSchema?.defaultTraits ?: emptyList()
-        return (itemTraits + defaultTraits).distinct()
-    }
+    ): List<String> = TraitResolver.order(itemTraits(item), resolvedSchema?.defaultTraits ?: emptyList())
+
+    /** [item]'s own traits from its properties bag. */
+    private fun itemTraits(item: WorkItem): List<String> = PropertiesHelper.extractTraits(item.properties)
 
     /** Returns BEFORE any per-root read when [traits] is empty (the common, trait-less case). */
     private suspend fun resolveDispatchProfilesForTraits(
@@ -209,7 +203,7 @@ class EffectiveConfigResolver(
         rootId: UUID?
     ): Map<Role, DispatchProfile> {
         if (traits.isEmpty()) return emptyMap()
-        return layered(rootId).mergeDispatch(traits)
+        return TraitResolver(layered(rootId)).dispatch(traits)
     }
 
     /**

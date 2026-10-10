@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.tools.notes
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
@@ -11,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.coEvery
 import io.mockk.mockk
@@ -485,7 +485,7 @@ class ManageNotesToolTest {
         tags: String? = null,
         role: Role = Role.QUEUE
     ): String {
-        val item = WorkItem(title = title, tags = tags, role = role)
+        val item = WorkItem(title = title, tags = tags, type = tags?.substringBefore(",")?.trim(), role = role)
         val result = context.workItemRepository().create(item)
         return (result.id).toString()
     }
@@ -494,11 +494,8 @@ class ManageNotesToolTest {
         entries: List<NoteSchemaEntry>,
         matchTag: String
     ): ToolExecutionContext {
-        val noteSchemaService =
-            object : NoteSchemaService {
-                override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = if (tags.contains(matchTag)) entries else null
-            }
-        return ToolExecutionContext(repositoryProvider, noteSchemaService, unitOfWork = db.unitOfWork())
+        val noteSchemaService = TestConfigResolver.forSchemas(mapOf(matchTag to entries))
+        return ToolExecutionContext(repositoryProvider, configResolver = noteSchemaService, unitOfWork = db.unitOfWork())
     }
 
     // ──────────────────────────────────────────────
@@ -1641,12 +1638,8 @@ class ManageNotesToolTest {
         noteLimitsMode: String = "warn"
     ): ToolExecutionContext {
         val noteSchemaService =
-            object : NoteSchemaService {
-                override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = if (tags.contains(matchTag)) entries else null
-
-                override fun getNoteLimitsMode(): String = noteLimitsMode
-            }
-        return ToolExecutionContext(repositoryProvider, noteSchemaService, unitOfWork = db.unitOfWork())
+            TestConfigResolver.resolver(TestConfigResolver.document(mapOf(matchTag to entries)).copy(noteLimitsMode = noteLimitsMode))
+        return ToolExecutionContext(repositoryProvider, configResolver = noteSchemaService, unitOfWork = db.unitOfWork())
     }
 
     /** Same as [contextWithSchemaAndLimitsMode], but with a [perRoot] layer wired in for t3 tests. */
@@ -1657,12 +1650,16 @@ class ManageNotesToolTest {
         perRoot: PerRootConfigService
     ): ToolExecutionContext {
         val noteSchemaService =
-            object : NoteSchemaService {
-                override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = if (tags.contains(matchTag)) entries else null
-
-                override fun getNoteLimitsMode(): String = globalNoteLimitsMode
-            }
-        return ToolExecutionContext(repositoryProvider, noteSchemaService, perRootConfigService = perRoot, unitOfWork = db.unitOfWork())
+            TestConfigResolver.resolver(
+                TestConfigResolver.document(mapOf(matchTag to entries)).copy(noteLimitsMode = globalNoteLimitsMode),
+                perRoot = perRoot,
+            )
+        return ToolExecutionContext(
+            repositoryProvider,
+            perRootConfigService = perRoot,
+            configResolver = noteSchemaService,
+            unitOfWork = db.unitOfWork()
+        )
     }
 
     private suspend fun createTestItemWithTagsAndRoot(
@@ -1670,7 +1667,7 @@ class ManageNotesToolTest {
         tags: String,
         title: String = "Test Item"
     ): String {
-        val item = WorkItem(title = title, tags = tags, role = Role.QUEUE, rootId = rootId)
+        val item = WorkItem(title = title, tags = tags, type = tags.substringBefore(",").trim(), role = Role.QUEUE, rootId = rootId)
         val result = context.workItemRepository().create(item)
         return (result.id).toString()
     }

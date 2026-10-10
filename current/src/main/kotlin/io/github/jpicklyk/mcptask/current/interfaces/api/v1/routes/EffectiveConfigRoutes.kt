@@ -52,9 +52,8 @@ private val effectiveConfigLogger = LoggerFactory.getLogger("EffectiveConfigRout
  * [EffectiveConfigResolver.layered] read, wrapped in the same `config_unavailable` 503 envelope
  * `ItemRoutes` uses for [PerRootConfigUnavailableException].
  *
- * [schemaService] is used ONLY to enumerate global type keys (`getAllSchemas().keys`) —
- * `GlobalConfigLookup` has no key-listing method — and to build the status graph via
- * [StatusGraphBuilder.buildStatusGraph]. Every resolved value comes from [configResolver]'s single
+ * [schemaService] is used ONLY to build the status graph via [StatusGraphBuilder.buildStatusGraph].
+ * Type keys come from [io.github.jpicklyk.mcptask.current.application.config.LayeredConfig.typeKeys]. Every resolved value comes from [configResolver]'s single
  * [EffectiveConfigResolver.layered] read; no separate default-schema probing or per-root-vs-global
  * choice happens in this route.
  */
@@ -114,14 +113,7 @@ fun Route.effectiveConfigRoutes(
                 return@get
             }
 
-            val keys =
-                (
-                    layered.perRoot
-                        ?.document
-                        ?.workItemSchemas
-                        ?.keys
-                        .orEmpty() + schemaService.getAllSchemas().keys
-                ).toSortedSet()
+            val keys = layered.typeKeys()
             val entries = keys.mapNotNull { key -> layered.resolveTypeSchema(key)?.let { key to it } }
 
             val traits =
@@ -130,7 +122,7 @@ fun Route.effectiveConfigRoutes(
                     buildTraitDto(name, notes, layered.traitDispatch(name), layered.traitResources(name))
                 }
 
-            // `entries` iterates `keys`, already a sorted set — no extra sort needed here.
+            // `entries` iterates `keys`, already sorted and distinct — no extra sort needed here.
             val schemaDtos = entries.map { (key, match) -> match.toEffectiveSchemaDto(key) }
             val statusGraph =
                 graphBuilder.buildStatusGraph(
@@ -150,7 +142,6 @@ fun Route.effectiveConfigRoutes(
                         entries.firstOrNull { (key, _) -> key == "default" }?.second?.toEffectiveSchemaDto("default"),
                     globalFingerprint = globalFingerprint,
                     perRootFingerprint = perRootFingerprint,
-                    schemaResolution = layered.effectiveMode.name.lowercase(),
                 ),
             )
         }

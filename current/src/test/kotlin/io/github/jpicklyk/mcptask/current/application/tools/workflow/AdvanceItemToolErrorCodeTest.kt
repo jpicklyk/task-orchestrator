@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
 import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -91,7 +92,7 @@ class AdvanceItemToolErrorCodeTest {
         role: Role = Role.QUEUE,
         title: String = "Test Item",
         tags: String? = null
-    ): WorkItem = WorkItem(id = id, title = title, role = role, tags = tags)
+    ): WorkItem = WorkItem(id = id, title = title, role = role, tags = tags, type = tags?.substringBefore(",")?.trim())
 
     private fun buildParams(vararg transitions: JsonObject): JsonObject =
         buildJsonObject {
@@ -121,14 +122,12 @@ class AdvanceItemToolErrorCodeTest {
     /** The full set of valid ErrorKind wire values (O-EK). */
     private val validErrorKinds = setOf("transient", "permanent", "shedding")
 
-    private fun schemaServiceWith(entries: List<NoteSchemaEntry>): NoteSchemaService =
-        object : NoteSchemaService {
-            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = if (tags.isNotEmpty()) entries else null
-        }
+    private fun schemaServiceWith(entries: List<NoteSchemaEntry>): EffectiveConfigResolver =
+        TestConfigResolver.forSchemas(mapOf("feature-task" to entries))
 
     private fun contextWithSchema(
         noteRepo: NoteStore,
-        noteSchemaService: NoteSchemaService
+        noteSchemaService: EffectiveConfigResolver
     ): ToolExecutionContext {
         val provider = mockk<RepositoryProvider>()
         every { provider.workItemRepository() } returns workItemRepo
@@ -137,7 +136,7 @@ class AdvanceItemToolErrorCodeTest {
         every { provider.noteRepository() } returns noteRepo
         every { provider.roleTransitionRepository() } returns roleTransitionRepo
         every { provider.resourceLeaseRepository() } returns mockk(relaxed = true)
-        return ToolExecutionContext(provider, noteSchemaService)
+        return ToolExecutionContext(provider, configResolver = noteSchemaService)
     }
 
     private fun gateSchemaEntries(): List<NoteSchemaEntry> =

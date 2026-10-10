@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
@@ -11,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -50,28 +50,25 @@ class AdvanceParityTest {
     val db = SqliteTestDatabase.perMethod()
 
     /** Schema with a single REQUIRED queue-phase note — drives gate parity. */
-    private class GateSchemaService : WorkItemSchemaService {
-        private val schema =
-            WorkItemSchema(
-                type = "gate-type",
-                notes = listOf(NoteSchemaEntry("spec", Role.QUEUE, required = true, description = "spec")),
-            )
-
-        override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = if ("gate-type" in tags) schema.notes else null
-
-        override fun getSchemaForType(type: String?): WorkItemSchema? = if (type == "gate-type") schema else null
-    }
+    private fun gateSchemaService(): ConfigDocument =
+        run {
+            val schema =
+                WorkItemSchema(
+                    type = "gate-type",
+                    notes = listOf(NoteSchemaEntry("spec", Role.QUEUE, required = true, description = "spec")),
+                )
+            TestConfigResolver.documentOf(mapOf("gate-type" to schema))
+        }
 
     /** No schema — exercises cascade/unblock parity without gate involvement. */
-    private object NoSchemaService : NoteSchemaService {
-        override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
-    }
+    private val noSchemaService: ConfigDocument = ConfigDocument.EMPTY
 
     private fun mcpTool(
         repo: DefaultRepositoryProvider,
-        schemaService: NoteSchemaService,
+        schemaService: ConfigDocument,
     ): Pair<AdvanceItemTool, ToolExecutionContext> =
-        AdvanceItemTool() to ToolExecutionContext(repo, schemaService, unitOfWork = db.unitOfWork())
+        AdvanceItemTool() to
+            ToolExecutionContext(repo, configResolver = TestConfigResolver.resolver(schemaService), unitOfWork = db.unitOfWork())
 
     private fun advanceParams(
         itemId: UUID,
@@ -102,7 +99,7 @@ class AdvanceParityTest {
     fun `gate decision matches - both paths block a start with a missing required note`(): Unit =
         runBlocking {
             val repo = db.repositoryProvider()
-            val schemaService = GateSchemaService()
+            val schemaService = gateSchemaService()
 
             // Two mirrored items, both gate-incomplete (no 'spec' note).
             val mcpItem =
@@ -117,7 +114,7 @@ class AdvanceParityTest {
             // REST path.
             var restBody = ""
             testApplication {
-                application { configureWriteTestApp(repo, schemaService = schemaService, unitOfWork = db.unitOfWork()) }
+                application { configureWriteTestApp(repo, serverConfig = schemaService, unitOfWork = db.unitOfWork()) }
                 val r =
                     client.post("/api/v1/items/${restItem.id}/advance") {
                         header("Authorization", "Bearer $WRITE_TOKEN")
@@ -178,7 +175,7 @@ class AdvanceParityTest {
             val (restParent, restChild, restDownstream) = buildTree("rest")
 
             // MCP path — complete the child.
-            val (tool, ctx) = mcpTool(repo, NoSchemaService)
+            val (tool, ctx) = mcpTool(repo, noSchemaService)
             val mcpResp = mcpResult(tool.execute(advanceParams(mcpChild, "complete"), ctx))
 
             val mcpCascadeTargets =

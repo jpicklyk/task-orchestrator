@@ -34,8 +34,6 @@ class ConfigRoutesDispatchTest {
         private val traitDispatch: Map<String, Map<Role, DispatchProfile>>,
         private val traitResources: Map<String, List<ResourceRequirement>>
     ) : WorkItemSchemaService {
-        override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
-
         override fun getAllSchemas(): Map<String, WorkItemSchema> = emptyMap()
 
         override fun getAllTraits(): Map<String, List<NoteSchemaEntry>> = traits

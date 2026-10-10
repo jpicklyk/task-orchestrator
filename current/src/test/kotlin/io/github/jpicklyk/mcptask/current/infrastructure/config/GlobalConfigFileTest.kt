@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
+import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.security.configFingerprint
 import org.junit.jupiter.api.Test
@@ -164,30 +165,19 @@ class GlobalConfigFileTest {
         val viaPath = YamlWorkItemSchemaService(configPath)
 
         assertEquals(viaPath.getAllSchemas(), viaGcf.getAllSchemas())
-        assertEquals(viaPath.getSchemaForType("feature-task"), viaGcf.getSchemaForType("feature-task"))
-        assertEquals(viaPath.getSchemaForTags(listOf("feature-task")), viaGcf.getSchemaForTags(listOf("feature-task")))
-        assertEquals(viaPath.getTraitNotes("needs-security-review"), viaGcf.getTraitNotes("needs-security-review"))
-        assertEquals(viaPath.getAvailableTraits(), viaGcf.getAvailableTraits())
-        assertEquals(viaPath.getDefaultTraits("feature-task"), viaGcf.getDefaultTraits("feature-task"))
         assertEquals(viaPath.getAllTraits(), viaGcf.getAllTraits())
         assertEquals(viaPath.getLoadWarnings(), viaGcf.getLoadWarnings())
-        assertEquals(viaPath.getResourceRegistry(), viaGcf.getResourceRegistry())
         assertEquals(viaPath.getTraitResources("needs-security-review"), viaGcf.getTraitResources("needs-security-review"))
         assertEquals(viaPath.getTraitDispatch("needs-security-review"), viaGcf.getTraitDispatch("needs-security-review"))
-        assertEquals("reject", viaGcf.getNoteLimitsMode())
-        assertEquals(viaPath.getNoteLimitsMode(), viaGcf.getNoteLimitsMode())
+        assertEquals("reject", LayerBackedGlobalLookup(GlobalConfigFile(configPath).layer()).noteLimitsMode())
         assertEquals(viaPath.getConfigFingerprint(), viaGcf.getConfigFingerprint())
     }
 
     @Test
-    fun `S2 getNoteLimitsMode is warn via GlobalConfigFile when note_limits is absent, matching the legacy constructor`() {
+    fun `S2 note_limits mode is warn via GlobalConfigFile when note_limits is absent`() {
         val configPath = writeConfig("work_item_schemas:\n  default:\n    notes: []\n")
 
-        val viaGcf = YamlWorkItemSchemaService(GlobalConfigFile(configPath))
-        val viaPath = YamlWorkItemSchemaService(configPath)
-
-        assertEquals("warn", viaGcf.getNoteLimitsMode())
-        assertEquals(viaPath.getNoteLimitsMode(), viaGcf.getNoteLimitsMode())
+        assertEquals("warn", LayerBackedGlobalLookup(GlobalConfigFile(configPath).layer()).noteLimitsMode())
     }
 
     // ──────────────────────────────────────────────

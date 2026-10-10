@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
@@ -90,7 +89,6 @@ class WriteRouteAuthInvariantTest {
                 val toolContext =
                     ToolExecutionContext(
                         repo,
-                        NoOpNoteSchemaService,
                         perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
                         unitOfWork = db.unitOfWork()
                     )

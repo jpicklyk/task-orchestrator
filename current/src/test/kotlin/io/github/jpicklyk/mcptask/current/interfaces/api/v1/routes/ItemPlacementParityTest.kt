@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
@@ -123,10 +122,9 @@ class ItemPlacementParityTest {
                     IdempotencyService(hookedUnitOfWork(provider.workItemRepository())),
                     ToolExecutionContext(
                         provider,
-                        NoOpNoteSchemaService,
                         statusLabelService = NoOpStatusLabelService,
                         perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
-                        unitOfWork = hookedUnitOfWork(provider.workItemRepository()),
+                        unitOfWork = hookedUnitOfWork(provider.workItemRepository())
                     ).advanceServiceFactory(),
                     hookedUnitOfWork(provider.workItemRepository()),
                 )

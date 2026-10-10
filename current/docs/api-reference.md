@@ -97,7 +97,7 @@ is computed automatically from the parent; nesting depth is unbounded at creatio
 | `parentId` | string (UUID) | No | shared `parentId` or null | |
 | `tags` | string | No | null | |
 | `metadata` | string | No | null | |
-| `type` | string | **Yes** | — | Schema type identifier. Selects the `work_item_schemas` entry that determines lifecycle mode and required notes. One-to-one lookup (unlike tags, only one type per item). A missing or blank `type` fails the element with `errorCode: "schema_violation"` (`errorKind: "permanent"`); so does a `type` that is not one of the root's declared schema keys (per-root and global, per the root's `schema_resolution` mode, `default` included) whenever any schema is configured. The failure element is `{ index, error, errorCode, errorKind, availableTypes }` with the sorted declared keys in `availableTypes` (omitted when no schema is configured, where any non-blank `type` is accepted); sibling elements still run. Matching is exact and case-sensitive. `untyped` is the residue value the 4.0 upgrade gives pre-4.0 items that matched no schema; it is not a creatable type when any schema is configured. |
+| `type` | string | **Yes** | — | Schema type identifier. Selects the `work_item_schemas` entry that determines lifecycle mode and required notes. One-to-one lookup (unlike tags, only one type per item). A missing or blank `type` fails the element with `errorCode: "schema_violation"` (`errorKind: "permanent"`); so does a `type` that is not one of the root's declared schema keys (the union of per-root and global keys, `default` included) whenever any schema is configured. The failure element is `{ index, error, errorCode, errorKind, availableTypes }` with the sorted declared keys in `availableTypes` (omitted when no schema is configured, where any non-blank `type` is accepted); sibling elements still run. Matching is exact and case-sensitive. `untyped` is the residue value the 4.0 upgrade gives pre-4.0 items that matched no schema; it is not a creatable type when any schema is configured. |
 | `properties` | string | No | null | JSON string for extensible item metadata. Traits are stored here automatically when using the `traits` parameter. |
 | `traits` | string | No | null | Comma-separated trait names (e.g., `needs-security-review,needs-perf-review`). Adds additional note requirements from the `traits:` config section. Merged into `properties` JSON automatically. |
 | `requiresVerification` | boolean | No | false | |
@@ -2270,8 +2270,8 @@ so a push is never silently partial:
 | `project` | Yes | `ProjectConfigPushService` (embedded `project.rootId` guard only) |
 | `note_limits` | Yes | `ToolExecutionContext.resolveNoteLimitsMode()` |
 | `status_labels` | Yes | `ToolExecutionContext.resolveStatusLabel()` |
-| `resources` | Yes | `ToolExecutionContext.resolveResourceRegistry()` |
-| `schema_resolution` | Yes | `LayeredConfig.effectiveMode` (AR-39) — see [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md) → "Global vs Per-Project Config" |
+| `resources` | No — the resource registry is server-only | n/a |
+| `schema_resolution` | No — removed in 4.0 (parses with one warning, no effect) | n/a |
 | `independence` | Yes | `EffectiveConfigResolver.resolveIndependencePolicy()` (A2) — a per-root block replaces the global one wholesale; see [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2) → "Independence (A2)" |
 | `actor_authentication` | No — global-only | n/a |
 | any other key | No | n/a |
@@ -2328,9 +2328,8 @@ present (and non-empty) when the pushed document contains top-level keys outside
 allowlist above — e.g. `actor_authentication`. `schemaWarnings` is only present (and non-empty)
 when `YamlSchemaParser` emitted per-entry warnings while parsing the pushed document — e.g. a note
 schema entry with an invalid `role` value, which is skipped rather than rejecting the whole push,
-or a top-level `schema_resolution` value that isn't one of `legacy`/`layered`/`isolated` (case-
-sensitive), which is treated as absent (falls through to the global mode for that root) and adds
-one `schemaWarnings` entry naming the raw value.
+or a top-level `schema_resolution` key (removed in 4.0), which has no effect and adds one
+`schemaWarnings` entry saying the key was removed.
 The push still succeeds and the document is still stored regardless of `schemaWarnings` — these are
 advisory, not validation failures (contrast with the `VALIDATION_ERROR` cases below, which reject
 the push outright).

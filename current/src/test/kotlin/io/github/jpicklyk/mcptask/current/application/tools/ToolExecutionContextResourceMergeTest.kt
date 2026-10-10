@@ -4,17 +4,15 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.test.MutableServerConfig
 import io.mockk.coEvery
-import io.mockk.every
 import io.mockk.mockk
-import io.mockk.verify
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -29,19 +27,15 @@ import kotlin.test.assertTrue
  * config-merge algorithm.
  */
 class ToolExecutionContextResourceMergeTest {
-    private lateinit var noteSchemaService: NoteSchemaService
+    private lateinit var server: MutableServerConfig
     private lateinit var context: ToolExecutionContext
 
     @BeforeEach
     fun setUp() {
-        noteSchemaService = mockk()
-        every { noteSchemaService.getSchemaForType(any()) } returns null
-        every { noteSchemaService.getSchemaForTags(any()) } returns null
-        every { noteSchemaService.getTraitResources(any()) } returns emptyList()
-        every { noteSchemaService.getResourceRegistry() } returns emptyMap()
+        server = MutableServerConfig()
 
         val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-        context = ToolExecutionContext(repoProvider, noteSchemaService)
+        context = ToolExecutionContext(repoProvider, configResolver = server.resolver())
     }
 
     private fun makeItem(
@@ -73,9 +67,9 @@ class ToolExecutionContextResourceMergeTest {
                     notes = emptyList(),
                     defaultTraits = listOf("trait-a")
                 )
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
-            every { noteSchemaService.getTraitResources("trait-a") } returns listOf(ResourceRequirement(key = "resource-a"))
-            every { noteSchemaService.getTraitResources("trait-b") } returns listOf(ResourceRequirement(key = "resource-b"))
+            server.schemas["feature-task"] = baseSchema
+            server.traitResources["trait-a"] = listOf(ResourceRequirement(key = "resource-a"))
+            server.traitResources["trait-b"] = listOf(ResourceRequirement(key = "resource-b"))
 
             val item =
                 makeItem(
@@ -98,11 +92,9 @@ class ToolExecutionContextResourceMergeTest {
                     notes = emptyList(),
                     defaultTraits = listOf("trait-a", "trait-b")
                 )
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
-            every { noteSchemaService.getTraitResources("trait-a") } returns
-                listOf(ResourceRequirement(key = "shared-resource", mode = ResourceMode.ADVISORY))
-            every { noteSchemaService.getTraitResources("trait-b") } returns
-                listOf(ResourceRequirement(key = "shared-resource", mode = ResourceMode.ADVISORY))
+            server.schemas["feature-task"] = baseSchema
+            server.traitResources["trait-a"] = listOf(ResourceRequirement(key = "shared-resource", mode = ResourceMode.ADVISORY))
+            server.traitResources["trait-b"] = listOf(ResourceRequirement(key = "shared-resource", mode = ResourceMode.ADVISORY))
 
             val item = makeItem(type = "feature-task")
 
@@ -125,10 +117,10 @@ class ToolExecutionContextResourceMergeTest {
                     notes = emptyList(),
                     defaultTraits = listOf("trait-advisory-first", "trait-exclusive-second")
                 )
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
-            every { noteSchemaService.getTraitResources("trait-advisory-first") } returns
+            server.schemas["feature-task"] = baseSchema
+            server.traitResources["trait-advisory-first"] =
                 listOf(ResourceRequirement(key = "shared", mode = ResourceMode.ADVISORY, ttlSeconds = 100))
-            every { noteSchemaService.getTraitResources("trait-exclusive-second") } returns
+            server.traitResources["trait-exclusive-second"] =
                 listOf(ResourceRequirement(key = "shared", mode = ResourceMode.EXCLUSIVE, ttlSeconds = 200))
 
             val item = makeItem(type = "feature-task")
@@ -150,11 +142,9 @@ class ToolExecutionContextResourceMergeTest {
                     notes = emptyList(),
                     defaultTraits = listOf("trait-a", "trait-b")
                 )
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
-            every { noteSchemaService.getTraitResources("trait-a") } returns
-                listOf(ResourceRequirement(key = "shared", mode = ResourceMode.EXCLUSIVE))
-            every { noteSchemaService.getTraitResources("trait-b") } returns
-                listOf(ResourceRequirement(key = "shared", mode = ResourceMode.ADVISORY))
+            server.schemas["feature-task"] = baseSchema
+            server.traitResources["trait-a"] = listOf(ResourceRequirement(key = "shared", mode = ResourceMode.EXCLUSIVE))
+            server.traitResources["trait-b"] = listOf(ResourceRequirement(key = "shared", mode = ResourceMode.ADVISORY))
 
             val item = makeItem(type = "feature-task")
 
@@ -172,9 +162,7 @@ class ToolExecutionContextResourceMergeTest {
     fun `resolveResourceRequirements resolves from item properties traits even when no schema resolves`() =
         runBlocking {
             // No type, no tags — resolveBaseSchemaWithSource returns null (schema-free item).
-            every { noteSchemaService.getSchemaForTags(emptyList()) } returns null
-            every { noteSchemaService.getTraitResources("needs-staging-db") } returns
-                listOf(ResourceRequirement(key = "staging-db-credential"))
+            server.traitResources["needs-staging-db"] = listOf(ResourceRequirement(key = "staging-db-credential"))
 
             val item =
                 makeItem(
@@ -193,8 +181,7 @@ class ToolExecutionContextResourceMergeTest {
     fun `resolveResourceRequirements returns empty list when the item has no traits at all`() =
         runBlocking {
             val item = makeItem(type = "feature-task")
-            every { noteSchemaService.getSchemaForType("feature-task") } returns
-                WorkItemSchema(type = "feature-task", notes = emptyList(), defaultTraits = emptyList())
+            server.schemas["feature-task"] = WorkItemSchema(type = "feature-task", notes = emptyList(), defaultTraits = emptyList())
 
             val result = context.resolveResourceRequirements(item)
 
@@ -217,9 +204,8 @@ class ToolExecutionContextResourceMergeTest {
                     notes = emptyList(),
                     defaultTraits = listOf("needs-staging-db")
                 )
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
-            every { noteSchemaService.getTraitResources("needs-staging-db") } returns
-                listOf(ResourceRequirement(key = "global-resource"))
+            server.schemas["feature-task"] = baseSchema
+            server.traitResources["needs-staging-db"] = listOf(ResourceRequirement(key = "global-resource"))
 
             val perRootRequirement = ResourceRequirement(key = "per-root-resource", mode = ResourceMode.ADVISORY)
             coEvery { perRoot.layer(rootId) } returns
@@ -227,7 +213,7 @@ class ToolExecutionContextResourceMergeTest {
                     document =
                         ConfigDocument(
                             workItemSchemas = emptyMap(),
-                            traits = emptyMap(),
+                            traits = mapOf("needs-staging-db" to emptyList()),
                             noteLimitsMode = null,
                             statusLabels = null,
                             traitResources = mapOf("needs-staging-db" to listOf(perRootRequirement)),
@@ -238,15 +224,13 @@ class ToolExecutionContextResourceMergeTest {
                 )
 
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-            val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
+            val ctx = ToolExecutionContext(repoProvider, perRootConfigService = perRoot, configResolver = server.resolver(perRoot))
 
             val item = makeItem(type = "feature-task", rootId = rootId)
             val result = ctx.resolveResourceRequirements(item)
 
             assertEquals(1, result.size)
             assertEquals("per-root-resource", result[0].key)
-            // The global trait-resource lookup must be short-circuited once the per-root layer provides entries.
-            verify(exactly = 0) { noteSchemaService.getTraitResources("needs-staging-db") }
         }
 
     @Test
@@ -261,9 +245,8 @@ class ToolExecutionContextResourceMergeTest {
                     notes = emptyList(),
                     defaultTraits = listOf("needs-staging-db")
                 )
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
-            every { noteSchemaService.getTraitResources("needs-staging-db") } returns
-                listOf(ResourceRequirement(key = "global-resource"))
+            server.schemas["feature-task"] = baseSchema
+            server.traitResources["needs-staging-db"] = listOf(ResourceRequirement(key = "global-resource"))
 
             coEvery { perRoot.layer(rootId) } returns
                 ConfigLayer(
@@ -281,7 +264,7 @@ class ToolExecutionContextResourceMergeTest {
                 )
 
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-            val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
+            val ctx = ToolExecutionContext(repoProvider, perRootConfigService = perRoot, configResolver = server.resolver(perRoot))
 
             val item = makeItem(type = "feature-task", rootId = rootId)
             val result = ctx.resolveResourceRequirements(item)
@@ -291,11 +274,11 @@ class ToolExecutionContextResourceMergeTest {
         }
 
     // ──────────────────────────────────────────────
-    // resolveResourceRegistry: global-wins collision (inverted vs trait layering)
+    // resolveResourceRegistry: the server registry only (a per-root registry is ignored)
     // ──────────────────────────────────────────────
 
     @Test
-    fun `resolveResourceRegistry merges non-colliding per-root and global entries`() =
+    fun `resolveResourceRegistry ignores a non-colliding per-root entry`() =
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
@@ -313,19 +296,18 @@ class ToolExecutionContextResourceMergeTest {
                     fingerprint = "fp",
                     source = ConfigSource.PER_ROOT,
                 )
-            every { noteSchemaService.getResourceRegistry() } returns
-                mapOf("global-only" to ResourceDefinition(key = "global-only"))
+            server.resourceRegistry.putAll(mapOf("global-only" to ResourceDefinition(key = "global-only")))
 
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-            val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
+            val ctx = ToolExecutionContext(repoProvider, perRootConfigService = perRoot, configResolver = server.resolver(perRoot))
 
             val result = ctx.resolveResourceRegistry(rootId)
 
-            assertEquals(setOf("per-root-only", "global-only"), result.keys)
+            assertEquals(setOf("global-only"), result.keys, "a per-root resources registry is never honored")
         }
 
     @Test
-    fun `resolveResourceRegistry lets the global definition win on a colliding key`() =
+    fun `resolveResourceRegistry uses the server definition on a colliding key`() =
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
@@ -346,10 +328,10 @@ class ToolExecutionContextResourceMergeTest {
                     fingerprint = "fp",
                     source = ConfigSource.PER_ROOT,
                 )
-            every { noteSchemaService.getResourceRegistry() } returns mapOf("shared-key" to globalDef)
+            server.resourceRegistry.putAll(mapOf("shared-key" to globalDef))
 
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-            val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
+            val ctx = ToolExecutionContext(repoProvider, perRootConfigService = perRoot, configResolver = server.resolver(perRoot))
 
             val result = ctx.resolveResourceRegistry(rootId)
 
@@ -361,11 +343,10 @@ class ToolExecutionContextResourceMergeTest {
     fun `resolveResourceRegistry with null rootId returns the global registry unchanged`() =
         runBlocking {
             val perRoot = mockk<PerRootConfigService>()
-            every { noteSchemaService.getResourceRegistry() } returns
-                mapOf("global-only" to ResourceDefinition(key = "global-only"))
+            server.resourceRegistry.putAll(mapOf("global-only" to ResourceDefinition(key = "global-only")))
 
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-            val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
+            val ctx = ToolExecutionContext(repoProvider, perRootConfigService = perRoot, configResolver = server.resolver(perRoot))
 
             val result = ctx.resolveResourceRegistry(null)
 

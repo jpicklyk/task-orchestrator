@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.test
 
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
+import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import kotlinx.coroutines.runBlocking
@@ -271,15 +272,20 @@ class TestInfrastructureTest {
     }
 
     @Test
-    fun `MockRepositoryProvider context with custom schema service`() {
-        val mock = MockRepositoryProvider()
-        val ctx = mock.context(TestNoteSchemaService.FEATURE_IMPLEMENTATION)
-        assertNotNull(ctx)
-        // Schema service should return entries for "feature-implementation" tag
-        val schema = ctx.noteSchemaService().getSchemaForTags(listOf("feature-implementation"))
-        assertNotNull(schema)
-        assertEquals(4, schema.size)
-    }
+    fun `MockRepositoryProvider context with custom config resolver`(): Unit =
+        runBlocking {
+            val mock = MockRepositoryProvider()
+            val notes =
+                listOf("requirements", "design", "implementation-notes", "review-checklist").map {
+                    NoteSchemaEntry(key = it, role = Role.QUEUE, required = true)
+                }
+            val ctx = mock.context(TestConfigResolver.forSchemas(mapOf("feature-implementation" to notes)))
+            assertNotNull(ctx)
+            // The resolver should return the schema declared for the "feature-implementation" type
+            val schema = ctx.resolveTypeSchema("feature-implementation", null)?.schema
+            assertNotNull(schema)
+            assertEquals(4, schema.notes.size)
+        }
 
     @Test
     fun `MockRepositoryProvider noteRepo default returns empty lists`(): Unit =
@@ -289,50 +295,4 @@ class TestInfrastructureTest {
             assertNotNull(result)
             assertTrue(result.isEmpty())
         }
-
-    // ── TestNoteSchemaService ──
-
-    @Test
-    fun `FEATURE_IMPLEMENTATION returns correct schema for matching tag`() {
-        val schema = TestNoteSchemaService.FEATURE_IMPLEMENTATION.getSchemaForTags(listOf("feature-implementation"))
-        assertNotNull(schema)
-        assertEquals(4, schema.size)
-        val keys = schema.map { it.key }
-        assertTrue("requirements" in keys)
-        assertTrue("design" in keys)
-        assertTrue("implementation-notes" in keys)
-        assertTrue("review-checklist" in keys)
-    }
-
-    @Test
-    fun `FEATURE_IMPLEMENTATION has review phase`() {
-        assertTrue(TestNoteSchemaService.FEATURE_IMPLEMENTATION.hasReviewPhase(listOf("feature-implementation")))
-    }
-
-    @Test
-    fun `BUG_FIX returns correct schema for matching tag`() {
-        val schema = TestNoteSchemaService.BUG_FIX.getSchemaForTags(listOf("bug-fix"))
-        assertNotNull(schema)
-        assertEquals(2, schema.size)
-        val keys = schema.map { it.key }
-        assertTrue("root-cause" in keys)
-        assertTrue("fix-details" in keys)
-    }
-
-    @Test
-    fun `BUG_FIX has no review phase`() {
-        assertFalse(TestNoteSchemaService.BUG_FIX.hasReviewPhase(listOf("bug-fix")))
-    }
-
-    @Test
-    fun `NONE returns null for any tags`() {
-        assertNull(TestNoteSchemaService.NONE.getSchemaForTags(listOf("feature-implementation")))
-        assertNull(TestNoteSchemaService.NONE.getSchemaForTags(listOf("bug-fix")))
-        assertNull(TestNoteSchemaService.NONE.getSchemaForTags(emptyList()))
-    }
-
-    @Test
-    fun `schema service returns null for unrecognized tags`() {
-        assertNull(TestNoteSchemaService.FEATURE_IMPLEMENTATION.getSchemaForTags(listOf("unrelated-tag")))
-    }
 }

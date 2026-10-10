@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Changed: config resolves by one precedence rule; `schema_resolution` and tag-selected schemas are removed (AR-39, AR-40).** One `TraitResolver` now does every trait merge. Wire changes:
+  - Tags no longer select a schema. An item's schema comes from its `type` only: per-root exact type, then server exact type, then per-root `default`, then server `default`. An item with no type gets only the `default` chain.
+  - A server exact type now beats a per-root `default` (under 3.x's default `legacy` mode the per-root `default` won).
+  - `schema_resolution` is ignored: a document carrying it still parses, gets one warning saying the key was removed, and the key has no effect. A per-root push lists it under `ignoredSections`.
+  - Every trait dimension uses item traits first, then `default_traits`. Note order and resource `ttlSeconds` follow that order. A note key's `required` is true when the base schema or any trait marks it required; its other fields come from the first declaration, base first.
+  - When the per-root `traits:` map declares a trait, the per-root entry replaces the whole server entry: notes, seats, resources and dispatch. A dimension the per-root entry does not declare is empty.
+  - A per-root `resources:` registry is ignored (the registry is server-only) and is listed under `ignoredSections` on push.
+  - REST `GET /roots/{rootId}/config/effective` no longer returns `schemaResolution`.
 - **Changed: an unexpected exception that escapes an MCP tool no longer leaks its text.** The `INTERNAL_ERROR` result text, the `notifications/message` log notification and `structuredContent.error.message` are now the fixed `Internal error in '<tool>'`, without the exception message or the session id (they were `Internal error in '<tool>' (session <id>): <exception message>`). The server log keeps the full text and the exception. The code (`INTERNAL_ERROR`), the kind (`transient`) and the `{code, message, kind}` key set are unchanged; `DATABASE_ERROR` keeps its SQL text.
 - **Changed: one search core serves `query_items` / `query_notes` search and REST `GET /search` / `GET /notes/search`.** A `SearchService` validates, tokenizes, retrieves candidates through a dialect-free `SearchIndex` port (one corpus-driven SQLite engine; FTS5 quoting lives only there), fuses them with RRF (k=60, the single constant behind `explain.rrfK`), orders by score, then kind, then id, caps at 100 and slices the page. Wire changes:
   - Every hit carries `title`: the item's own title for an item hit, the owning item's title for a note hit (REST `SearchHitDto.title`, optional).

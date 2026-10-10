@@ -2,36 +2,19 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 
 /**
- * Provides note schemas and work item schemas derived from `.taskorchestrator/config.yaml`.
+ * The server-wide config's raw catalogue, as the GLOBAL-only `/api/v1/config*` routes and the
+ * status-graph builder read it, plus the load warnings collected while parsing it.
  *
- * Schemas are keyed by tag name. When a WorkItem has tags, the service returns
- * the first schema whose key matches one of the item's tags.
- *
- * Schema-free mode: When no config file is present or no tags match, all methods
- * return null / false, and transitions proceed without gate enforcement.
+ * Not a resolution surface: schema, trait and dispatch RESOLUTION for an item goes through
+ * `EffectiveConfigResolver` (per-root over server, one precedence rule). Nothing here selects a
+ * schema for a work item.
  */
 interface WorkItemSchemaService {
-    /**
-     * Returns the schema entries for the first tag in [tags] that matches a
-     * declared schema, or null if no schema matches (schema-free mode). EXACT match
-     * only — no `default` fallback; that step belongs to the caller's chosen
-     * resolution layer (e.g. `LayeredConfig`), per its effective `schema_resolution` mode.
-     */
-    fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>?
-
-    /**
-     * Returns true if the matched schema contains any entry with role = "review".
-     * Used to determine whether `start` from WORK should advance to REVIEW or jump to TERMINAL.
-     * Returns false when no schema matches (schema-free mode — skip REVIEW).
-     */
-    fun hasReviewPhase(tags: List<String>): Boolean = getSchemaForTags(tags)?.any { it.role == Role.REVIEW } ?: false
-
     /**
      * Returns any warnings collected during schema loading (e.g., malformed entries,
      * missing required fields). Returns an empty list if no warnings were generated or
@@ -39,117 +22,27 @@ interface WorkItemSchemaService {
      */
     fun getLoadWarnings(): List<String> = emptyList()
 
-    /**
-     * Returns the [WorkItemSchema] for the given [type], or null if no schema is configured
-     * for that type (schema-free mode for type-based lookup). EXACT match only — no
-     * `default` fallback; that step belongs to the caller's chosen resolution layer.
-     *
-     * Default implementation returns null (schema-free mode). Override in concrete implementations
-     * that support type-based schema lookup (e.g., Task 3: YamlNoteSchemaService).
-     *
-     * @param type The work item type string (e.g., "feature-task"), or null to return null
-     */
-    fun getSchemaForType(type: String?): WorkItemSchema? = null
-
-    /**
-     * Returns true if the schema for the given [type] contains any note entry assigned
-     * to the REVIEW phase. Delegates to [getSchemaForType] and [WorkItemSchema.hasReviewPhase].
-     *
-     * Returns false when [type] is null or no schema matches.
-     *
-     * @param type The work item type string, or null
-     */
-    fun hasReviewPhaseForType(type: String?): Boolean {
-        val schema = getSchemaForType(type) ?: return false
-        return schema.hasReviewPhase()
-    }
-
-    /**
-     * Returns the list of note schema entries for the given trait name,
-     * or null if the trait is not defined in the config.
-     *
-     * Traits are declared under the top-level `traits:` key in config.yaml.
-     */
-    fun getTraitNotes(traitName: String): List<NoteSchemaEntry>? = null
-
-    /**
-     * Returns the list of default trait names for the given work item type,
-     * or an empty list if the type has no default traits or is not defined.
-     */
-    fun getDefaultTraits(type: String?): List<String> = emptyList()
-
-    /**
-     * Returns the names of all configured traits, or an empty list if none are defined.
-     */
-    fun getAvailableTraits(): List<String> = emptyList()
-
-    // -----------------------------------------------------------------------
-    // Phase 4: Discovery / metadata API (additive — all have safe defaults)
-    // -----------------------------------------------------------------------
-
-    /**
-     * Returns all registered [WorkItemSchema] instances keyed by type name.
-     *
-     * Default implementation returns an empty map (schema-free mode).
-     * Override in [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService]
-     * to expose the private `workItemSchemas` map.
-     */
+    /** Returns every declared [WorkItemSchema] keyed by type name; empty in schema-free mode. */
     fun getAllSchemas(): Map<String, WorkItemSchema> = emptyMap()
 
-    /**
-     * Returns all trait definitions keyed by trait name.
-     * Each value is the list of [NoteSchemaEntry] objects for that trait.
-     *
-     * Default implementation returns an empty map (schema-free mode).
-     */
+    /** Returns every trait's note entries keyed by trait name; empty in schema-free mode. */
     fun getAllTraits(): Map<String, List<NoteSchemaEntry>> = emptyMap()
 
     /**
-     * Returns a stable fingerprint string for the current config state.
-     *
-     * The fingerprint is used to derive an ETag for the `/api/v1/config*` endpoints.
-     * Implementations should return a string that changes whenever the config changes
-     * (e.g., SHA-256 of config file bytes, or `"${lastModified}-${size}"`).
-     *
-     * Returns `null` when no config file is present (schema-free mode).
-     * Default implementation returns `null`.
+     * Returns a stable fingerprint string for the current config state, used to derive an ETag for
+     * the `/api/v1/config*` endpoints. Returns `null` when no config file is present (schema-free mode).
      */
     fun getConfigFingerprint(): String? = null
 
     /**
-     * Returns the configured note-length enforcement mode for `manage_notes` upsert:
-     * `"warn"` (accept the note, attach a warning field naming the limit and actual size) or
-     * `"reject"` (fail that note with a structured error).
-     *
-     * Declared via the top-level `note_limits.mode` key in `.taskorchestrator/config.yaml`.
-     * Default implementation returns `"warn"` (schema-free / unconfigured mode).
-     */
-    fun getNoteLimitsMode(): String = "warn"
-
-    /**
-     * Returns the resource requirements declared for trait [traitName] (its `resources:` list under
-     * `traits.<traitName>.resources:`), or an empty list when the trait declares no `resources:` key
-     * or the trait itself is undefined.
-     *
-     * Default implementation returns an empty list (schema-free / unconfigured mode).
+     * Returns the resource requirements declared for trait [traitName] (its `resources:` list), or an
+     * empty list when the trait declares none or is undefined.
      */
     fun getTraitResources(traitName: String): List<ResourceRequirement> = emptyList()
 
     /**
-     * Returns the top-level `resources:` registry, keyed by resource key.
-     *
-     * Default implementation returns an empty map (schema-free / unconfigured mode).
-     */
-    fun getResourceRegistry(): Map<String, ResourceDefinition> = emptyMap()
-
-    /**
-     * Returns the per-phase dispatch routing profiles declared for trait [traitName] (its
-     * `dispatch:` map under `traits.<traitName>.dispatch:`), keyed by [Role] (only `QUEUE`,
-     * `WORK`, `REVIEW` ever appear — see [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlSchemaParser]),
-     * or an empty map when the trait declares no `dispatch:` key, none of its phase entries parsed
-     * to a valid profile, or the trait itself is undefined.
-     *
-     * Default implementation returns an empty map (schema-free / unconfigured mode).
+     * Returns the per-phase dispatch routing profiles declared for trait [traitName] (its `dispatch:`
+     * map), or an empty map when the trait declares none or is undefined.
      */
     fun getTraitDispatch(traitName: String): Map<Role, DispatchProfile> = emptyMap()
 }
@@ -160,16 +53,5 @@ interface WorkItemSchemaService {
  */
 typealias NoteSchemaService = WorkItemSchemaService
 
-/**
- * No-op implementation used when no config file is present.
- * All methods indicate schema-free mode: no schemas, no gates, no review phase detection.
- */
-object NoOpNoteSchemaService : WorkItemSchemaService {
-    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
-
-    override fun getSchemaForType(type: String?): WorkItemSchema? = null
-
-    override fun getTraitNotes(traitName: String): List<NoteSchemaEntry>? = null
-
-    override fun getDefaultTraits(type: String?): List<String> = emptyList()
-}
+/** No-op implementation used when no config file is present: every catalogue is empty. */
+object NoOpNoteSchemaService : WorkItemSchemaService

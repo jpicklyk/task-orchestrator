@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
-import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
+import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
@@ -29,7 +28,7 @@ import kotlin.test.assertFailsWith
  * route through the SAME `memoized` call per `EffectiveConfigResolver.layered`.
  */
 class ConfigSessionCancellationTest {
-    private val noOpGlobal = ServiceBackedGlobalLookup(NoOpNoteSchemaService, NoOpStatusLabelService)
+    private val noOpGlobal = LayerBackedGlobalLookup(null)
 
     private fun layerWithMode(mode: String): ConfigLayer =
         ConfigLayer(ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap(), noteLimitsMode = mode), "fp-L", ConfigSource.PER_ROOT)

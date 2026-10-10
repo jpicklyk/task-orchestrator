@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
-import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
+import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
@@ -20,7 +19,7 @@ import kotlin.test.assertNull
  * covers success, null and failure; a failure is rethrown as the same exception... a nested call
  * reuses the outer session") and `test-plan` S8's enumerated cases verbatim.
  *
- * The global side is irrelevant to every scenario here, so [ServiceBackedGlobalLookup] is wired
+ * The global side is irrelevant to every scenario here, so [LayerBackedGlobalLookup] is wired
  * with the NoOp global services purely to satisfy [EffectiveConfigResolver]'s constructor; no
  * assertion in this file depends on global lookup behavior.
  *
@@ -29,7 +28,7 @@ import kotlin.test.assertNull
  * bypass memo in layered()" — an orchestrator-run mutation.
  */
 class ConfigSessionTest {
-    private val noOpGlobal = ServiceBackedGlobalLookup(NoOpNoteSchemaService, NoOpStatusLabelService)
+    private val noOpGlobal = LayerBackedGlobalLookup(null)
 
     private fun emptyLayer(): ConfigLayer =
         ConfigLayer(ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap()), "fp", ConfigSource.PER_ROOT)

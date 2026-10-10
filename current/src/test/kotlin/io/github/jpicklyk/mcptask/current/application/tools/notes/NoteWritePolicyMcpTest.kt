@@ -1,12 +1,13 @@
 package io.github.jpicklyk.mcptask.current.application.tools.notes
 
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -47,18 +48,29 @@ class NoteWritePolicyMcpTest {
 
     private val tool = ManageNotesTool()
 
-    private fun schema(globalMode: String): NoteSchemaService =
-        object : NoteSchemaService {
-            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                if (tags.contains("lim-type")) listOf(NoteSchemaEntry(key = "lim", role = Role.WORK, maxLength = 10)) else null
-
-            override fun getNoteLimitsMode(): String = globalMode
-        }
+    private fun schema(
+        globalMode: String,
+        perRoot: PerRootConfigSource? = null
+    ): EffectiveConfigResolver =
+        TestConfigResolver.resolver(
+            TestConfigResolver
+                .document(
+                    mapOf(
+                        "lim-type" to listOf(NoteSchemaEntry(key = "lim", role = Role.WORK, maxLength = 10))
+                    )
+                ).copy(noteLimitsMode = globalMode),
+            perRoot = perRoot
+        )
 
     private fun context(
         globalMode: String = "warn",
         perRoot: PerRootConfigSource? = null
-    ) = ToolExecutionContext(db.repositoryProvider(), schema(globalMode), perRootConfigService = perRoot, unitOfWork = db.unitOfWork())
+    ) = ToolExecutionContext(
+        db.repositoryProvider(),
+        perRootConfigService = perRoot,
+        configResolver = schema(globalMode, perRoot),
+        unitOfWork = db.unitOfWork()
+    )
 
     private suspend fun item(
         tags: String? = "lim-type",
@@ -67,7 +79,7 @@ class NoteWritePolicyMcpTest {
         db
             .repositoryProvider()
             .workItemRepository()
-            .create(WorkItem(title = "host", tags = tags, rootId = rootId))
+            .create(WorkItem(title = "host", tags = tags, type = tags?.substringBefore(",")?.trim(), rootId = rootId))
             .id
 
     private fun noteObj(

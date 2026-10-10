@@ -8,7 +8,6 @@ import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.*
@@ -16,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigSer
 import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
 import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
 import io.github.jpicklyk.mcptask.current.test.InMemoryIdempotencyStore
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.TestStatusLabelService
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
@@ -100,6 +100,7 @@ class CompleteTreeToolAdvanceParityTest {
             title = title,
             role = role,
             tags = tags,
+            type = tags?.substringBefore(",")?.trim(),
             parentId = parentId,
             depth = depth,
             rootId = rootId,
@@ -116,10 +117,7 @@ class CompleteTreeToolAdvanceParityTest {
                 NoteSchemaEntry(key = requiredKey, role = Role.QUEUE, required = true, description = "AC")
             )
         val noteSchemaService =
-            object : NoteSchemaService {
-                override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                    if ("feature-task" in tags) schemaEntries else null
-            }
+            TestConfigResolver.forSchemas(mapOf("feature-task" to schemaEntries))
         val gatedRepoProvider = mockk<RepositoryProvider>()
         every { gatedRepoProvider.workItemRepository() } returns workItemRepo
         every { gatedRepoProvider.eventStore() } returns InMemoryEventStore()
@@ -127,7 +125,7 @@ class CompleteTreeToolAdvanceParityTest {
         every { gatedRepoProvider.noteRepository() } returns noteRepo
         every { gatedRepoProvider.roleTransitionRepository() } returns roleTransitionRepo
         every { gatedRepoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
-        return ToolExecutionContext(gatedRepoProvider, noteSchemaService)
+        return ToolExecutionContext(gatedRepoProvider, configResolver = noteSchemaService)
     }
 
     private fun buildItemIdsParams(

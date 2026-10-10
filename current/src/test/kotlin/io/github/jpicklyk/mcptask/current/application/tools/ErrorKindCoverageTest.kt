@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
@@ -19,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -78,16 +79,16 @@ class ErrorKindCoverageTest {
 
     private val repo get() = db.repositoryProvider().workItemRepository()
 
-    /** Any item with a non-empty tag set resolves to a schema with one required queue-phase note. */
-    private val gateSchema: NoteSchemaService =
-        object : NoteSchemaService {
-            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                if (tags.isNotEmpty()) {
-                    listOf(NoteSchemaEntry(key = "acceptance-criteria", role = Role.QUEUE, required = true, description = "criteria"))
-                } else {
-                    null
-                }
-        }
+    /** An item typed `gated` resolves to a schema with one required queue-phase note; other types are accepted unmatched. */
+    private val gateSchema: EffectiveConfigResolver =
+        TestConfigResolver.withoutTypeValidation(
+            TestConfigResolver.forSchemas(
+                mapOf(
+                    "gated" to
+                        listOf(NoteSchemaEntry(key = "acceptance-criteria", role = Role.QUEUE, required = true, description = "criteria"))
+                ),
+            ),
+        )
 
     @BeforeEach
     fun setUp(): Unit =
@@ -109,7 +110,7 @@ class ErrorKindCoverageTest {
             val context =
                 ToolExecutionContext(
                     repositoryProvider = db.repositoryProvider(),
-                    noteSchemaService = gateSchema,
+                    configResolver = gateSchema,
                     unitOfWork = db.unitOfWork()
                 )
             val adapter = McpToolAdapter()
@@ -158,7 +159,7 @@ class ErrorKindCoverageTest {
         title: String,
         role: Role = Role.QUEUE,
         tags: String? = null
-    ): WorkItem = repo.create(WorkItem(title = title, role = role, tags = tags))
+    ): WorkItem = repo.create(WorkItem(title = title, role = role, tags = tags, type = tags?.substringBefore(",")?.trim()))
 
     private val validKinds = setOf("transient", "permanent", "shedding")
 

@@ -145,10 +145,9 @@ class DnsRebindingHostAllowlistTest {
             toolContext =
                 ToolExecutionContext(
                     provider,
-                    NoOpNoteSchemaService,
                     statusLabelService = YamlStatusLabelService(),
                     perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
-                    unitOfWork = db.unitOfWork(),
+                    unitOfWork = db.unitOfWork()
                 ),
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
             appConfig = appConfig,
