@@ -121,7 +121,7 @@ class EventRestCoverageTest {
             val rig = EventLogRig.build(db.db, dir)
             application { configureProductionApp(rig.composition) }
 
-            val created = client.send("POST", "/items", """{"title":"rest root"}""")
+            val created = client.send("POST", "/items", """{"type":"test-item","title":"rest root"}""")
             assertEquals(HttpStatusCode.Created, created.status, created.bodyAsText())
             val id = UUID.fromString(idOf(created.bodyAsText()))
             val createdRows = rig.rows()
@@ -400,11 +400,11 @@ class EventRestCoverageTest {
             val rig = EventLogRig.build(db.db, dir)
             application { configureProductionApp(rig.composition) }
 
-            val denied = client.send("POST", "/items", """{"title":"denied"}""", token = TEST_TOKEN)
+            val denied = client.send("POST", "/items", """{"type":"test-item","title":"denied"}""", token = TEST_TOKEN)
 
             assertEquals(HttpStatusCode.Forbidden, denied.status)
             assertEquals(emptyList(), rig.rows())
-            assertEquals(HttpStatusCode.Created, client.send("POST", "/items", """{"title":"allowed"}""").status)
+            assertEquals(HttpStatusCode.Created, client.send("POST", "/items", """{"type":"test-item","title":"allowed"}""").status)
             assertEquals(listOf("item.created"), rig.rows().types())
         }
 }

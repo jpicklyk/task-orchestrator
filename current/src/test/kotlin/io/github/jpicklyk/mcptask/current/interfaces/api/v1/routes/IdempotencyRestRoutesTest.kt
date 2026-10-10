@@ -109,9 +109,9 @@ class IdempotencyRestRoutesTest {
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
             val key = UUID.randomUUID().toString()
 
-            val first = send("POST", "/api/v1/items", """{"title":"Keyed Create"}""", key)
+            val first = send("POST", "/api/v1/items", """{"type":"test-item","title":"Keyed Create"}""", key)
             val firstBody = first.bodyAsText()
-            val second = send("POST", "/api/v1/items", """{"title":"Keyed Create"}""", key)
+            val second = send("POST", "/api/v1/items", """{"type":"test-item","title":"Keyed Create"}""", key)
 
             assertEquals(HttpStatusCode.Created, first.status)
             assertNotNull(first.headers[HttpHeaders.ETag])
@@ -311,7 +311,7 @@ class IdempotencyRestRoutesTest {
             assertEquals(firstBody, second.bodyAsText(), "the stored rejection replays verbatim")
             assertEquals("true", second.headers[replayedHeader])
 
-            val corrected = send("POST", "/api/v1/items", """{"title":"Corrected"}""", key)
+            val corrected = send("POST", "/api/v1/items", """{"type":"test-item","title":"Corrected"}""", key)
             assertEquals(HttpStatusCode.Conflict, corrected.status, "a corrected payload needs a new key")
             assertTrue("idempotency_mismatch" in corrected.bodyAsText())
             assertEquals(0, rawInt("SELECT count(*) FROM work_items"))
@@ -326,8 +326,8 @@ class IdempotencyRestRoutesTest {
             val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Two creates", depth = 0)) }
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
 
-            send("POST", "/api/v1/items", """{"title":"Unkeyed"}""")
-            send("POST", "/api/v1/items", """{"title":"Unkeyed"}""")
+            send("POST", "/api/v1/items", """{"type":"test-item","title":"Unkeyed"}""")
+            send("POST", "/api/v1/items", """{"type":"test-item","title":"Unkeyed"}""")
             val advance = send("POST", "/api/v1/items/${item.id}/advance", """{"trigger":"start"}""")
 
             assertEquals(HttpStatusCode.OK, advance.status)
@@ -347,7 +347,7 @@ class IdempotencyRestRoutesTest {
             application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
             val key = UUID.randomUUID().toString()
 
-            val create = send("POST", "/api/v1/items", """{"title":"Route one"}""", key)
+            val create = send("POST", "/api/v1/items", """{"type":"test-item","title":"Route one"}""", key)
             val dependency =
                 send("POST", "/api/v1/dependencies", """{"fromItemId":"${from.id}","toItemId":"${to.id}","type":"blocks"}""", key)
 

@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.orFail
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.patchOf
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.WRITE_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureWriteTestApp
+import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
 import io.github.jpicklyk.mcptask.current.test.rawCount
 import io.github.jpicklyk.mcptask.current.test.rawExec
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -108,7 +109,7 @@ class PlacementInvariantTest {
         ): List<Pair<UUID, UUID?>> {
             val item =
                 rig.ctx.itemCommandService
-                    .create(ItemCreateCommand(parentId = parent, title = title))
+                    .create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = parent, title = title))
                     .orFail()
             return listOf(item.id to parent)
         }
@@ -148,6 +149,7 @@ class PlacementInvariantTest {
                         buildJsonArray {
                             add(
                                 buildJsonObject {
+                                    put("type", "test-item")
                                     put("title", title)
                                     if (parent != null) put("parentId", parent.toString())
                                 }
@@ -209,7 +211,11 @@ class PlacementInvariantTest {
             title: String
         ): List<Pair<UUID, UUID?>> {
             val params = mutableListOf<Pair<String, JsonElement>>()
-            params += "root" to buildJsonObject { put("title", title) }
+            params += "root" to
+                buildJsonObject {
+                    put("type", "test-item")
+                    put("title", title)
+                }
             if (parent != null) params += "parentId" to JsonPrimitive(parent.toString())
             params +=
                 "children" to
@@ -217,6 +223,7 @@ class PlacementInvariantTest {
                     add(
                         buildJsonObject {
                             put("ref", "c")
+                            put("type", "test-item")
                             put("title", "$title child")
                         }
                     )
@@ -252,7 +259,14 @@ class PlacementInvariantTest {
             parent: UUID?,
             title: String
         ): List<Pair<UUID, UUID?>> {
-            val body = if (parent == null) """{"title":"$title"}""" else """{"title":"$title","parentId":"$parent"}"""
+            val body =
+                if (parent ==
+                    null
+                ) {
+                    """{"title":"$title","type":"test-item"}"""
+                } else {
+                    """{"title":"$title","type":"test-item","parentId":"$parent"}"""
+                }
             val response =
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
@@ -415,18 +429,23 @@ class PlacementInvariantTest {
         runBlocking {
             val rig = EventLogRig.build(db.db, dir)
             val svc = rig.ctx.itemCommandService
-            val r1 = svc.create(ItemCreateCommand(parentId = null, title = "R1")).orFail()
-            val r2 = svc.create(ItemCreateCommand(parentId = null, title = "R2")).orFail()
-            val mid = svc.create(ItemCreateCommand(parentId = r1.id, title = "mid")).orFail()
-            val p = svc.create(ItemCreateCommand(parentId = mid.id, title = "P")).orFail()
-            val seeded = svc.create(ItemCreateCommand(parentId = p.id, title = "seeded child")).orFail()
+            val r1 = svc.create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = null, title = "R1")).orFail()
+            val r2 = svc.create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = null, title = "R2")).orFail()
+            val mid = svc.create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = r1.id, title = "mid")).orFail()
+            val p = svc.create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = mid.id, title = "P")).orFail()
+            val seeded = svc.create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = p.id, title = "seeded child")).orFail()
 
             val created =
                 withContext(Dispatchers.IO) {
                     coroutineScope {
                         val creates =
                             (1..12).map { i ->
-                                async { svc.create(ItemCreateCommand(parentId = p.id, title = "racing child $i")).orFail() }
+                                async {
+                                    svc
+                                        .create(
+                                            ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = p.id, title = "racing child $i")
+                                        ).orFail()
+                                }
                             }
                         val moves =
                             (1..6).map { i ->
@@ -466,8 +485,8 @@ class PlacementInvariantTest {
         runBlocking {
             val rig = EventLogRig.build(db.db, dir)
             val svc = rig.ctx.itemCommandService
-            val root = svc.create(ItemCreateCommand(parentId = null, title = "control root")).orFail()
-            val child = svc.create(ItemCreateCommand(parentId = root.id, title = "control child")).orFail()
+            val root = svc.create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = null, title = "control root")).orFail()
+            val child = svc.create(ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = root.id, title = "control child")).orFail()
             val model = Model()
             model.parents[root.id] = null
             model.parents[child.id] = root.id

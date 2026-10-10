@@ -47,6 +47,7 @@ class GetBlockedItemsToolTest {
     ): String {
         val itemObj =
             buildJsonObject {
+                put("type", JsonPrimitive("test-item"))
                 put("title", JsonPrimitive(title))
                 parentId?.let { put("parentId", JsonPrimitive(it)) }
                 priority?.let { put("priority", JsonPrimitive(it)) }

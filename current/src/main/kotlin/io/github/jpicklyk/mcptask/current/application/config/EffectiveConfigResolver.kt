@@ -61,6 +61,12 @@ class EffectiveConfigResolver(
         rootId: UUID?
     ): SchemaMatch? = layered(rootId).resolveTypeSchema(type)
 
+    /**
+     * The types an item under [rootId] may be created or retyped with: both layers' declared schema keys per the
+     * root's resolution mode, sorted (see [LayeredConfig.typeKeys]). Empty when no schema is configured.
+     */
+    suspend fun availableTypes(rootId: UUID?): List<String> = layered(rootId).typeKeys()
+
     /** True when [item]'s resolved schema has a REVIEW phase; false when no schema matches. */
     suspend fun resolveHasReviewPhase(item: WorkItem): Boolean = resolveSchema(item)?.hasReviewPhase() ?: false
 

@@ -106,6 +106,9 @@ class DataStepsStartupTest {
         assertTrue("stop-at-transport" in outcome.detail, "the sentinel hook must be what stopped the run: ${outcome.detail}")
     }
 
+    /** The once step the production composition registers (the first shipped data step). */
+    private val productionStep = "type-backfill"
+
     private fun ledger(db: Path): List<String> =
         DriverManager.getConnection("jdbc:sqlite:" + db.toAbsolutePath().toString().replace('\\', '/')).use { c ->
             c.createStatement().use { st ->
@@ -212,7 +215,7 @@ class DataStepsStartupTest {
 
         assertStoppedAtTransport(outcome)
         assertEquals(listOf("step", "transport:http"), events.toList(), "the data step must run before the transport stage")
-        assertEquals(listOf("ordered-step"), ledger(db))
+        assertEquals(listOf("ordered-step", productionStep), ledger(db))
     }
 
     @Test
@@ -232,11 +235,15 @@ class DataStepsStartupTest {
         assertEquals(0, once2.runs.get(), "the second boot must find the first boot's row and skip the ONCE step")
         assertEquals(1, boot1.runs.get())
         assertEquals(1, boot2.runs.get(), "an EVERY_BOOT step runs on every boot")
-        assertEquals(listOf("once-step"), ledger(db), "only the ONCE step is ever recorded")
+        assertEquals(
+            listOf("once-step", productionStep),
+            ledger(db),
+            "only ONCE steps are ever recorded (the injected one and the production step)"
+        )
     }
 
     @Test
-    fun `with no extra steps startup reaches the transport stage and the ledger stays empty`(
+    fun `with no extra steps startup reaches the transport stage and the ledger holds only the production step`(
         @TempDir tempDir: Path
     ) {
         val db = dbIn(tempDir)
@@ -246,7 +253,7 @@ class DataStepsStartupTest {
 
         assertStoppedAtTransport(outcome)
         assertEquals(listOf("transport:http"), events.toList())
-        assertEquals(emptyList(), ledger(db))
+        assertEquals(listOf(productionStep), ledger(db), "the first shipped step is the only one recorded")
     }
 
     // ---- S14: a FLYWAY_REPAIR run exits before composition and never runs a step ----
@@ -294,7 +301,7 @@ class DataStepsStartupTest {
         assertStoppedAtTransport(outcome)
         assertEquals(1, once.runs.get(), "validate guards DDL, not data: the ONCE step must run")
         assertEquals(1, boot.runs.get())
-        assertEquals(listOf("validate-once"), ledger(db))
+        assertEquals(listOf(productionStep, "validate-once"), ledger(db))
     }
 
     @Test

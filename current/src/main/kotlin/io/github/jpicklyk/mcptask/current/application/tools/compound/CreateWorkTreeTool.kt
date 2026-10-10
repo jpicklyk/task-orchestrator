@@ -102,7 +102,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                                     "Root item spec: { id? (attach mode: UUID or hex prefix of an existing item — " +
                                         "makes title optional/ignored), title (required unless id given), priority?, " +
                                         "tags?, traits? (comma-separated, merged into properties), summary?, " +
-                                        "description?, requiresVerification?, type?, noteAnchors? ([{ noteKey, role, " +
+                                        "description?, requiresVerification?, type (required), noteAnchors? ([{ noteKey, role, " +
                                         "anchor }] — sources this item's note bodies from the docRef document; " +
                                         "requires top-level docRef) }"
                                 )
@@ -147,7 +147,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                                     "Child item specs: [{ ref (required local name, used to wire deps/notes/parentRef), " +
                                         "title (required), parentRef? (parent's ref or \"root\", default \"root\"), " +
                                         "priority?, tags?, traits? (comma-separated, merged into properties), summary?, " +
-                                        "description?, requiresVerification?, type?, noteAnchors? ([{ noteKey, role, " +
+                                        "description?, requiresVerification?, type (required), noteAnchors? ([{ noteKey, role, " +
                                         "anchor }] — sources this item's note bodies from the docRef document; " +
                                         "requires top-level docRef) }]. Order-independent (topologically " +
                                         "sorted); nesting is expressed via parentRef only — a nested 'children' key " +
@@ -1466,6 +1466,14 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                             LegacyMcpCode.RESOURCE_NOT_FOUND
                         )
                     }
+                ItemCommandErrors.isTypeViolation(error) -> {
+                    // Whole tree rolls back; name the offending spec ("root" or the child ref).
+                    val ref =
+                        input.refToItem.entries
+                            .firstOrNull { it.value.id == command.id }
+                            ?.key ?: ROOT_REF
+                    errorResponse("$ref: ${error.message}", LegacyMcpCode.VALIDATION_ERROR)
+                }
                 error.code == ErrorCode.INVALID_REQUEST -> errorResponse(error.message, LegacyMcpCode.VALIDATION_ERROR, cause = error)
                 else ->
                     errorResponse(

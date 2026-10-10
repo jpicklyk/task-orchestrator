@@ -119,7 +119,11 @@ class CreateWorkTreeToolTest {
     // ──────────────────────────────────────────────
 
     private fun buildParams(
-        root: JsonObject = buildJsonObject { put("title", JsonPrimitive("Root Task")) },
+        root: JsonObject =
+            buildJsonObject {
+                put("type", JsonPrimitive("test-item"))
+                put("title", JsonPrimitive("Root Task"))
+            },
         parentId: String? = null,
         children: JsonArray? = null,
         deps: JsonArray? = null,
@@ -148,6 +152,7 @@ class CreateWorkTreeToolTest {
     ): JsonObject =
         buildJsonObject {
             put("ref", JsonPrimitive(ref))
+            put("type", JsonPrimitive("test-item"))
             put("title", JsonPrimitive(title))
             if (tags != null) put("tags", JsonPrimitive(tags))
         }
@@ -270,6 +275,7 @@ class CreateWorkTreeToolTest {
                     add(
                         buildJsonObject {
                             put("ref", JsonPrimitive("c1"))
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("Child with schema"))
                             put("tags", JsonPrimitive("feature-task"))
                         }
@@ -277,6 +283,7 @@ class CreateWorkTreeToolTest {
                 }
             val rootSpec =
                 buildJsonObject {
+                    put("type", JsonPrimitive("test-item"))
                     put("title", JsonPrimitive("Root"))
                     // root has no tags → no schema match → no notes
                 }
@@ -421,7 +428,13 @@ class CreateWorkTreeToolTest {
         assertFailsWith<ToolValidationException> {
             tool.validateParams(
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("Root"))
+                        }
+                    )
                     put(
                         "deps",
                         buildJsonArray {
@@ -447,12 +460,19 @@ class CreateWorkTreeToolTest {
         assertFailsWith<ToolValidationException> {
             tool.validateParams(
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("Root"))
+                        }
+                    )
                     put(
                         "children",
                         buildJsonArray {
                             add(
                                 buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("Child without ref"))
                                     // 'ref' is missing
                                 }
@@ -477,6 +497,7 @@ class CreateWorkTreeToolTest {
                         put(
                             "root",
                             buildJsonObject {
+                                put("type", JsonPrimitive("test-item"))
                                 put("title", JsonPrimitive("Root"))
                                 put(
                                     "children",
@@ -484,6 +505,7 @@ class CreateWorkTreeToolTest {
                                         add(
                                             buildJsonObject {
                                                 put("ref", JsonPrimitive("c1"))
+                                                put("type", JsonPrimitive("test-item"))
                                                 put("title", JsonPrimitive("Nested child"))
                                             }
                                         )
@@ -506,13 +528,20 @@ class CreateWorkTreeToolTest {
             assertFailsWith<ToolValidationException> {
                 tool.validateParams(
                     buildJsonObject {
-                        put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                        put(
+                            "root",
+                            buildJsonObject {
+                                put("type", JsonPrimitive("test-item"))
+                                put("title", JsonPrimitive("Root"))
+                            }
+                        )
                         put(
                             "children",
                             buildJsonArray {
                                 add(
                                     buildJsonObject {
                                         put("ref", JsonPrimitive("a"))
+                                        put("type", JsonPrimitive("test-item"))
                                         put("title", JsonPrimitive("Parent child"))
                                         put(
                                             "children",
@@ -520,6 +549,7 @@ class CreateWorkTreeToolTest {
                                                 add(
                                                     buildJsonObject {
                                                         put("ref", JsonPrimitive("b"))
+                                                        put("type", JsonPrimitive("test-item"))
                                                         put("title", JsonPrimitive("Grandchild"))
                                                     }
                                                 )
@@ -735,7 +765,11 @@ class CreateWorkTreeToolTest {
             val deps = buildJsonArray { add(makeDepSpec("root", "c1")) }
             val params =
                 buildParams(
-                    root = buildJsonObject { put("title", JsonPrimitive("Epic Feature")) },
+                    root =
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("Epic Feature"))
+                        },
                     children = children,
                     deps = deps
                 )
@@ -785,6 +819,7 @@ class CreateWorkTreeToolTest {
 
             val rootSpec =
                 buildJsonObject {
+                    put("type", JsonPrimitive("test-item"))
                     put("title", JsonPrimitive("Feature Root"))
                     put("tags", JsonPrimitive("feature-task"))
                 }
@@ -849,6 +884,7 @@ class CreateWorkTreeToolTest {
             // Root has no schema tag; child has "subtask" tag
             val rootSpec =
                 buildJsonObject {
+                    put("type", JsonPrimitive("test-item"))
                     put("title", JsonPrimitive("Parent Task"))
                 }
             val children =
@@ -856,6 +892,7 @@ class CreateWorkTreeToolTest {
                     add(
                         buildJsonObject {
                             put("ref", JsonPrimitive("c1"))
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("Child with subtask tag"))
                             put("tags", JsonPrimitive("subtask"))
                         }
@@ -914,6 +951,7 @@ class CreateWorkTreeToolTest {
 
             val rootSpec =
                 buildJsonObject {
+                    put("type", JsonPrimitive("test-item"))
                     put("title", JsonPrimitive("Untagged Root"))
                     put("tags", JsonPrimitive("some-tag"))
                 }
@@ -922,6 +960,7 @@ class CreateWorkTreeToolTest {
                     add(
                         buildJsonObject {
                             put("ref", JsonPrimitive("c1"))
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("Untagged Child"))
                             put("tags", JsonPrimitive("another-tag"))
                         }
@@ -973,6 +1012,7 @@ class CreateWorkTreeToolTest {
 
             val rootSpec =
                 buildJsonObject {
+                    put("type", JsonPrimitive("test-item"))
                     put("title", JsonPrimitive("Root With Empty Schema"))
                     put("tags", JsonPrimitive("empty-schema"))
                 }
@@ -981,6 +1021,7 @@ class CreateWorkTreeToolTest {
                     add(
                         buildJsonObject {
                             put("ref", JsonPrimitive("c1"))
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("Child With Empty Schema"))
                             put("tags", JsonPrimitive("empty-schema"))
                         }
@@ -1037,6 +1078,7 @@ class CreateWorkTreeToolTest {
 
             val rootSpec =
                 buildJsonObject {
+                    put("type", JsonPrimitive("test-item"))
                     put("title", JsonPrimitive("Root"))
                     put("tags", JsonPrimitive("root-tag"))
                 }
@@ -1045,6 +1087,7 @@ class CreateWorkTreeToolTest {
                     add(
                         buildJsonObject {
                             put("ref", JsonPrimitive("c1"))
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("Child"))
                             put("tags", JsonPrimitive("child-tag"))
                         }
@@ -1124,18 +1167,16 @@ class CreateWorkTreeToolTest {
         }
 
     @Test
-    fun `item without type field has null type`(): Unit =
+    fun `item without type field is rejected naming the root`(): Unit =
         runBlocking {
-            var capturedInput: CapturedTree? = null
+            // `type` is required: a root spec without one is rejected by the item service and the whole tree rolls back.
+            val params = buildParams(root = buildJsonObject { put("title", JsonPrimitive("Root Task")) })
+            val result = tool.execute(params, context) as JsonObject
 
-            val params = buildParams()
-            val result = tool.execute(params, context)
-            capturedInput = fakes.capture(result)
-
-            extractData(result) // assert success
-
-            val rootItem = capturedInput!!.items.first()
-            assertNull(rootItem.type, "Root item without type should have null type")
+            assertFalse(result["success"]!!.jsonPrimitive.boolean, "a root without a type must be rejected: $result")
+            val message = result["error"]!!.jsonObject["message"]!!.jsonPrimitive.content
+            assertTrue(message.startsWith("root: type is required"), "the failure names the root spec: $message")
+            assertTrue(fakes.items.isEmpty(), "nothing is written for a rejected tree")
         }
 
     @Test
@@ -1145,6 +1186,7 @@ class CreateWorkTreeToolTest {
 
             val rootSpec =
                 buildJsonObject {
+                    put("type", JsonPrimitive("test-item"))
                     put("title", JsonPrimitive("Feature Root"))
                     put("traits", JsonPrimitive("needs-security-review,needs-perf-review"))
                 }
@@ -1170,6 +1212,7 @@ class CreateWorkTreeToolTest {
             val childSpec =
                 buildJsonObject {
                     put("ref", JsonPrimitive("c1"))
+                    put("type", JsonPrimitive("test-item"))
                     put("title", JsonPrimitive("Child task"))
                     put("traits", JsonPrimitive("needs-perf-review"))
                 }
@@ -1317,6 +1360,7 @@ class CreateWorkTreeToolTest {
 
             val rootSpec =
                 buildJsonObject {
+                    put("type", JsonPrimitive("test-item"))
                     put("title", JsonPrimitive("Feature Root"))
                     put("tags", JsonPrimitive("feature-task"))
                 }
@@ -1403,7 +1447,13 @@ class CreateWorkTreeToolTest {
         assertFailsWith<ToolValidationException> {
             tool.validateParams(
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("Root"))
+                        }
+                    )
                     put(
                         "notes",
                         buildJsonArray {
@@ -1430,7 +1480,13 @@ class CreateWorkTreeToolTest {
         assertFailsWith<ToolValidationException> {
             tool.validateParams(
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("Root"))
+                        }
+                    )
                     put(
                         "notes",
                         buildJsonArray {
@@ -1457,7 +1513,13 @@ class CreateWorkTreeToolTest {
         assertFailsWith<ToolValidationException> {
             tool.validateParams(
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("Root"))
+                        }
+                    )
                     put(
                         "notes",
                         buildJsonArray {
@@ -1571,7 +1633,13 @@ class CreateWorkTreeToolTest {
         assertFailsWith<ToolValidationException> {
             tool.validateParams(
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("Root"))
+                        }
+                    )
                     put(
                         "notes",
                         buildJsonArray {
@@ -1599,7 +1667,13 @@ class CreateWorkTreeToolTest {
         assertFailsWith<ToolValidationException> {
             tool.validateParams(
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("Root"))
+                        }
+                    )
                     put(
                         "notes",
                         buildJsonArray {
@@ -1684,6 +1758,7 @@ class CreateWorkTreeToolTest {
 
             val rootSpec =
                 buildJsonObject {
+                    put("type", JsonPrimitive("test-item"))
                     put("title", JsonPrimitive("Feature Root"))
                     put("tags", JsonPrimitive("feature-task"))
                 }
@@ -1741,6 +1816,7 @@ class CreateWorkTreeToolTest {
 
             val rootSpec =
                 buildJsonObject {
+                    put("type", JsonPrimitive("test-item"))
                     put("title", JsonPrimitive("Feature Root"))
                     put("tags", JsonPrimitive("feature-task"))
                 }
@@ -1798,6 +1874,7 @@ class CreateWorkTreeToolTest {
 
             val rootSpec =
                 buildJsonObject {
+                    put("type", JsonPrimitive("test-item"))
                     put("title", JsonPrimitive("Feature Root"))
                     put("tags", JsonPrimitive("feature-task"))
                 }
@@ -1903,7 +1980,13 @@ class CreateWorkTreeToolTest {
 
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("Root"))
+                        }
+                    )
                     put("notes", notesArr)
                     put("actor", actorObj)
                 }
@@ -1962,6 +2045,7 @@ class CreateWorkTreeToolTest {
                     put(
                         "root",
                         buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
                             put("title", JsonPrimitive("Feature Root"))
                             put("tags", JsonPrimitive("feature-task"))
                         }
@@ -2057,7 +2141,13 @@ class CreateWorkTreeToolTest {
                 }
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("Root"))
+                        }
+                    )
                     put("notes", notesArr)
                     put("actor", invalidActor)
                 }
@@ -2089,6 +2179,7 @@ class CreateWorkTreeToolTest {
         ): JsonObject =
             buildJsonObject {
                 put("ref", JsonPrimitive(ref))
+                put("type", JsonPrimitive("test-item"))
                 put("title", JsonPrimitive(title))
                 if (parentRef != null) put("parentRef", JsonPrimitive(parentRef))
                 if (tags != null) put("tags", JsonPrimitive(tags))
@@ -2266,13 +2357,20 @@ class CreateWorkTreeToolTest {
             assertFailsWith<ToolValidationException> {
                 tool.validateParams(
                     buildJsonObject {
-                        put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                        put(
+                            "root",
+                            buildJsonObject {
+                                put("type", JsonPrimitive("test-item"))
+                                put("title", JsonPrimitive("Root"))
+                            }
+                        )
                         put(
                             "children",
                             buildJsonArray {
                                 add(
                                     buildJsonObject {
                                         put("ref", JsonPrimitive("c1"))
+                                        put("type", JsonPrimitive("test-item"))
                                         put("title", JsonPrimitive("Child"))
                                         put("parentRef", JsonPrimitive("nonexistent"))
                                     }
@@ -2299,13 +2397,20 @@ class CreateWorkTreeToolTest {
             assertFailsWith<ToolValidationException> {
                 tool.validateParams(
                     buildJsonObject {
-                        put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                        put(
+                            "root",
+                            buildJsonObject {
+                                put("type", JsonPrimitive("test-item"))
+                                put("title", JsonPrimitive("Root"))
+                            }
+                        )
                         put(
                             "children",
                             buildJsonArray {
                                 add(
                                     buildJsonObject {
                                         put("ref", JsonPrimitive("c1"))
+                                        put("type", JsonPrimitive("test-item"))
                                         put("title", JsonPrimitive("Child 1"))
                                         put("parentRef", JsonPrimitive("c2"))
                                     }
@@ -2313,6 +2418,7 @@ class CreateWorkTreeToolTest {
                                 add(
                                     buildJsonObject {
                                         put("ref", JsonPrimitive("c2"))
+                                        put("type", JsonPrimitive("test-item"))
                                         put("title", JsonPrimitive("Child 2"))
                                         put("parentRef", JsonPrimitive("c1"))
                                     }
@@ -2447,7 +2553,13 @@ class CreateWorkTreeToolTest {
                 assertFailsWith<ToolValidationException> {
                     tool.validateParams(
                         buildJsonObject {
-                            put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                            put(
+                                "root",
+                                buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
+                                    put("title", JsonPrimitive("Root"))
+                                }
+                            )
                             put("docRef", JsonPrimitive("not-an-object"))
                         }
                     )
@@ -2461,7 +2573,13 @@ class CreateWorkTreeToolTest {
                 assertFailsWith<ToolValidationException> {
                     tool.validateParams(
                         buildJsonObject {
-                            put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                            put(
+                                "root",
+                                buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
+                                    put("title", JsonPrimitive("Root"))
+                                }
+                            )
                             put("docRef", buildJsonObject { put("rootId", JsonPrimitive(UUID.randomUUID().toString())) })
                         }
                     )
@@ -2475,7 +2593,13 @@ class CreateWorkTreeToolTest {
                 assertFailsWith<ToolValidationException> {
                     tool.validateParams(
                         buildJsonObject {
-                            put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                            put(
+                                "root",
+                                buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
+                                    put("title", JsonPrimitive("Root"))
+                                }
+                            )
                             put(
                                 "docRef",
                                 buildJsonObject {
@@ -2498,6 +2622,7 @@ class CreateWorkTreeToolTest {
                             put(
                                 "root",
                                 buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("Root"))
                                     put(
                                         "noteAnchors",
@@ -2528,13 +2653,20 @@ class CreateWorkTreeToolTest {
                 assertFailsWith<ToolValidationException> {
                     tool.validateParams(
                         buildJsonObject {
-                            put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                            put(
+                                "root",
+                                buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
+                                    put("title", JsonPrimitive("Root"))
+                                }
+                            )
                             put(
                                 "children",
                                 buildJsonArray {
                                     add(
                                         buildJsonObject {
                                             put("ref", JsonPrimitive("t1"))
+                                            put("type", JsonPrimitive("test-item"))
                                             put("title", JsonPrimitive("Task 1"))
                                             put(
                                                 "noteAnchors",
@@ -2564,7 +2696,13 @@ class CreateWorkTreeToolTest {
                 assertFailsWith<ToolValidationException> {
                     tool.validateParams(
                         buildJsonObject {
-                            put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                            put(
+                                "root",
+                                buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
+                                    put("title", JsonPrimitive("Root"))
+                                }
+                            )
                             put("docRef", buildJsonObject { put("slug", JsonPrimitive("plan-a")) })
                             put(
                                 "children",
@@ -2572,6 +2710,7 @@ class CreateWorkTreeToolTest {
                                     add(
                                         buildJsonObject {
                                             put("ref", JsonPrimitive("t1"))
+                                            put("type", JsonPrimitive("test-item"))
                                             put("title", JsonPrimitive("Task 1"))
                                             put(
                                                 "noteAnchors",
@@ -2605,6 +2744,7 @@ class CreateWorkTreeToolTest {
                             put(
                                 "root",
                                 buildJsonObject {
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("Root"))
                                     put(
                                         "noteAnchors",
@@ -2631,7 +2771,13 @@ class CreateWorkTreeToolTest {
             // docRef alone (materialize/adopt with zero anchors) is a valid, if unusual, call.
             tool.validateParams(
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("Root"))
+                        }
+                    )
                     put("docRef", buildJsonObject { put("slug", JsonPrimitive("plan-a")) })
                 }
             )

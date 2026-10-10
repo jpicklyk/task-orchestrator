@@ -19,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SqliteUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.CountingUnitOfWork
+import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.sqlite.assertNoOutsideUnitWrites
 import kotlinx.coroutines.runBlocking
@@ -102,7 +103,17 @@ class P5bWriteUnitToolsTest {
     private fun itemsCreate(vararg titles: String) =
         obj(
             "operation" to JsonPrimitive("create"),
-            "items" to buildJsonArray { titles.forEach { t -> add(buildJsonObject { put("title", t) }) } }
+            "items" to
+                buildJsonArray {
+                    titles.forEach { t ->
+                        add(
+                            buildJsonObject {
+                                put("type", "test-item")
+                                put("title", t)
+                            }
+                        )
+                    }
+                }
         )
 
     private fun noteUpsert(
@@ -369,7 +380,10 @@ class P5bWriteUnitToolsTest {
 
             val result =
                 uow.write<Unit>("S13.outer") {
-                    val placed = items.create(ItemCreateCommand(id = placedId, parentId = null, title = "S13 placed"))
+                    val placed =
+                        items.create(
+                            ItemCreateCommand(type = TEST_ITEM_TYPE, id = placedId, parentId = null, title = "S13 placed")
+                        )
                     assertIs<Outcome.Ok<WorkItem>>(placed)
                     val purged = items.delete(victim.id, recursive = false)
                     assertIs<Outcome.Ok<*>>(purged)
@@ -391,7 +405,7 @@ class P5bWriteUnitToolsTest {
 
             val result =
                 uow.write("S13.outer.ok") {
-                    items.create(ItemCreateCommand(id = placedId, parentId = null, title = "S13 placed ok"))
+                    items.create(ItemCreateCommand(type = TEST_ITEM_TYPE, id = placedId, parentId = null, title = "S13 placed ok"))
                     items.delete(victim.id, recursive = false)
                     Outcome.Ok(Unit)
                 }
@@ -441,13 +455,18 @@ class P5bWriteUnitToolsTest {
 
     private val workTreeParams =
         obj(
-            "root" to buildJsonObject { put("title", "S14 tree root") },
+            "root" to
+                buildJsonObject {
+                    put("type", "test-item")
+                    put("title", "S14 tree root")
+                },
             "children" to
                 buildJsonArray {
                     listOf("S14 tree c1", "S14 tree boom", "S14 tree c3").forEachIndexed { i, t ->
                         add(
                             buildJsonObject {
                                 put("ref", "c$i")
+                                put("type", "test-item")
                                 put("title", t)
                             }
                         )

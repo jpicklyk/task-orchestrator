@@ -97,6 +97,8 @@ class CreateItemHandler {
                                                 )
                                             )
                                         error.code == ErrorCode.INVALID_REQUEST -> throw ToolValidationException(error.message)
+                                        ItemCommandErrors.isTypeViolation(error) ->
+                                            ElementResult.Failed(failureJson(index, error.message, error.code).withAvailableTypes(error))
                                         else -> ElementResult.Failed(failureJson(index, LegacyFaults.message(error), error.code))
                                     }
                                 }

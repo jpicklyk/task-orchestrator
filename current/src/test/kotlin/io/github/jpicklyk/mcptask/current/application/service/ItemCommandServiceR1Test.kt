@@ -131,12 +131,14 @@ class ItemCommandServiceR1Test {
                                 add(
                                     buildJsonObject {
                                         put("ref", "a")
+                                        put("type", "test-item")
                                         put("title", "Child A")
                                     },
                                 )
                                 add(
                                     buildJsonObject {
                                         put("ref", "b")
+                                        put("type", "test-item")
                                         put("title", "Child B")
                                     },
                                 )

@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.OutsideUnitPolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.OutsideUnitWriteException
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterEach
@@ -82,7 +83,7 @@ class P5bEventsOnRollbackTest {
         return unit to ToolExecutionContext(stores, unitOfWork = unit).itemCommandService
     }
 
-    private fun create(title: String) = ItemCreateCommand(parentId = null, title = title)
+    private fun create(title: String) = ItemCreateCommand(type = TEST_ITEM_TYPE, parentId = null, title = title)
 
     @Test
     fun `S10 a unit that creates through the item command service and returns Err publishes no item_created and leaves no row`(): Unit =

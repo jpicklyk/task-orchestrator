@@ -104,6 +104,17 @@ class LayeredConfig(
         return SchemaMatch(schema, source, fingerprintFor(source))
     }
 
+    /**
+     * Every schema key an item of this root may be typed with: the per-root document's `work_item_schemas` keys plus
+     * the global keys (LEGACY, LAYERED), or the per-root keys alone (ISOLATED), sorted and distinct. `"default"` is a
+     * key like any other. Empty when nothing is declared (a schema-free server).
+     */
+    fun typeKeys(): List<String> {
+        val perRootKeys = perRootDocument?.workItemSchemas?.keys.orEmpty()
+        val keys = if (effectiveMode == SchemaResolutionMode.ISOLATED) perRootKeys else perRootKeys + global.schemaKeys()
+        return keys.distinct().sorted()
+    }
+
     /** Trait notes for [name]: the per-root entry wins wholesale, else the global one; null when unknown to both. */
     fun traitNotes(name: String): List<NoteSchemaEntry>? {
         val perRootNotes = perRootDocument?.traits?.get(name)

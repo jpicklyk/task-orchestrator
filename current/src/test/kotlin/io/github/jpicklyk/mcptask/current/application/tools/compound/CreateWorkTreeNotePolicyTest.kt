@@ -76,6 +76,7 @@ class CreateWorkTreeNotePolicyTest {
         tags: String? = null
     ) = buildJsonObject {
         put("ref", JsonPrimitive(ref))
+        put("type", JsonPrimitive("test-item"))
         put("title", JsonPrimitive(title))
         if (tags != null) put("tags", JsonPrimitive(tags))
     }
@@ -97,7 +98,13 @@ class CreateWorkTreeNotePolicyTest {
         children: List<JsonObject>,
         notes: List<JsonObject>
     ) = buildJsonObject {
-        put("root", buildJsonObject { put("title", JsonPrimitive(rootTitle)) })
+        put(
+            "root",
+            buildJsonObject {
+                put("type", JsonPrimitive("test-item"))
+                put("title", JsonPrimitive(rootTitle))
+            }
+        )
         put("children", JsonArray(children))
         put("notes", JsonArray(notes))
     }
@@ -303,7 +310,13 @@ class CreateWorkTreeNotePolicyTest {
             val projectRoot = projectRootWithPlan()
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("S10 Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("S10 Root"))
+                        }
+                    )
                     put("parentId", JsonPrimitive(projectRoot.toString()))
                     put("docRef", buildJsonObject { put("slug", JsonPrimitive("my-plan")) })
                     put(
@@ -312,6 +325,7 @@ class CreateWorkTreeNotePolicyTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("c1"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("S10 C1"))
                                     put("tags", JsonPrimitive("lim-type"))
                                     put(
@@ -349,7 +363,13 @@ class CreateWorkTreeNotePolicyTest {
             val projectRoot = projectRootWithPlan()
             val params =
                 buildJsonObject {
-                    put("root", buildJsonObject { put("title", JsonPrimitive("S10c Root")) })
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("test-item"))
+                            put("title", JsonPrimitive("S10c Root"))
+                        }
+                    )
                     put("parentId", JsonPrimitive(projectRoot.toString()))
                     put("docRef", buildJsonObject { put("slug", JsonPrimitive("my-plan")) })
                     put(
@@ -358,6 +378,7 @@ class CreateWorkTreeNotePolicyTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("c1"))
+                                    put("type", JsonPrimitive("test-item"))
                                     put("title", JsonPrimitive("S10c C1"))
                                     put("tags", JsonPrimitive("lim-type"))
                                     put(
@@ -475,7 +496,13 @@ class CreateWorkTreeNotePolicyTest {
         repos.planDocumentRepository().stash(projectRoot.id, "anchor-plan", planText)
         val params =
             buildJsonObject {
-                put("root", buildJsonObject { put("title", JsonPrimitive(title)) })
+                put(
+                    "root",
+                    buildJsonObject {
+                        put("type", JsonPrimitive("test-item"))
+                        put("title", JsonPrimitive(title))
+                    }
+                )
                 put("parentId", JsonPrimitive(projectRoot.id.toString()))
                 put("docRef", buildJsonObject { put("slug", JsonPrimitive("anchor-plan")) })
                 put(
@@ -484,6 +511,7 @@ class CreateWorkTreeNotePolicyTest {
                         add(
                             buildJsonObject {
                                 put("ref", JsonPrimitive("c1"))
+                                put("type", JsonPrimitive("test-item"))
                                 put("title", JsonPrimitive("$title C1"))
                                 if (tags != null) put("tags", JsonPrimitive(tags))
                                 put(
