@@ -137,6 +137,14 @@ class QueryRulesToolTest {
         const val FIXTURE_B =
             "First line ends here.\r\nSecond line: em-dash —, e-acute é, rocket 🚀, and a\ttab.  "
         val FIXTURE_B2 = "${FIXTURE_B}x"
+
+        /**
+         * [FIXTURE_B] as stored and served: every document body is CRLF->LF normalized (AR-99), so the CRLF pair
+         * becomes a lone LF and nothing else changes.
+         */
+        const val FIXTURE_B_LF =
+            "First line ends here.\nSecond line: em-dash —, e-acute é, rocket 🚀, and a\ttab.  "
+        val FIXTURE_B2_LF = "${FIXTURE_B_LF}x"
     }
 
     // -----------------------------------------------------------------------
@@ -144,7 +152,7 @@ class QueryRulesToolTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun `S1 get(rootId,key) serves the stashed body UTF-8 byte-identical, incl CRLF, trailing spaces, no final LF, multibyte chars`(
+    fun `S1 get(rootId,key) serves the stashed body UTF-8 byte-identical after CRLF to LF, trailing spaces, no final LF, multibyte`(
         @TempDir tempDir: Path,
     ) {
         val composition = buildComposition(tempDir)
@@ -162,9 +170,9 @@ class QueryRulesToolTest {
         assertTrue(isSuccess(result), "expected success: $result")
         val data = dataOf(result)
         val servedBody = data["body"]!!.jsonPrimitive.content
-        assertEquals(FIXTURE_B, servedBody, "served body must equal the stashed fixture exactly (task-scope Acceptance)")
+        assertEquals(FIXTURE_B_LF, servedBody, "served body must equal the stashed fixture with CRLF normalized to LF")
         assertContentEquals(
-            FIXTURE_B.toByteArray(Charsets.UTF_8),
+            FIXTURE_B_LF.toByteArray(Charsets.UTF_8),
             servedBody.toByteArray(Charsets.UTF_8),
             "served body must be UTF-8 byte-identical to the stashed fixture",
         )
@@ -187,7 +195,7 @@ class QueryRulesToolTest {
         val stashResult = stashViaTool(composition.toolContext, root.id, "rule/versioned", FIXTURE_B)
         val contentHash = dataOf(stashResult)["contentHash"]!!.jsonPrimitive.content
 
-        val expectedHash = sha256Hex(FIXTURE_B.toByteArray(Charsets.UTF_8))
+        val expectedHash = sha256Hex(FIXTURE_B_LF.toByteArray(Charsets.UTF_8))
         assertEquals(expectedHash, contentHash, "sanity: PlanDocumentService.contentHash must equal an independently computed SHA-256")
 
         val getResult =
@@ -202,7 +210,7 @@ class QueryRulesToolTest {
         // Re-stash with B2 -> rulesVersion changes to match the new hash.
         val stash2 = stashViaTool(composition.toolContext, root.id, "rule/versioned", FIXTURE_B2)
         val hash2 = dataOf(stash2)["contentHash"]!!.jsonPrimitive.content
-        assertEquals(sha256Hex(FIXTURE_B2.toByteArray(Charsets.UTF_8)), hash2)
+        assertEquals(sha256Hex(FIXTURE_B2_LF.toByteArray(Charsets.UTF_8)), hash2)
         val get2 =
             queryRules(
                 composition.toolContext,

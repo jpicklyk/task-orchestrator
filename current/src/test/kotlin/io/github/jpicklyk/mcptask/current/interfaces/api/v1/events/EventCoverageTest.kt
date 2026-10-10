@@ -750,8 +750,8 @@ class EventCoverageTest {
                     )
                 }
             val stashed = plans.single()
-            assertEquals("plan_document.stashed", stashed.type)
-            assertEquals("plan_document", stashed.entityKind)
+            assertEquals("document.created", stashed.type)
+            assertEquals("document", stashed.entityKind)
             assertEquals("p8-plan", stashed.str("slug"))
             assertEquals(root.id, stashed.rootId)
 
@@ -765,7 +765,7 @@ class EventCoverageTest {
                     )
                 }
             val ad = adopted.single()
-            assertEquals("plan_document.adopted", ad.type)
+            assertEquals("document.adopted", ad.type)
             assertEquals("p8-plan", ad.str("slug"))
             assertEquals(adopter.id.toString(), ad.str("adoptedByItemId"))
             assertEquals(stashed.entityId, ad.entityId, "the adoption row is about the same document id")
@@ -974,7 +974,7 @@ class EventCoverageTest {
                         "body" to JsonPrimitive("# Overview - a plan body."),
                     )
                 }
-            val stashed = stashRows.single { it.type == "plan_document.stashed" }
+            val stashed = stashRows.single { it.type == "document.created" }
 
             val (result, rows) =
                 rig.written {
@@ -1009,7 +1009,7 @@ class EventCoverageTest {
                     .jsonObject["id"]!!
                     .jsonPrimitive.content
 
-            val adopted = rows.ofType("plan_document.adopted")
+            val adopted = rows.ofType("document.adopted")
             assertEquals(1, adopted.size, "exactly one adoption row: $rows")
             assertEquals(2, rows.ofType("item.created").size, "root and child created rows: $rows")
             assertEquals(3, rows.size, "nothing else is recorded for the adoption call: $rows")
@@ -1280,7 +1280,7 @@ class EventCoverageTest {
                 "complete_tree" to setOf("item.transitioned"),
                 "create_work_tree" to setOf("item.created"),
                 "manage_project_config" to setOf("project_config.upserted"),
-                "manage_plan_documents" to setOf("plan_document.stashed"),
+                "manage_plan_documents" to setOf("document.created", "document.updated"),
             )
 
         /** Tools that never mutate store state; each is exercised and must leave the log untouched. */

@@ -51,6 +51,13 @@ object BaselineDataset {
     /** A token present in one seeded note body, used for FTS MATCH checks. */
     const val NOTE_FTS_TOKEN = "quokka"
 
+    /** A token present in every seeded plan / document body (and in the golden's), used for document FTS MATCH checks. */
+    const val DOCUMENT_FTS_TOKEN = "plan"
+
+    /** The FTS MATCH token per FTS backing table. */
+    val FTS_TOKENS: Map<String, String> =
+        mapOf("work_items" to ITEM_FTS_TOKEN, "notes" to NOTE_FTS_TOKEN, "documents" to DOCUMENT_FTS_TOKEN)
+
     val ITEM_NAMES = listOf("root", "feature", "task1", "task2", "task3", "task4", "task5", "task6")
 
     fun uuid(name: String): UUID = UUID.nameUUIDFromBytes(("upgrade-baseline:$name").toByteArray(Charsets.UTF_8))
@@ -475,6 +482,50 @@ object BaselineDataset {
             "adopted_by_item_id" to id("feature"),
             "created_at" to TS,
             "modified_at" to TS_PLUS_1
+        )
+
+        // V24 tables (skipped below V24, where they do not exist). Every column carries a distinct non-default value so
+        // BaselineColumnCoverageTest sees it seeded.
+        insert(
+            conn,
+            "documents",
+            "doc_rowid" to 7,
+            "id" to id("document:baseline"),
+            "root_item_id" to id("root"),
+            "kind" to "page",
+            "slug" to "baseline-page",
+            "title" to "Baseline page",
+            "body" to "# Baseline plan page\n",
+            "content_hash" to "hash-baseline-page-v2",
+            "version" to 2,
+            "archived_at" to TS_PLUS_2,
+            "created_at" to TS,
+            "modified_at" to TS_PLUS_1
+        )
+        insert(
+            conn,
+            "document_versions",
+            "id" to id("document-version:baseline"),
+            "document_id" to id("document:baseline"),
+            "version" to 1,
+            "body" to "# Baseline plan page, an older body\n",
+            "content_hash" to "hash-baseline-page-v1",
+            "actor_id" to "actor-one",
+            "created_at" to TS_PLUS_2
+        )
+        insert(
+            conn,
+            "links",
+            "id" to id("link:baseline"),
+            "root_item_id" to id("root"),
+            "from_kind" to "document",
+            "from_id" to id("document:baseline"),
+            "to_kind" to "item",
+            "to_id" to id("task1"),
+            "to_ref" to "task-one",
+            "relation" to "references",
+            "anchor" to "overview",
+            "created_at" to TS_PLUS_2
         )
     }
 }

@@ -69,18 +69,12 @@ internal object StartupCompaction {
     const val COMPACTED_USER_VERSION = 1
 
     /**
-     * The four FTS5 shadow tables created by V7 (`work_items_fts_trigram`, `work_items_fts_text`,
-     * `notes_fts_trigram`, `notes_fts_text`). All four are external-content tables keyed on the
-     * base tables' implicit rowid, so every one of them must be rebuilt after VACUUM potentially
-     * renumbers those rowids.
+     * Every FTS5 table, rebuilt after VACUUM: the one inventory list, [StartupIntegrity.FTS_TABLES]. The V7
+     * work-item and note tables are keyed on their base tables' implicit rowid, which VACUUM may renumber, so a
+     * rebuild is a correctness requirement for them; the V24 document tables key on the explicit `doc_rowid` and
+     * are rebuilt as well so compaction and startup integrity share one list.
      */
-    val FTS_TABLES: List<String> =
-        listOf(
-            "work_items_fts_trigram",
-            "work_items_fts_text",
-            "notes_fts_trigram",
-            "notes_fts_text",
-        )
+    val FTS_TABLES: List<String> = StartupIntegrity.FTS_TABLES
 
     private val logger = LoggerFactory.getLogger(StartupCompaction::class.java)
 

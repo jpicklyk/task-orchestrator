@@ -39,7 +39,11 @@ sealed class PlanDocumentAdoptOutcome {
 }
 
 /**
- * Persists per-root plan documents (see [io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.PlanDocumentsTable]).
+ * The 3.x per-root plan-document view. Since 4.0 it is a facade over [DocumentStore] and [LinkStore]: a `rule/<key>`
+ * slug addresses the RULE-kind document `<key>`, every other slug the PLAN-kind document of the same slug, and
+ * [io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus] is derived from an `adopted_by` link
+ * (ADOPTED iff one exists; [PlanDocument.adoptedByItemId] is that link's target). Each [stash] appends a document
+ * version.
  *
  * `(rootItemId, slug)` is unique per root. [stash] is the sole write path for PENDING content —
  * re-stashing an existing PENDING slug overwrites it in place; re-stashing an ADOPTED slug is

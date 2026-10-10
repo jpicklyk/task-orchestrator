@@ -340,7 +340,7 @@ class EventRestCoverageTest {
                 }
             assertEquals(HttpStatusCode.OK, plan.status, plan.bodyAsText())
             val planRows = rig.rows()
-            assertEquals(listOf("plan_document.stashed"), planRows.types())
+            assertEquals(listOf("document.created"), planRows.types())
             assertEquals("rest-plan", planRows.single().str("slug"))
             assertEquals(root.id, planRows.single().rootId)
 
