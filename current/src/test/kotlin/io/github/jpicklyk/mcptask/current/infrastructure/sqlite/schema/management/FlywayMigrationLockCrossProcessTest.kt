@@ -221,7 +221,7 @@ class FlywayMigrationLockCrossProcessTest {
     }
 
     private companion object {
-        const val MIGRATIONS = 22
+        val MIGRATIONS = MigrationChain.count()
         const val STARTUP_SECONDS = 60L
         const val RESULT_SECONDS = 120L
         const val HELD_WINDOW_MS = 2_000L

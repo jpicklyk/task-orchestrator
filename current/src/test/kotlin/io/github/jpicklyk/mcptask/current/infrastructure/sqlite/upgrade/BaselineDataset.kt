@@ -426,6 +426,16 @@ object BaselineDataset {
             "eligible_count" to 11
         )
 
+        // V23: one data_steps row, every column non-default (rows_affected 7). The table is absent below V23, so insert drops it.
+        insert(
+            conn,
+            "data_steps",
+            "name" to "baseline-probe",
+            "applied_at" to "2026-03-04 13:18:33.123",
+            "rows_affected" to 7,
+            "binary_version" to "3.16.0"
+        )
+
         insert(
             conn,
             "project_config",

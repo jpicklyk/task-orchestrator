@@ -55,7 +55,11 @@ class MigrationLocationContinuityTest {
         val expected = snapshot()
         assertEquals(18, expected.size, "snapshot must list V1..V18")
         assertEquals(expected, actual.take(18), "history scripts (bare names) and checksums must equal the snapshot captured at 327690d2")
-        assertEquals(listOf("19", "20", "21", "22"), actual.drop(18).map { it.version }, "after V18 only V19, V20, V21 and V22 follow")
+        assertEquals(
+            (19..MigrationChain.max()).map { it.toString() },
+            actual.drop(18).map { it.version },
+            "after V18 only the later migrations follow"
+        )
         assertTrue(actual.none { it.script.contains("/") }, "script names must be bare, never sqlite/V1__...")
     }
 
@@ -70,7 +74,7 @@ class MigrationLocationContinuityTest {
     }
 
     @Test
-    fun `migration sources are exactly V1 to V22 in the single sqlite folder with nothing at the parent level`() {
+    fun `migration sources are exactly V1 to the latest in the single sqlite folder with nothing at the parent level`() {
         val parent = File("src/main/resources/db/migration")
         assertTrue(parent.isDirectory, "run from the current module directory: ${parent.absolutePath}")
         assertEquals(
@@ -88,21 +92,15 @@ class MigrationLocationContinuityTest {
                     ?.toInt()
                     ?: error("unexpected file $it")
             }
-        assertEquals((1..22).toList(), versions.sorted(), "versions must be contiguous V1..V22 with no gaps or extras")
+        assertEquals((1..versions.max()).toList(), versions.sorted(), "versions must be contiguous from V1 with no gaps or extras")
         assertEquals(
             snapshot()
                 .map {
                     it.script
                 }.sorted(),
             names
-                .filterNot {
-                    it.startsWith(
-                        "V19__"
-                    ) ||
-                        it.startsWith("V20__") ||
-                        it.startsWith("V21__") ||
-                        it.startsWith("V22__")
-                }.sorted(),
+                .filter { Regex("^V([0-9]+)__").find(it)!!.groupValues[1].toInt() <= 18 }
+                .sorted(),
             "file names must equal the snapshot scripts"
         )
     }
