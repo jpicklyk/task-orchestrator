@@ -1,9 +1,10 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
-import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.SchemaSource
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -13,9 +14,12 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigSer
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.getFingerprint
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.mockk.coVerify
 import io.mockk.mockk
 import io.mockk.spyk
@@ -39,7 +43,7 @@ import kotlin.test.assertNull
  * `test-plan` notes — never from reading [ToolExecutionContext]'s source, which is out of bounds
  * for the test author per the `test-author` skill's blindness rule and this dispatch's ORCHESTRATOR
  * CONSTRAINT (no `PerRootConfigService.Snapshot`/`getSnapshot` reference; per-root config is always
- * supplied through a REAL [PerRootConfigService] over a REAL [SQLiteProjectConfigRepository] or a
+ * supplied through a REAL [PerRootConfigService] over a REAL [SqliteConfigStore] or a
  * thin failure-injecting wrapper around it; assertions go through [ToolExecutionContext]'s public
  * resolution methods only).
  *
@@ -52,7 +56,7 @@ class LegacyPrecedenceCharacterizationTest {
 
     private lateinit var database: Database
     private lateinit var databaseManager: DatabaseManager
-    private lateinit var projectConfigRepository: SQLiteProjectConfigRepository
+    private lateinit var projectConfigRepository: SqliteConfigStore
     private lateinit var workItemRepository: SQLiteWorkItemRepository
     private lateinit var perRootConfigService: PerRootConfigService
 
@@ -131,7 +135,7 @@ class LegacyPrecedenceCharacterizationTest {
         runBlocking {
             database = db.database
             databaseManager = db.databaseManager
-            projectConfigRepository = db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository
+            projectConfigRepository = db.repositoryProvider().configStore() as SqliteConfigStore
             workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
             perRootConfigService = PerRootConfigService(projectConfigRepository)
 
@@ -503,8 +507,8 @@ class LegacyPrecedenceCharacterizationTest {
         }
 
     // ──────────────────────────────────────────────
-    // S4 — read counts (Q13/Q15), counted at the repository's getFingerprint accessor via a spy
-    // over a REAL SQLiteProjectConfigRepository — never via PerRootConfigService.getSnapshot.
+    // S4 — read counts (Q13/Q15), counted at the repository's head accessor via a spy
+    // over a REAL SqliteConfigStore — never via PerRootConfigService.getSnapshot.
     // ──────────────────────────────────────────────
 
     @Test
@@ -517,7 +521,7 @@ class LegacyPrecedenceCharacterizationTest {
             val item = makeItem(type = "feature-task", tags = emptyList(), rootId = rootWithDefault)
             ctx.resolveSchemaWithSource(item)
 
-            coVerify(exactly = 1) { spyRepo.getFingerprint(rootWithDefault) }
+            coVerify(exactly = 1) { spyRepo.head(ConfigScope.ROOT, rootWithDefault) }
         }
 
     @Test
@@ -531,7 +535,7 @@ class LegacyPrecedenceCharacterizationTest {
             val schemaWithNoTraits = WorkItemSchema(type = "feature-task", notes = emptyList())
             ctx.resolveDispatchProfile(item, Role.WORK, schemaWithNoTraits)
 
-            coVerify(exactly = 0) { spyRepo.getFingerprint(any()) }
+            coVerify(exactly = 0) { spyRepo.head(any(), any()) }
         }
 
     @Test
@@ -544,7 +548,7 @@ class LegacyPrecedenceCharacterizationTest {
             val item = makeItem(type = "feature-task", tags = emptyList(), rootId = null)
             ctx.resolveSchemaWithSource(item)
 
-            coVerify(exactly = 0) { spyRepo.getFingerprint(any()) }
+            coVerify(exactly = 0) { spyRepo.head(any(), any()) }
         }
 
     @Test
@@ -556,7 +560,7 @@ class LegacyPrecedenceCharacterizationTest {
 
             ctx.availableTraits(listOf(rootWithDefault, rootWithDefault))
 
-            coVerify(exactly = 2) { spyRepo.getFingerprint(rootWithDefault) }
+            coVerify(exactly = 2) { spyRepo.head(ConfigScope.ROOT, rootWithDefault) }
         }
 
     // ──────────────────────────────────────────────
@@ -567,16 +571,18 @@ class LegacyPrecedenceCharacterizationTest {
     // ──────────────────────────────────────────────
 
     private class FailableProjectConfigRepository(
-        private val delegate: ProjectConfigStore
-    ) : ProjectConfigStore by delegate {
+        private val delegate: ConfigStore
+    ) : ConfigStore by delegate {
         @Volatile var failFingerprint: Boolean = false
 
-        override suspend fun getFingerprint(rootItemId: UUID) =
-            if (failFingerprint) {
-                throw IllegalStateException("boom")
-            } else {
-                delegate.getFingerprint(rootItemId)
-            }
+        override suspend fun head(
+            scope: ConfigScope,
+            rootId: UUID?
+        ) = if (failFingerprint) {
+            throw IllegalStateException("boom")
+        } else {
+            delegate.head(scope, rootId)
+        }
     }
 
     @Test
@@ -620,7 +626,7 @@ class LegacyPrecedenceCharacterizationTest {
         }
 
     @Test
-    fun `S5 - an unparseable stored row is treated as absence and falls through to the global schema`(): Unit =
+    fun `S5 - a stored row without canonical JSON fails closed instead of falling through to the global schema`(): Unit =
         runBlocking {
             val root = WorkItem(title = "S5 malformed-row root")
             workItemRepository.create(root)
@@ -629,10 +635,10 @@ class LegacyPrecedenceCharacterizationTest {
             val ctx = contextFor(globalWithDefault, perRootConfigService)
             val item = makeItem(type = "container", tags = emptyList(), rootId = root.id)
 
-            val result = ctx.resolveSchemaWithSource(item)
-
-            assertNotNull(result, "malformed YAML must not surface as an exception or as a schema-free result here")
-            assertEquals(SchemaSource.GLOBAL, result.source, "absence (malformed row) falls through to the global layer")
-            assertEquals(listOf("container-note"), result.schema.notes.map { it.key })
+            // The test shim stores NULL canonical_json for YAML that does not parse; a head without its canonical
+            // form is invalid data, never absence, so the global layer's gates must not silently apply.
+            kotlin.test.assertFailsWith<io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException> {
+                ctx.resolveSchemaWithSource(item)
+            }
         }
 }

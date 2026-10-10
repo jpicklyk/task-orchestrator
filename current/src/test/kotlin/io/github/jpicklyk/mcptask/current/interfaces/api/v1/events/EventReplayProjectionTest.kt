@@ -7,6 +7,8 @@ import io.github.jpicklyk.mcptask.current.domain.event.DeleteCause
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.event.ReparentSide
 import io.github.jpicklyk.mcptask.current.domain.event.TransitionOrigin
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersionSource
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
@@ -408,8 +410,7 @@ class EventReplayProjectionTest {
                     DomainEvent.LeaseReleased(itemId, rootId, "k", 1, false),
                     DomainEvent.LeaseRejected(itemId, rootId, listOf("k"), 10L),
                     DomainEvent.LeaseExpired(itemId, rootId, "k"),
-                    DomainEvent.ProjectConfigUpserted(rootId, "fp"),
-                    DomainEvent.ProjectConfigDeleted(rootId),
+                    DomainEvent.ConfigVersionCreated(rootId, UUID.randomUUID(), ConfigScope.ROOT, 1, "fp", ConfigVersionSource.PUSH, 0),
                     DomainEvent.PlanDocumentStashed(noteId, rootId, "slug"),
                     DomainEvent.PlanDocumentAdopted(noteId, rootId, "slug", itemId),
                 )

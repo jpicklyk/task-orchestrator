@@ -3,15 +3,21 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.manageme
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.DependenciesTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.NotesTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.PlanDocumentsTable
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ProjectConfigTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ResourceLeaseHistoryTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ResourceLeasesTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.RoleTransitionsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.javaUuidSqlite
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.utcTimestamp
+import org.jetbrains.exposed.v1.core.Column
+import org.jetbrains.exposed.v1.core.ReferenceOption
+import org.jetbrains.exposed.v1.core.dao.id.EntityID
+import org.jetbrains.exposed.v1.core.dao.id.IdTable
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.SchemaUtils
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.slf4j.LoggerFactory
+import java.util.UUID
 
 /**
  * Test-only helper that builds a Direct-mode (Exposed DDL, no Flyway) SQLite database on an EXPLICIT
@@ -25,7 +31,7 @@ import org.slf4j.LoggerFactory
  * 3. ResourceLeaseHistoryTable (NO dependency on WorkItemsTable — holder_item_id is deliberately
  *    FK-less so the audit trail survives holder deletion; see V16__Resource_Lease_History.sql.
  *    Positioned after ResourceLeasesTable for readability only, not FK ordering.)
- * 4. ProjectConfigTable (depends on WorkItemsTable)
+ * 4. LegacyProjectConfigTable (the V17 shape of project_config, kept here; depends on WorkItemsTable)
  * 5. PlanDocumentsTable (depends on WorkItemsTable, two FKs — root_item_id and adopted_by_item_id)
  * 6. NotesTable (depends on WorkItemsTable)
  * 7. DependenciesTable (depends on WorkItemsTable)
@@ -53,7 +59,7 @@ class DirectDatabaseSchemaManager(
             WorkItemsTable,
             ResourceLeasesTable,
             ResourceLeaseHistoryTable,
-            ProjectConfigTable,
+            LegacyProjectConfigTable,
             PlanDocumentsTable,
             NotesTable,
             DependenciesTable,
@@ -227,5 +233,25 @@ class DirectDatabaseSchemaManager(
                 "Direct-mode databases are disposable and have no upgrade path; use a new DATABASE_PATH."
         )
         return false
+    }
+}
+
+/**
+ * The V17 shape of `project_config`, owned by this test helper because V24 replaced the production table. It only exists
+ * so the helper can rebuild the V17 schema the Direct-mode refusal and baseline tests need.
+ */
+private object LegacyProjectConfigTable : IdTable<UUID>("project_config") {
+    override val id: Column<EntityID<UUID>> = javaUuidSqlite("id").autoGenerate().entityId()
+    override val primaryKey = PrimaryKey(id)
+
+    val rootItemId = javaUuidSqlite("root_item_id")
+    val configYaml = text("config_yaml")
+    val fingerprint = text("fingerprint")
+    val updatedAt = utcTimestamp("updated_at")
+    val fingerprintHistory = text("fingerprint_history").nullable()
+
+    init {
+        foreignKey(rootItemId to WorkItemsTable.id, onDelete = ReferenceOption.CASCADE)
+        uniqueIndex(rootItemId)
     }
 }

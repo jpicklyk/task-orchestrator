@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
@@ -40,7 +41,7 @@ import kotlin.test.assertTrue
  * value in the rejection message, plus one representative chunked/counting test and one real
  * exactly-at-cap body (constructed once, reused nowhere else) on the most central route.
  */
-private const val MAX_CONFIG_YAML_BYTES = 131_072 // ProjectConfigPushService.MAX_CONFIG_YAML_BYTES — unchanged by this item
+private const val MAX_CONFIG_YAML_BYTES = 131_072 // ConfigService.MAX_CONFIG_YAML_BYTES — unchanged by this item
 private const val MAX_PLAN_DOCUMENT_BODY_BYTES = 65_536 // PlanDocumentService.MAX_BODY_BYTES — unchanged by this item
 
 /** A declared length that disagrees with what [actualBytes] really delivers. */
@@ -252,7 +253,7 @@ class WriteRoutesBodyLimitTest {
 
             assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
             assertTrue(response.bodyAsText().contains("payload_too_large"))
-            val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
+            val persisted = runBlocking { repo.configStore().get(root.id) }
             assertTrue(persisted == null, "oversized payload must never be stored")
         }
 

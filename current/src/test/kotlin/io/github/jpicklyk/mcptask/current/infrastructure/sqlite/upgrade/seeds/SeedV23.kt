@@ -71,7 +71,11 @@ object SeedV23 : MigrationSeed(23) {
         val expectedNames = productionOnceStepNames(conn)
         assertEquals(expectedNames, names(conn), "data_steps holds exactly the registered ONCE steps (the migration backfills nothing)")
         val pre = before ?: error("SeedV23.seed did not run before the migration")
-        for ((table, rows) in pre) assertEquals(rows, count(conn, table), "$table row count changed across V23")
+        for ((table, rows) in pre) {
+            // V24 relocated project_config into config_versions (one version-1 row per root).
+            val current = if (table == "project_config") "config_versions" else table
+            assertEquals(rows, count(conn, current), "$table row count changed across V23")
+        }
 
         // Accepted shapes, at the boundaries of every CHECK.
         insert(conn, "seed23-ok")

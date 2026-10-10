@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.test
 
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
@@ -7,7 +8,6 @@ import io.github.jpicklyk.mcptask.current.application.port.IdempotencyStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
-import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
@@ -80,7 +80,7 @@ private class StoresOnlyProvider(
 
     override fun roleTransitionRepository(): TransitionStore = unsupported()
 
-    override fun projectConfigRepository(): ProjectConfigStore = unsupported()
+    override fun configStore(): ConfigStore = unsupported()
 
     override fun planDocumentRepository(): PlanDocumentStore = unsupported()
 

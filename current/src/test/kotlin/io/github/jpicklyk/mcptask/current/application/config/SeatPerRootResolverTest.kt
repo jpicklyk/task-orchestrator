@@ -9,7 +9,9 @@ import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordi
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -32,7 +34,7 @@ import kotlin.test.assertTrue
  * SF2 follow-up on item `79cd4f0c` (A1 review): S8 (trait-seats wholesale, dispatch-block wholesale,
  * base-schema-seats LEGACY vs LAYERED), S9 (a per-item trait cannot redefine a base seat), and S2(b)
  * (the task-scope section 2 YAML pushed as a PER-ROOT config, not just a global file) -- all exercised
- * through a REAL per-root push (`projectConfigRepository().upsert`) resolved by the REAL
+ * through a REAL per-root push (`configStore().upsert`) resolved by the REAL
  * [EffectiveConfigResolver] wired inside a REAL [ServerComposition.build], observed through the public
  * MCP tools ([QueryItemsTool] for type-based resolution, [GetContextTool] for item-based resolution) --
  * per the Public-API rule (`LayeredConfigSeatTest`'s existing S8/S9 coverage calls `LayeredConfig`'s
@@ -98,7 +100,7 @@ class SeatPerRootResolverTest {
     ) {
         runBlocking {
             composition.toolContext.repositoryProvider
-                .projectConfigRepository()
+                .configStore()
                 .upsert(rootId, yaml)
                 ?: error("fixture: per-root push failed for $rootId")
         }

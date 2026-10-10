@@ -153,7 +153,7 @@ class V18NormalizeTimestampsTest {
         val covered = expected.values.toSet()
         shapes.forEach { assertTrue(it.expected in covered, "shape '${it.label}' was never injected") }
 
-        val probe = UpgradeHarness.migrate(url)
+        val probe = UpgradeHarness.migrate(url, target = 18)
 
         assertTrue(probe.observed.isNotEmpty(), "the foreign-key probe must have fired")
         assertEquals(emptyList(), probe.violations())
@@ -172,10 +172,10 @@ class V18NormalizeTimestampsTest {
         val url = UpgradeHarness.copyAt(17, File(dir, "replay.db"))
         DriverManager.getConnection(url).use { BaselineDataset.seed(it) }
         val expected = inject(url)
-        UpgradeHarness.migrate(url)
+        UpgradeHarness.migrate(url, target = 18)
         val afterFirst = expected.keys.associateWith { readCell(url, it) }
 
-        UpgradeHarness.migrate(url)
+        UpgradeHarness.migrate(url, target = 18)
 
         assertV18Applied(url)
         assertEquals(afterFirst, expected.keys.associateWith { readCell(url, it) })
@@ -194,7 +194,7 @@ class V18NormalizeTimestampsTest {
         assertTrue(before.values.any { it != null && fractionLess.matches(it) }, "the golden must contain datetime()-shaped values")
         assertTrue(before.values.any { it != null && it.length == 23 }, "the golden must contain Exposed-shaped values")
 
-        UpgradeHarness.migrate(url)
+        UpgradeHarness.migrate(url, target = 18)
 
         assertV18Applied(url)
         before.forEach { (cell, old) ->

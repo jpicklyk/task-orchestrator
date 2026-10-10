@@ -9,7 +9,7 @@ import org.yaml.snakeyaml.constructor.SafeConstructor
 /**
  * Shared [ConfigDocumentParser] implementation for attacker-reachable (pushed) per-root config
  * YAML — used by [PerRootConfigService] on the read path and by
- * [io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushService] on the
+ * [io.github.jpicklyk.mcptask.current.application.service.ConfigService] on the
  * validate-before-write path, so both converge on identical parse behavior for the same document.
  *
  * Uses [SafeConstructor] rather than SnakeYAML's default `Constructor`: the input originates from
@@ -38,4 +38,10 @@ object YamlConfigDocumentParser : ConfigDocumentParser {
         } catch (e: Exception) {
             ConfigDocumentParser.Outcome.Failed(e.message ?: e.javaClass.simpleName)
         }
+
+    override fun fromRoot(
+        root: Map<String, Any>?,
+        warnOnMissingSchemas: Boolean,
+    ): ConfigDocument =
+        if (root == null) ConfigDocument.EMPTY else YamlSchemaParser.parseRoot(root, warnOnMissingSchemas = warnOnMissingSchemas)
 }

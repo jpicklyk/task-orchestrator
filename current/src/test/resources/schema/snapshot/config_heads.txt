@@ -1,0 +1,3 @@
+index|idx_config_heads_root|config_heads|CREATE UNIQUE INDEX idx_config_heads_root ON config_heads(root_id) WHERE scope = 'root'
+index|idx_config_heads_server|config_heads|CREATE UNIQUE INDEX idx_config_heads_server ON config_heads(scope) WHERE scope = 'server'
+table|config_heads|config_heads|CREATE TABLE config_heads ( scope TEXT NOT NULL CHECK (scope IN ('server', 'root')), root_id BLOB REFERENCES work_items(id) ON DELETE CASCADE, version_id BLOB NOT NULL REFERENCES config_versions(id), updated_at TEXT NOT NULL CHECK (length(updated_at) = 23), CHECK ((scope = 'server') = (root_id IS NULL)) )

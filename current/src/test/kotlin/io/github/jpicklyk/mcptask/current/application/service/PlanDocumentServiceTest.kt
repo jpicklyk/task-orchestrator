@@ -20,7 +20,7 @@ import kotlin.test.assertTrue
 
 /**
  * Exercises [PlanDocumentService] against a real SQLite-backed [SQLitePlanDocumentRepository] and
- * [SQLiteWorkItemRepository] — mirrors [ProjectConfigPushServiceTest]'s DB-backed style. Validation
+ * [SQLiteWorkItemRepository] — mirrors [ConfigServiceTest]'s DB-backed style. Validation
  * (root existence, depth-0, size cap) depends on real WorkItem rows.
  */
 class PlanDocumentServiceTest {

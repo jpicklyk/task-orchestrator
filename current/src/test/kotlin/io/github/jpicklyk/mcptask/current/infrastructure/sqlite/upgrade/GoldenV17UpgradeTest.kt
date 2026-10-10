@@ -1,9 +1,11 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade
 
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.FlywayDatabaseSchemaManager
+import io.github.jpicklyk.mcptask.current.test.get
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -155,7 +157,7 @@ class GoldenV17UpgradeTest {
                 assertTrue(deps.size >= 2, "task1 must have its BLOCKS and RELATES_TO edges, got ${deps.size}")
                 val transitions = provider.roleTransitionRepository().findByItemId(BaselineDataset.uuid("task2"))
                 assertTrue(transitions.size == 2, "task2 transitions unreadable: $transitions")
-                val config = provider.projectConfigRepository().get(BaselineDataset.uuid("root"))
+                val config = provider.configStore().head(ConfigScope.ROOT, BaselineDataset.uuid("root"))
                 assertTrue(config != null, "project_config unreadable: $config")
                 val plan = provider.planDocumentRepository().get(BaselineDataset.uuid("root"), "adopted-plan")
                 assertTrue(plan != null, "plan document unreadable: $plan")

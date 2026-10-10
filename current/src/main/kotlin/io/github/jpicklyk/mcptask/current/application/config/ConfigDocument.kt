@@ -91,7 +91,7 @@ data class ConfigDocument(
 
         /**
          * Top-level `configYaml` keys honored by the per-root resolution layer. Replaces
-         * `ProjectConfigPushService.HONORED_TOP_LEVEL_SECTIONS` (a hand-maintained literal set) —
+         * `ConfigService.HONORED_TOP_LEVEL_SECTIONS` (a hand-maintained literal set) —
          * this is the single source of truth other top-level keys (e.g. `actor_authentication`,
          * which stays global-only) are checked against to compute `ignoredSections`.
          *

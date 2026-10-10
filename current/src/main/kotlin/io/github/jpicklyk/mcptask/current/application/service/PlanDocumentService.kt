@@ -21,7 +21,7 @@ import java.util.UUID
 /**
  * Transport-agnostic validation + persist pipeline for plan document stashes.
  *
- * Extracted the same way [ProjectConfigPushService] is: so the exact SAME pipeline can be driven
+ * Extracted the same way [ConfigService] is: so the exact SAME pipeline can be driven
  * by both the MCP `manage_plan_documents` `stash` operation and the REST
  * `PUT /api/v1/roots/{rootId}/plans/{slug}` route
  * ([io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.planDocumentRoutes]) — both callers

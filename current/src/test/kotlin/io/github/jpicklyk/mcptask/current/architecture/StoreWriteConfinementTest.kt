@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.architecture
 
+import io.github.jpicklyk.mcptask.current.test.get
 import org.junit.jupiter.api.Test
 import java.io.File
 import kotlin.test.assertEquals
@@ -16,7 +17,7 @@ import kotlin.test.assertTrue
  *  - ItemStore / WorkItemRepository: create, update, delete, deleteAll
  *  - NoteStore: upsert, delete, deleteByItemId
  *  - DependencyStore: create, createBatch, delete, deleteByItemId
- *  - ProjectConfigStore: upsert, upsertGuarded, delete
+ *  - ConfigStore: append, fillCanonical
  *  - PlanDocumentStore: stash, markAdopted
  * on a receiver that is one of those stores. A receiver is recognised two ways: an accessor chain
  * (`provider.workItemRepository().create(...)`, however the chain is wrapped across lines) or a name declared with a store
@@ -38,7 +39,7 @@ class StoreWriteConfinementTest {
         ITEM(setOf("create", "update", "delete", "deleteAll")),
         NOTE(setOf("upsert", "delete", "deleteByItemId")),
         DEPENDENCY(setOf("create", "createBatch", "delete", "deleteByItemId")),
-        CONFIG(setOf("upsert", "upsertGuarded", "delete")),
+        CONFIG(setOf("append", "fillCanonical")),
         PLAN(setOf("stash", "markAdopted"))
     }
 
@@ -55,8 +56,7 @@ class StoreWriteConfinementTest {
                 "noteStore" to Family.NOTE,
                 "dependencyRepository" to Family.DEPENDENCY,
                 "dependencyStore" to Family.DEPENDENCY,
-                "projectConfigRepository" to Family.CONFIG,
-                "projectConfigStore" to Family.CONFIG,
+                "configStore" to Family.CONFIG,
                 "planDocumentRepository" to Family.PLAN,
                 "planDocumentStore" to Family.PLAN
             )
@@ -67,7 +67,7 @@ class StoreWriteConfinementTest {
                 "WorkItemRepository" to Family.ITEM,
                 "NoteStore" to Family.NOTE,
                 "DependencyStore" to Family.DEPENDENCY,
-                "ProjectConfigStore" to Family.CONFIG,
+                "ConfigStore" to Family.CONFIG,
                 "PlanDocumentStore" to Family.PLAN
             )
 
@@ -163,14 +163,14 @@ class StoreWriteConfinementTest {
             "provider.noteRepository().deleteByItemId(id)",
             "provider.dependencyRepository().createBatch(deps)",
             "provider.dependencyRepository().deleteByItemId(id)",
-            "provider.projectConfigRepository().upsertGuarded(root, yaml)",
+            "provider.configStore().append(scope, root, entry, now = now)",
             "provider.planDocumentRepository().markAdopted(root, slug, by)",
             "provider.planDocumentRepository().stash(root, slug, body)",
             "provider\n    .dependencyRepository()\n    .create(dep)",
             "private val repo: WorkItemRepository\nfun f() { repo.update(x) }",
             "class A(private val store: NoteStore) { fun f() { store.delete(id) } }",
             "class B(val deps: DependencyStore) { fun f() = deps.delete(id) }",
-            "fun f(configStore: ProjectConfigStore) { configStore.upsert(root, yaml) }",
+            "fun f(configStore: ConfigStore) { configStore.fillCanonical(id, json, 1) }",
             "val notes = provider.noteRepository()\nnotes.upsert(n)",
             "val planRepo = ctx.repositoryProvider.planDocumentRepository()\nplanRepo.stash(a, b, c)",
             "fun f(items: ItemStore) { items?.deleteAll(ids) }",
@@ -223,7 +223,7 @@ class StoreWriteConfinementTest {
             "application/service/NoteCommandService.kt",
             "application/service/DependencyCommandService.kt",
             "application/service/PlanDocumentService.kt",
-            "application/service/ProjectConfigPushService.kt",
+            "application/service/ConfigService.kt",
             "application/port/ItemStore.kt",
             "infrastructure/sqlite/repository/SqliteItemStore.kt",
             "infrastructure/sqlite/repository/SQLiteNoteRepository.kt",

@@ -12,7 +12,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeTestAuthConfig
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -120,7 +122,7 @@ class RulePointerOnlyGoldenTest {
                 ?: error("fixture: root item creation failed")
 
             repo
-                .projectConfigRepository()
+                .configStore()
                 .upsert(ROOT_ID, classpathResourceText(REPO_CONFIG_RESOURCE))
                 ?: error("fixture: per-root config push failed")
 

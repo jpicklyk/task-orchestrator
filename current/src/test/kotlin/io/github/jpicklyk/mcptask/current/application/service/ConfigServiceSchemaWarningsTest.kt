@@ -3,8 +3,10 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
+import io.github.jpicklyk.mcptask.current.test.configYaml
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.every
 import io.mockk.mockk
@@ -17,39 +19,39 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Exercises [ProjectConfigPushService.push]'s [ProjectConfigPushResult.Success.schemaWarnings] --
+ * Exercises [ConfigService.push]'s [ConfigPushResult.Success.schemaWarnings] --
  * the soft schema/trait parse warnings collected by
  * [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlSchemaParser.parseRoot] (an
  * invalid note `role`, a note entry missing `key`) surfaced on the push result WITHOUT rejecting
  * the push; the config is still parsed, stored and read back verbatim.
  *
  * Independent test authorship per the `needs-test-author` trait: written against the item's
- * `test-plan` note oracles and the public [ProjectConfigPushService.push] /
- * [ProjectConfigPushResult.Success] shapes, without reading the implementer's own tests or
- * notes. Mirrors [ProjectConfigPushServiceTest]'s SQLite-backed harness style; that file already
+ * `test-plan` note oracles and the public [ConfigService.push] /
+ * [ConfigPushResult.Success] shapes, without reading the implementer's own tests or
+ * notes. Mirrors [ConfigServiceTest]'s SQLite-backed harness style; that file already
  * covers the rest of the validate-then-persist pipeline (size cap / existence / depth-0 / parse /
  * rootId guard / fingerprint guard) so this file focuses solely on `schemaWarnings`.
  */
-class ProjectConfigPushSchemaWarningsTest {
+class ConfigServiceSchemaWarningsTest {
     @RegisterExtension
     val db = SqliteTestDatabase.perMethod()
 
-    private lateinit var service: ProjectConfigPushService
+    private lateinit var service: ConfigService
     private lateinit var workItemRepository: SQLiteWorkItemRepository
-    private lateinit var projectConfigRepository: SQLiteProjectConfigRepository
+    private lateinit var projectConfigRepository: SqliteConfigStore
     private lateinit var rootId: UUID
 
     @BeforeEach
     fun setUp() =
         runBlocking {
             workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
-            projectConfigRepository = db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository
+            projectConfigRepository = db.repositoryProvider().configStore() as SqliteConfigStore
 
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository
-            every { repositoryProvider.projectConfigRepository() } returns projectConfigRepository
+            every { repositoryProvider.configStore() } returns projectConfigRepository
 
-            service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser, db.unitOfWork())
+            service = ConfigService(repositoryProvider, YamlConfigDocumentParser, db.unitOfWork())
 
             rootId = workItemRepository.create(WorkItem(title = "Root", type = "project")).id
         }
@@ -73,8 +75,8 @@ class ProjectConfigPushSchemaWarningsTest {
 
             val result = service.push(rootId, yaml)
 
-            assertTrue(result is ProjectConfigPushResult.Success)
-            assertTrue((result as ProjectConfigPushResult.Success).schemaWarnings.isEmpty())
+            assertTrue(result is ConfigPushResult.Success)
+            assertTrue((result as ConfigPushResult.Success).schemaWarnings.isEmpty())
         }
 
     // ──────────────────────────────────────────────
@@ -95,8 +97,8 @@ class ProjectConfigPushSchemaWarningsTest {
 
             val result = service.push(rootId, yaml)
 
-            assertTrue(result is ProjectConfigPushResult.Success, "a soft schema warning must never reject the push")
-            assertTrue((result as ProjectConfigPushResult.Success).schemaWarnings.isNotEmpty())
+            assertTrue(result is ConfigPushResult.Success, "a soft schema warning must never reject the push")
+            assertTrue((result as ConfigPushResult.Success).schemaWarnings.isNotEmpty())
 
             val stored = projectConfigRepository.get(rootId)
             assertEquals(yaml, stored?.configYaml, "the document must be stored verbatim despite the soft warning")
@@ -123,8 +125,8 @@ class ProjectConfigPushSchemaWarningsTest {
 
             val result = service.push(rootId, yaml)
 
-            assertTrue(result is ProjectConfigPushResult.Success)
-            val warnings = (result as ProjectConfigPushResult.Success).schemaWarnings
+            assertTrue(result is ConfigPushResult.Success)
+            val warnings = (result as ConfigPushResult.Success).schemaWarnings
             assertEquals(2, warnings.size, "expected exactly two warnings: $warnings")
             assertTrue(
                 warnings[0].contains("bad-role-entry"),
@@ -144,7 +146,7 @@ class ProjectConfigPushSchemaWarningsTest {
     fun `S8 an invalid entry alongside an unhonored top-level key surfaces both schemaWarnings and ignoredSections`() =
         runBlocking {
             // Deliberately plain concatenation, not a nested trimIndent template (see
-            // ProjectConfigPushServiceTest) -- interpolating an already-trimIndent'd multi-line
+            // ConfigServiceTest) -- interpolating an already-trimIndent'd multi-line
             // constant into another trimIndent block would get its indentation re-mangled.
             val yaml =
                 "work_item_schemas:\n" +
@@ -157,8 +159,8 @@ class ProjectConfigPushSchemaWarningsTest {
 
             val result = service.push(rootId, yaml)
 
-            assertTrue(result is ProjectConfigPushResult.Success)
-            val success = result as ProjectConfigPushResult.Success
+            assertTrue(result is ConfigPushResult.Success)
+            val success = result as ConfigPushResult.Success
             assertTrue(success.schemaWarnings.isNotEmpty(), "expected a schema warning for the bad role")
             assertEquals(listOf("actor_authentication"), success.ignoredSections)
         }
@@ -172,8 +174,8 @@ class ProjectConfigPushSchemaWarningsTest {
         runBlocking {
             val result = service.push(rootId, "")
 
-            assertTrue(result is ProjectConfigPushResult.Success)
-            assertTrue((result as ProjectConfigPushResult.Success).schemaWarnings.isEmpty())
+            assertTrue(result is ConfigPushResult.Success)
+            assertTrue((result as ConfigPushResult.Success).schemaWarnings.isEmpty())
         }
 
     // ──────────────────────────────────────────────
@@ -195,10 +197,10 @@ class ProjectConfigPushSchemaWarningsTest {
             val first = service.push(rootId, yaml)
             val second = service.push(rootId, yaml)
 
-            assertTrue(first is ProjectConfigPushResult.Success)
-            assertTrue(second is ProjectConfigPushResult.Success)
-            val firstWarnings = (first as ProjectConfigPushResult.Success).schemaWarnings
-            val secondWarnings = (second as ProjectConfigPushResult.Success).schemaWarnings
+            assertTrue(first is ConfigPushResult.Success)
+            assertTrue(second is ConfigPushResult.Success)
+            val firstWarnings = (first as ConfigPushResult.Success).schemaWarnings
+            val secondWarnings = (second as ConfigPushResult.Success).schemaWarnings
             assertTrue(firstWarnings.isNotEmpty(), "sanity: this scenario needs at least one warning to be meaningful")
             assertEquals(firstWarnings, secondWarnings, "the same input YAML must recompute identical warnings on re-push")
         }

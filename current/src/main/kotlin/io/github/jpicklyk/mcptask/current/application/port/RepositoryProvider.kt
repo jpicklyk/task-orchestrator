@@ -29,7 +29,7 @@ interface RepositoryProvider {
 
     fun roleTransitionRepository(): TransitionStore
 
-    fun projectConfigRepository(): ProjectConfigStore
+    fun configStore(): ConfigStore
 
     fun planDocumentRepository(): PlanDocumentStore
 

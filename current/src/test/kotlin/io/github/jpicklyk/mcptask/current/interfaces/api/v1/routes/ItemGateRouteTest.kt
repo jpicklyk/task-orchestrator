@@ -19,7 +19,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -352,7 +354,7 @@ class ItemGateRouteTest {
                                 required: true
                                 description: "Per-root required note"
                         """.trimIndent()
-                    repo.projectConfigRepository().upsert(r.id, yaml)
+                    repo.configStore().upsert(r.id, yaml)
                         ?: error("fixture: per-root config upsert failed")
                     r to i
                 }
@@ -532,7 +534,7 @@ class ItemGateRouteTest {
                         ToolExecutionContext(
                             repo,
                             svc,
-                            perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
+                            perRootConfigService = PerRootConfigService(repo.configStore()),
                         ),
                     degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
                 )
@@ -761,7 +763,7 @@ class ItemGateRouteTest {
             ToolExecutionContext(
                 repo,
                 schemaService,
-                perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
+                perRootConfigService = PerRootConfigService(repo.configStore()),
                 unitOfWork = db.unitOfWork()
             )
         val params = JsonObject(mapOf("itemId" to JsonPrimitive(itemId.toString())))
@@ -799,7 +801,7 @@ private fun Application.configureGateApp(
         ToolExecutionContext(
             repo,
             schemaService,
-            perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
+            perRootConfigService = PerRootConfigService(repo.configStore()),
         ).let { ctx -> itemGateRoutes(repo, ctx.configResolver, ctx.transitionPreview()) }
     }
 }

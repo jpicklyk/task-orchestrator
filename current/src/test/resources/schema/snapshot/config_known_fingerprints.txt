@@ -1,0 +1,1 @@
+table|config_known_fingerprints|config_known_fingerprints|CREATE TABLE config_known_fingerprints ( root_id BLOB NOT NULL REFERENCES work_items(id) ON DELETE CASCADE, fingerprint TEXT NOT NULL, PRIMARY KEY (root_id, fingerprint) )

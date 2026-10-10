@@ -184,7 +184,7 @@ Each token grants a set of additive capabilities:
 | `WRITE_NOTES` | `write-notes` | `PUT /items/{id}/notes/{key}`, `DELETE /items/{id}/notes/{key}` |
 | `ADVANCE` | `advance` | `POST /items/{id}/advance` |
 | `MANAGE_DEPENDENCIES` | `manage-dependencies` | `POST /dependencies`, `DELETE /dependencies/{id}` |
-| `WRITE_CONFIG` | `write-config` | `PUT /roots/{rootId}/config`, `DELETE /roots/{rootId}/config`, `PUT /roots/{rootId}/plans/{slug}` |
+| `WRITE_CONFIG` | `write-config` | `PUT /roots/{rootId}/config`, `DELETE /roots/{rootId}/config`, `POST /roots/{rootId}/config/rollback`, `PUT /roots/{rootId}/plans/{slug}` |
 | `ADMIN` | `admin` | Implies all of the above; unlocks attribution fields in responses |
 
 **`ADMIN` unlocks:** When a caller has `ADMIN`, note and transition `actor`/`verification` fields are included in responses (subject to `API_REDACT_*` env flags). Non-admin callers always receive `null` for these fields.
@@ -289,10 +289,14 @@ Config/schema endpoints (`/config`, `/config/schemas`, etc.) use a fingerprint-b
 - Stable across reads when the config has not changed
 - `If-None-Match` → `304` when fingerprint matches
 
-The per-root project config endpoints (§18, `/roots/{rootId}/config`) use the SAME `"cfg-<fingerprint>"`
-format, but the fingerprint is a SHA-256 over the stored `configYaml`'s UTF-8 bytes (see
-`SQLiteProjectConfigRepository.computeFingerprint`) rather than the global config file. `PUT` additionally
-accepts `If-Match` for optimistic-concurrency writes (see §18).
+The per-root project config endpoints (§18, `/roots/{rootId}/config`) are versioned: every stored config
+version has an ETag of the form `"cfg-v<version>"` (for example `"cfg-v3"`), the per-root version number
+starting at 1. `GET`/`PUT`/`POST .../rollback` return the ETag of the version they report; `PUT` and
+`POST .../rollback` additionally accept `If-Match` for optimistic-concurrency writes (see §18). The pre-versioning
+form `"cfg-<fingerprint>"` (a SHA-256 over the stored `configYaml`'s UTF-8 bytes, see
+`SqliteConfigStore.computeFingerprint`) is still accepted in `If-Match` and `If-None-Match` on these routes, so
+a client holding an old ETag keeps working until the new envelope lands; such a legacy `If-Match` is compared
+against the head's fingerprint.
 
 The per-root effective config endpoint (§18, `GET /roots/{rootId}/config/effective`) uses a DIFFERENT
 prefix, `"eff-<fingerprint>"`, where the fingerprint is a SHA-256 over BOTH layers' fingerprints (global
@@ -1787,11 +1791,19 @@ See §23 for the important caveat about what the status graph does and does not 
 
 Per-root config YAML documents pushed by a client (or the fail-open SessionStart config-sync hook,
 in a later phase) and layered over the global `.taskorchestrator/config.yaml` on every
-schema-resolving read — see [`ProjectConfigPushService`](../src/main/kotlin/io/github/jpicklyk/mcptask/current/application/service/ProjectConfigPushService.kt)
+schema-resolving read — see [`ConfigService`](../src/main/kotlin/io/github/jpicklyk/mcptask/current/application/service/ConfigService.kt)
 and the MCP `manage_project_config` tool, which share the exact same validate-then-persist
 pipeline as these routes (both converge on identical DB state for the same payload).
 
-All three verbs additionally require `ApiScope.rootIds` (when scoped) to contain `{rootId}` —
+**Versioned store.** A root's config is a sequence of immutable versions (`config_versions`, numbered 1, 2, ...
+per root) plus a head pointer; a push appends the next version and moves the head, a rollback appends a copy of an
+older version, and `DELETE` appends an empty *reset* version. Nothing is ever overwritten or deleted, so
+`GET .../config/history` shows every change. Each version records its `source` (`push`, `file-import`, `migration`,
+`rollback`, `reset`), the pushing principal and request id, and the soft parse warnings the push produced. A
+reset head reads as "no config": `GET` (without `?version=`) answers `404` and schema resolution falls through to
+the global layer, exactly as for a root that never had a config.
+
+All verbs additionally require `ApiScope.rootIds` (when scoped) to contain `{rootId}` —
 `403 scope_forbidden` otherwise. `{rootId}` must be a depth-0 WorkItem UUID.
 
 ### PUT /roots/{rootId}/config
@@ -1816,21 +1828,23 @@ compare-and-set precondition the caller supplied for this request is still enfor
    a UUID and differs from `{rootId}`, the push is rejected (an absent or non-UUID `project.rootId`
    is not an error - the push proceeds as if it were absent)
 6. Unless `?force=true`: the incoming `configYaml`'s fingerprint is classified against `{rootId}`'s
-   fingerprint history, and
-7. optional `If-Match` (see below) is compared against `{rootId}`'s fingerprint -
+   stored versions, and
+7. optional `If-Match` (see below) is compared against `{rootId}`'s head -
 
-   guards 6 and 7 are evaluated **atomically with the write itself**, inside the SAME transaction
-   `ProjectConfigStore.upsertGuarded` uses to persist the row: both guards read the row once,
-   decide, and the write applies to that SAME row version, closing the read-then-write race a
-   separate guard-read followed by a separate write would leave open (a concurrent writer between
-   the read and the write can no longer cause a silently lost update or a silently reverted push -
-   the loser is retried internally, bounded, re-evaluating both guards against the winner's row).
-   Guard 6 rejects a fingerprint that is **superseded** (present in history but not current), since
-   writing it would silently revert a later push made from elsewhere; **current** (idempotent
-   re-push) and **unknown** (divergent edit, or no row/history yet) both proceed normally. Guard 7
-   rejects a supplied `If-Match` that does not match the row's fingerprint AT THE POINT the write
-   would occur; `If-Match` is ignored when no row exists yet (a first push is a create with nothing
-   to compare against).
+   guards 6 and 7 are evaluated **atomically with the write itself**, inside the SAME write unit that
+   appends the version: both guards read the head once, decide, and the append applies to that SAME head,
+   closing the read-then-write race a separate guard-read followed by a separate write would leave open.
+   Guard 6 rejects a fingerprint that is **superseded** (held by an earlier version of the current epoch, or
+   by the pre-versioning fingerprint history of a migrated root), since writing it would silently revert a
+   later push made from elsewhere; **current** (the head's own content) and **unknown** (divergent edit, or no
+   config yet) both proceed. A reset starts a new epoch: after a `DELETE`, content from before the reset is
+   *unknown* again, not superseded. Guard 7 rejects a supplied `If-Match` that does not match the head AT THE
+   POINT the append would occur; `If-Match` is ignored when no head exists yet (a first push is a create with
+   nothing to compare against). `If-Match` takes `"cfg-v<n>"` (compared against the head's version) or the
+   legacy `"cfg-<fingerprint>"` (compared against the head's fingerprint); any other value never matches.
+
+**Identical re-push.** A body whose fingerprint equals the head's appends nothing: no new version, no event,
+`200 OK` with the head's own `version`, ETag and `"appended": false`.
 
 On success, the parsed document's top-level keys are checked against the honored allowlist -
 `work_item_schemas`, `note_schemas`, `traits`, `project`, `note_limits`, `status_labels`,
@@ -1841,53 +1855,98 @@ is reported in the response's `ignoredSections` array so a push is never silentl
 registry key collision, not per-root - see "Per-root honorable settings" in `config-format.md`.
 
 **Responses:**
-- `200 OK` -> `ProjectConfigResponseDto` (no `configYaml` field on this verb; `ignoredSections`
+- `200 OK` -> `ProjectConfigResponseDto` (no `configYaml` field on this verb; `version` is the head
+  version after the push and `appended` is `false` for an identical re-push; `ignoredSections`
   and `schemaWarnings` present only when non-empty). `schemaWarnings` carries per-entry parse
   warnings from `YamlSchemaParser` (e.g. an invalid note `role` value) - the push still succeeds
   and the config is still stored even when warnings are present; only a hard parse/shape failure
-  (guards 1-6 above) short-circuits the push. `ETag: "cfg-<fingerprint>"`
+  (guards 1-6 above) short-circuits the push. `ETag: "cfg-v<version>"`
 - `404 not_found` - `{rootId}` does not resolve to an existing WorkItem
 - `422 validation_error` - `{rootId}` is not depth-0
 - `422 parse_error` - `configYaml` failed SafeConstructor parse-validation
 - `422 rootid_mismatch` - `configYaml` embeds a `project.rootId` differing from `{rootId}` (message
   names both ids); retry with `?force=true` to bypass
 - `409 superseded` - `configYaml`'s fingerprint is known-old (guard 6 above); message names the
-  server's current `updatedAt`; retry with `?force=true` to overwrite anyway. Distinct from
+  head version's creation time (`updatedAt`); retry with `?force=true` to overwrite anyway. Distinct from
   `412 etag_mismatch` below - this is a known-old-**content** guard, not a concurrent-write guard.
-- `412 etag_mismatch` - `If-Match` supplied and mismatched against an EXISTING row's fingerprint AT
-  THE POINT the write would occur (guard 7 above; a first push to a root with no prior row ignores
+- `412 etag_mismatch` - `If-Match` supplied and mismatched against an EXISTING head AT THE POINT
+  the append would occur (guard 7 above; a first push to a root with no prior version ignores
   `If-Match` - there is nothing to match yet); response carries a refreshed `ETag` header for the
-  row's actual current fingerprint
+  head's actual current version
 - `413 payload_too_large` - body exceeds 128 KiB; enforced before the body is fully buffered (see §5)
 - `403 scope_forbidden` - capability present but `{rootId}` outside token scope
 - `500 db_error` - a repository failure surfaces here rather than silently skipping a guard -
-  guard evaluation is fail-closed, not fail-open. The guarded write runs once inside its unit of
+  guard evaluation is fail-closed, not fail-open. The append runs once inside its unit of
   work (single writer), so there is no compare-and-set retry budget to exhaust. SQLITE_BUSY is
   retried by the unit; a BUSY that outlasts the unit deadline is reported like any other store
   fault, as `500 db_error` with `Failed to store project config` (not `unavailable`)
 
 ### GET /roots/{rootId}/config
 
-Reads back the stored config for `{rootId}`. Requires `READ`.
+Reads back the stored config for `{rootId}`: the head version, or a specific version. Requires `READ`.
 
-**Query parameter:** `fingerprint` (optional, SHA-256 hex digest) — when supplied, classifies it
-against `{rootId}`'s stored fingerprint history and adds a `relation` field
-(`"current"|"superseded"|"unknown"`) to the response body. Omitted entirely when the query
-parameter is absent.
+**Query parameters:**
+- `version` (optional integer >= 1) — return that exact version instead of the head. A reset version is
+  returned with an empty `configYaml`. A non-integer or `< 1` value is `400 bad_request`; an unknown version
+  is `404 not_found`.
+- `fingerprint` (optional, SHA-256 hex digest) — when supplied, classifies it against `{rootId}`'s stored
+  versions and adds a `relation` field (`"current"|"superseded"|"unknown"`) to the response body. Omitted
+  entirely when the query parameter is absent.
 
 **Responses:**
-- `200 OK` → `ProjectConfigResponseDto` (includes `configYaml`); `ETag: "cfg-<fingerprint>"`
-- `304 Not Modified` — `If-None-Match` matches the current fingerprint ETag
-- `404 not_found` — no config has ever been pushed for `{rootId}` (the WorkItem itself is not
-  validated to exist — mirrors the MCP tool's `get` semantics)
+- `200 OK` → `ProjectConfigResponseDto` (includes `configYaml`, plus the additive `version` and `source` of the
+  returned version); `ETag: "cfg-v<version>"`
+- `304 Not Modified` — `If-None-Match` matches `"cfg-v<version>"` or the legacy `"cfg-<fingerprint>"` of the
+  returned version
+- `404 not_found` — no config has ever been pushed for `{rootId}`, or its head is a reset (without
+  `?version=`), or the requested version does not exist (the WorkItem itself is not validated to exist —
+  mirrors the MCP tool's `get` semantics)
 
 ### DELETE /roots/{rootId}/config
 
-Removes the stored config row for `{rootId}`. Requires `WRITE_CONFIG`.
+Resets the config of `{rootId}`: appends an empty version with `source: "reset"` and moves the head to it.
+History is kept in full — every earlier version stays readable with `GET ...?version=N`, can be rolled back to,
+and appears in `GET .../config/history`. After a reset the root resolves exactly as one that never had a config.
+Requires `WRITE_CONFIG`. Records `config.version_created`.
 
 **Responses:**
-- `204 No Content` — deleted
-- `404 not_found` — no config row existed for `{rootId}`
+- `204 No Content` — reset
+- `404 not_found` — `{rootId}` had no config, or its head is already a reset (nothing written)
+
+### GET /roots/{rootId}/config/history
+
+Lists the stored versions of `{rootId}`'s config, newest first. Requires `READ`. A read view: a root without
+any config (or an unknown root) answers `200` with an empty `versions` array and no `headVersion`.
+
+**Query parameters:** `limit` (optional integer 1..200, default 50; anything else `400 validation_error`),
+`before` (optional integer, exclusive upper bound on the version, for paging; non-integer `400 bad_request`).
+
+**Responses:**
+- `200 OK` → `ConfigHistoryResponseDto` — `{ rootId, headVersion, versions[] }` where each entry is a
+  `ConfigVersionSummaryDto` `{ version, fingerprint, source, createdAt, principalId?, warningsCount, canonical }`
+  (`canonical` is `false` only for a migrated version the `config-canonicalize` upgrade step has not filled yet).
+  Rollback and reset rows are included with their `source`; the YAML itself is never returned here — read it with
+  `GET ...?version=N`.
+
+### POST /roots/{rootId}/config/rollback
+
+Appends a copy of an earlier version as the new head (`source: "rollback"`). Requires `WRITE_CONFIG`.
+
+**Request body:** JSON `{"version": N}` (integer >= 1; max 4 KiB). Optional `If-Match` as for `PUT` (`"cfg-v<n>"`
+or the legacy fingerprint form, compared against the head).
+
+A target whose content equals the head's writes nothing and still answers `200` (`"appended": false`). A
+target whose canonical form is still missing (a migrated version) is canonicalized in the same unit. Records
+`config.version_created` when a version is appended.
+
+**Responses:**
+- `200 OK` → `ProjectConfigResponseDto` (no `configYaml`; `version` is the new head, `source`, `appended`);
+  `ETag: "cfg-v<version>"`
+- `400 bad_request` — body missing, not JSON, or `version` not an integer >= 1
+- `404 not_found` — no such version, or the root has no config at all
+- `412 etag_mismatch` — `If-Match` mismatched the head; carries a refreshed `ETag`
+- `403 scope_forbidden` — `{rootId}` outside token scope
+- `500 db_error` — repository failure
 
 ### GET /roots/{rootId}/config/effective
 

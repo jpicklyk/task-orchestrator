@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.test.CountingUnitOfWork
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.sqlite.assertNoOutsideUnitWrites
 import io.ktor.client.request.header
@@ -146,7 +147,7 @@ class ItemWriteRoutesParentPlacementInTxnTest {
                         repositoryProvider,
                         NoOpNoteSchemaService,
                         statusLabelService = NoOpStatusLabelService,
-                        perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()),
+                        perRootConfigService = PerRootConfigService(repositoryProvider.configStore()),
                         unitOfWork = uow
                     ).advanceServiceFactory(),
                     uow,

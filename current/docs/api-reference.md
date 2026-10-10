@@ -2204,7 +2204,13 @@ text keyed by a project root's WorkItem UUID; `ToolExecutionContext.resolveSchem
 per-root config over the global config on every schema-resolving read (see `PerRootConfigService` —
 hot-reload is a property of that read path, so no separate reload call is needed after a push).
 
-**Read-error fallback (last-known-good).** A read (`getFingerprint`/`get`) failing with a transient
+**Versioned store.** The stored config is the head of a versioned, append-only store: a push appends the
+next version of the root's config and moves the head, and a byte-identical re-push appends nothing. Version
+history, reading an older version, rollback and reset are REST-only for now (`GET .../config?version=`,
+`GET .../config/history`, `POST .../config/rollback`, `DELETE .../config`; see
+[api-rest.md §18](api-rest.md#18-endpoints--project-config-per-root)) - this tool's `push` and `get` shapes are unchanged.
+
+**Read-error fallback (last-known-good).** A read of the head (and, on a cache miss, of its version) failing with a transient
 repository error is NOT the same as "no per-root config" — `PerRootConfigService` never falls back
 to the global config on a read error. It instead serves that root's last cached parse (last-known-good)
 without evicting it, and logs a WARN naming the root and the error. Last-known-good has no TTL: the
@@ -2215,8 +2221,9 @@ with a warm cache; `manage_notes` upsert and REST note `PUT` read
 the config this way (`create_work_tree` reads it before its write, so the fallback still applies there). When there is no cached entry to serve — a cold
 cache, e.g. the first read for the root — the read fails closed with a transient
 `config_unavailable` error (see [Error Envelope](#error-envelope)) rather than silently resolving
-against the global config. This is distinct from an explicit absence (no config row, or malformed
-stored YAML), which is unchanged: evict any cached entry, fall through to the global config.
+against the global config. This is distinct from an explicit absence (no config version, or a reset head), which evicts any cached entry
+and falls through to the global config. A head whose stored canonical form is missing or undecodable is neither:
+it fails closed (`PerRootConfigInvalidException`) and never falls through to the global layer.
 `advance_item`, `complete_tree` and
 REST `POST /items/{id}/advance` read the advanced item's config (and every cascade target's) inside the
 advance's unit, so the NOTE, lease and label decisions never use config read before the writer lock;
@@ -2264,7 +2271,7 @@ so a push is never silently partial:
 | `work_item_schemas` | Yes | `PerRootConfigService` / `ToolExecutionContext.resolveSchema()` |
 | `note_schemas` (legacy) | Yes | `PerRootConfigService` / `ToolExecutionContext.resolveSchema()` |
 | `traits` | Yes | `PerRootConfigService` / `ToolExecutionContext.resolveSchema()` |
-| `project` | Yes | `ProjectConfigPushService` (embedded `project.rootId` guard only) |
+| `project` | Yes | `ConfigService` (embedded `project.rootId` guard only) |
 | `note_limits` | Yes | `ToolExecutionContext.resolveNoteLimitsMode()` |
 | `status_labels` | Yes | `ToolExecutionContext.resolveStatusLabel()` |
 | `resources` | Yes | `ToolExecutionContext.resolveResourceRegistry()` |

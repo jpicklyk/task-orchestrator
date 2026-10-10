@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocume
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.WRITE_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureProjectConfigTestApp
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.put
@@ -223,7 +224,7 @@ class SeatConfigLoadFailClosedTest {
             assertEquals(HttpStatusCode.UnprocessableEntity, response.status)
             assertTrue(response.bodyAsText().contains("parse_error"), "body: ${response.bodyAsText()}")
 
-            val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
+            val persisted = runBlocking { repo.configStore().get(root.id) }
             assertTrue(persisted == null, "a two-enters:true config must never be stored")
         }
 
@@ -305,7 +306,7 @@ class SeatConfigLoadFailClosedTest {
                 }
             assertEquals(HttpStatusCode.UnprocessableEntity, restResponse.status)
             assertTrue(restResponse.bodyAsText().contains("parse_error"), "body: ${restResponse.bodyAsText()}")
-            val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
+            val persisted = runBlocking { repo.configStore().get(root.id) }
             assertTrue(persisted == null, "a duplicate seat name config must never be stored")
         }
 
@@ -345,7 +346,7 @@ class SeatConfigLoadFailClosedTest {
                 }
             assertEquals(HttpStatusCode.UnprocessableEntity, restResponse.status)
             assertTrue(restResponse.bodyAsText().contains("parse_error"), "body: ${restResponse.bodyAsText()}")
-            val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
+            val persisted = runBlocking { repo.configStore().get(root.id) }
             assertTrue(persisted == null, "a config with a seat named 'unowned' must never be stored")
         }
 
@@ -384,7 +385,7 @@ class SeatConfigLoadFailClosedTest {
                 }
             assertEquals(HttpStatusCode.UnprocessableEntity, restResponse.status)
             assertTrue(restResponse.bodyAsText().contains("parse_error"), "body: ${restResponse.bodyAsText()}")
-            val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
+            val persisted = runBlocking { repo.configStore().get(root.id) }
             assertTrue(persisted == null, "an after-cycle config must never be stored")
         }
 

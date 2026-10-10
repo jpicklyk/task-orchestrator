@@ -3,9 +3,13 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
+import io.github.jpicklyk.mcptask.current.test.configYaml
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.rootItemId
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.updatedAt
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
@@ -19,21 +23,21 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Exercises [ProjectConfigPushService.push] directly against a real SQLite-backed
- * [SQLiteProjectConfigRepository] and [SQLiteWorkItemRepository] — mirrors
+ * Exercises [ConfigService.push] directly against a real SQLite-backed
+ * [SqliteConfigStore] and [SQLiteWorkItemRepository] — mirrors
  * [io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigToolTest]'s DB-backed
  * style. Focused on the embedded `project.rootId` guard added on top of the existing
  * validate-then-persist pipeline (size cap / existence / depth-0 / parse are already covered at the
  * tool and route layers — this file's `basic push still works` case is a smoke check, not a full
  * re-test of that pipeline).
  */
-class ProjectConfigPushServiceTest {
+class ConfigServiceTest {
     @RegisterExtension
     val db = SqliteTestDatabase.perMethod()
 
-    private lateinit var service: ProjectConfigPushService
+    private lateinit var service: ConfigService
     private lateinit var workItemRepository: SQLiteWorkItemRepository
-    private lateinit var projectConfigRepository: SQLiteProjectConfigRepository
+    private lateinit var projectConfigRepository: SqliteConfigStore
     private lateinit var rootId: UUID
     private lateinit var otherRootId: UUID
 
@@ -51,13 +55,13 @@ class ProjectConfigPushServiceTest {
     fun setUp() =
         runBlocking {
             workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
-            projectConfigRepository = db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository
+            projectConfigRepository = db.repositoryProvider().configStore() as SqliteConfigStore
 
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository
-            every { repositoryProvider.projectConfigRepository() } returns projectConfigRepository
+            every { repositoryProvider.configStore() } returns projectConfigRepository
 
-            service = ProjectConfigPushService(repositoryProvider, YamlConfigDocumentParser, db.unitOfWork())
+            service = ConfigService(repositoryProvider, YamlConfigDocumentParser, db.unitOfWork())
 
             rootId = workItemRepository.create(WorkItem(title = "Root", type = "project")).id
             otherRootId = workItemRepository.create(WorkItem(title = "Other Root", type = "project")).id
@@ -73,7 +77,7 @@ class ProjectConfigPushServiceTest {
         runBlocking {
             val result = service.push(rootId, plainYaml)
 
-            assertTrue(result is ProjectConfigPushResult.Success)
+            assertTrue(result is ConfigPushResult.Success)
         }
 
     @Test
@@ -81,7 +85,7 @@ class ProjectConfigPushServiceTest {
         runBlocking {
             val result = service.push(rootId, yamlWithEmbeddedRootId(rootId.toString()))
 
-            assertTrue(result is ProjectConfigPushResult.Success)
+            assertTrue(result is ConfigPushResult.Success)
         }
 
     @Test
@@ -89,8 +93,8 @@ class ProjectConfigPushServiceTest {
         runBlocking {
             val result = service.push(rootId, yamlWithEmbeddedRootId(otherRootId.toString()))
 
-            assertTrue(result is ProjectConfigPushResult.RootIdMismatch)
-            val mismatch = result as ProjectConfigPushResult.RootIdMismatch
+            assertTrue(result is ConfigPushResult.RootIdMismatch)
+            val mismatch = result as ConfigPushResult.RootIdMismatch
             assertEquals(rootId, mismatch.targetRootId)
             assertEquals(otherRootId, mismatch.embeddedRootId)
 
@@ -103,7 +107,7 @@ class ProjectConfigPushServiceTest {
         runBlocking {
             val result = service.push(rootId, yamlWithEmbeddedRootId("not-a-uuid"))
 
-            assertTrue(result is ProjectConfigPushResult.Success)
+            assertTrue(result is ConfigPushResult.Success)
         }
 
     @Test
@@ -111,7 +115,7 @@ class ProjectConfigPushServiceTest {
         runBlocking {
             val result = service.push(rootId, yamlWithEmbeddedRootId(otherRootId.toString()), force = true)
 
-            assertTrue(result is ProjectConfigPushResult.Success)
+            assertTrue(result is ConfigPushResult.Success)
             val stored = projectConfigRepository.get(rootId)
             assertNotNull(stored)
             assertEquals(rootId, stored?.rootItemId)
@@ -131,7 +135,7 @@ class ProjectConfigPushServiceTest {
             // yamlB has never been pushed to this root before — UNKNOWN, not SUPERSEDED.
             val result = service.push(rootId, yamlB)
 
-            assertTrue(result is ProjectConfigPushResult.Success)
+            assertTrue(result is ConfigPushResult.Success)
             val stored = projectConfigRepository.get(rootId)
             assertEquals(yamlB, stored?.configYaml)
         }
@@ -141,14 +145,14 @@ class ProjectConfigPushServiceTest {
         runBlocking {
             val yaml = "work_item_schemas:\n  a: {}\n"
             val first = service.push(rootId, yaml)
-            assertTrue(first is ProjectConfigPushResult.Success)
+            assertTrue(first is ConfigPushResult.Success)
 
             val second = service.push(rootId, yaml)
 
-            assertTrue(second is ProjectConfigPushResult.Success)
+            assertTrue(second is ConfigPushResult.Success)
             assertEquals(
-                (first as ProjectConfigPushResult.Success).fingerprint,
-                (second as ProjectConfigPushResult.Success).fingerprint
+                (first as ConfigPushResult.Success).fingerprint,
+                (second as ConfigPushResult.Success).fingerprint
             )
         }
 
@@ -164,8 +168,8 @@ class ProjectConfigPushServiceTest {
             // rejected, not silently accepted as a normal re-push.
             val result = service.push(rootId, yamlA)
 
-            assertTrue(result is ProjectConfigPushResult.Superseded)
-            val superseded = result as ProjectConfigPushResult.Superseded
+            assertTrue(result is ConfigPushResult.Superseded)
+            val superseded = result as ConfigPushResult.Superseded
             assertEquals(rootId, superseded.rootItemId)
 
             val currentStored = projectConfigRepository.get(rootId)
@@ -189,7 +193,7 @@ class ProjectConfigPushServiceTest {
 
             val result = service.push(rootId, yamlA, force = true)
 
-            assertTrue(result is ProjectConfigPushResult.Success)
+            assertTrue(result is ConfigPushResult.Success)
             val stored = projectConfigRepository.get(rootId)
             assertEquals(yamlA, stored?.configYaml, "force=true should allow reverting to the known-old content")
         }
@@ -212,8 +216,8 @@ class ProjectConfigPushServiceTest {
 
             val result = service.push(rootId, yaml)
 
-            assertTrue(result is ProjectConfigPushResult.Success)
-            assertEquals(listOf("actor_authentication"), (result as ProjectConfigPushResult.Success).ignoredSections)
+            assertTrue(result is ConfigPushResult.Success)
+            assertEquals(listOf("actor_authentication"), (result as ConfigPushResult.Success).ignoredSections)
         }
 
     @Test
@@ -239,9 +243,9 @@ class ProjectConfigPushServiceTest {
 
             val result = service.push(rootId, yaml)
 
-            assertTrue(result is ProjectConfigPushResult.Success)
+            assertTrue(result is ConfigPushResult.Success)
             assertTrue(
-                (result as ProjectConfigPushResult.Success).ignoredSections.isEmpty(),
+                (result as ConfigPushResult.Success).ignoredSections.isEmpty(),
                 "A document that only uses honored keys must report no ignored sections"
             )
         }
@@ -251,7 +255,7 @@ class ProjectConfigPushServiceTest {
         runBlocking {
             val result = service.push(rootId, "")
 
-            assertTrue(result is ProjectConfigPushResult.Success)
-            assertTrue((result as ProjectConfigPushResult.Success).ignoredSections.isEmpty())
+            assertTrue(result is ConfigPushResult.Success)
+            assertTrue((result as ConfigPushResult.Success).ignoredSections.isEmpty())
         }
 }

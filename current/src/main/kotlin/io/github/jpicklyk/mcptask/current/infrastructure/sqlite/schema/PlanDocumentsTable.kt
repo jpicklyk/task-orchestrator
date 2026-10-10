@@ -12,7 +12,7 @@ import java.util.UUID
  *
  * `(rootItemId, slug)` is unique — a stash to an existing `pending` slug overwrites it in place;
  * a stash to an `adopted` slug is rejected by the service layer (adoption is a one-way transition,
- * not enforced by a DB constraint). Mirrors [ProjectConfigTable]'s style: BLOB id default, a plain
+ * not enforced by a DB constraint). Mirrors [ConfigVersionsTable]'s style: BLOB id default, a plain
  * unique-index pair rather than an inline `UNIQUE` column.
  *
  * Two FKs to [WorkItemsTable] with deliberately different delete actions — see

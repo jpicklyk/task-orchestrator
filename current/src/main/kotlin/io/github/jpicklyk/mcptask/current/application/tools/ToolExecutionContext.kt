@@ -8,9 +8,9 @@ import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
 import io.github.jpicklyk.mcptask.current.application.config.ServiceBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
 import io.github.jpicklyk.mcptask.current.application.port.Clock
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
-import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
@@ -18,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.application.service.ClaimService
+import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.application.service.DependencyCommandService
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandService
@@ -79,6 +80,8 @@ class ToolExecutionContext(
      * without a transaction so tests with mocked stores keep constructing the context unchanged.
      */
     val unitOfWork: UnitOfWork = UnscopedUnitOfWork(repositoryProvider, clock),
+    /** The shared config service; null in tests, where tools build their own over [repositoryProvider]. */
+    val configService: ConfigService? = null,
 ) {
     /**
      * Durable per-element idempotency over [unitOfWork]. Lazy so contexts that never serve a keyed call
@@ -159,8 +162,8 @@ class ToolExecutionContext(
     /** Access to the actor claim verification service. */
     fun actorVerifier(): ActorVerifier = actorVerifier
 
-    /** Access to per-root config (raw YAML document) CRUD operations. */
-    fun projectConfigRepository(): ProjectConfigStore = repositoryProvider.projectConfigRepository()
+    /** Access to the versioned per-root config store. */
+    fun configStore(): ConfigStore = repositoryProvider.configStore()
 
     /**
      * Resolves the effective [WorkItemSchema] for a [WorkItem], including trait note merging.

@@ -206,7 +206,27 @@ object UpgradeHarness {
         for ((table, rows) in before) {
             val afterRows = after[table]
             if (afterRows == null) {
-                failures += "table $table disappeared"
+                val relocation = transforms.firstNotNullOfOrNull { it.relocations()[table] }
+                val targetRows = relocation?.let { after[it.table] }
+                if (relocation == null || targetRows == null) {
+                    failures += "table $table disappeared"
+                    continue
+                }
+                for ((id, beforeRow) in rows) {
+                    val row = expectedRow(table, beforeRow, transforms)
+                    val moved = targetRows[id]
+                    if (moved == null) {
+                        failures += "$table row $id was lost (expected in ${relocation.table})"
+                        continue
+                    }
+                    for ((oldColumn, newColumn) in relocation.columns) {
+                        if (oldColumn !in row) continue
+                        if (moved[newColumn] != row[oldColumn]) {
+                            failures +=
+                                "$table row $id column $oldColumn moved to ${relocation.table}.$newColumn changed: '${row[oldColumn]}' to '${moved[newColumn]}'"
+                        }
+                    }
+                }
                 continue
             }
             for ((id, beforeRow) in rows) {

@@ -23,6 +23,8 @@ import java.sql.Connection
  *   column-wide exclusion: a step below this migration still verifies every column it does not transform, and the
  *   transformed columns are verified against the exact expected value rather than skipped. Return overrides only
  *   for columns present in the row (guard with `"col" in row`): earlier steps dump older schemas.
+ * - [relocations] declares a table this migration drops after copying its rows into another table; the harness then
+ *   checks each old row by id in the target table, over the mapped columns, instead of reporting the table as lost.
  * - [verify] runs after the whole chain has been migrated to the latest version, on the migration's own step only,
  *   and asserts the transformation took effect.
  */
@@ -37,7 +39,20 @@ abstract class MigrationSeed(
         row: Map<String, Any?>
     ): Map<String, Any?> = emptyMap()
 
+    /**
+     * Tables this migration drops after relocating their rows: old table name to where the rows went. Rows keep their
+     * `id`; each entry of [Relocation.columns] maps an old column to the column of the target table that must hold
+     * the same value after the migration.
+     */
+    open fun relocations(): Map<String, Relocation> = emptyMap()
+
     open fun verify(conn: Connection) {}
+
+    /** The new home of a dropped table: [table] is the target table, [columns] maps old column to target column. */
+    data class Relocation(
+        val table: String,
+        val columns: Map<String, String>
+    )
 
     companion object {
         val SEEDS_PACKAGE: String = MigrationSeed::class.java.packageName + ".seeds"

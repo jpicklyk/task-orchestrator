@@ -1,21 +1,27 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
-import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
 import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
+import io.github.jpicklyk.mcptask.current.test.delete
+import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.getFingerprint
+import io.github.jpicklyk.mcptask.current.test.rootItemId
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -45,9 +51,9 @@ import kotlin.test.assertNull
  * scenarios S1-S8, S13, S15-S17 map 1:1 to `test-plan`'s ids; oracles are cited there (D1-D9 =
  * `diagnosis`'s frozen decisions).
  *
- * Harness: a REAL [PerRootConfigService] backed by a REAL [SQLiteProjectConfigRepository] (SQLite,
+ * Harness: a REAL [PerRootConfigService] backed by a REAL [SqliteConfigStore] (SQLite,
  * schema via [SqliteTestDatabase]) wrapped in [FailableProjectConfigRepository] — the
- * test-plan's "a test ProjectConfigStore wrapping SQLiteProjectConfigRepository; its reads
+ * test-plan's "a test ConfigStore wrapping SqliteConfigStore; its reads
  * can switch to Result.Error" harness line, which no existing src/test fixture provides (per the
  * dispatch's gap callout) and is therefore authored here. [AdvanceItemTool] itself runs against an
  * otherwise fully-mocked [RepositoryProvider], mirroring [AdvanceItemToolTest]'s own setup.
@@ -103,7 +109,7 @@ class AdvanceItemToolConfigUnavailableTest {
             databaseManager = db.databaseManager
 
             wrapperRepo =
-                FailableProjectConfigRepository(db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository)
+                FailableProjectConfigRepository(db.repositoryProvider().configStore() as SqliteConfigStore)
             perRootConfigService = PerRootConfigService(wrapperRepo)
 
             workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
@@ -497,7 +503,7 @@ class AdvanceItemToolConfigUnavailableTest {
         }
 
     @Test
-    fun `S17 - malformed stored YAML falls through to the global schema rather than throwing`(): Unit =
+    fun `S17 - a stored row without canonical JSON fails closed rather than falling through to the global schema`(): Unit =
         runBlocking {
             val malformedResult = wrapperRepo.upsert(rootItemId, "work_item_schemas: [\ninvalid yaml: :\n  - broken")
             assertEquals(
@@ -511,29 +517,36 @@ class AdvanceItemToolConfigUnavailableTest {
             coEvery { workItemRepo.getById(itemId) } returns item
             stubHealthyTransition(itemId)
 
+            // Unparseable YAML is stored without canonical JSON (test shim); that head is invalid data, not absence, so the
+            // transition must not proceed against the global schema. The typed boundary error is a later item; today the
+            // advance unit reports the fault as a failed (not applied) transition.
             val result = tool.execute(buildParams(transitionObj(itemId, "start")), context)
             val r = extractResults(result)[0].jsonObject
 
-            assertEquals(true, r["applied"]?.jsonPrimitive?.boolean)
-            assertNull(
-                r["errorCode"],
-                "malformed YAML must not surface as config_unavailable — it is treated as absence, not a read failure"
+            assertEquals(false, r["applied"]?.jsonPrimitive?.boolean)
+            kotlin.test.assertTrue(
+                r["error"]
+                    ?.jsonPrimitive
+                    ?.content
+                    .orEmpty()
+                    .contains("is invalid"),
+                "the failure names the invalid per-root config: $r"
             )
         }
 }
 
 /**
- * Wraps a real [ProjectConfigStore] (a [SQLiteProjectConfigRepository] in every test above)
+ * Wraps a real [ConfigStore] (a [SqliteConfigStore] in every test above)
  * and lets tests force [get]/[getFingerprint] to return `throw IllegalStateException("x")`
- * on demand. This is the test-plan harness's "test ProjectConfigStore wrapping
- * SQLiteProjectConfigRepository; its reads can switch to Result.Error" fixture — no such fixture
+ * on demand. This is the test-plan harness's "test ConfigStore wrapping
+ * SqliteConfigStore; its reads can switch to Result.Error" fixture — no such fixture
  * exists anywhere under src/test (confirmed gap in the dispatch's declarations), so it is authored
  * here, scoped to this file only (not extracted to a shared harness, per this item's file-ownership
  * rule).
  */
 private class FailableProjectConfigRepository(
-    private val delegate: ProjectConfigStore
-) : ProjectConfigStore by delegate {
+    private val delegate: ConfigStore
+) : ConfigStore by delegate {
     @Volatile var failFingerprint: Boolean = false
 
     @Volatile var failGet: Boolean = false
@@ -550,13 +563,15 @@ private class FailableProjectConfigRepository(
 
     private fun shouldFail(rootItemId: UUID) = failOnlyForRoot == null || failOnlyForRoot == rootItemId
 
-    override suspend fun getFingerprint(rootItemId: UUID) =
-        if (failFingerprint && shouldFail(rootItemId)) {
-            throw IllegalStateException("x")
-        } else {
-            delegate.getFingerprint(rootItemId)
-        }
+    override suspend fun head(
+        scope: ConfigScope,
+        rootId: UUID?
+    ) = if (failFingerprint && shouldFail(rootId!!)) {
+        throw IllegalStateException("x")
+    } else {
+        delegate.head(scope, rootId)
+    }
 
-    override suspend fun get(rootItemId: UUID) =
-        if (failGet && shouldFail(rootItemId)) throw IllegalStateException("x") else delegate.get(rootItemId)
+    override suspend fun version(id: UUID) =
+        if (failGet && shouldFail(delegate.version(id)?.rootId ?: UUID(0, 0))) throw IllegalStateException("x") else delegate.version(id)
 }

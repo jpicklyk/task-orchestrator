@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -17,7 +17,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStor
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -57,9 +59,9 @@ import kotlin.test.assertTrue
  * `ServerComposition.build()` + `ContentNegotiation` + `installRestApiRoutes` production topology --
  * per the task-scope-addendum's Harness rule ("never a hand-built TEC/route replica"). S11 and the
  * 400/404/403 legs of S11b build the FULL real composition (global file layer, real per-root push via
- * `projectConfigRepository().upsert`, real `PerRootConfigService`) and compute the `expected` body from
+ * `configStore().upsert`, real `PerRootConfigService`) and compute the `expected` body from
  * the SAME `composition.toolContext` the route uses. The 503 leg needs a per-root config READ to fail
- * cold, which requires substituting a failing `ProjectConfigStore`; `ServerComposition`'s public
+ * cold, which requires substituting a failing `ConfigStore`; `ServerComposition`'s public
  * constructor takes only a `DatabaseManager` with no seam to inject a custom `RepositoryProvider`
  * (confirmed from this item's supplied declarations -- `ServerComposition(appConfig, databaseManager,
  * shutdownCoordinator, logger)`), so that leg instead builds a `ToolExecutionContext` directly over the
@@ -159,7 +161,7 @@ class ItemSchemaRouteTest {
                                 depth = 1,
                             ),
                         )!!
-                repo.projectConfigRepository().upsert(r.id, SEAT_AWARE_PER_ROOT_YAML)
+                repo.configStore().upsert(r.id, SEAT_AWARE_PER_ROOT_YAML)
                     ?: error("fixture: per-root config upsert failed")
                 i
             }
@@ -201,7 +203,7 @@ class ItemSchemaRouteTest {
                                 depth = 1,
                             ),
                         )!!
-                repo.projectConfigRepository().upsert(r.id, SEATLESS_PER_ROOT_YAML)
+                repo.configStore().upsert(r.id, SEATLESS_PER_ROOT_YAML)
                     ?: error("fixture: per-root config upsert failed")
                 i
             }
@@ -331,7 +333,7 @@ class ItemSchemaRouteTest {
                     // reaches the .get() read (which failGet intercepts) once the fingerprint check
                     // has NOT short-circuited on Success(null)/absence. Mirrors
                     // ConfigUnavailableRoutesTest's S11 fixture for GET /items/{id}/gate.
-                    sqlite.projectConfigRepository().upsert(r.id, "work_item_schemas:\n  t:\n    notes: []\n")
+                    sqlite.configStore().upsert(r.id, "work_item_schemas:\n  t:\n    notes: []\n")
                     sqlite
                         .workItemRepository()
                         .create(
@@ -345,7 +347,7 @@ class ItemSchemaRouteTest {
                             ),
                         )!!
                 }
-            val failable = SchemaRouteFailableProjectConfigRepository(sqlite.projectConfigRepository())
+            val failable = SchemaRouteFailableProjectConfigRepository(sqlite.configStore())
             failable.failGet = true
             val provider = SchemaRouteFailableRepositoryProvider(sqlite, failable)
             // ServerComposition's public constructor takes only a DatabaseManager, with no seam to
@@ -356,7 +358,7 @@ class ItemSchemaRouteTest {
                 ToolExecutionContext(
                     provider,
                     ItemSchemaRouteNoGlobalSchemaService,
-                    perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                    perRootConfigService = PerRootConfigService(provider.configStore()),
                     unitOfWork = db.unitOfWork(),
                 )
             application {
@@ -418,16 +420,16 @@ private object ItemSchemaRouteNoGlobalSchemaService : WorkItemSchemaService {
 
 /** Mirrors [ConfigUnavailableRoutesTest]'s `FailableProjectConfigRepository`, named for this file's own scope. */
 private class SchemaRouteFailableProjectConfigRepository(
-    private val delegate: ProjectConfigStore,
-) : ProjectConfigStore by delegate {
+    private val delegate: ConfigStore,
+) : ConfigStore by delegate {
     @Volatile var failGet: Boolean = false
 
-    override suspend fun get(rootItemId: UUID) = if (failGet) throw IllegalStateException("x") else delegate.get(rootItemId)
+    override suspend fun version(id: UUID) = if (failGet) throw IllegalStateException("x") else delegate.version(id)
 }
 
 private class SchemaRouteFailableRepositoryProvider(
     private val delegate: RepositoryProvider,
     private val failable: SchemaRouteFailableProjectConfigRepository,
 ) : RepositoryProvider by delegate {
-    override fun projectConfigRepository(): ProjectConfigStore = failable
+    override fun configStore(): ConfigStore = failable
 }

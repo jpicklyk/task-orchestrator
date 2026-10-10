@@ -212,7 +212,7 @@ class DataStepsStartupTest {
 
         assertStoppedAtTransport(outcome)
         assertEquals(listOf("step", "transport:http"), events.toList(), "the data step must run before the transport stage")
-        assertEquals(listOf("ordered-step"), ledger(db))
+        assertEquals(listOf("config-canonicalize", "ordered-step"), ledger(db))
     }
 
     @Test
@@ -232,11 +232,11 @@ class DataStepsStartupTest {
         assertEquals(0, once2.runs.get(), "the second boot must find the first boot's row and skip the ONCE step")
         assertEquals(1, boot1.runs.get())
         assertEquals(1, boot2.runs.get(), "an EVERY_BOOT step runs on every boot")
-        assertEquals(listOf("once-step"), ledger(db), "only the ONCE step is ever recorded")
+        assertEquals(listOf("config-canonicalize", "once-step"), ledger(db), "only the ONCE steps are ever recorded")
     }
 
     @Test
-    fun `with no extra steps startup reaches the transport stage and the ledger stays empty`(
+    fun `with no extra steps startup reaches the transport stage and only the production step is recorded`(
         @TempDir tempDir: Path
     ) {
         val db = dbIn(tempDir)
@@ -246,7 +246,7 @@ class DataStepsStartupTest {
 
         assertStoppedAtTransport(outcome)
         assertEquals(listOf("transport:http"), events.toList())
-        assertEquals(emptyList(), ledger(db))
+        assertEquals(listOf("config-canonicalize"), ledger(db))
     }
 
     // ---- S14: a FLYWAY_REPAIR run exits before composition and never runs a step ----
@@ -294,7 +294,7 @@ class DataStepsStartupTest {
         assertStoppedAtTransport(outcome)
         assertEquals(1, once.runs.get(), "validate guards DDL, not data: the ONCE step must run")
         assertEquals(1, boot.runs.get())
-        assertEquals(listOf("validate-once"), ledger(db))
+        assertEquals(listOf("config-canonicalize", "validate-once"), ledger(db))
     }
 
     @Test

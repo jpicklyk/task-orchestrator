@@ -4,8 +4,10 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
+import io.github.jpicklyk.mcptask.current.test.configYaml
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.every
 import io.mockk.mockk
@@ -39,7 +41,7 @@ class ManageProjectConfigToolDispatchWarningsTest {
 
     private lateinit var tool: ManageProjectConfigTool
     private lateinit var workItemRepository: SQLiteWorkItemRepository
-    private lateinit var projectConfigRepository: SQLiteProjectConfigRepository
+    private lateinit var projectConfigRepository: SqliteConfigStore
     private lateinit var context: ToolExecutionContext
     private lateinit var rootId: UUID
 
@@ -49,11 +51,11 @@ class ManageProjectConfigToolDispatchWarningsTest {
             tool = ManageProjectConfigTool(YamlConfigDocumentParser)
 
             workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
-            projectConfigRepository = db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository
+            projectConfigRepository = db.repositoryProvider().configStore() as SqliteConfigStore
 
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository
-            every { repositoryProvider.projectConfigRepository() } returns projectConfigRepository
+            every { repositoryProvider.configStore() } returns projectConfigRepository
 
             context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
 

@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -755,8 +756,11 @@ internal fun Application.installRestApiRoutes(
                 toolContext.dependencyCommandService
             )
             // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete —
-            // converges on the same ProjectConfigPushService the manage_project_config MCP tool uses.
-            projectConfigRoutes(effectiveProvider, toolContext.unitOfWork)
+            // converges on the same ConfigService the manage_project_config MCP tool uses.
+            projectConfigRoutes(
+                effectiveProvider,
+                toolContext.configService ?: ConfigService(effectiveProvider, YamlConfigDocumentParser, toolContext.unitOfWork),
+            )
             // Additive per-root effective (layered) config view — same LayeredConfig the MCP
             // configResolver already computes, surfaced as one REST resource (AR-42).
             effectiveConfigRoutes(effectiveProvider, toolContext.configResolver, noteSchemaService)

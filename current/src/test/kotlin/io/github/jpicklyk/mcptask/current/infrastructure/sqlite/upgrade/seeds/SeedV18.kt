@@ -88,7 +88,16 @@ object SeedV18 : MigrationSeed(18) {
     private fun hex(name: String): String = BaselineDataset.id(name).joinToString("") { "%02x".format(it) }
 
     override fun verify(conn: Connection) {
-        for ((table, columns) in COLUMNS) {
+        // verify runs on the latest schema, where V24 relocated project_config rows into the config tables.
+        val latest =
+            COLUMNS.flatMap { (table, columns) ->
+                if (table == "project_config") {
+                    listOf("config_heads" to listOf("updated_at"), "config_versions" to listOf("created_at"))
+                } else {
+                    listOf(table to columns)
+                }
+            }
+        for ((table, columns) in latest) {
             for (column in columns) {
                 conn.createStatement().use { st ->
                     st.executeQuery("SELECT $column FROM $table WHERE $column IS NOT NULL").use { rs ->

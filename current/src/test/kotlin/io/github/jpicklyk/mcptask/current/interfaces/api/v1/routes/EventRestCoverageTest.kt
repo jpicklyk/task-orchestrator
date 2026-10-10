@@ -353,14 +353,14 @@ class EventRestCoverageTest {
                 }
             assertEquals(HttpStatusCode.OK, config.status, config.bodyAsText())
             val configRows = rig.rowsAfter(mark)
-            assertEquals(listOf("project_config.upserted"), configRows.types())
-            assertEquals(root.id, configRows.single().entityId)
+            assertEquals(listOf("config.version_created"), configRows.types())
+            assertEquals(root.id, configRows.single().rootId)
 
             val markDelete = rig.maxSeq()
             val removed =
                 client.delete("/api/v1/roots/${root.id}/config") { header("Authorization", "Bearer $WRITE_TOKEN") }
             assertTrue(removed.status.value in 200..299, "config delete status ${removed.status}: ${removed.bodyAsText()}")
-            assertEquals(listOf("project_config.deleted"), rig.rowsAfter(markDelete).types())
+            assertEquals(listOf("config.version_created"), rig.rowsAfter(markDelete).types())
         }
 
     @Test

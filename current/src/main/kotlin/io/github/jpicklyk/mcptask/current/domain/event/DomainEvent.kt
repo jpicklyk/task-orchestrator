@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.current.domain.event
 
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersionSource
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import java.time.Instant
 import java.util.UUID
@@ -301,27 +303,34 @@ sealed class DomainEvent {
         override fun payload(): Map<String, Any?> = mapOf("key" to key, "expiresAt" to expiresAt)
     }
 
-    // ---- per-root config and plan documents (root = the project root item) ----
+    // ---- versioned config and plan documents (root = the project root item) ----
 
-    data class ProjectConfigUpserted(
+    /**
+     * A config version was appended (a push that wrote a row, a rollback that wrote a row, or a reset). Never
+     * recorded for an identical re-push, which writes nothing. [rootId] is the project root the version belongs to.
+     */
+    data class ConfigVersionCreated(
         override val rootId: UUID,
-        val fingerprint: String
+        val versionId: UUID,
+        val scope: ConfigScope,
+        val version: Int,
+        val fingerprint: String,
+        val source: ConfigVersionSource,
+        val warningsCount: Int
     ) : DomainEvent() {
-        override val type: String get() = PROJECT_CONFIG_UPSERTED
-        override val entityKind: String get() = KIND_PROJECT_CONFIG
-        override val entityId: UUID get() = rootId
+        override val type: String get() = CONFIG_VERSION_CREATED
+        override val entityKind: String get() = KIND_CONFIG
+        override val entityId: UUID get() = versionId
 
-        override fun payload(): Map<String, Any?> = mapOf("fingerprint" to fingerprint)
-    }
-
-    data class ProjectConfigDeleted(
-        override val rootId: UUID
-    ) : DomainEvent() {
-        override val type: String get() = PROJECT_CONFIG_DELETED
-        override val entityKind: String get() = KIND_PROJECT_CONFIG
-        override val entityId: UUID get() = rootId
-
-        override fun payload(): Map<String, Any?> = emptyMap()
+        override fun payload(): Map<String, Any?> =
+            mapOf(
+                "scope" to scope.wire,
+                "rootId" to rootId,
+                "version" to version,
+                "fingerprint" to fingerprint,
+                "source" to source.wire,
+                "warningsCount" to warningsCount
+            )
     }
 
     data class PlanDocumentStashed(
@@ -351,7 +360,7 @@ sealed class DomainEvent {
         const val KIND_ITEM = "item"
         const val KIND_NOTE = "note"
         const val KIND_DEPENDENCY = "dependency"
-        const val KIND_PROJECT_CONFIG = "project_config"
+        const val KIND_CONFIG = "config"
         const val KIND_PLAN_DOCUMENT = "plan_document"
 
         const val ITEM_CREATED = "item.created"
@@ -372,8 +381,7 @@ sealed class DomainEvent {
         const val LEASE_RELEASED = "lease.released"
         const val LEASE_REJECTED = "lease.rejected"
         const val LEASE_EXPIRED = "lease.expired"
-        const val PROJECT_CONFIG_UPSERTED = "project_config.upserted"
-        const val PROJECT_CONFIG_DELETED = "project_config.deleted"
+        const val CONFIG_VERSION_CREATED = "config.version_created"
         const val PLAN_DOCUMENT_STASHED = "plan_document.stashed"
         const val PLAN_DOCUMENT_ADOPTED = "plan_document.adopted"
 

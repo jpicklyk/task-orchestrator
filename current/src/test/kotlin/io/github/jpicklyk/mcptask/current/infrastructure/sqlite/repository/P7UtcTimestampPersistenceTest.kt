@@ -7,7 +7,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Tag
@@ -142,7 +144,7 @@ class P7UtcTimestampPersistenceTest {
                 RoleTransition(itemId = root.id, fromRole = "queue", toRole = "work", trigger = "start")
             )
             provider.planDocumentRepository().stash(root.id, "plan-a", "# Plan\n")
-            provider.projectConfigRepository().upsert(root.id, "work_item_schemas:\n  default: {}\n")
+            provider.configStore().upsert(root.id, "work_item_schemas:\n  default: {}\n")
             val leases = provider.resourceLeaseRepository()
             assertIs<LeaseAcquireResult.Success>(leases.acquireAll(root.id, "agent-a", listOf("k1" to ttl.toInt())))
             assertIs<LeaseReleaseResult.Success>(leases.releaseAllForItem(root.id))
@@ -163,7 +165,7 @@ class P7UtcTimestampPersistenceTest {
                     Col("dependencies", "created_at"),
                     Col("plan_documents", "created_at"),
                     Col("plan_documents", "modified_at"),
-                    Col("project_config", "updated_at"),
+                    Col("config_heads", "updated_at"),
                     Col("role_transitions", "transitioned_at"),
                     Col("resource_leases", "acquired_at"),
                     Col("resource_leases", "expires_at", ttl),

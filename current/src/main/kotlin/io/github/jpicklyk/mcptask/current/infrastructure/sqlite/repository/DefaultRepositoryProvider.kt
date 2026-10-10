@@ -1,13 +1,13 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.Clock
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.application.port.IdempotencyStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
-import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
@@ -32,7 +32,7 @@ class DefaultRepositoryProvider(
     private val noteRepo by lazy { SQLiteNoteRepository(databaseManager) }
     private val dependencyRepo by lazy { SQLiteDependencyRepository(databaseManager) }
     private val roleTransitionRepo by lazy { SQLiteRoleTransitionRepository(databaseManager) }
-    private val projectConfigRepo by lazy { SQLiteProjectConfigRepository(databaseManager) }
+    private val configStore by lazy { SqliteConfigStore(databaseManager) }
     private val planDocumentRepo by lazy { SQLitePlanDocumentRepository(databaseManager) }
     private val resourceLeaseRepo by lazy { SQLiteResourceLeaseRepository(databaseManager, clock) }
     private val idempotencyStoreInstance by lazy { SqliteIdempotencyStore(databaseManager) }
@@ -49,7 +49,7 @@ class DefaultRepositoryProvider(
 
     override fun roleTransitionRepository(): TransitionStore = roleTransitionRepo
 
-    override fun projectConfigRepository(): ProjectConfigStore = projectConfigRepo
+    override fun configStore(): ConfigStore = configStore
 
     override fun planDocumentRepository(): PlanDocumentStore = planDocumentRepo
 

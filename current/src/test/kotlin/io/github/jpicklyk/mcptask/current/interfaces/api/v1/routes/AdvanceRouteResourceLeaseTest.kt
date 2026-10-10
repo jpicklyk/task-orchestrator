@@ -21,6 +21,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigSer
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -236,7 +237,7 @@ private fun Application.configureLeaseTestApp(
                     provider,
                     LeaseTraitSchemaService(),
                     statusLabelService = NoOpStatusLabelService,
-                    perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                    perRootConfigService = PerRootConfigService(provider.configStore()),
                     unitOfWork = unitOfWork
                 ).advanceServiceFactory(),
                 unitOfWork,

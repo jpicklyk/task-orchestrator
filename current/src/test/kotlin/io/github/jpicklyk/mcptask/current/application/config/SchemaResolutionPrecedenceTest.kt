@@ -1,7 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
-import io.github.jpicklyk.mcptask.current.application.port.ProjectConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
@@ -10,9 +11,11 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
@@ -404,7 +407,7 @@ class SchemaResolutionPrecedenceTest {
     @Test
     fun `S8 - legacy mode tag probe applies identically for a rooted item whose per-root config has no default`(): Unit =
         runBlocking {
-            val projectConfigRepository = db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository
+            val projectConfigRepository = db.repositoryProvider().configStore() as SqliteConfigStore
             val workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
             val perRootConfigService = PerRootConfigService(projectConfigRepository)
 
@@ -432,22 +435,24 @@ class SchemaResolutionPrecedenceTest {
     // ──────────────────────────────────────────────
 
     private class FailableProjectConfigRepository(
-        private val delegate: ProjectConfigStore
-    ) : ProjectConfigStore by delegate {
+        private val delegate: ConfigStore
+    ) : ConfigStore by delegate {
         @Volatile var failFingerprint: Boolean = false
 
-        override suspend fun getFingerprint(rootItemId: UUID) =
-            if (failFingerprint) {
-                throw IllegalStateException("boom")
-            } else {
-                delegate.getFingerprint(rootItemId)
-            }
+        override suspend fun head(
+            scope: ConfigScope,
+            rootId: UUID?
+        ) = if (failFingerprint) {
+            throw IllegalStateException("boom")
+        } else {
+            delegate.head(scope, rootId)
+        }
     }
 
     @Test
     fun `S13 - a cold per-root read failure throws in layered mode too, never falling back to global`(): Unit =
         runBlocking {
-            val realRepo = db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository
+            val realRepo = db.repositoryProvider().configStore() as SqliteConfigStore
             val workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
             val wrapper = FailableProjectConfigRepository(realRepo)
             val perRootConfigService = PerRootConfigService(wrapper)

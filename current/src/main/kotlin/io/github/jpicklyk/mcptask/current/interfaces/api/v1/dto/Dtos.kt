@@ -608,8 +608,8 @@ data class SearchHitDto(
  * Response DTO for `PUT /api/v1/roots/{rootId}/config` and `GET /api/v1/roots/{rootId}/config`.
  *
  * Mirrors the `data` payload of the MCP `manage_project_config` tool's `push`/`get` operations
- * (see [io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushResult.Success]) —
- * both surfaces converge on the same [io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushService].
+ * (see [io.github.jpicklyk.mcptask.current.application.service.ConfigPushResult.Success]) —
+ * both surfaces converge on the same [io.github.jpicklyk.mcptask.current.application.service.ConfigService].
  * `configYaml` is included only on GET (omitted on PUT, which already echoed the caller's own body).
  * `warning` carries the non-fatal "root type is not 'project'" notice, when applicable.
  */
@@ -626,6 +626,34 @@ data class ProjectConfigResponseDto(
     val ignoredSections: List<String>? = null,
     /** Soft schema/trait parse warnings (e.g. an invalid note `role`, a note entry missing `key`); present only on PUT, and only when non-empty. The push still succeeds and stores the config. */
     val schemaWarnings: List<String>? = null,
+    /** The version number of the returned config version (the new head on PUT / rollback). */
+    val version: Int? = null,
+    /** How the returned version came to exist: push, file-import, migration, rollback or reset. */
+    val source: String? = null,
+    /** PUT / rollback only: false when nothing was written (an identical re-push, or a rollback to the head's own content). */
+    val appended: Boolean? = null,
+)
+
+/** One row of `GET /api/v1/roots/{rootId}/config/history` - a version's metadata, never its YAML. */
+@Serializable
+data class ConfigVersionSummaryDto(
+    val version: Int,
+    val fingerprint: String,
+    val source: String,
+    val createdAt: String,
+    val principalId: String? = null,
+    val warningsCount: Int,
+    /** False only for a migrated version the `config-canonicalize` step has not filled yet. */
+    val canonical: Boolean,
+)
+
+/** Response DTO for `GET /api/v1/roots/{rootId}/config/history`; [versions] is newest first. */
+@Serializable
+data class ConfigHistoryResponseDto(
+    val rootId: String,
+    /** The current head's version, or null when the root has no config at all. */
+    val headVersion: Int? = null,
+    val versions: List<ConfigVersionSummaryDto>,
 )
 
 /**

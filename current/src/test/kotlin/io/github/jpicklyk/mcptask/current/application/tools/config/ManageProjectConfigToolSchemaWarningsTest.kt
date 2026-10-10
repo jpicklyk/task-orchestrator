@@ -4,8 +4,10 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
+import io.github.jpicklyk.mcptask.current.test.configYaml
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.every
 import io.mockk.mockk
@@ -27,7 +29,7 @@ import kotlin.test.assertTrue
 /**
  * Exercises the MCP `manage_project_config` `push` operation's `data.schemaWarnings` field --
  * the additive array surfacing
- * [io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushResult.Success.schemaWarnings]
+ * [io.github.jpicklyk.mcptask.current.application.service.ConfigPushResult.Success.schemaWarnings]
  * on the tool response, present only when non-empty.
  *
  * Independent test authorship per the `needs-test-author` trait: written against the item's
@@ -42,7 +44,7 @@ class ManageProjectConfigToolSchemaWarningsTest {
 
     private lateinit var tool: ManageProjectConfigTool
     private lateinit var workItemRepository: SQLiteWorkItemRepository
-    private lateinit var projectConfigRepository: SQLiteProjectConfigRepository
+    private lateinit var projectConfigRepository: SqliteConfigStore
     private lateinit var context: ToolExecutionContext
     private lateinit var rootId: UUID
 
@@ -52,11 +54,11 @@ class ManageProjectConfigToolSchemaWarningsTest {
             tool = ManageProjectConfigTool(YamlConfigDocumentParser)
 
             workItemRepository = db.repositoryProvider().workItemRepository() as SQLiteWorkItemRepository
-            projectConfigRepository = db.repositoryProvider().projectConfigRepository() as SQLiteProjectConfigRepository
+            projectConfigRepository = db.repositoryProvider().configStore() as SqliteConfigStore
 
             val repositoryProvider = mockk<RepositoryProvider>(relaxed = true)
             every { repositoryProvider.workItemRepository() } returns workItemRepository
-            every { repositoryProvider.projectConfigRepository() } returns projectConfigRepository
+            every { repositoryProvider.configStore() } returns projectConfigRepository
 
             context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
 

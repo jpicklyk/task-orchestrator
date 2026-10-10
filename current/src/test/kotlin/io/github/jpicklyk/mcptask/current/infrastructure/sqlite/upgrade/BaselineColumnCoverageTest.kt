@@ -40,7 +40,12 @@ class BaselineColumnCoverageTest {
          * Column pairs ("table.a=table.b") that may legitimately be equal in every row. Every entry needs a reason; a
          * stale entry (the pair is distinguishable, or a column is gone) fails the test.
          */
-        val PAIR_EXEMPT: Map<String, String> = emptyMap()
+        val PAIR_EXEMPT: Map<String, String> =
+            mapOf(
+                // The seeded config version is the first (version 1) of the only defined canonical model (model_version 1):
+                // both counters start at 1, so no honest single-row seed can tell them apart.
+                "config_versions.version=config_versions.model_version" to "both counters start at 1"
+            )
     }
 
     private data class Col(

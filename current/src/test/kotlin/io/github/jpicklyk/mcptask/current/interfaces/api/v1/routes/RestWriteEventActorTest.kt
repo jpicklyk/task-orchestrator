@@ -17,7 +17,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.drainDelivered
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.eventWiredUnit
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.delete
 import io.ktor.client.request.header
 import io.ktor.client.request.patch
@@ -64,7 +66,7 @@ class RestWriteEventActorTest {
                     decorated,
                     NoOpNoteSchemaService,
                     statusLabelService = NoOpStatusLabelService,
-                    perRootConfigService = PerRootConfigService(decorated.projectConfigRepository()),
+                    perRootConfigService = PerRootConfigService(decorated.configStore()),
                     unitOfWork = unitOfWork
                 )
             itemWriteRoutes(

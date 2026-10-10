@@ -132,7 +132,8 @@ class SchemaParityTest {
                     // `NOT NULL` (notnull=1) and call_log declares its TEXT key `req_id TEXT NOT NULL PRIMARY KEY` (SQLite lets a
                     // non-INTEGER primary key hold NULL unless NOT NULL is stated); every other table is pinned to (database
                     // notnull=0, Exposed non-null).
-                    val allowedDbNotNull = t == "idempotency_records" || t == "call_log" || t == "data_steps"
+                    val allowedDbNotNull =
+                        t == "idempotency_records" || t == "call_log" || t == "data_steps" || t == "config_known_fingerprints"
                     if ((dbCol.notNull && !allowedDbNotNull) || exposedNullable) {
                         mismatches += "$t.$name: primary-key nullability pair changed from (database notnull=0, Exposed non-null)"
                     }
@@ -195,7 +196,7 @@ class SchemaParityTest {
                 "notes",
                 "dependencies",
                 "role_transitions",
-                "project_config",
+                "config_versions",
                 "plan_documents",
                 "resource_leases",
                 "resource_lease_history"

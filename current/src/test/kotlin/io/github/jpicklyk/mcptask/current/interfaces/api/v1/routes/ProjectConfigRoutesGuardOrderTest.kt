@@ -2,6 +2,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.configYaml
+import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.put
@@ -102,7 +104,7 @@ class ProjectConfigRoutesGuardOrderTest {
             assertEquals(HttpStatusCode.Conflict, response.status)
             assertTrue(response.bodyAsText().contains("superseded"))
 
-            val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
+            val persisted = runBlocking { repo.configStore().get(root.id) }
             assertEquals(yamlB, persisted?.configYaml, "the rejected push must not overwrite B")
         }
 
@@ -248,7 +250,7 @@ class ProjectConfigRoutesGuardOrderTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `probe a CRLF copy of the current content fingerprints identically and stores the raw CRLF bytes`(): Unit =
+    fun `probe a CRLF copy of the current content fingerprints identically and appends nothing`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
             val root = createGuardOrderRoot(repo)
@@ -282,9 +284,12 @@ class ProjectConfigRoutesGuardOrderTest {
                     "byte-identical content must fingerprint the SAME as the LF original",
             )
 
-            val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
+            // An identical re-push (same fingerprint) appends nothing: the head stays the original version, whose
+            // stored body was never normalized either.
+            val persisted = runBlocking { repo.configStore().get(root.id) }
+            assertEquals(1, persisted?.version, "no second version is appended for fingerprint-identical content")
             assertEquals(
-                crlfBody,
+                GUARD_ORDER_VALID_YAML,
                 persisted?.configYaml,
                 "the STORED body is never normalized -- only the value fed into the fingerprint hash",
             )
