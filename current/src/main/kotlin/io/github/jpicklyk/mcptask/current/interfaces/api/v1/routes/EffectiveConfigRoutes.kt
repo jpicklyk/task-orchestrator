@@ -18,8 +18,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeFor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.EffectiveConfigDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.EffectiveSchemaDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.TraitDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.StatusGraphBuilder
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -71,28 +72,25 @@ fun Route.effectiveConfigRoutes(
             val rootId = call.parseEffectiveConfigRootId() ?: return@get
 
             if (!enforceScopeForItem(call, rootId, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for root $rootId"))
+                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for root $rootId")
                 return@get
             }
 
             val itemResult =
                 legacyRead({
                     effectiveConfigLogger.warn("GET /roots/{}/config/effective DB error: {}", rootId, it)
-                    call.respondDbError("Failed to read root WorkItem")
+                    call.respondError(LegacyRestCode.DB_ERROR, "Failed to read root WorkItem")
                     return@get
                 }) { workItemRepo.getById(rootId) }
             if (itemResult == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Root WorkItem not found: $rootId"))
+                call.respondError(LegacyRestCode.NOT_FOUND, "Root WorkItem not found: $rootId")
                 return@get
             }
             val item = itemResult
             if (item.depth != 0) {
-                call.respond(
-                    HttpStatusCode.UnprocessableEntity,
-                    ErrorDto(
-                        "validation_error",
-                        "rootId must reference a depth-0 (root) WorkItem; '$rootId' has depth ${item.depth}",
-                    ),
+                call.respondError(
+                    LegacyRestCode.VALIDATION_ERROR_UNPROCESSABLE,
+                    "rootId must reference a depth-0 (root) WorkItem; '$rootId' has depth ${item.depth}"
                 )
                 return@get
             }
@@ -101,10 +99,7 @@ fun Route.effectiveConfigRoutes(
                 try {
                     configResolver.layered(rootId)
                 } catch (e: PerRootConfigUnavailableException) {
-                    call.respond(
-                        HttpStatusCode.ServiceUnavailable,
-                        ErrorDto(PerRootConfigUnavailableException.CODE, e.message),
-                    )
+                    call.respondError(LegacyRestCode.CONFIG_UNAVAILABLE, e.message)
                     return@get
                 }
 
@@ -219,11 +214,11 @@ private fun SchemaMatch.toEffectiveSchemaDto(queriedType: String): EffectiveSche
 private suspend fun ApplicationCall.parseEffectiveConfigRootId(): UUID? {
     val rawId =
         parameters["rootId"] ?: run {
-            respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing rootId"))
+            respondError(LegacyRestCode.BAD_REQUEST, "Missing rootId")
             return null
         }
     return runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-        respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+        respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
         null
     }
 }

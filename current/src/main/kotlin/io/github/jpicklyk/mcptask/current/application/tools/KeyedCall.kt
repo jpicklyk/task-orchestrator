@@ -193,16 +193,17 @@ class KeyedCall(
         when (val outcome = result.outcome) {
             is Outcome.Ok -> if (result.replayed) withReplayedData(outcome.value) else outcome.value
             is Outcome.Err ->
-                unrecorded ?: ResponseUtil.createErrorResponse(
+                unrecorded ?: LegacyMcpErrorMapper.envelope(
                     message = outcome.error.message,
                     code =
                         if (outcome.error.code ==
                             ErrorCode.IDEMPOTENCY_MISMATCH
                         ) {
-                            IDEMPOTENCY_MISMATCH_CODE
+                            LegacyMcpCode.IDEMPOTENCY_MISMATCH
                         } else {
-                            ErrorCodes.INTERNAL_ERROR
-                        }
+                            LegacyMcpCode.INTERNAL_ERROR
+                        },
+                    cause = outcome.error
                 )
         }
 
@@ -238,7 +239,7 @@ class KeyedCall(
         /** [params] without `requestId` and the top-level `actor`. */
         fun withoutKeyFields(params: JsonElement): JsonObject = sharedOf(params)
 
-        /** The default `{index, error}` failure; a key mismatch also carries its `errorCode`. */
+        /** The default `{index, error, errorCode, errorKind}` failure; the code is the catalog code of [error]. */
         fun defaultFailure(
             index: Int,
             error: DomainError
@@ -246,7 +247,7 @@ class KeyedCall(
             buildJsonObject {
                 put("index", JsonPrimitive(index))
                 put("error", JsonPrimitive(error.message))
-                if (error.code == ErrorCode.IDEMPOTENCY_MISMATCH) put("errorCode", JsonPrimitive(IDEMPOTENCY_MISMATCH_CODE))
+                putElementError(error)
             }
 
         private fun invalidRequest(message: String) =

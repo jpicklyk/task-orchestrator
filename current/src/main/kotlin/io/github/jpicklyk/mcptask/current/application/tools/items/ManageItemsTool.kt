@@ -302,7 +302,7 @@ Creating or moving under a terminal auto-lifecycle parent fails (reopen it). Mov
                     context,
                     keyed
                 )
-            else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
+            else -> errorResponse("Invalid operation: $operation", LegacyMcpCode.VALIDATION_ERROR)
         }
     }
 

@@ -9,7 +9,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowedItemIdsF
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.BacklinkDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.DB_QUERY_FAILED
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.buildDependenciesDto
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
@@ -51,27 +53,27 @@ fun Route.dependencyRoutes(repositoryProvider: RepositoryProvider) {
         get("/items/{id}/dependencies") {
             val rawId =
                 call.parameters["id"] ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
                     return@get
                 }
             val id =
                 runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
                     return@get
                 }
 
             val itemResult =
                 legacyRead({
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@get
                 }) { workItemRepo.getById(id) }
             if (itemResult == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
+                call.respondError(LegacyRestCode.NOT_FOUND, "Item $id not found")
                 return@get
             }
 
             if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
+                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
                 return@get
             }
 
@@ -97,27 +99,27 @@ fun Route.dependencyRoutes(repositoryProvider: RepositoryProvider) {
         get("/items/{id}/backlinks") {
             val rawId =
                 call.parameters["id"] ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
                     return@get
                 }
             val id =
                 runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
                     return@get
                 }
 
             val itemResult =
                 legacyRead({
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@get
                 }) { workItemRepo.getById(id) }
             if (itemResult == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
+                call.respondError(LegacyRestCode.NOT_FOUND, "Item $id not found")
                 return@get
             }
 
             if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
+                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
                 return@get
             }
 

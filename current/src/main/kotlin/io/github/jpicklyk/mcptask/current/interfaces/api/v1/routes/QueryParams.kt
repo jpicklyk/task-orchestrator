@@ -2,10 +2,9 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
-import io.ktor.http.HttpStatusCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.ktor.server.application.ApplicationCall
-import io.ktor.server.response.respond
 import java.time.Instant
 import java.util.UUID
 
@@ -97,7 +96,7 @@ private suspend fun <T> ApplicationCall.respondParam(result: QueryParam<T>): Fil
         is QueryParam.Absent -> Filter(null)
         is QueryParam.Present -> Filter(result.value)
         is QueryParam.Invalid -> {
-            respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", result.message))
+            respondError(LegacyRestCode.VALIDATION_ERROR, result.message)
             null
         }
     }

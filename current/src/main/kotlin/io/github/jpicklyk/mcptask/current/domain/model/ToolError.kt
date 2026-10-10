@@ -19,13 +19,15 @@ import java.util.UUID
  *                        null means the caller should apply its own back-off).
  * @property contendedItemId UUID of the work item involved in a contention error (populated for
  *                           [ErrorKind.TRANSIENT] claim-race or version-conflict failures).
+ * @property details    Optional free-text detail (e.g. a stack trace or field-level text), emitted as `details`.
  */
 data class ToolError(
     val kind: ErrorKind,
     val code: String,
     val message: String,
     val retryAfterMs: Long? = null,
-    val contendedItemId: UUID? = null
+    val contendedItemId: UUID? = null,
+    val details: String? = null
 ) {
     companion object {
         /**

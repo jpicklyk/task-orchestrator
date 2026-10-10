@@ -2725,19 +2725,60 @@ self-reported actor id, up to the 500-character actor cap, with `proof_status` s
 
 All tool failures use a structured `ToolError` shape that classifies retry semantics. The MCP layer
 surfaces this same object through the tool call's `structuredContent.error`, so clients can branch
-on `code`/`kind` without parsing the text summary:
+on `code`/`kind` without parsing the text summary. **Every** tool error carries `kind`: a top-level
+failure, a per-element failure entry (`errorKind`), and a `claim_item` result outcome that is a
+failure (`kind`). A single mapper builds every error, and `kind` is always the retry class of the
+error catalog code that classifies the failure; the 3.x `code` strings and messages are unchanged.
 
 ```json
 {
   "error": {
-    "kind": "transient",
-    "code": "claim_contention",
-    "message": "Item already claimed by another agent",
-    "retryAfterMs": 420000,
-    "contendedItemId": "550e8400-e29b-41d4-a716-446655440001"
+    "code": "DATABASE_ERROR",
+    "message": "Database error in 'manage_items': Database is busy: database is locked",
+    "kind": "shedding"
   }
 }
 ```
+
+A per-transition failure of `advance_item` (and a per-item failure of `complete_tree`) puts the same
+fields on the element, with `errorCode`/`errorKind` in place of `code`/`kind`, and adds `retryAfterMs`
+or `contendedItemId` where they apply:
+
+```json
+{
+  "itemId": "550e8400-e29b-41d4-a716-446655440001",
+  "trigger": "start",
+  "applied": false,
+  "error": "Cannot enter work phase: resource(s) currently held by another work item: db-migrations",
+  "errorKind": "transient",
+  "errorCode": "resource_unavailable",
+  "retryAfterMs": 420000,
+  "contendedResources": ["db-migrations"]
+}
+```
+
+**Per-element failure entries.** A failed element of a batch call (`manage_items` create, update and
+delete; `manage_notes` upsert and delete; `manage_dependencies` create; every `complete_tree` item that was
+not applied, including a skipped dependent and an already-terminal item) carries `errorCode` and
+`errorKind` next to `error`. `errorCode` is the error catalog's wire code (`invalid_request`,
+`not_found`, `ambiguous_id`, `version_conflict`, `duplicate`, `cycle_detected`, `idempotency_mismatch`,
+`note_too_long`, `payload_too_large`, `invalid_transition`, `dependency_unmet`, `internal`, ...); an
+element that already carried a tool-local code (`config_unavailable`, `gate_blocked`, `NOTE_BODY_TOO_LONG`
+in `code`) keeps it unchanged. A `claim_item` result whose `outcome` is a failure (`not_found`,
+`terminal_item`, `not_claimed_by_you`, `queue_empty`, `none_eligible`, `db_error`,
+`idempotency_mismatch`) carries `kind` and `code` (the outcome value) immediately after `outcome`;
+`already_claimed` keeps its `kind`, `contendedItemId` and `retryAfterMs`.
+
+**Kinds by cause.** A failure takes its kind from the catalog code that classifies it: validation, not-found,
+ownership, gate, dependency and conflict failures are `permanent`; an unexpected internal error, a store
+fault that is not busy, a resource-lease contention, a held claim and a per-root `config_unavailable` are
+`transient`; a busy database or a connection-pool timeout is `shedding`. The kind of a `DATABASE_ERROR`
+now follows the fault (it was always `permanent` when it escaped a tool): `shedding` for busy or pool
+timeout, `permanent` for a duplicate or foreign-key fault, `transient` for any other store fault.
+An `advance_item` `apply_failed` takes its kind from its cause the same way (a vanished row or a
+version conflict is `permanent`, a busy database `shedding`, anything else `transient`).
+An unexpected exception that escapes a tool keeps its `Internal error in '<tool>' ...` text and now
+also carries `structuredContent.error` `{code: "INTERNAL_ERROR", message: <same text>, kind: "transient"}`.
 
 **Storage faults.** A database fault keeps the 3.x `DATABASE_ERROR` code on both reads and writes, and
 is never reported as `RESOURCE_NOT_FOUND` (not-found means only that the row does not exist). A tool
@@ -2757,15 +2798,15 @@ is returned as `DATABASE_ERROR` with the message `Database error in '<tool>': <s
 |---|---|---|
 | `transient` | Temporary failure; retrying may succeed | Retry with exponential backoff. Typical causes: lock contention, JWKS unavailable, transient DB busy, per-root config read failure (`config_unavailable` — see below). |
 | `permanent` | Definitive failure; retrying will produce the same result | Do not retry. Typical causes: validation errors, authorization failures, not-found. |
-| `shedding` | Server temporarily over capacity | Retry after `retryAfterMs` milliseconds. Typical causes: writer queue saturated, circuit-breaker open. |
+| `shedding` | Server temporarily over capacity | Retry after `retryAfterMs` milliseconds when it is present, otherwise back off. Produced for a busy database (`SQLITE_BUSY` after the unit's retry deadline) and a connection-pool timeout. |
 
 ### Error Envelope Fields
 
 | Field | Type | Description |
 |---|---|---|
-| `kind` | string | One of: `transient`, `permanent`, `shedding` |
 | `code` | string | Structured error code for programmatic handling |
 | `message` | string | Human-readable failure description |
+| `kind` | string | One of: `transient`, `permanent`, `shedding`. Always present. |
 | `retryAfterMs` | integer (nullable) | Milliseconds to wait before retrying. Populated for `shedding`; null otherwise (use own backoff). |
 | `contendedItemId` | string UUID (nullable) | UUID of the work item involved in a contention error. Populated for `transient` claim-race or version-conflict failures. Allows agents to distinguish "retry this item" from "pick a different item" without parsing `message`. |
 | `details` | any (nullable) | Additional structured detail specific to the failure (e.g., gate `missingNotes`, dependency `blockers`). Omitted when there is nothing beyond `message`. |

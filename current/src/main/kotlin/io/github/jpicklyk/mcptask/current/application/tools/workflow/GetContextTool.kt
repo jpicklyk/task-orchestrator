@@ -189,14 +189,14 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
             when {
                 explicitMode == "item" || (explicitMode == null && itemId != null) -> {
                     if (itemId == null) {
-                        errorResponse("mode=item requires itemId parameter", ErrorCodes.VALIDATION_ERROR)
+                        errorResponse("mode=item requires itemId parameter", LegacyMcpCode.VALIDATION_ERROR)
                     } else {
                         executeItemMode(itemId, context, includeAncestors)
                     }
                 }
                 explicitMode == "session-resume" || (explicitMode == null && sinceInstant != null) -> {
                     if (sinceInstant == null) {
-                        errorResponse("mode=session-resume requires since parameter", ErrorCodes.VALIDATION_ERROR)
+                        errorResponse("mode=session-resume requires since parameter", LegacyMcpCode.VALIDATION_ERROR)
                     } else {
                         executeSessionResumeMode(sinceInstant, context, includeAncestors, transitionLimit, ancestorId)
                     }
@@ -218,7 +218,7 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
         val item =
             itemResult ?: return errorResponse(
                 "WorkItem not found: $itemId",
-                ErrorCodes.RESOURCE_NOT_FOUND
+                LegacyMcpCode.RESOURCE_NOT_FOUND
             )
 
         recordCallTargetVersion(item.id, item.version)

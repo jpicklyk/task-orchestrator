@@ -7,10 +7,11 @@ import io.github.jpicklyk.mcptask.current.application.service.RuleService
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.RuleListResponseDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.RuleResponseDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.RuleSummaryDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
@@ -61,7 +62,7 @@ fun Route.ruleRoutes(repositoryProvider: RepositoryProvider) {
                 val rootId = call.parseRuleRootId() ?: return@get
 
                 if (!enforceScopeForItem(call, rootId, workItemRepo)) {
-                    call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for root $rootId"))
+                    call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for root $rootId")
                     return@get
                 }
 
@@ -83,21 +84,15 @@ fun Route.ruleRoutes(repositoryProvider: RepositoryProvider) {
                         )
                     }
                     is RuleListResult.RootNotFound ->
-                        call.respond(
-                            HttpStatusCode.NotFound,
-                            ErrorDto("not_found", "Root WorkItem not found: ${result.rootId}"),
-                        )
+                        call.respondError(LegacyRestCode.NOT_FOUND, "Root WorkItem not found: ${result.rootId}")
                     is RuleListResult.NotDepthZero ->
-                        call.respond(
-                            HttpStatusCode.UnprocessableEntity,
-                            ErrorDto(
-                                "validation_error",
-                                "rootId must reference a depth-0 (root) WorkItem; '${result.rootId}' has depth ${result.depth}",
-                            ),
+                        call.respondError(
+                            LegacyRestCode.VALIDATION_ERROR_UNPROCESSABLE,
+                            "rootId must reference a depth-0 (root) WorkItem; '${result.rootId}' has depth ${result.depth}"
                         )
                     is RuleListResult.RepositoryError -> {
                         ruleRoutesLogger.warn("GET /roots/{}/rules DB error: {}", rootId, result.message)
-                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to list rules"))
+                        call.respondError(LegacyRestCode.DB_ERROR, "Failed to list rules")
                     }
                 }
             }
@@ -111,7 +106,7 @@ fun Route.ruleRoutes(repositoryProvider: RepositoryProvider) {
                     val key = call.parseRuleKey() ?: return@get
 
                     if (!enforceScopeForItem(call, rootId, workItemRepo)) {
-                        call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for root $rootId"))
+                        call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for root $rootId")
                         return@get
                     }
 
@@ -128,26 +123,17 @@ fun Route.ruleRoutes(repositoryProvider: RepositoryProvider) {
                             )
                         }
                         is RuleGetResult.RootNotFound ->
-                            call.respond(
-                                HttpStatusCode.NotFound,
-                                ErrorDto("not_found", "Root WorkItem not found: ${result.rootId}"),
-                            )
+                            call.respondError(LegacyRestCode.NOT_FOUND, "Root WorkItem not found: ${result.rootId}")
                         is RuleGetResult.NotDepthZero ->
-                            call.respond(
-                                HttpStatusCode.UnprocessableEntity,
-                                ErrorDto(
-                                    "validation_error",
-                                    "rootId must reference a depth-0 (root) WorkItem; '${result.rootId}' has depth ${result.depth}",
-                                ),
+                            call.respondError(
+                                LegacyRestCode.VALIDATION_ERROR_UNPROCESSABLE,
+                                "rootId must reference a depth-0 (root) WorkItem; '${result.rootId}' has depth ${result.depth}"
                             )
                         is RuleGetResult.RuleNotFound ->
-                            call.respond(
-                                HttpStatusCode.NotFound,
-                                ErrorDto("rule_not_found", "No rule '${result.key}' for root ${result.rootId}"),
-                            )
+                            call.respondError(LegacyRestCode.RULE_NOT_FOUND, "No rule '${result.key}' for root ${result.rootId}")
                         is RuleGetResult.RepositoryError -> {
                             ruleRoutesLogger.warn("GET /roots/{}/rules/{} DB error: {}", rootId, key, result.message)
-                            call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to read rule"))
+                            call.respondError(LegacyRestCode.DB_ERROR, "Failed to read rule")
                         }
                     }
                 }
@@ -160,11 +146,11 @@ fun Route.ruleRoutes(repositoryProvider: RepositoryProvider) {
 private suspend fun ApplicationCall.parseRuleRootId(): UUID? {
     val rawId =
         parameters["rootId"] ?: run {
-            respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing rootId"))
+            respondError(LegacyRestCode.BAD_REQUEST, "Missing rootId")
             return null
         }
     return runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
-        respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+        respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
         null
     }
 }
@@ -176,7 +162,7 @@ private suspend fun ApplicationCall.parseRuleRootId(): UUID? {
 private suspend fun ApplicationCall.parseRuleKey(): String? {
     val key = parameters["key"]
     if (key == null || !RuleService.KEY_PATTERN.matches(key)) {
-        respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid rule key: ${key ?: "<missing>"}"))
+        respondError(LegacyRestCode.BAD_REQUEST, "Invalid rule key: ${key ?: "<missing>"}")
         return null
     }
     return key

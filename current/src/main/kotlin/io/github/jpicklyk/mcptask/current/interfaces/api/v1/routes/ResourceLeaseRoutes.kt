@@ -10,10 +10,11 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.hasCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ResourceLeaseHistoryResponseDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ResourceLeaseListResponseDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ResourceLeaseReleaseResponseDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
@@ -97,13 +98,10 @@ fun Route.resourceLeaseRoutes(
             delete("/{key}") {
                 val key = call.parameters["key"]
                 if (key.isNullOrBlank() || key.length > RESOURCE_KEY_MAX_LENGTH || !RESOURCE_KEY_PATTERN.matches(key)) {
-                    call.respond(
-                        HttpStatusCode.BadRequest,
-                        ErrorDto(
-                            "validation_error",
-                            "resourceKey must be 1-$RESOURCE_KEY_MAX_LENGTH characters matching " +
-                                "^[a-z0-9][a-z0-9\\-_./]*$",
-                        ),
+                    call.respondError(
+                        LegacyRestCode.VALIDATION_ERROR,
+                        "resourceKey must be 1-$RESOURCE_KEY_MAX_LENGTH characters matching " +
+                            "^[a-z0-9][a-z0-9\\-_./]*$"
                     )
                     return@delete
                 }
@@ -117,7 +115,7 @@ fun Route.resourceLeaseRoutes(
                 when (val result = released) {
                     is LeaseReleaseResult.Success -> {
                         if (result.releasedCount == 0) {
-                            call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "No active lease found for key '$key'"))
+                            call.respondError(LegacyRestCode.NOT_FOUND, "No active lease found for key '$key'")
                             return@delete
                         }
 
@@ -135,7 +133,7 @@ fun Route.resourceLeaseRoutes(
                     }
                     else -> {
                         resourceLeaseLogger.warn("DELETE /resources/leases/{} DB error: {}", key, result)
-                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to force-release lease"))
+                        call.respondError(LegacyRestCode.DB_ERROR, "Failed to force-release lease")
                     }
                 }
             }
@@ -148,13 +146,10 @@ fun Route.resourceLeaseRoutes(
 
                 val key = call.request.queryParameters["key"]
                 if (key != null && (key.isBlank() || key.length > RESOURCE_KEY_MAX_LENGTH || !RESOURCE_KEY_PATTERN.matches(key))) {
-                    call.respond(
-                        HttpStatusCode.BadRequest,
-                        ErrorDto(
-                            "validation_error",
-                            "key must be 1-$RESOURCE_KEY_MAX_LENGTH characters matching " +
-                                "^[a-z0-9][a-z0-9\\-_./]*$",
-                        ),
+                    call.respondError(
+                        LegacyRestCode.VALIDATION_ERROR,
+                        "key must be 1-$RESOURCE_KEY_MAX_LENGTH characters matching " +
+                            "^[a-z0-9][a-z0-9\\-_./]*$"
                     )
                     return@get
                 }
@@ -165,10 +160,7 @@ fun Route.resourceLeaseRoutes(
                         try {
                             Instant.parse(atParam)
                         } catch (e: DateTimeParseException) {
-                            call.respond(
-                                HttpStatusCode.BadRequest,
-                                ErrorDto("validation_error", "at must be a valid ISO-8601 instant"),
-                            )
+                            call.respondError(LegacyRestCode.VALIDATION_ERROR, "at must be a valid ISO-8601 instant")
                             return@get
                         }
                     } else {

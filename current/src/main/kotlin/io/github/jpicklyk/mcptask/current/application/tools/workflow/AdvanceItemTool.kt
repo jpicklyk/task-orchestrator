@@ -8,19 +8,16 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation
 import io.github.jpicklyk.mcptask.current.application.service.buildDispatchProfileJson
 import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
-import io.github.jpicklyk.mcptask.current.application.service.buildMissingBySeatJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
@@ -443,15 +440,7 @@ Call to move an item between phases once its work is done — never edit status 
                             }
                         } catch (e: PerRootConfigUnavailableException) {
                             return@body ElementResult.Failed(
-                                buildStructuredErrorResult(
-                                    ready.item.id,
-                                    ready.trigger,
-                                    ToolError(
-                                        kind = ErrorKind.TRANSIENT,
-                                        code = PerRootConfigUnavailableException.CODE,
-                                        message = e.message
-                                    )
-                                )
+                                LegacyMcpErrorMapper.configUnavailable(ready.item.id, ready.trigger, e.message)
                             )
                         }
 
@@ -459,7 +448,9 @@ Call to move an item between phases once its work is done — never edit status 
                         when (outcome) {
                             is AdvanceOutcome.Success -> outcome.result
                             is AdvanceOutcome.Failure ->
-                                return@body ElementResult.Failed(buildFailureResult(ready.item.id, ready.trigger, outcome.failure))
+                                return@body ElementResult.Failed(
+                                    LegacyMcpErrorMapper.advanceFailure(ready.item.id, ready.trigger, outcome.failure)
+                                )
                         }
 
                     prepared = ready to advanceResult
@@ -532,13 +523,12 @@ Call to move an item between phases once its work is done — never edit status 
         val (resolvedItemId, idError) = resolveIdString(itemIdStr, context)
         if (idError != null) {
             return PreCheckResult.Failed(
-                buildJsonObject {
-                    put("itemId", JsonPrimitive(itemIdStr))
-                    put("applied", JsonPrimitive(false))
-                    put("error", JsonPrimitive("Failed to resolve item ID: $itemIdStr"))
-                    put("errorCode", JsonPrimitive(ITEM_NOT_FOUND))
-                    put("errorKind", JsonPrimitive(ErrorKind.PERMANENT.toJsonString()))
-                }
+                LegacyMcpErrorMapper.transitionFailure(
+                    itemIdStr,
+                    null,
+                    "Failed to resolve item ID: $itemIdStr",
+                    LegacyMcpCode.ITEM_NOT_FOUND
+                )
             )
         }
         val itemId = resolvedItemId!!
@@ -551,19 +541,12 @@ Call to move an item between phases once its work is done — never edit status 
         if (userTrigger == null) {
             val validTriggers = Trigger.User.entries.joinToString { it.wire }
             return PreCheckResult.Failed(
-                buildJsonObject {
-                    put("itemId", JsonPrimitive(itemId.toString()))
-                    put("trigger", JsonPrimitive(triggerStr))
-                    put("applied", JsonPrimitive(false))
-                    put(
-                        "error",
-                        JsonPrimitive(
-                            "Unknown trigger '$triggerStr'. Valid triggers: $validTriggers"
-                        )
-                    )
-                    put("errorCode", JsonPrimitive(INVALID_TRIGGER))
-                    put("errorKind", JsonPrimitive(ErrorKind.PERMANENT.toJsonString()))
-                }
+                LegacyMcpErrorMapper.transitionFailure(
+                    itemId.toString(),
+                    triggerStr,
+                    "Unknown trigger '$triggerStr'. Valid triggers: $validTriggers",
+                    LegacyMcpCode.INVALID_TRIGGER
+                )
             )
         }
         // Use the canonical trigger string from the enum (already lowercased/normalized).
@@ -593,12 +576,11 @@ Call to move an item between phases once its work is done — never edit status 
                 is ActorParseResult.Absent -> null
                 is ActorParseResult.Invalid -> {
                     return PreCheckResult.Failed(
-                        buildErrorResult(
-                            itemId,
+                        LegacyMcpErrorMapper.transitionFailure(
+                            itemId.toString(),
                             trigger,
                             actorResult.error,
-                            errorCode = INVALID_ACTOR,
-                            errorKind = ErrorKind.PERMANENT
+                            LegacyMcpCode.INVALID_ACTOR
                         )
                     )
                 }
@@ -614,12 +596,11 @@ Call to move an item between phases once its work is done — never edit status 
         val item =
             itemResult ?: run {
                 return PreCheckResult.Failed(
-                    buildErrorResult(
-                        itemId,
+                    LegacyMcpErrorMapper.transitionFailure(
+                        itemId.toString(),
                         trigger,
                         "WorkItem not found: $itemId",
-                        errorCode = ITEM_NOT_FOUND,
-                        errorKind = ErrorKind.PERMANENT
+                        LegacyMcpCode.ITEM_NOT_FOUND
                     )
                 )
             }
@@ -802,15 +783,7 @@ Call to move an item between phases once its work is done — never edit status 
         itemId: String,
         trigger: String,
         error: DomainError
-    ): JsonObject =
-        buildJsonObject {
-            put("itemId", JsonPrimitive(itemId))
-            put("trigger", JsonPrimitive(trigger))
-            put("applied", JsonPrimitive(false))
-            put("error", JsonPrimitive(error.message))
-            put("errorCode", JsonPrimitive(KeyedCall.IDEMPOTENCY_MISMATCH_CODE))
-            put("errorKind", JsonPrimitive(ErrorKind.PERMANENT.toJsonString()))
-        }
+    ): JsonObject = LegacyMcpErrorMapper.transitionFailure(itemId, trigger, error.message, LegacyMcpCode.IDEMPOTENCY_MISMATCH)
 
     override fun userSummary(
         params: JsonElement,
@@ -825,159 +798,6 @@ Call to move an item between phases once its work is done — never edit status 
         val failed = summary?.get("failed")?.let { (it as? JsonPrimitive)?.intOrNull } ?: 0
         return if (failed == 0) "Transitioned $succeeded item(s)" else "Transitioned $succeeded/$total ($failed failed)"
     }
-
-    /**
-     * Maps a structured [AdvanceFailure] from [AdvanceService] back to the legacy per-transition
-     * error JSON shapes (preserved byte-for-byte from the pre-unification inline logic):
-     * - Ownership rejection → structured `not_claim_holder` error (+ `contendedItemId`)
-     * - Policy rejection → structured `rejected_by_policy` error
-     * - Resource-lease contention → structured `resource_unavailable` error with
-     *   `errorKind=transient`, `retryAfterMs`, and a `contendedResources` array of key strings.
-     *   **No holder identity** (`contendedItemId` is deliberately left null, and no actor id
-     *   appears anywhere in the payload) — an agent that can trigger an advance must not be able to
-     *   enumerate who holds a resource; that is ADMIN-only via `GET /api/v1/resources/leases`.
-     * - Validation failure → `error` + `blockers` array
-     * - Gate block → `error` + `missingNotes` array
-     * - Resolution / apply failure → plain `error` string
-     */
-    private fun buildFailureResult(
-        itemId: UUID,
-        trigger: String,
-        failure: AdvanceFailure
-    ): JsonObject =
-        when (failure) {
-            is AdvanceFailure.OwnershipRejected ->
-                buildStructuredErrorResult(
-                    itemId,
-                    trigger,
-                    ToolError
-                        .permanent(code = "not_claim_holder", message = failure.message)
-                        .copy(contendedItemId = itemId)
-                )
-            is AdvanceFailure.PolicyRejected ->
-                buildStructuredErrorResult(
-                    itemId,
-                    trigger,
-                    ToolError.permanent(code = "rejected_by_policy", message = failure.reason)
-                )
-            is AdvanceFailure.ResourceLeaseUnavailable ->
-                buildStructuredErrorResult(
-                    itemId,
-                    trigger,
-                    ToolError(
-                        kind = ErrorKind.TRANSIENT,
-                        code = "resource_unavailable",
-                        message = failure.message,
-                        retryAfterMs = failure.retryAfterMs
-                    ),
-                    contendedResources = failure.contendedResources
-                )
-            is AdvanceFailure.ResolutionFailed ->
-                buildErrorResult(itemId, trigger, failure.message, errorCode = INVALID_TRANSITION, errorKind = ErrorKind.PERMANENT)
-            is AdvanceFailure.ApplyFailed ->
-                buildErrorResult(itemId, trigger, failure.message, errorCode = APPLY_FAILED, errorKind = ErrorKind.TRANSIENT)
-            is AdvanceFailure.ValidationFailed -> {
-                val blockersJson =
-                    if (failure.blockers.isNotEmpty()) {
-                        NoteSchemaJsonHelpers.buildBlockersArray(failure.blockers)
-                    } else {
-                        null
-                    }
-                val (code, kind) =
-                    if (failure.blockers.isNotEmpty()) {
-                        DEPENDENCY_BLOCKED to ErrorKind.PERMANENT
-                    } else {
-                        VALIDATION_FAILED to ErrorKind.PERMANENT
-                    }
-                buildErrorResult(itemId, trigger, failure.message, errorCode = code, errorKind = kind, blockers = blockersJson)
-            }
-            is AdvanceFailure.GateBlocked ->
-                buildErrorResult(
-                    itemId,
-                    trigger,
-                    failure.message,
-                    errorCode = GATE_BLOCKED,
-                    errorKind = ErrorKind.PERMANENT,
-                    missingNotes = NoteSchemaJsonHelpers.buildMissingNotesArray(failure.missingNotes),
-                    missingBySeat = buildMissingBySeatJson(failure.missingBySeat),
-                    previousRole = failure.previousRole,
-                    targetRole = failure.targetRole,
-                    violations = NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty(failure.violations)
-                )
-        }
-
-    /**
-     * Builds a per-transition failure result for an `applied:false` outcome, always including
-     * [errorCode] + [errorKind] alongside the legacy `error` string (and, where applicable,
-     * `blockers`/`missingNotes`/`previousRole`/`targetRole`) — every failure path in this tool
-     * carries a code so `subagent-start.mjs` and other hooks can branch on the code's presence
-     * rather than inferring "already in phase" from a codeless `applied:false`.
-     */
-    private fun buildErrorResult(
-        itemId: UUID,
-        trigger: String,
-        error: String,
-        errorCode: String,
-        errorKind: ErrorKind,
-        blockers: JsonArray? = null,
-        missingNotes: JsonArray? = null,
-        missingBySeat: JsonObject? = null,
-        previousRole: Role? = null,
-        targetRole: Role? = null,
-        violations: JsonArray? = null
-    ): JsonObject =
-        buildJsonObject {
-            put("itemId", JsonPrimitive(itemId.toString()))
-            put("trigger", JsonPrimitive(trigger))
-            put("applied", JsonPrimitive(false))
-            put("error", JsonPrimitive(error))
-            put("errorCode", JsonPrimitive(errorCode))
-            put("errorKind", JsonPrimitive(errorKind.toJsonString()))
-            if (blockers != null) {
-                put("blockers", blockers)
-            }
-            if (missingNotes != null) {
-                put("missingNotes", missingNotes)
-            }
-            if (missingBySeat != null) {
-                put("missingBySeat", missingBySeat)
-            }
-            previousRole?.let { put("previousRole", JsonPrimitive(it.toJsonString())) }
-            targetRole?.let { put("targetRole", JsonPrimitive(it.toJsonString())) }
-            if (violations != null) {
-                put("violations", violations)
-            }
-        }
-
-    /**
-     * Builds a per-transition error result with structured [ToolError] fields.
-     *
-     * Adds `kind`, `errorCode`, `retryAfterMs`, and `contendedItemId` alongside the legacy `error`
-     * string so agents can make programmatic retry decisions on ownership rejections, policy
-     * rejections, and resource-lease contention.
-     *
-     * @param contendedResources contended resource KEYS for a `resource_unavailable` rejection.
-     *   Keys only — the holding item and actor are never disclosed here.
-     */
-    private fun buildStructuredErrorResult(
-        itemId: UUID,
-        trigger: String,
-        toolError: ToolError,
-        contendedResources: List<String> = emptyList()
-    ): JsonObject =
-        buildJsonObject {
-            put("itemId", JsonPrimitive(itemId.toString()))
-            put("trigger", JsonPrimitive(trigger))
-            put("applied", JsonPrimitive(false))
-            put("error", JsonPrimitive(toolError.message))
-            put("errorKind", JsonPrimitive(toolError.kind.toJsonString()))
-            put("errorCode", JsonPrimitive(toolError.code))
-            toolError.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
-            toolError.contendedItemId?.let { put("contendedItemId", JsonPrimitive(it.toString())) }
-            if (contendedResources.isNotEmpty()) {
-                put("contendedResources", JsonArray(contendedResources.map { JsonPrimitive(it) }))
-            }
-        }
 
     companion object {
         /** Item id in `transitions[].itemId` did not resolve to a full UUID or a known hex prefix. */

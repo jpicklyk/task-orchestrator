@@ -71,15 +71,15 @@ suspend fun <T> UnitOfWork.writeOutcome(
 
 /**
  * The legacy WRITE mapper: runs [block] as one write unit labelled [op] ([writeOutcome]) and returns its
- * value; a store fault hands its legacy message ([LegacyFaults.message]) to [onFault], which returns the
- * site's existing error response (typically a non-local `return`).
+ * value; a store fault hands its [DomainError] to [onFault] (the legacy message is [LegacyFaults.message]),
+ * which returns the site's existing error response (typically a non-local `return`).
  */
 suspend inline fun <T> UnitOfWork.legacyWrite(
     op: String,
-    onFault: (message: String) -> Nothing,
+    onFault: (error: DomainError) -> Nothing,
     noinline block: suspend WriteScope.() -> T
 ): T =
     when (val outcome = writeOutcome(op, block)) {
         is Outcome.Ok -> outcome.value
-        is Outcome.Err -> onFault(LegacyFaults.message(outcome.error))
+        is Outcome.Err -> onFault(outcome.error)
     }

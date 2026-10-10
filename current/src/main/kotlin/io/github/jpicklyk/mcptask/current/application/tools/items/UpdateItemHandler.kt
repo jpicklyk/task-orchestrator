@@ -13,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.current.application.tools.putElementError
 import io.github.jpicklyk.mcptask.current.application.tools.resolveWorkItemIdString
 import io.github.jpicklyk.mcptask.current.application.tools.runElement
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
@@ -65,7 +66,7 @@ class UpdateItemHandler {
                         val itemObj = element as? JsonObject
                         if (itemObj == null) {
                             val message = "Each update item must be a JSON object"
-                            ElementResult.Invalid(updateFailure(null, message, null), message)
+                            ElementResult.Invalid(updateFailure(null, message, ErrorCode.INVALID_REQUEST), message)
                         } else {
                             val itemIdStr =
                                 extractItemString(itemObj, "itemId")
@@ -77,7 +78,10 @@ class UpdateItemHandler {
                             // Fetch existing item
                             val existing =
                                 legacyRead({ throw IllegalStateException(it) }) { repo.getById(id) }
-                                    ?: throw ToolValidationException("Item '$itemIdStr' not found: WorkItem not found with id: $id")
+                                    ?: throw ToolValidationException(
+                                        "Item '$itemIdStr' not found: WorkItem not found with id: $id",
+                                        ErrorCode.NOT_FOUND
+                                    )
 
                             val spec = parseUpdateFields(itemObj, itemIdStr, existing, sharedTraits, context)
                             persist(itemIdStr, existing, spec, context)
@@ -92,6 +96,7 @@ class UpdateItemHandler {
                     buildJsonObject {
                         put("id", JsonPrimitive(itemId ?: "unknown"))
                         put("error", JsonPrimitive(e.message ?: "Validation failed"))
+                        putElementError(e.errorCode)
                     }
                 )
             } catch (e: PerRootConfigUnavailableException) {
@@ -103,6 +108,7 @@ class UpdateItemHandler {
                     buildJsonObject {
                         put("id", JsonPrimitive(itemId ?: "unknown"))
                         put("error", JsonPrimitive(e.message ?: "Unexpected error"))
+                        putElementError(ErrorCode.INTERNAL)
                     }
                 )
             }
@@ -124,12 +130,12 @@ class UpdateItemHandler {
     private fun updateFailure(
         itemId: String?,
         message: String,
-        code: ErrorCode?
+        code: ErrorCode
     ): JsonObject =
         buildJsonObject {
             put("id", JsonPrimitive(itemId ?: "unknown"))
             put("error", JsonPrimitive(message))
-            if (code == ErrorCode.IDEMPOTENCY_MISMATCH) put("errorCode", JsonPrimitive(KeyedCall.IDEMPOTENCY_MISMATCH_CODE))
+            putElementError(code)
         }
 
     /**
@@ -299,10 +305,13 @@ class UpdateItemHandler {
                 val error = outcome.error
                 when {
                     error.code == ErrorCode.NOT_FOUND && ItemCommandErrors.notFoundId(error) != existing.id.toString() ->
-                        throw ToolValidationException("Item '$itemId': parent '$newParentId' not found")
+                        throw ToolValidationException("Item '$itemId': parent '$newParentId' not found", ErrorCode.NOT_FOUND)
                     ItemCommandErrors.isSelfParent(error) -> throw ToolValidationException("Item '$itemId': cannot be its own parent")
                     error.code == ErrorCode.CYCLE_DETECTED ->
-                        throw ToolValidationException("Item '$itemId': reparenting to '$newParentId' would create a circular hierarchy")
+                        throw ToolValidationException(
+                            "Item '$itemId': reparenting to '$newParentId' would create a circular hierarchy",
+                            ErrorCode.CYCLE_DETECTED
+                        )
                     ItemCommandErrors.isHierarchyLookupFailure(error) -> throw ToolValidationException("Item '$itemId': ${error.message}")
                     ItemCommandErrors.isClosedParent(error) ->
                         ElementResult.Failed(
@@ -310,11 +319,11 @@ class UpdateItemHandler {
                                 itemId,
                                 "Item '$itemId': parent '$newParentId' is terminal under auto lifecycle; " +
                                     "reopen it before moving items under it",
-                                null
+                                error.code
                             )
                         )
                     error.code == ErrorCode.INVALID_REQUEST -> throw ToolValidationException(error.message)
-                    else -> ElementResult.Failed(updateFailure(itemId, LegacyFaults.message(error), null))
+                    else -> ElementResult.Failed(updateFailure(itemId, LegacyFaults.message(error), error.code))
                 }
             }
         }

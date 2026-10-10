@@ -16,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.application.tools.omitOnConfigUnavailable
+import io.github.jpicklyk.mcptask.current.application.tools.putElementError
 import io.github.jpicklyk.mcptask.current.application.tools.resolveWorkItemIdString
 import io.github.jpicklyk.mcptask.current.application.tools.runElement
 import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
@@ -70,7 +71,7 @@ class CreateItemHandler {
                         val itemObj = element as? JsonObject
                         if (itemObj == null) {
                             val message = "Item at index $index must be a JSON object"
-                            ElementResult.Invalid(failureJson(index, message), message)
+                            ElementResult.Invalid(failureJson(index, message, ErrorCode.INVALID_REQUEST), message)
                         } else {
                             val command = parseItemSpec(itemObj, index, sharedParentId, sharedTraits, context)
                             when (val created = context.itemCommandService.create(command)) {
@@ -82,17 +83,21 @@ class CreateItemHandler {
                                     val error = created.error
                                     when {
                                         error.code == ErrorCode.NOT_FOUND ->
-                                            throw ToolValidationException("Item at index $index: parent '${command.parentId}' not found")
+                                            throw ToolValidationException(
+                                                "Item at index $index: parent '${command.parentId}' not found",
+                                                ErrorCode.NOT_FOUND
+                                            )
                                         ItemCommandErrors.isClosedParent(error) ->
                                             ElementResult.Failed(
                                                 failureJson(
                                                     index,
                                                     "Item at index $index: parent '${command.parentId}' is terminal under auto " +
-                                                        "lifecycle; reopen it before adding children"
+                                                        "lifecycle; reopen it before adding children",
+                                                    error.code
                                                 )
                                             )
                                         error.code == ErrorCode.INVALID_REQUEST -> throw ToolValidationException(error.message)
-                                        else -> ElementResult.Failed(failureJson(index, LegacyFaults.message(error)))
+                                        else -> ElementResult.Failed(failureJson(index, LegacyFaults.message(error), error.code))
                                     }
                                 }
                             }
@@ -112,6 +117,7 @@ class CreateItemHandler {
                     buildJsonObject {
                         put("index", JsonPrimitive(index))
                         put("error", JsonPrimitive(e.message ?: "Validation failed"))
+                        putElementError(e.errorCode)
                     }
                 )
             } catch (e: PerRootConfigUnavailableException) {
@@ -123,6 +129,7 @@ class CreateItemHandler {
                     buildJsonObject {
                         put("index", JsonPrimitive(index))
                         put("error", JsonPrimitive(e.message ?: "Unexpected error"))
+                        putElementError(ErrorCode.INTERNAL)
                     }
                 )
             }
@@ -233,11 +240,13 @@ class CreateItemHandler {
 
     private fun failureJson(
         index: Int,
-        message: String
+        message: String,
+        code: ErrorCode
     ): JsonObject =
         buildJsonObject {
             put("index", JsonPrimitive(index))
             put("error", JsonPrimitive(message))
+            putElementError(code)
         }
 
     /** Reloads the item a replayed fragment describes, for the response-only decoration; null when it is gone. */

@@ -9,7 +9,9 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestErrorMapper
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -69,11 +71,7 @@ private val idempotencyJson =
 fun payloadRejection(message: String): CachedHttpResponse = validationRejectionResponse(message)
 
 private fun validationRejectionResponse(message: String): CachedHttpResponse =
-    CachedHttpResponse(
-        statusCode = HttpStatusCode.BadRequest.value,
-        bodyJson = idempotencyJson.encodeToString(ErrorDto.serializer(), ErrorDto("validation_error", message)),
-        rejection = message,
-    )
+    LegacyRestErrorMapper.captured(LegacyRestCode.VALIDATION_ERROR, message).copy(rejection = message)
 
 /** Sends a [CachedHttpResponse] to the client, re-emitting the ETag header when present. */
 suspend fun ApplicationCall.sendCaptured(captured: CachedHttpResponse) {
@@ -173,22 +171,9 @@ suspend fun ApplicationCall.runWithIdempotency(
                     is Outcome.Err ->
                         unrecorded ?: when (outcome.error.code) {
                             ErrorCode.IDEMPOTENCY_MISMATCH ->
-                                CachedHttpResponse(
-                                    HttpStatusCode.Conflict.value,
-                                    idempotencyJson.encodeToString(
-                                        ErrorDto.serializer(),
-                                        ErrorDto("idempotency_mismatch", outcome.error.message),
-                                    ),
-                                )
+                                LegacyRestErrorMapper.captured(LegacyRestCode.IDEMPOTENCY_MISMATCH, outcome.error.message)
                             ErrorCode.INVALID_REQUEST -> validationRejectionResponse(outcome.error.message)
-                            else ->
-                                CachedHttpResponse(
-                                    HttpStatusCode.InternalServerError.value,
-                                    idempotencyJson.encodeToString(
-                                        ErrorDto.serializer(),
-                                        ErrorDto("db_error", "Failed to complete the write"),
-                                    ),
-                                )
+                            else -> LegacyRestErrorMapper.captured(LegacyRestCode.DB_ERROR, "Failed to complete the write")
                         }
                 }
             sendCaptured(captured)
@@ -252,7 +237,7 @@ suspend fun ApplicationCall.parseIdempotencyKey(): IdempotencyKeyResult {
     return try {
         IdempotencyKeyResult.Present(UUID.fromString(keyHeader.trim()))
     } catch (e: IllegalArgumentException) {
-        respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", "Idempotency-Key must be a valid UUID"))
+        respondError(LegacyRestCode.VALIDATION_ERROR, "Idempotency-Key must be a valid UUID")
         IdempotencyKeyResult.Invalid
     }
 }

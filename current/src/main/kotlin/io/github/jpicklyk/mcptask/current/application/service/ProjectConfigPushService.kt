@@ -6,10 +6,11 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.UnitResult
-import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.application.support.legacyReadFault
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.application.support.writeUnit
+import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
@@ -80,7 +81,7 @@ class ProjectConfigPushService(
         }
 
         val item =
-            legacyRead({ return ProjectConfigPushResult.RepositoryError(it) }) {
+            legacyReadFault({ return ProjectConfigPushResult.RepositoryError(it) }) {
                 repositoryProvider.workItemRepository().getById(rootItemId)
             } ?: return ProjectConfigPushResult.NotFound(rootItemId)
 
@@ -113,7 +114,7 @@ class ProjectConfigPushService(
 
         return unitOfWork.writeUnit(
             "ProjectConfigPushService.push",
-            onFault = { ProjectConfigPushResult.RepositoryError(LegacyFaults.message(it)) }
+            onFault = { ProjectConfigPushResult.RepositoryError(it) }
         ) {
             val outcome =
                 projectConfigRepository.upsertGuarded(
@@ -355,6 +356,9 @@ sealed class ProjectConfigPushResult {
 
     /** The upsert itself failed at the repository layer. */
     data class RepositoryError(
-        val message: String
-    ) : ProjectConfigPushResult()
+        val error: DomainError
+    ) : ProjectConfigPushResult() {
+        /** The 3.x store message (the innermost SQL text), unchanged on the wire. */
+        val message: String get() = LegacyFaults.message(error)
+    }
 }

@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import kotlinx.serialization.json.*
@@ -49,20 +50,24 @@ abstract class BaseToolDefinition : ToolDefinition {
     /**
      * Creates a standardized error response and logs a warning.
      *
+     * The envelope's `kind` is the catalog kind of [code], or of [cause] when the failure carries a catalog error.
+     *
      * @param message Human-readable error description
-     * @param code Error code from [ErrorCodes] (defaults to VALIDATION_ERROR)
+     * @param code The 3.x error code (defaults to VALIDATION_ERROR)
      * @param details Optional additional details about the error
      * @param additionalData Optional JSON payload with extra error context
+     * @param cause The service's catalog error behind this failure, when there is one
      * @return An error response envelope
      */
     protected fun errorResponse(
         message: String,
-        code: String = ErrorCodes.VALIDATION_ERROR,
+        code: LegacyMcpCode = LegacyMcpCode.VALIDATION_ERROR,
         details: String? = null,
-        additionalData: JsonElement? = null
+        additionalData: JsonElement? = null,
+        cause: DomainError? = null
     ): JsonObject {
         logger.warn("Tool error: $message")
-        return ResponseUtil.createErrorResponse(message, code, details, additionalData)
+        return LegacyMcpErrorMapper.envelope(message, code, details, additionalData, cause)
     }
 
     /**
@@ -77,7 +82,7 @@ abstract class BaseToolDefinition : ToolDefinition {
      */
     protected fun errorResponse(toolError: ToolError): JsonObject {
         logger.warn("Tool error [${toolError.kind}]: ${toolError.code} — ${toolError.message}")
-        return ResponseUtil.createErrorResponse(toolError)
+        return LegacyMcpErrorMapper.envelope(toolError)
     }
 
     // ──────────────────────────────────────────────
@@ -564,7 +569,7 @@ abstract class BaseToolDefinition : ToolDefinition {
             return try {
                 Pair(UUID.fromString(idStr), null)
             } catch (_: IllegalArgumentException) {
-                Pair(null, errorResponse("Invalid UUID format: $idStr", ErrorCodes.VALIDATION_ERROR))
+                Pair(null, errorResponse("Invalid UUID format: $idStr", LegacyMcpCode.VALIDATION_ERROR))
             }
         }
 
@@ -574,7 +579,7 @@ abstract class BaseToolDefinition : ToolDefinition {
                 null,
                 errorResponse(
                     "Invalid ID format: must be a UUID or hex prefix ($MIN_PREFIX_LENGTH-35 chars), got: $idStr",
-                    ErrorCodes.VALIDATION_ERROR
+                    LegacyMcpCode.VALIDATION_ERROR
                 )
             )
         }
@@ -583,14 +588,14 @@ abstract class BaseToolDefinition : ToolDefinition {
                 null,
                 errorResponse(
                     "ID prefix too short: minimum $MIN_PREFIX_LENGTH hex characters required, got ${idStr.length}",
-                    ErrorCodes.VALIDATION_ERROR
+                    LegacyMcpCode.VALIDATION_ERROR
                 )
             )
         }
 
         val matches =
             legacyRead({
-                return Pair(null, errorResponse("Failed to resolve ID prefix: $it", ErrorCodes.INTERNAL_ERROR))
+                return Pair(null, errorResponse("Failed to resolve ID prefix: $it", LegacyMcpCode.INTERNAL_ERROR))
             }) { context.workItemRepository().findByIdPrefix(idStr) }
         return run {
             run {
@@ -598,14 +603,14 @@ abstract class BaseToolDefinition : ToolDefinition {
                     matches.isEmpty() ->
                         Pair(
                             null,
-                            errorResponse("No WorkItem found matching prefix: $idStr", ErrorCodes.RESOURCE_NOT_FOUND)
+                            errorResponse("No WorkItem found matching prefix: $idStr", LegacyMcpCode.RESOURCE_NOT_FOUND)
                         )
                     matches.size > 1 ->
                         Pair(
                             null,
                             errorResponse(
                                 "Ambiguous prefix: $idStr matches ${matches.size} items",
-                                ErrorCodes.VALIDATION_ERROR,
+                                LegacyMcpCode.VALIDATION_ERROR,
                                 additionalData =
                                     buildJsonObject {
                                         put("prefix", JsonPrimitive(idStr))
@@ -648,12 +653,12 @@ abstract class BaseToolDefinition : ToolDefinition {
     ): Pair<UUID?, JsonElement?> {
         val paramsObj =
             params as? JsonObject
-                ?: return Pair(null, errorResponse("Parameters must be a JSON object", ErrorCodes.VALIDATION_ERROR))
+                ?: return Pair(null, errorResponse("Parameters must be a JSON object", LegacyMcpCode.VALIDATION_ERROR))
 
         val value = paramsObj[name] as? JsonPrimitive
         if (value == null || !value.isString || value.content.isBlank()) {
             if (required) {
-                return Pair(null, errorResponse("Missing required parameter: $name", ErrorCodes.VALIDATION_ERROR))
+                return Pair(null, errorResponse("Missing required parameter: $name", LegacyMcpCode.VALIDATION_ERROR))
             }
             return Pair(null, null)
         }

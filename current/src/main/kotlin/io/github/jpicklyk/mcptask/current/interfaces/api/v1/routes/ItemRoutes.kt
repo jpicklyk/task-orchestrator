@@ -26,11 +26,13 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.filterByTagScop
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.hasTagScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependenciesDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.GateStatusDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemGateDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.PageDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.DB_QUERY_FAILED
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.respondWithEtagCheck
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.buildDependenciesDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
@@ -129,17 +131,11 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             // unsupported value fails fast with a structured 400 instead of silently falling
             // back to createdAt/desc (AR-46).
             if (orderBy != null && ItemSortFields.canonicalField(orderBy) == null) {
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    ErrorDto("bad_request", "Invalid orderBy: $orderBy"),
-                )
+                call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid orderBy: $orderBy")
                 return@get
             }
             if (orderDir != null && orderDir.lowercase() !in ItemSortFields.ORDERS) {
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    ErrorDto("bad_request", "Invalid orderDir: $orderDir"),
-                )
+                call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid orderDir: $orderDir")
                 return@get
             }
 
@@ -176,7 +172,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             val items: List<WorkItem> =
                 legacyRead({
                     logger.warn("GET /items DB error: {}", it)
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@get
                 }) {
                     if (effectiveScopeRootIds != null) {
@@ -292,7 +288,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                             val r =
                                 legacyRead({
                                     logger.warn("GET /items/roots DB error: {}", it)
-                                    call.respondDbError()
+                                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                                     return@get
                                 }) { workItemRepo.getById(rid) }
                             if (r != null && r.parentId == null) r else null
@@ -304,7 +300,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                 val result =
                     legacyRead({
                         logger.warn("GET /items/roots DB error: {}", it)
-                        call.respondDbError()
+                        call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                         return@get
                     }) { workItemRepo.findRootItems(limit = TAG_SCOPE_SCAN_LIMIT, offset = 0) }
                 call.respond(
@@ -318,7 +314,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                 val totalResult =
                     legacyRead({
                         logger.warn("GET /items/roots DB error (count): {}", it)
-                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
+                        call.respondError(LegacyRestCode.DB_ERROR, "Database query failed")
                         return@get
                     }) {
                         workItemRepo.countRootItems()
@@ -329,7 +325,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                 val result =
                     legacyRead({
                         logger.warn("GET /items/roots DB error: {}", it)
-                        call.respondDbError()
+                        call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                         return@get
                     }) { workItemRepo.findRootItems(limit = pp.pageSize, offset = pp.offset) }
                 val dtos = result.items.map { it.toDto() }
@@ -341,28 +337,28 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
         get("/items/{id}") {
             val rawId =
                 call.parameters["id"] ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
                     return@get
                 }
             val id =
                 runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
                     return@get
                 }
 
             val itemResult =
                 legacyRead({
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@get
                 }) { workItemRepo.getById(id) }
             if (itemResult == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
+                call.respondError(LegacyRestCode.NOT_FOUND, "Item $id not found")
                 return@get
             }
             val item = itemResult
 
             if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
+                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
                 return@get
             }
 
@@ -416,29 +412,29 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
         get("/items/{id}/tree") {
             val rawId =
                 call.parameters["id"] ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
                     return@get
                 }
             val id =
                 runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
                     return@get
                 }
             val maxDepth = (call.nonNegativeIntParamOrRespond("depth") ?: return@get).value
 
             val itemResult =
                 legacyRead({
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@get
                 }) { workItemRepo.getById(id) }
             if (itemResult == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
+                call.respondError(LegacyRestCode.NOT_FOUND, "Item $id not found")
                 return@get
             }
             val root = itemResult
 
             if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
+                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
                 return@get
             }
 
@@ -447,7 +443,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             val descendantsResult =
                 legacyRead({
                     logger.warn("GET /items/{}/tree DB error: {}", id, it)
-                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
+                    call.respondError(LegacyRestCode.DB_ERROR, "Database query failed")
                     return@get
                 }) {
                     workItemRepo.findDescendants(id)
@@ -482,35 +478,35 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             val principal = call.attributes.getOrNull(ApiPrincipalKey)
             val rawId =
                 call.parameters["id"] ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
                     return@get
                 }
             val id =
                 runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
                     return@get
                 }
 
             val itemResult =
                 legacyRead({
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@get
                 }) { workItemRepo.getById(id) }
             if (itemResult == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
+                call.respondError(LegacyRestCode.NOT_FOUND, "Item $id not found")
                 return@get
             }
             val item = itemResult
 
             if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
+                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
                 return@get
             }
 
             val chainResult =
                 legacyRead({
                     logger.warn("GET /items/{}/breadcrumbs DB error: {}", id, it)
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@get
                 }) { workItemRepo.findAncestorChains(setOf(id)) }
             val ancestors = chainResult[id] ?: emptyList()
@@ -543,27 +539,27 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
         get("/items/{id}/children") {
             val rawId =
                 call.parameters["id"] ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
                     return@get
                 }
             val id =
                 runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
                     return@get
                 }
 
             val itemResult =
                 legacyRead({
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@get
                 }) { workItemRepo.getById(id) }
             if (itemResult == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
+                call.respondError(LegacyRestCode.NOT_FOUND, "Item $id not found")
                 return@get
             }
 
             if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
+                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
                 return@get
             }
 
@@ -583,7 +579,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             val childrenResult =
                 legacyRead({
                     logger.warn("GET /items/{}/children DB error: {}", id, it)
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@get
                 }) {
                     workItemRepo.findByFilters(
@@ -662,28 +658,28 @@ fun Route.itemGateRoutes(
         get("/items/{id}/gate") {
             val rawId =
                 call.parameters["id"] ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
                     return@get
                 }
             val id =
                 runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
                     return@get
                 }
 
             val itemResult =
                 legacyRead({
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@get
                 }) { workItemRepo.getById(id) }
             if (itemResult == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
+                call.respondError(LegacyRestCode.NOT_FOUND, "Item $id not found")
                 return@get
             }
             val item = itemResult
 
             if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
+                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
                 return@get
             }
 
@@ -696,10 +692,7 @@ fun Route.itemGateRoutes(
                 try {
                     withConfigSession { transitionPreview.inspect(item, Trigger.User.START) }
                 } catch (e: PerRootConfigUnavailableException) {
-                    call.respond(
-                        HttpStatusCode.ServiceUnavailable,
-                        ErrorDto(PerRootConfigUnavailableException.CODE, e.message),
-                    )
+                    call.respondError(LegacyRestCode.CONFIG_UNAVAILABLE, e.message)
                     return@get
                 }
 
@@ -745,28 +738,28 @@ fun Route.itemGateRoutes(
         get("/items/{id}/schema") {
             val rawId =
                 call.parameters["id"] ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
                     return@get
                 }
             val id =
                 runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
                     return@get
                 }
 
             val itemResult =
                 legacyRead({
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@get
                 }) { workItemRepo.getById(id) }
             if (itemResult == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
+                call.respondError(LegacyRestCode.NOT_FOUND, "Item $id not found")
                 return@get
             }
             val item = itemResult
 
             if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
+                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
                 return@get
             }
 
@@ -775,15 +768,12 @@ fun Route.itemGateRoutes(
                 try {
                     withConfigSession { ItemSchemaView.buildItemSchemaJson(item, configResolver) }
                 } catch (e: PerRootConfigUnavailableException) {
-                    call.respond(
-                        HttpStatusCode.ServiceUnavailable,
-                        ErrorDto(PerRootConfigUnavailableException.CODE, e.message),
-                    )
+                    call.respondError(LegacyRestCode.CONFIG_UNAVAILABLE, e.message)
                     return@get
                 }
 
             if (schemaJson == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorDto("no_schema", "Item $id has no matching schema"))
+                call.respondError(LegacyRestCode.NO_SCHEMA, "Item $id has no matching schema")
                 return@get
             }
 

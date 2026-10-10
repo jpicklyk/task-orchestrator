@@ -6,18 +6,16 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceResult
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
-import io.github.jpicklyk.mcptask.current.application.service.BlockerInfo
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers
-import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
 import io.github.jpicklyk.mcptask.current.domain.graph.TopoOrder
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
@@ -393,15 +391,7 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
             // Check if this item is in the skipped set
             if (itemId in skippedSet) {
                 skippedCount++
-                resultsList.add(
-                    buildJsonObject {
-                        put("itemId", JsonPrimitive(itemId.toString()))
-                        put("title", JsonPrimitive(item.title))
-                        put("applied", JsonPrimitive(false))
-                        put("skipped", JsonPrimitive(true))
-                        put("skippedReason", JsonPrimitive("dependency gate failed"))
-                    }
-                )
+                resultsList.add(LegacyMcpErrorMapper.completeTreeSkipped(item, "dependency gate failed", ErrorCode.DEPENDENCY_UNMET))
                 // Propagate skip to dependents
                 propagateSkip(itemId, adjacency, skippedSet)
                 continue
@@ -550,7 +540,7 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
                     )
                 }
             } catch (e: PerRootConfigUnavailableException) {
-                resultsList.add(buildConfigUnavailableResult(item, e))
+                resultsList.add(LegacyMcpErrorMapper.completeTreeConfigUnavailable(item, e.message))
                 return ItemOutcome.REJECTED
             }
 
@@ -567,7 +557,7 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
                 ItemOutcome.COMPLETED
             }
             is AdvanceOutcome.Failure -> {
-                resultsList.add(buildFailureResult(item, outcome.failure))
+                resultsList.add(LegacyMcpErrorMapper.completeTreeFailure(item, outcome.failure))
                 when (outcome.failure) {
                     is AdvanceFailure.GateBlocked -> ItemOutcome.GATE_FAILED
                     is AdvanceFailure.ValidationFailed -> ItemOutcome.DEPENDENCY_FAILED
@@ -580,13 +570,7 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
 
     /** Result entry for an item that was already terminal before this call reached it. */
     private fun buildAlreadyTerminalResult(item: WorkItem): JsonObject =
-        buildJsonObject {
-            put("itemId", JsonPrimitive(item.id.toString()))
-            put("title", JsonPrimitive(item.title))
-            put("applied", JsonPrimitive(false))
-            put("skipped", JsonPrimitive(true))
-            put("skippedReason", JsonPrimitive("already terminal"))
-        }
+        LegacyMcpErrorMapper.completeTreeSkipped(item, "already terminal", ErrorCode.INVALID_TRANSITION)
 
     /**
      * Result entry for an applied transition. Keeps the pre-existing `applied`/`trigger`/
@@ -650,128 +634,6 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
             event.error?.let { put("error", JsonPrimitive(it)) }
             NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty(event.violations)?.let { put("violations", it) }
         }
-
-    /**
-     * Maps a structured [AdvanceFailure] onto this tool's per-item result shape.
-     *
-     * - [AdvanceFailure.GateBlocked] keeps the historical `gateErrors` array of `"missing: <key>"`
-     *   strings (and adds the structured `missingNotes` array `advance_item` emits).
-     * - [AdvanceFailure.ValidationFailed] is a rejection of the item ITSELF (a blocking dependency,
-     *   typically outside the target set, that is still non-terminal), so it mirrors `advance_item`
-     *   exactly: `error` + a `blockers` array, and NO `skipped`/`skippedReason` pair. Reporting it
-     *   as a skip would wrongly say the item was never attempted.
-     * - Every remaining variant is reported as `skipped` + `skippedReason`, the shape this tool
-     *   already used for non-gate rejections, plus the structured `errorKind`/`errorCode` fields
-     *   `advance_item` emits so a caller can distinguish a claim-ownership rejection
-     *   (`not_claim_holder`) from a transient resource contention (`resource_unavailable`) without
-     *   parsing the message.
-     */
-    private fun buildFailureResult(
-        item: WorkItem,
-        failure: AdvanceFailure
-    ): JsonObject =
-        buildJsonObject {
-            put("itemId", JsonPrimitive(item.id.toString()))
-            put("title", JsonPrimitive(item.title))
-            put("applied", JsonPrimitive(false))
-            when (failure) {
-                is AdvanceFailure.GateBlocked -> {
-                    put(
-                        "gateErrors",
-                        JsonArray(failure.missingNotes.map { JsonPrimitive("missing: ${it.key}") })
-                    )
-                    put("error", JsonPrimitive(failure.message))
-                    put("missingNotes", NoteSchemaJsonHelpers.buildMissingNotesArray(failure.missingNotes))
-                    put("previousRole", JsonPrimitive(failure.previousRole.toJsonString()))
-                    put("targetRole", JsonPrimitive(failure.targetRole.toJsonString()))
-                    NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty(failure.violations)?.let { put("violations", it) }
-                }
-                is AdvanceFailure.OwnershipRejected -> {
-                    putSkipped(failure.message)
-                    putToolError(
-                        ToolError
-                            .permanent(code = "not_claim_holder", message = failure.message)
-                            .copy(contendedItemId = item.id)
-                    )
-                }
-                is AdvanceFailure.PolicyRejected -> {
-                    putSkipped(failure.reason)
-                    putToolError(ToolError.permanent(code = "rejected_by_policy", message = failure.reason))
-                }
-                is AdvanceFailure.ResourceLeaseUnavailable -> {
-                    putSkipped(failure.message)
-                    putToolError(
-                        ToolError(
-                            kind = ErrorKind.TRANSIENT,
-                            code = "resource_unavailable",
-                            message = failure.message,
-                            retryAfterMs = failure.retryAfterMs
-                        )
-                    )
-                    put(
-                        "contendedResources",
-                        JsonArray(failure.contendedResources.map { JsonPrimitive(it) })
-                    )
-                }
-                is AdvanceFailure.ValidationFailed -> {
-                    // NOT a skip: the item failed its OWN dependency validation, so it reports the
-                    // same `error` + `blockers` shape advance_item emits (AdvanceItemTool's
-                    // buildErrorResult) rather than a `skipped`/`skippedReason` pair. A skip means
-                    // "we never attempted this item"; here we did, and it was rejected.
-                    put("error", JsonPrimitive(failure.message))
-                    if (failure.blockers.isNotEmpty()) {
-                        put(
-                            "blockers",
-                            JsonArray(
-                                failure.blockers.map { blocker ->
-                                    buildJsonObject {
-                                        put("fromItemId", JsonPrimitive(blocker.fromItemId.toString()))
-                                        put("currentRole", JsonPrimitive(blocker.currentRole?.toJsonString() ?: BlockerInfo.UNKNOWN_ROLE))
-                                        put("requiredRole", JsonPrimitive(blocker.requiredRole))
-                                    }
-                                }
-                            )
-                        )
-                    }
-                }
-                is AdvanceFailure.ResolutionFailed -> putSkipped(failure.message)
-                is AdvanceFailure.ApplyFailed -> putSkipped(failure.message)
-            }
-        }
-
-    /**
-     * Result entry for an item whose per-root config could not be read (D5): `skipped=true` plus
-     * the structured `errorKind`/`errorCode` fields `advance_item` emits for the same condition,
-     * so a caller can distinguish this from an ordinary gate/ownership rejection without parsing
-     * the message.
-     */
-    private fun buildConfigUnavailableResult(
-        item: WorkItem,
-        exception: PerRootConfigUnavailableException
-    ): JsonObject =
-        buildJsonObject {
-            put("itemId", JsonPrimitive(item.id.toString()))
-            put("title", JsonPrimitive(item.title))
-            put("applied", JsonPrimitive(false))
-            putSkipped(exception.message)
-            put("errorKind", JsonPrimitive(ErrorKind.TRANSIENT.toJsonString()))
-            put("errorCode", JsonPrimitive(PerRootConfigUnavailableException.CODE))
-        }
-
-    /** The legacy non-gate rejection shape: `skipped` + `skippedReason`, plus a plain `error`. */
-    private fun JsonObjectBuilder.putSkipped(reason: String) {
-        put("skipped", JsonPrimitive(true))
-        put("skippedReason", JsonPrimitive(reason))
-        put("error", JsonPrimitive(reason))
-    }
-
-    /** The structured `errorKind`/`errorCode` fields `advance_item` emits for the same rejection. */
-    private fun JsonObjectBuilder.putToolError(toolError: ToolError) {
-        put("errorKind", JsonPrimitive(toolError.kind.toJsonString()))
-        put("errorCode", JsonPrimitive(toolError.code))
-        toolError.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
-        toolError.contendedItemId?.let { put("contendedItemId", JsonPrimitive(it.toString())) }
-    }
 
     override fun userSummary(
         params: JsonElement,

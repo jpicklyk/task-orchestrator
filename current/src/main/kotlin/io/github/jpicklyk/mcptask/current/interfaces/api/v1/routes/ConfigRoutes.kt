@@ -9,11 +9,12 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ConfigSnapshotDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DispatchProfileDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.NoteSchemaEntryDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ResourceRequirementDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.SchemaDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.TraitDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.StatusGraphBuilder
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -87,15 +88,12 @@ fun Route.configRoutes(schemaService: WorkItemSchemaService) {
             get("/schemas/{type}") {
                 val typeName =
                     call.parameters["type"] ?: run {
-                        call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing type parameter"))
+                        call.respondError(LegacyRestCode.BAD_REQUEST, "Missing type parameter")
                         return@get
                     }
                 val schema = schemaService.getAllSchemas()[typeName]
                 if (schema == null) {
-                    call.respond(
-                        HttpStatusCode.NotFound,
-                        ErrorDto("not_found", "No schema registered for type '$typeName'"),
-                    )
+                    call.respondError(LegacyRestCode.NOT_FOUND, "No schema registered for type '$typeName'")
                     return@get
                 }
                 val etag = fingerprintEtag(schemaService)

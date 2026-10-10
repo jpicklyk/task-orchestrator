@@ -555,7 +555,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
             else ->
                 errorResponse(
                     "Invalid operation: $operation",
-                    ErrorCodes.VALIDATION_ERROR
+                    LegacyMcpCode.VALIDATION_ERROR
                 )
         }
     }
@@ -690,13 +690,13 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                 val item =
                     context.workItemRepository().getById(resolvedId!!) ?: return errorResponse(
                         "WorkItem not found: $resolvedId",
-                        ErrorCodes.RESOURCE_NOT_FOUND
+                        LegacyMcpCode.RESOURCE_NOT_FOUND
                     )
                 ItemSchemaView.buildItemSchemaJson(item, context.configResolver) to "item (schema-free mode)"
             }
 
         if (data == null) {
-            return errorResponse("No schema found for $subject", ErrorCodes.RESOURCE_NOT_FOUND)
+            return errorResponse("No schema found for $subject", LegacyMcpCode.RESOURCE_NOT_FOUND)
         }
         return successResponse(data)
     }
@@ -718,7 +718,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
         val item =
             context.workItemRepository().getById(itemId) ?: return errorResponse(
                 "WorkItem not found",
-                ErrorCodes.RESOURCE_NOT_FOUND,
+                LegacyMcpCode.RESOURCE_NOT_FOUND,
                 additionalData =
                     buildJsonObject {
                         put("requestedId", JsonPrimitive(itemId.toString()))
@@ -781,7 +781,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                 val ancestorId: UUID? =
                     if (ancestorIdStr != null) {
                         runCatchingNonCancellation { UUID.fromString(ancestorIdStr) }.getOrElse {
-                            return errorResponse("Invalid scope.ancestorId UUID: $ancestorIdStr", ErrorCodes.VALIDATION_ERROR)
+                            return errorResponse("Invalid scope.ancestorId UUID: $ancestorIdStr", LegacyMcpCode.VALIDATION_ERROR)
                         }
                     } else {
                         null
@@ -789,7 +789,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                 val scopeItemId: UUID? =
                     if (itemIdStr != null) {
                         runCatchingNonCancellation { UUID.fromString(itemIdStr) }.getOrElse {
-                            return errorResponse("Invalid scope.itemId UUID: $itemIdStr", ErrorCodes.VALIDATION_ERROR)
+                            return errorResponse("Invalid scope.itemId UUID: $itemIdStr", LegacyMcpCode.VALIDATION_ERROR)
                         }
                     } else {
                         null
@@ -800,7 +800,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                         Role.fromString(scopeRoleStr)
                             ?: return errorResponse(
                                 "Invalid scope.role: $scopeRoleStr. Valid roles: ${Role.VALID_NAMES.joinToString()}",
-                                ErrorCodes.VALIDATION_ERROR
+                                LegacyMcpCode.VALIDATION_ERROR
                             )
                     } else {
                         null
@@ -826,17 +826,17 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                         FtsQuerySanitizer.sanitizeForTrigram(rawQuery)
                             ?: return errorResponse(
                                 "Search query is empty. Provide at least one search term.",
-                                ErrorCodes.VALIDATION_ERROR
+                                LegacyMcpCode.VALIDATION_ERROR
                             )
                     SearchMatchMode.AUTO, SearchMatchMode.TEXT ->
                         FtsQuerySanitizer.sanitize(rawQuery)
                             ?: return errorResponse(
                                 "Search query is empty. Provide at least one search term.",
-                                ErrorCodes.VALIDATION_ERROR
+                                LegacyMcpCode.VALIDATION_ERROR
                             )
                 }
             } catch (e: IllegalArgumentException) {
-                return errorResponse(e.message ?: "Invalid search query", ErrorCodes.VALIDATION_ERROR)
+                return errorResponse(e.message ?: "Invalid search query", LegacyMcpCode.VALIDATION_ERROR)
             }
 
         // Delegate to repository, dispatched via the WorkItemRepository interface (a read; the
@@ -855,7 +855,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                 e.rethrowIfCancellation()
                 return errorResponse(
                     "FTS5 search failed: ${e.message}",
-                    ErrorCodes.INTERNAL_ERROR
+                    LegacyMcpCode.INTERNAL_ERROR
                 )
             }
 
@@ -938,13 +938,13 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
 
         // Validate time ranges — reject inverted ranges early
         if (createdAfter != null && createdBefore != null && createdAfter > createdBefore) {
-            return errorResponse("createdAfter must be before createdBefore", ErrorCodes.VALIDATION_ERROR)
+            return errorResponse("createdAfter must be before createdBefore", LegacyMcpCode.VALIDATION_ERROR)
         }
         if (modifiedAfter != null && modifiedBefore != null && modifiedAfter > modifiedBefore) {
-            return errorResponse("modifiedAfter must be before modifiedBefore", ErrorCodes.VALIDATION_ERROR)
+            return errorResponse("modifiedAfter must be before modifiedBefore", LegacyMcpCode.VALIDATION_ERROR)
         }
         if (roleChangedAfter != null && roleChangedBefore != null && roleChangedAfter > roleChangedBefore) {
-            return errorResponse("roleChangedAfter must be before roleChangedBefore", ErrorCodes.VALIDATION_ERROR)
+            return errorResponse("roleChangedAfter must be before roleChangedBefore", LegacyMcpCode.VALIDATION_ERROR)
         }
 
         // Parse role
@@ -953,7 +953,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                 Role.fromString(it)
                     ?: return errorResponse(
                         "Invalid role: $it. Valid roles: ${Role.VALID_NAMES.joinToString()}",
-                        ErrorCodes.VALIDATION_ERROR
+                        LegacyMcpCode.VALIDATION_ERROR
                     )
             }
 
@@ -961,7 +961,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
         val priority =
             priorityStr?.let {
                 Priority.fromString(it)
-                    ?: return errorResponse("Invalid priority: $it. Valid values: high, medium, low", ErrorCodes.VALIDATION_ERROR)
+                    ?: return errorResponse("Invalid priority: $it. Valid values: high, medium, low", LegacyMcpCode.VALIDATION_ERROR)
             }
 
         // Parse tags
@@ -975,7 +975,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
             if (ancestorId != null) {
                 run {
                     val countResult =
-                        legacyRead({ return errorResponse(it, ErrorCodes.DATABASE_ERROR) }) {
+                        legacyRead({ return errorResponse(it, LegacyMcpCode.DATABASE_ERROR) }) {
                             context.workItemRepository().countInScope(
                                 rootIds = setOf(ancestorId),
                                 parentId = parentId,
@@ -999,7 +999,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
             } else {
                 run {
                     val countResult =
-                        legacyRead({ return errorResponse(it, ErrorCodes.DATABASE_ERROR) }) {
+                        legacyRead({ return errorResponse(it, LegacyMcpCode.DATABASE_ERROR) }) {
                             context.workItemRepository().countByFilters(
                                 parentId = parentId,
                                 depth = depth,
@@ -1027,7 +1027,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
             if (ancestorId != null) {
                 run {
                     val result =
-                        legacyRead({ return errorResponse(it, ErrorCodes.DATABASE_ERROR) }) {
+                        legacyRead({ return errorResponse(it, LegacyMcpCode.DATABASE_ERROR) }) {
                             context.workItemRepository().findInScope(
                                 rootIds = setOf(ancestorId),
                                 parentId = parentId,
@@ -1055,7 +1055,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
             } else {
                 run {
                     val result =
-                        legacyRead({ return errorResponse(it, ErrorCodes.DATABASE_ERROR) }) {
+                        legacyRead({ return errorResponse(it, LegacyMcpCode.DATABASE_ERROR) }) {
                             context.workItemRepository().findByFilters(
                                 parentId = parentId,
                                 depth = depth,
@@ -1176,8 +1176,8 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
 
         // Fetch the item itself
         val item =
-            legacyRead({ return errorResponse(it, ErrorCodes.DATABASE_ERROR) }) { context.workItemRepository().getById(itemId) }
-                ?: return errorResponse("WorkItem not found with id: $itemId", ErrorCodes.RESOURCE_NOT_FOUND)
+            legacyRead({ return errorResponse(it, LegacyMcpCode.DATABASE_ERROR) }) { context.workItemRepository().getById(itemId) }
+                ?: return errorResponse("WorkItem not found with id: $itemId", LegacyMcpCode.RESOURCE_NOT_FOUND)
 
         // Count children by role — always the full breakdown, unaffected by excludeTerminal.
         val childCounts =
@@ -1186,7 +1186,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                     legacyRead({
                         return errorResponse(
                             it,
-                            ErrorCodes.DATABASE_ERROR
+                            LegacyMcpCode.DATABASE_ERROR
                         )
                     }) { context.workItemRepository().countChildrenByRole(itemId) }
                 result
@@ -1199,7 +1199,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                     legacyRead({
                         return errorResponse(
                             it,
-                            ErrorCodes.DATABASE_ERROR
+                            LegacyMcpCode.DATABASE_ERROR
                         )
                     }) { context.workItemRepository().findChildren(itemId) }
                 result
@@ -1254,8 +1254,8 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
         val excludeTerminal = optionalBoolean(params, "excludeTerminal", false)
 
         val anchorItem =
-            legacyRead({ return errorResponse(it, ErrorCodes.DATABASE_ERROR) }) { context.workItemRepository().getById(anchorId) }
-                ?: return errorResponse("WorkItem not found with id: $anchorId", ErrorCodes.RESOURCE_NOT_FOUND)
+            legacyRead({ return errorResponse(it, LegacyMcpCode.DATABASE_ERROR) }) { context.workItemRepository().getById(anchorId) }
+                ?: return errorResponse("WorkItem not found with id: $anchorId", LegacyMcpCode.RESOURCE_NOT_FOUND)
 
         // Direct children of the anchor act as the roots set for this view.
         val allChildren =
@@ -1264,7 +1264,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                     legacyRead({
                         return errorResponse(
                             it,
-                            ErrorCodes.DATABASE_ERROR
+                            LegacyMcpCode.DATABASE_ERROR
                         )
                     }) { context.workItemRepository().findChildren(anchorId) }
                 result
@@ -1355,7 +1355,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                     legacyRead({
                         return errorResponse(
                             it,
-                            ErrorCodes.DATABASE_ERROR
+                            LegacyMcpCode.DATABASE_ERROR
                         )
                     }) { context.workItemRepository().findRootItems(limit, offset, excludeTerminal) }
                 result
@@ -1373,7 +1373,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                     legacyRead({
                         return errorResponse(
                             it,
-                            ErrorCodes.DATABASE_ERROR
+                            LegacyMcpCode.DATABASE_ERROR
                         )
                     }) { context.workItemRepository().countRootItems(excludeTerminal) }
                 result

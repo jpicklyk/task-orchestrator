@@ -5,10 +5,8 @@ import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
-import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
-import io.github.jpicklyk.mcptask.current.application.service.BlockerInfo
 import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandErrors
@@ -23,7 +21,6 @@ import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -43,11 +40,14 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.mayHoldRoot
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.AdvanceRequestDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.AdvanceResponseDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemCreateDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemDeleteResultDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemPatchDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.DB_QUERY_FAILED
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestErrorMapper
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.etagFor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.ktor.http.HttpHeaders
@@ -64,7 +64,6 @@ import io.ktor.server.routing.post
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -128,91 +127,16 @@ private suspend fun respondIfNotJsonContentType(call: ApplicationCall): Boolean 
             .withoutParameters()
             .toString()
     if (contentType !in JSON_WRITE_CONTENT_TYPES) {
-        call.respond(
-            HttpStatusCode.UnsupportedMediaType,
-            ErrorDto("unsupported_media_type", "Use Content-Type: application/json"),
-        )
+        call.respondError(LegacyRestCode.UNSUPPORTED_MEDIA_TYPE, "Use Content-Type: application/json")
         return true
     }
     return false
 }
 
-/** Builds a [CachedHttpResponse] from an [ErrorDto] at [status]. */
-private fun errorCaptured(
-    status: HttpStatusCode,
-    error: String,
-    message: String,
-): CachedHttpResponse =
-    CachedHttpResponse(
-        statusCode = status.value,
-        bodyJson = writeJson.encodeToString(ErrorDto.serializer(), ErrorDto(error, message)),
-    )
-
-/**
- * Maps a structured [AdvanceFailure] from [AdvanceService] to an HTTP error response.
- *
- * - [AdvanceFailure.GateBlocked] → **422** `gate_blocked`, with the structured missing required
- *   notes in `details.missingNotes` and, when the target schema is seat-aware, `details.missingBySeat`
- *   (A1c — same shape as `GET /items/{id}/gate`'s `gateStatus.missingBySeat`, omitted otherwise).
- *   This is the key behavioral change from unification: a REST advance that fails a required-note
- *   gate is now REJECTED instead of silently advancing.
- * - [AdvanceFailure.ValidationFailed] → **422** `transition_blocked`, with the dependency blockers.
- * - [AdvanceFailure.ResolutionFailed] / [AdvanceFailure.ApplyFailed] → **422** `transition_failed`.
- * - [AdvanceFailure.ResourceLeaseUnavailable] → **409** `resource_unavailable`, with a
- *   `Retry-After` header (whole seconds, rounded UP from the millisecond hint so a client never
- *   retries early) and `details.contendedResources` / `details.retryAfterMs`. 409 rather than 422:
- *   the request is well-formed and will succeed once the holder finishes. The response carries
- *   resource KEYS only — never the holding item or actor.
- * - [AdvanceFailure.PolicyRejected] → **401** `verification_failed` (defensive — ownership is not
- *   enforced on the REST path, so this is not expected to occur here).
- * - [AdvanceFailure.OwnershipRejected] → **409** `not_claim_holder` (defensive — same caveat).
- *
- * See also [advanceConfigUnavailableCaptured], which handles the sibling 503 case raised by a
- * [PerRootConfigUnavailableException] mid-pipeline rather than by an [AdvanceFailure] outcome.
- */
-private fun advanceFailureCaptured(failure: AdvanceFailure): CachedHttpResponse =
-    when (failure) {
-        is AdvanceFailure.GateBlocked ->
-            detailedErrorCaptured(
-                HttpStatusCode.UnprocessableEntity,
-                ErrorDto("gate_blocked", failure.message, buildGateBlockedDetails(failure))
-            )
-        is AdvanceFailure.ValidationFailed ->
-            detailedErrorCaptured(
-                HttpStatusCode.UnprocessableEntity,
-                ErrorDto("transition_blocked", failure.message, buildValidationFailedDetails(failure)),
-            )
-        is AdvanceFailure.ResourceLeaseUnavailable ->
-            detailedErrorCaptured(
-                HttpStatusCode.Conflict,
-                ErrorDto("resource_unavailable", failure.message, buildResourceLeaseUnavailableDetails(failure)),
-                // Round UP to whole seconds: Retry-After has second granularity, and rounding down
-                // would tell the client to retry before the lease can possibly have expired.
-                failure.retryAfterMs?.let { ms -> mapOf(HttpHeaders.RetryAfter to ((ms + 999) / 1000).coerceAtLeast(1).toString()) }
-                    ?: emptyMap(),
-            )
-        is AdvanceFailure.ResolutionFailed -> errorCaptured(HttpStatusCode.UnprocessableEntity, "transition_failed", failure.message)
-        is AdvanceFailure.ApplyFailed -> errorCaptured(HttpStatusCode.UnprocessableEntity, "transition_failed", failure.message)
-        is AdvanceFailure.PolicyRejected -> errorCaptured(HttpStatusCode.Unauthorized, "verification_failed", failure.reason)
-        is AdvanceFailure.OwnershipRejected -> errorCaptured(HttpStatusCode.Conflict, "not_claim_holder", failure.message)
-    }
-
-/** Builds a [CachedHttpResponse] from a full [ErrorDto] (with details) at [status]. */
-private fun detailedErrorCaptured(
-    status: HttpStatusCode,
-    dto: ErrorDto,
-    extraHeaders: Map<String, String> = emptyMap(),
-): CachedHttpResponse =
-    CachedHttpResponse(
-        statusCode = status.value,
-        bodyJson = writeJson.encodeToString(ErrorDto.serializer(), dto),
-        extraHeaders = extraHeaders,
-    )
-
 /**
  * Responds 503 `config_unavailable` for a [PerRootConfigUnavailableException] raised mid-advance-
  * pipeline (status label resolution, gate check, review-phase detection — see the advance route's
- * D6 note). Sibling to [advanceFailureCaptured]; the catch site still decides when to call this and
+ * D6 note). Sibling to [LegacyRestErrorMapper.advanceFailure]; the catch site still decides when to call this and
  * still returns immediately afterward.
  */
 private fun advanceConfigUnavailableCaptured(
@@ -220,7 +144,7 @@ private fun advanceConfigUnavailableCaptured(
     e: PerRootConfigUnavailableException,
 ): CachedHttpResponse {
     writeLogger.warn("Per-root config unavailable advancing item {}: {}", itemId, e.message)
-    return errorCaptured(HttpStatusCode.ServiceUnavailable, PerRootConfigUnavailableException.CODE, e.message)
+    return LegacyRestErrorMapper.captured(LegacyRestCode.CONFIG_UNAVAILABLE, e.message)
 }
 
 /** 409 `invalid_transition` for a create or reparent under a TERMINAL parent whose lifecycle is AUTO (D2). */
@@ -228,9 +152,10 @@ private fun closedParentCaptured(
     parentId: UUID?,
     message: String,
 ): CachedHttpResponse =
-    detailedErrorCaptured(
-        HttpStatusCode.Conflict,
-        ErrorDto("invalid_transition", message, buildJsonObject { put("parentId", JsonPrimitive(parentId?.toString())) }),
+    LegacyRestErrorMapper.captured(
+        LegacyRestCode.INVALID_TRANSITION,
+        message,
+        buildJsonObject { put("parentId", JsonPrimitive(parentId?.toString())) },
     )
 
 /** 503 `config_unavailable` for a per-root config fault resolving a parent's lifecycle inside an item write. */
@@ -239,82 +164,12 @@ private fun itemConfigUnavailableCaptured(
     e: PerRootConfigUnavailableException,
 ): CachedHttpResponse {
     writeLogger.warn("{}: per-root config unavailable: {}", route, e.message)
-    return errorCaptured(HttpStatusCode.ServiceUnavailable, PerRootConfigUnavailableException.CODE, e.message)
+    return LegacyRestErrorMapper.captured(LegacyRestCode.CONFIG_UNAVAILABLE, e.message)
 }
 
 /** The parent id an `invalid_transition` (closed-parent) error names. */
 private fun closedParentId(error: DomainError): UUID? =
     (error.detail as? io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail.InvalidTransition)?.itemId
-
-/** Builds the `details` object for a [AdvanceFailure.GateBlocked] 422 response. */
-private fun buildGateBlockedDetails(failure: AdvanceFailure.GateBlocked): JsonObject =
-    buildJsonObject {
-        put("targetRole", JsonPrimitive(failure.targetRole.name.lowercase()))
-        put(
-            "missingNotes",
-            kotlinx.serialization.json.buildJsonArray {
-                failure.missingNotes.forEach { entry ->
-                    add(
-                        buildJsonObject {
-                            put("key", JsonPrimitive(entry.key))
-                            put("description", JsonPrimitive(entry.description))
-                            entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
-                            entry.skill?.let { put("skill", JsonPrimitive(it)) }
-                        },
-                    )
-                }
-            },
-        )
-        // A1c: mirrors get_context / REST /gate's missingBySeat — present only when
-        // AdvanceService computed it (seat-aware schema), absent otherwise.
-        failure.missingBySeat?.let { bySeat ->
-            put(
-                "missingBySeat",
-                buildJsonObject {
-                    bySeat.forEach { (seat, keys) ->
-                        put(seat, JsonArray(keys.map { JsonPrimitive(it) }))
-                    }
-                },
-            )
-        }
-        // A2: independence-attestation findings — same raw JSON shape MCP's advance_item
-        // gate_blocked details use (actor-free by construction); reuses the shared builder rather
-        // than a second JSON encoding of the same domain type. Present only when the list is
-        // non-empty (addendum emission rule); `gateStatus` is the only surface that emits `[]`.
-        NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty(failure.violations)?.let { put("violations", it) }
-    }
-
-/** Builds the `details` object for a [AdvanceFailure.ValidationFailed] 422 response. */
-private fun buildValidationFailedDetails(failure: AdvanceFailure.ValidationFailed): JsonObject =
-    buildJsonObject {
-        put(
-            "blockers",
-            kotlinx.serialization.json.buildJsonArray {
-                failure.blockers.forEach { blocker ->
-                    add(
-                        buildJsonObject {
-                            put("fromItemId", JsonPrimitive(blocker.fromItemId.toString()))
-                            put("currentRole", JsonPrimitive(blocker.currentRole?.name?.lowercase() ?: BlockerInfo.UNKNOWN_ROLE))
-                            put("requiredRole", JsonPrimitive(blocker.requiredRole))
-                        },
-                    )
-                }
-            },
-        )
-    }
-
-/** Builds the `details` object for a [AdvanceFailure.ResourceLeaseUnavailable] 409 response. */
-private fun buildResourceLeaseUnavailableDetails(failure: AdvanceFailure.ResourceLeaseUnavailable): JsonObject =
-    buildJsonObject {
-        put("targetRole", JsonPrimitive(failure.targetRole.name.lowercase()))
-        put(
-            "contendedResources",
-            kotlinx.serialization.json.buildJsonArray {
-                failure.contendedResources.forEach { add(JsonPrimitive(it)) }
-            },
-        )
-        failure.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
-    }
 
 /**
  * Parsed and validated POST /items/{id}/advance request, as returned by the local
@@ -414,7 +269,7 @@ fun Route.itemWriteRoutes(
         overrideResourceLeases: Boolean,
     ): CachedHttpResponse? =
         if (overrideResourceLeases && !hasCapability(call, ApiCapability.ADMIN)) {
-            errorCaptured(HttpStatusCode.Forbidden, "insufficient_capability", "overrideResourceLeases requires the admin capability")
+            LegacyRestErrorMapper.captured(LegacyRestCode.INSUFFICIENT_CAPABILITY, "overrideResourceLeases requires the admin capability")
         } else {
             null
         }
@@ -475,13 +330,13 @@ fun Route.itemWriteRoutes(
                 if (parentId != null) {
                     val parentResult =
                         legacyRead(
-                            { return errorCaptured(HttpStatusCode.InternalServerError, "db_error", DB_QUERY_FAILED) }
+                            { return LegacyRestErrorMapper.captured(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED) }
                         ) { workItemRepo.getById(parentId) }
                     if (parentResult == null) {
-                        return errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $parentId not found")
+                        return LegacyRestErrorMapper.captured(LegacyRestCode.NOT_FOUND_AS_BAD_REQUEST, "Parent item $parentId not found")
                     }
                     if (!enforceScopeForItem(call, parentId, workItemRepo)) {
-                        return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for parent $parentId")
+                        return LegacyRestErrorMapper.captured(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for parent $parentId")
                     }
                 } else {
                     // A root-level create has no parent to anchor the scope check on: the new item
@@ -489,7 +344,7 @@ fun Route.itemWriteRoutes(
                     // tag-wise the tags it is created WITH must satisfy the principal's tag scope,
                     // mirroring the parent-tag check taken above for a non-root create.
                     if (!principal.mayHoldRoot(itemId) || !principal.allowsItemTags(tagsStr)) {
-                        return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied to create a root item")
+                        return LegacyRestErrorMapper.captured(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied to create a root item")
                     }
                 }
 
@@ -535,7 +390,7 @@ fun Route.itemWriteRoutes(
                         val error = outcome.error
                         when {
                             error.code == ErrorCode.NOT_FOUND ->
-                                errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $parentId not found")
+                                LegacyRestErrorMapper.captured(LegacyRestCode.NOT_FOUND_AS_BAD_REQUEST, "Parent item $parentId not found")
                             ItemCommandErrors.isClosedParent(error) ->
                                 closedParentCaptured(
                                     closedParentId(error) ?: parentId,
@@ -543,10 +398,10 @@ fun Route.itemWriteRoutes(
                                         "reopen it before adding children",
                                 )
                             error.code == ErrorCode.INVALID_REQUEST ->
-                                errorCaptured(HttpStatusCode.BadRequest, "validation_error", error.message)
+                                LegacyRestErrorMapper.captured(LegacyRestCode.VALIDATION_ERROR, error.message)
                             else -> {
                                 writeLogger.warn("POST /items DB error: {}", error.message)
-                                errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to create item")
+                                LegacyRestErrorMapper.captured(LegacyRestCode.DB_ERROR, "Failed to create item")
                             }
                         }
                     }
@@ -571,21 +426,21 @@ fun Route.itemWriteRoutes(
                     .toString()
             if (contentType !in MERGE_PATCH_CONTENT_TYPES) {
                 call.response.header("Accept-Patch", "application/merge-patch+json, application/json")
-                call.respond(
-                    HttpStatusCode.UnsupportedMediaType,
-                    ErrorDto("unsupported_media_type", "Use Content-Type: application/merge-patch+json or application/json"),
+                call.respondError(
+                    LegacyRestCode.UNSUPPORTED_MEDIA_TYPE,
+                    "Use Content-Type: application/merge-patch+json or application/json"
                 )
                 return@patch
             }
 
             val rawId =
                 call.parameters["id"] ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
                     return@patch
                 }
             val id =
                 runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
                     return@patch
                 }
 
@@ -608,39 +463,31 @@ fun Route.itemWriteRoutes(
                 val actorClaim = ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey])
                 val itemResult =
                     legacyRead(
-                        { return errorCaptured(HttpStatusCode.InternalServerError, "db_error", DB_QUERY_FAILED) }
+                        { return LegacyRestErrorMapper.captured(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED) }
                     ) { workItemRepo.getById(id) }
                 if (itemResult == null) {
-                    return errorCaptured(HttpStatusCode.NotFound, "not_found", "Item $id not found")
+                    return LegacyRestErrorMapper.captured(LegacyRestCode.NOT_FOUND, "Item $id not found")
                 }
                 val existing = itemResult
 
                 if (!enforceScopeForItem(call, id, workItemRepo)) {
-                    return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for item $id")
+                    return LegacyRestErrorMapper.captured(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
                 }
 
                 // ETag concurrency — If-Match required for PATCH
                 val ifMatch = call.request.headers[HttpHeaders.IfMatch]?.trim()
                 val currentEtag = etagFor(existing.modifiedAt)
                 if (ifMatch == null) {
-                    return CachedHttpResponse(
-                        statusCode = HttpStatusCode.BadRequest.value,
-                        bodyJson =
-                            writeJson.encodeToString(
-                                ErrorDto.serializer(),
-                                ErrorDto("precondition_required", "PATCH requires If-Match header with current ETag"),
-                            ),
+                    return LegacyRestErrorMapper.captured(
+                        LegacyRestCode.PRECONDITION_REQUIRED,
+                        "PATCH requires If-Match header with current ETag",
                         etag = currentEtag,
                     )
                 }
                 if (ifMatch != currentEtag) {
-                    return CachedHttpResponse(
-                        statusCode = HttpStatusCode.PreconditionFailed.value,
-                        bodyJson =
-                            writeJson.encodeToString(
-                                ErrorDto.serializer(),
-                                ErrorDto("etag_mismatch", "ETag mismatch; current ETag is $currentEtag"),
-                            ),
+                    return LegacyRestErrorMapper.captured(
+                        LegacyRestCode.ETAG_MISMATCH,
+                        "ETag mismatch; current ETag is $currentEtag",
                         etag = currentEtag,
                     )
                 }
@@ -660,10 +507,9 @@ fun Route.itemWriteRoutes(
                 // Security: reject any attempt to patch server-owned fields
                 val disallowedFields = patchObject.keys.intersect(REJECTED_PATCH_FIELDS)
                 if (disallowedFields.isNotEmpty()) {
-                    return errorCaptured(
-                        HttpStatusCode.BadRequest,
-                        "field_not_patchable",
-                        "The following fields cannot be patched: ${disallowedFields.joinToString()}",
+                    return LegacyRestErrorMapper.captured(
+                        LegacyRestCode.FIELD_NOT_PATCHABLE,
+                        "The following fields cannot be patched: ${disallowedFields.joinToString()}"
                     )
                 }
 
@@ -732,22 +578,25 @@ fun Route.itemWriteRoutes(
                         // already DELETE the item). The tag half was enforced above via
                         // enforceScopeForItem(call, id, ...) on the item's pre-patch tags.
                         if (!principal.mayHoldRoot(id)) {
-                            return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied to move item $id to root")
+                            return LegacyRestErrorMapper.captured(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied to move item $id to root")
                         }
                     } else {
                         val parentResult =
                             legacyRead(
-                                { return errorCaptured(HttpStatusCode.InternalServerError, "db_error", DB_QUERY_FAILED) }
+                                { return LegacyRestErrorMapper.captured(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED) }
                             ) { workItemRepo.getById(newParentId) }
                         if (parentResult == null) {
-                            return errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $newParentId not found")
+                            return LegacyRestErrorMapper.captured(
+                                LegacyRestCode.NOT_FOUND_AS_BAD_REQUEST,
+                                "Parent item $newParentId not found"
+                            )
                         }
                         // A re-parent target is the same authorization object as a create-time parent,
                         // so it gets the same check the POST /items path applies — otherwise PATCH is a
                         // way to move items under a parent the caller is not scoped to. Ordered after
                         // the existence check so a bogus UUID still reports not_found, not 403.
                         if (!enforceScopeForItem(call, newParentId, workItemRepo)) {
-                            return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for parent $newParentId")
+                            return LegacyRestErrorMapper.captured(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for parent $newParentId")
                         }
                     }
                 }
@@ -798,26 +647,27 @@ fun Route.itemWriteRoutes(
                         val error = outcome.error
                         when {
                             error.code == ErrorCode.NOT_FOUND && ItemCommandErrors.notFoundId(error) != id.toString() ->
-                                errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $newParentId not found")
+                                LegacyRestErrorMapper.captured(
+                                    LegacyRestCode.NOT_FOUND_AS_BAD_REQUEST,
+                                    "Parent item $newParentId not found"
+                                )
                             // Optimistic-lock loss is a distinct, retryable condition from a genuine DB failure, and
                             // distinct from an If-Match precondition failure (412 above): If-Match matched, but
                             // another writer won the version race in between. 409 so a client retries with a fresh
                             // GET + If-Match.
                             LegacyFaults.isVersionConflict(error) -> {
                                 writeLogger.debug("PATCH /items/{} optimistic-lock conflict: {}", id, error.message)
-                                errorCaptured(
-                                    HttpStatusCode.Conflict,
-                                    "version_conflict",
-                                    "Item was modified by another request; retry with a fresh If-Match ETag",
+                                LegacyRestErrorMapper.captured(
+                                    LegacyRestCode.VERSION_CONFLICT,
+                                    "Item was modified by another request; retry with a fresh If-Match ETag"
                                 )
                             }
                             ItemCommandErrors.isSelfParent(error) ->
-                                errorCaptured(HttpStatusCode.BadRequest, "validation_error", "An item cannot be its own parent")
+                                LegacyRestErrorMapper.captured(LegacyRestCode.VALIDATION_ERROR, "An item cannot be its own parent")
                             error.code == ErrorCode.CYCLE_DETECTED ->
-                                errorCaptured(
-                                    HttpStatusCode.BadRequest,
-                                    "validation_error",
-                                    "Cannot re-parent an item under its own descendant",
+                                LegacyRestErrorMapper.captured(
+                                    LegacyRestCode.VALIDATION_ERROR,
+                                    "Cannot re-parent an item under its own descendant"
                                 )
                             ItemCommandErrors.isClosedParent(error) ->
                                 closedParentCaptured(
@@ -826,10 +676,10 @@ fun Route.itemWriteRoutes(
                                         "reopen it before moving items under it",
                                 )
                             error.code == ErrorCode.INVALID_REQUEST ->
-                                errorCaptured(HttpStatusCode.BadRequest, "validation_error", error.message)
+                                LegacyRestErrorMapper.captured(LegacyRestCode.VALIDATION_ERROR, error.message)
                             else -> {
                                 writeLogger.warn("PATCH /items/{} DB error: {}", id, error.message)
-                                errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to update item")
+                                LegacyRestErrorMapper.captured(LegacyRestCode.DB_ERROR, "Failed to update item")
                             }
                         }
                     }
@@ -845,12 +695,12 @@ fun Route.itemWriteRoutes(
         delete("/items/{id}") {
             val rawId =
                 call.parameters["id"] ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
                     return@delete
                 }
             val id =
                 runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
                     return@delete
                 }
 
@@ -866,27 +716,24 @@ fun Route.itemWriteRoutes(
                     recursiveParam.equals("false", ignoreCase = true) -> false
                     recursiveParam.equals("true", ignoreCase = true) -> true
                     else -> {
-                        call.respond(
-                            HttpStatusCode.BadRequest,
-                            ErrorDto("validation_error", "recursive must be 'true' or 'false', got: $recursiveParam"),
-                        )
+                        call.respondError(LegacyRestCode.VALIDATION_ERROR, "recursive must be 'true' or 'false', got: $recursiveParam")
                         return@delete
                     }
                 }
 
             val itemResult =
                 legacyRead({
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@delete
                 }) { workItemRepo.getById(id) }
             if (itemResult == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
+                call.respondError(LegacyRestCode.NOT_FOUND, "Item $id not found")
                 return@delete
             }
             val existing = itemResult
 
             if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
+                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
                 return@delete
             }
 
@@ -895,10 +742,7 @@ fun Route.itemWriteRoutes(
             if (ifMatch != null && ifMatch != etagFor(existing.modifiedAt)) {
                 val currentEtag = etagFor(existing.modifiedAt)
                 call.response.header(HttpHeaders.ETag, currentEtag)
-                call.respond(
-                    HttpStatusCode.PreconditionFailed,
-                    ErrorDto("etag_mismatch", "ETag mismatch; current ETag is $currentEtag"),
-                )
+                call.respondError(LegacyRestCode.ETAG_MISMATCH, "ETag mismatch; current ETag is $currentEtag")
                 return@delete
             }
 
@@ -931,21 +775,18 @@ fun Route.itemWriteRoutes(
                                 buildJsonObject {
                                     put("childCount", JsonPrimitive(childCount))
                                 }
-                            call.respond(
-                                HttpStatusCode.Conflict,
-                                ErrorDto(
-                                    "has_children",
-                                    "Item $id has $childCount child item(s). " +
-                                        "Use ?recursive=true to delete the item and all its descendants.",
-                                    details,
-                                ),
+                            call.respondError(
+                                LegacyRestCode.HAS_CHILDREN,
+                                "Item $id has $childCount child item(s). " +
+                                    "Use ?recursive=true to delete the item and all its descendants.",
+                                details
                             )
                         }
                         error.code == ErrorCode.NOT_FOUND ->
-                            call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
+                            call.respondError(LegacyRestCode.NOT_FOUND, "Item $id not found")
                         else -> {
                             writeLogger.warn("DELETE /items/{} DB error: {}", id, error.message)
-                            call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to delete item"))
+                            call.respondError(LegacyRestCode.DB_ERROR, "Failed to delete item")
                         }
                     }
                 }
@@ -964,12 +805,12 @@ fun Route.itemWriteRoutes(
 
             val rawId =
                 call.parameters["id"] ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
                     return@post
                 }
             val id =
                 runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
                     return@post
                 }
 
@@ -995,15 +836,15 @@ fun Route.itemWriteRoutes(
 
                 val itemResult =
                     legacyRead({
-                        return errorCaptured(HttpStatusCode.InternalServerError, "db_error", DB_QUERY_FAILED)
+                        return LegacyRestErrorMapper.captured(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     }) { workItemRepo.getById(id) }
                 if (itemResult == null) {
-                    return errorCaptured(HttpStatusCode.NotFound, "not_found", "Item $id not found")
+                    return LegacyRestErrorMapper.captured(LegacyRestCode.NOT_FOUND, "Item $id not found")
                 }
                 val item = itemResult
 
                 if (!enforceScopeForItem(call, id, workItemRepo)) {
-                    return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for item $id")
+                    return LegacyRestErrorMapper.captured(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
                 }
 
                 // Claimed item: emit WARN but proceed — API callers override MCP claim semantics
@@ -1087,7 +928,7 @@ fun Route.itemWriteRoutes(
                 val advanceResult =
                     when (outcome) {
                         is AdvanceOutcome.Success -> outcome.result
-                        is AdvanceOutcome.Failure -> return advanceFailureCaptured(outcome.failure)
+                        is AdvanceOutcome.Failure -> return LegacyRestErrorMapper.advanceFailure(outcome.failure)
                     }
 
                 // Build expectedNotes parity: fetch the item's current note keys for the `exists` flag.

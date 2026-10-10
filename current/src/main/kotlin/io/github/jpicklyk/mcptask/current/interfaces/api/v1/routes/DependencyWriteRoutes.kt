@@ -21,7 +21,10 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeFor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependencyCreateDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependencyEdgeDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.DB_QUERY_FAILED
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestErrorMapper
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
@@ -46,16 +49,6 @@ private val depWriteJson =
         explicitNulls = false
         encodeDefaults = true
     }
-
-private fun depErrorCaptured(
-    status: HttpStatusCode,
-    error: String,
-    message: String,
-): CachedHttpResponse =
-    CachedHttpResponse(
-        statusCode = status.value,
-        bodyJson = depWriteJson.encodeToString(ErrorDto.serializer(), ErrorDto(error, message)),
-    )
 
 // Accepted Content-Types for the JSON dependency-create body (POST /dependencies). `*/*` is what
 // `call.request.contentType()` reports when the header is ABSENT, which ContentNegotiation's
@@ -106,10 +99,7 @@ fun Route.dependencyWriteRoutes(
                     .withoutParameters()
                     .toString()
             if (depContentType !in JSON_WRITE_CONTENT_TYPES) {
-                call.respond(
-                    HttpStatusCode.UnsupportedMediaType,
-                    ErrorDto("unsupported_media_type", "Use Content-Type: application/json"),
-                )
+                call.respondError(LegacyRestCode.UNSUPPORTED_MEDIA_TYPE, "Use Content-Type: application/json")
                 return@post
             }
 
@@ -159,24 +149,24 @@ fun Route.dependencyWriteRoutes(
                 // Verify both items exist and are in scope
                 val fromResult =
                     legacyRead({
-                        return depErrorCaptured(HttpStatusCode.InternalServerError, "db_error", DB_QUERY_FAILED)
+                        return LegacyRestErrorMapper.captured(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     }) { workItemRepo.getById(fromId) }
                 if (fromResult == null) {
-                    return depErrorCaptured(HttpStatusCode.BadRequest, "not_found", "fromItemId $fromId not found")
+                    return LegacyRestErrorMapper.captured(LegacyRestCode.NOT_FOUND_AS_BAD_REQUEST, "fromItemId $fromId not found")
                 }
                 val toResult =
                     legacyRead({
-                        return depErrorCaptured(HttpStatusCode.InternalServerError, "db_error", DB_QUERY_FAILED)
+                        return LegacyRestErrorMapper.captured(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     }) { workItemRepo.getById(toId) }
                 if (toResult == null) {
-                    return depErrorCaptured(HttpStatusCode.BadRequest, "not_found", "toItemId $toId not found")
+                    return LegacyRestErrorMapper.captured(LegacyRestCode.NOT_FOUND_AS_BAD_REQUEST, "toItemId $toId not found")
                 }
 
                 if (!enforceScopeForItem(call, fromId, workItemRepo)) {
-                    return depErrorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for fromItemId $fromId")
+                    return LegacyRestErrorMapper.captured(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for fromItemId $fromId")
                 }
                 if (!enforceScopeForItem(call, toId, workItemRepo)) {
-                    return depErrorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for toItemId $toId")
+                    return LegacyRestErrorMapper.captured(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for toItemId $toId")
                 }
 
                 // Cycle detection and create (JDBC-blocking: wrap in withContext(IO) + suspendTransaction)
@@ -206,32 +196,25 @@ fun Route.dependencyWriteRoutes(
                                 val error = outcome.error
                                 return when (error.code) {
                                     ErrorCode.DUPLICATE ->
-                                        depErrorCaptured(
-                                            HttpStatusCode.Conflict,
-                                            "duplicate_dependency",
-                                            "A dependency of this type already exists between these items",
+                                        LegacyRestErrorMapper.captured(
+                                            LegacyRestCode.DUPLICATE_DEPENDENCY,
+                                            "A dependency of this type already exists between these items"
                                         )
                                     ErrorCode.CYCLE_DETECTED ->
-                                        depErrorCaptured(
-                                            HttpStatusCode.BadRequest,
-                                            "cycle_detected",
+                                        LegacyRestErrorMapper.captured(
+                                            LegacyRestCode.CYCLE_DETECTED,
                                             "Adding this dependency would create a cycle"
                                         )
                                     ErrorCode.UNAVAILABLE ->
-                                        depErrorCaptured(
-                                            HttpStatusCode.ServiceUnavailable,
-                                            "unavailable",
-                                            error.message
-                                        )
-                                    else -> depErrorCaptured(HttpStatusCode.InternalServerError, "internal", error.message)
+                                        LegacyRestErrorMapper.captured(LegacyRestCode.UNAVAILABLE, error.message)
+                                    else -> LegacyRestErrorMapper.captured(LegacyRestCode.INTERNAL, error.message)
                                 }
                             }
                         }
                     } catch (e: DuplicateDependencyException) {
-                        return depErrorCaptured(
-                            HttpStatusCode.Conflict,
-                            "duplicate_dependency",
-                            e.message ?: "A dependency of this type already exists between these items",
+                        return LegacyRestErrorMapper.captured(
+                            LegacyRestCode.DUPLICATE_DEPENDENCY,
+                            e.message ?: "A dependency of this type already exists between these items"
                         )
                     }
 
@@ -248,22 +231,22 @@ fun Route.dependencyWriteRoutes(
         delete("/dependencies/{id}") {
             val rawId =
                 call.parameters["id"] ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing dependency id"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing dependency id")
                     return@delete
                 }
             val id =
                 runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
                     return@delete
                 }
 
             val existing: Dependency? =
                 legacyRead({
-                    call.respondDbError()
+                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
                     return@delete
                 }) { withContext(Dispatchers.IO) { depRepo.findById(id) } }
             if (existing == null) {
-                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Dependency $id not found"))
+                call.respondError(LegacyRestCode.NOT_FOUND, "Dependency $id not found")
                 return@delete
             }
 
@@ -273,11 +256,11 @@ fun Route.dependencyWriteRoutes(
             // letting a caller scoped to the 'from' subtree delete an edge reaching into a
             // subtree they have no authority over.)
             if (!enforceScopeForItem(call, existing.fromItemId, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for fromItemId"))
+                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for fromItemId")
                 return@delete
             }
             if (!enforceScopeForItem(call, existing.toItemId, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for toItemId"))
+                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for toItemId")
                 return@delete
             }
 
@@ -292,13 +275,13 @@ fun Route.dependencyWriteRoutes(
                         // The legacy write-fault shape (F4): 500 db_error with the route's fixed text; the SQL text
                         // goes to the log only.
                         depWriteLogger.warn("DELETE /dependencies/{} DB error: {}", id, deleteOutcome.error.message)
-                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to delete dependency"))
+                        call.respondError(LegacyRestCode.DB_ERROR, "Failed to delete dependency")
                         return@delete
                     }
                 }
             if (!deleted) {
                 depWriteLogger.warn("DELETE /dependencies/{} returned false (race?)", id)
-                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Dependency $id not found or already deleted"))
+                call.respondError(LegacyRestCode.NOT_FOUND, "Dependency $id not found or already deleted")
             } else {
                 call.respond(HttpStatusCode.NoContent)
             }

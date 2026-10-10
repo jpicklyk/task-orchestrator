@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import java.util.UUID
 
 /**
@@ -49,9 +50,12 @@ suspend fun resolveWorkItemIdString(
         }
     return when {
         matches.isEmpty() ->
-            throw ToolValidationException("No WorkItem found matching $fieldLabel prefix: $idStr")
+            throw ToolValidationException("No WorkItem found matching $fieldLabel prefix: $idStr", ErrorCode.NOT_FOUND)
         matches.size > 1 ->
-            throw ToolValidationException("Ambiguous $fieldLabel prefix: $idStr matches ${matches.size} items")
+            throw ToolValidationException(
+                "Ambiguous $fieldLabel prefix: $idStr matches ${matches.size} items",
+                ErrorCode.AMBIGUOUS_ID
+            )
         else -> matches.first().id
     }
 }

@@ -95,6 +95,22 @@ inline fun <T> legacyRead(
     }
 
 /**
+ * [legacyRead] for callers that keep the fault as a catalog error: a thrown store fault reaches [onFault] as the
+ * [DomainError] [LegacyFaults.fault] classifies it as (its `message` is the innermost SQL text, so
+ * [LegacyFaults.message] of it equals what [legacyRead] hands over). Cancellation is rethrown.
+ */
+inline fun <T> legacyReadFault(
+    onFault: (error: DomainError) -> Nothing,
+    block: () -> T
+): T =
+    try {
+        block()
+    } catch (e: Exception) {
+        e.rethrowIfCancellation()
+        onFault(LegacyFaults.fault(e))
+    }
+
+/**
  * The legacy DEGRADING read: runs [block] (an optional, best-effort store read, e.g. a page total or an
  * `include=` decoration) and returns null on a store fault, as the 3.x `Result.Error -> null` sites did.
  * Cancellation is rethrown.

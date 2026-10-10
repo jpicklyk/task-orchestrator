@@ -728,12 +728,12 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
             val (resolvedRootId, rootIdError) = resolveIdString(rootIdStr!!, context)
             if (rootIdError != null) return null to rootIdError
             val fetched =
-                legacyRead({ return null to errorResponse("Failed to read root item '$rootIdStr': $it", ErrorCodes.DATABASE_ERROR) }) {
+                legacyRead({ return null to errorResponse("Failed to read root item '$rootIdStr': $it", LegacyMcpCode.DATABASE_ERROR) }) {
                     context.workItemRepository().getById(resolvedRootId!!)
                 } ?: return null to
                     errorResponse(
                         "Root item '$rootIdStr' not found: WorkItem not found with id: $resolvedRootId",
-                        ErrorCodes.RESOURCE_NOT_FOUND
+                        LegacyMcpCode.RESOURCE_NOT_FOUND
                     )
             return RootResolution(
                 rootItem = fetched,
@@ -752,12 +752,12 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         val provisionalRootId: UUID
         if (parentId != null) {
             val parent =
-                legacyRead({ return null to errorResponse("Failed to read parent item '$parentId': $it", ErrorCodes.DATABASE_ERROR) }) {
+                legacyRead({ return null to errorResponse("Failed to read parent item '$parentId': $it", LegacyMcpCode.DATABASE_ERROR) }) {
                     context.workItemRepository().getById(parentId)
                 } ?: return null to
                     errorResponse(
                         "Parent item '$parentId' not found: WorkItem not found with id: $parentId",
-                        ErrorCodes.RESOURCE_NOT_FOUND
+                        LegacyMcpCode.RESOURCE_NOT_FOUND
                     )
             provisionalRootId = parent.rootId ?: parent.id
         } else {
@@ -765,10 +765,10 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         }
         val rootCommand =
             buildItemCommand(obj = rootObj, parentId = parentId, id = rootItemId)
-                ?: return null to errorResponse("Failed to build root item", ErrorCodes.VALIDATION_ERROR)
+                ?: return null to errorResponse("Failed to build root item", LegacyMcpCode.VALIDATION_ERROR)
         val rootItem =
             previewOf(rootCommand, provisionalRootId, "root")
-                ?: return null to errorResponse("Failed to build root item", ErrorCodes.VALIDATION_ERROR)
+                ?: return null to errorResponse("Failed to build root item", LegacyMcpCode.VALIDATION_ERROR)
 
         return RootResolution(
             rootItem = rootItem,
@@ -801,12 +801,12 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
     ): Pair<UUID?, JsonElement?> {
         if (!isAttachMode) return (rootItem.rootId ?: rootItem.id) to null
         val placement =
-            legacyRead({ return null to errorResponse("Failed to read root item '$rootIdStr': $it", ErrorCodes.DATABASE_ERROR) }) {
+            legacyRead({ return null to errorResponse("Failed to read root item '$rootIdStr': $it", LegacyMcpCode.DATABASE_ERROR) }) {
                 context.workItemRepository().resolveChildPlacement(rootItem.id)
             } ?: return null to
                 errorResponse(
                     "Root item '$rootIdStr' not found: Parent item not found: ${rootItem.id}",
-                    ErrorCodes.RESOURCE_NOT_FOUND
+                    LegacyMcpCode.RESOURCE_NOT_FOUND
                 )
         return placement.rootId to null
     }
@@ -843,7 +843,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                 errorResponse(
                     "'docRef.rootId' ($parsedRootId) does not match the created/attached root's own " +
                         "rootId ($effectiveRootId)",
-                    ErrorCodes.VALIDATION_ERROR
+                    LegacyMcpCode.VALIDATION_ERROR
                 )
         }
         return DocRefSource(docSlug, parsedRootId) to null
@@ -943,10 +943,10 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
             val parentItem = refToItem[parentRef]!! // root or already-built sibling
             val command =
                 buildItemCommand(obj = childObj, parentId = parentItem.id)
-                    ?: return null to errorResponse("Failed to build child item '$ref'", ErrorCodes.VALIDATION_ERROR)
+                    ?: return null to errorResponse("Failed to build child item '$ref'", LegacyMcpCode.VALIDATION_ERROR)
             val childItem =
                 previewOf(command, null, "child '$ref'")
-                    ?: return null to errorResponse("Failed to build child item '$ref'", ErrorCodes.VALIDATION_ERROR)
+                    ?: return null to errorResponse("Failed to build child item '$ref'", LegacyMcpCode.VALIDATION_ERROR)
             refToCommand[ref] = command
             refToItem[ref] = childItem
         }
@@ -971,14 +971,14 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                 return null to
                     errorResponse(
                         "deps[$index]: 'from' ref '$fromRef' is not defined. Valid refs: ${refToItem.keys.joinToString()}",
-                        ErrorCodes.VALIDATION_ERROR
+                        LegacyMcpCode.VALIDATION_ERROR
                     )
             }
             if (!refToItem.containsKey(toRef)) {
                 return null to
                     errorResponse(
                         "deps[$index]: 'to' ref '$toRef' is not defined. Valid refs: ${refToItem.keys.joinToString()}",
-                        ErrorCodes.VALIDATION_ERROR
+                        LegacyMcpCode.VALIDATION_ERROR
                     )
             }
 
@@ -988,7 +988,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                     ?: return null to
                         errorResponse(
                             "deps[$index]: invalid type '$typeStr'. Valid: BLOCKS, IS_BLOCKED_BY, RELATES_TO",
-                            ErrorCodes.VALIDATION_ERROR
+                            LegacyMcpCode.VALIDATION_ERROR
                         )
 
             val unblockAt = (depObj["unblockAt"] as? JsonPrimitive)?.content
@@ -1024,7 +1024,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
             } catch (e: ValidationException) {
                 // An invalid spec (self-edge, RELATES_TO with unblockAt, bad threshold) is rejected up front with the
                 // domain message, before any write, so valid specs never reach the V22 CHECK un-normalized.
-                return null to errorResponse(e.message ?: "Invalid dependency", ErrorCodes.VALIDATION_ERROR)
+                return null to errorResponse(e.message ?: "Invalid dependency", LegacyMcpCode.VALIDATION_ERROR)
             }
         val idToRef = refToItem.entries.associate { (ref, item) -> item.id to ref }
 
@@ -1048,7 +1048,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                             "Circular dependency detected involving ref '${idToRef[detail.path.first()] ?: "unknown"}'"
                         else -> withRefs(error.message)
                     }
-                null to errorResponse(message, ErrorCodes.VALIDATION_ERROR)
+                null to errorResponse(message, LegacyMcpCode.VALIDATION_ERROR)
             }
         }
     }
@@ -1096,7 +1096,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
             } else {
                 "$prefix${error.message}"
             }
-        return errorResponse(message, ErrorCodes.VALIDATION_ERROR)
+        return errorResponse(message, LegacyMcpCode.VALIDATION_ERROR)
     }
 
     /** What the note-building steps produce: the notes to write, and any `maxLength` warnings (warn mode). */
@@ -1136,7 +1136,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                     ?: return null to
                         errorResponse(
                             "notes[$index]: 'itemRef' '$itemRef' is not defined. Valid refs: ${refToItem.keys.joinToString()}",
-                            ErrorCodes.VALIDATION_ERROR
+                            LegacyMcpCode.VALIDATION_ERROR
                         )
 
             // The write policy (role normalization, byte cap, CRLF, strict schema-role match, maxLength) is
@@ -1217,7 +1217,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                 return null to
                     errorResponse(
                         "Failed to read plan document '$docSlug' (root $docRootId): $it",
-                        ErrorCodes.INTERNAL_ERROR
+                        LegacyMcpCode.INTERNAL_ERROR
                     )
             }) {
                 context.repositoryProvider.planDocumentRepository().get(docRootId!!, docSlug)
@@ -1226,13 +1226,13 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
             docResult ?: return null to
                 errorResponse(
                     "Plan document not found: rootId=$docRootId, slug='$docSlug'",
-                    ErrorCodes.RESOURCE_NOT_FOUND
+                    LegacyMcpCode.RESOURCE_NOT_FOUND
                 )
         if (doc.status == PlanDocumentStatus.ADOPTED) {
             return null to
                 errorResponse(
                     "Plan document '$docSlug' (root $docRootId) is already adopted (by item ${doc.adoptedByItemId})",
-                    ErrorCodes.VALIDATION_ERROR
+                    LegacyMcpCode.VALIDATION_ERROR
                 )
         }
 
@@ -1246,7 +1246,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                         errorResponse(
                             "noteAnchors: itemRef '${anchor.itemRef}' is not defined. Valid refs: " +
                                 refToItem.keys.joinToString(),
-                            ErrorCodes.VALIDATION_ERROR
+                            LegacyMcpCode.VALIDATION_ERROR
                         )
 
             val schema = itemSchemas[anchor.itemRef]
@@ -1259,7 +1259,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                             "noteAnchors: key '${anchor.noteKey}' is declared in the schema for itemRef " +
                                 "'${anchor.itemRef}' with role '$expectedRole', but the anchor has role " +
                                 "'${anchor.role}'. Schema-declared keys must use the schema role.",
-                            ErrorCodes.VALIDATION_ERROR
+                            LegacyMcpCode.VALIDATION_ERROR
                         )
                 }
             }
@@ -1270,7 +1270,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                         errorResponse(
                             "noteAnchors: anchor '${anchor.anchor}' not found in plan document '$docSlug' " +
                                 "(itemRef '${anchor.itemRef}', noteKey '${anchor.noteKey}')",
-                            ErrorCodes.VALIDATION_ERROR
+                            LegacyMcpCode.VALIDATION_ERROR
                         )
 
             val prepared =
@@ -1446,29 +1446,37 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                     if (isAttachMode && command.parentId == rootItem.id) {
                         errorResponse(
                             "Root item '$rootIdStr' is terminal under auto lifecycle; reopen it before adding children",
-                            ErrorCodes.VALIDATION_ERROR
+                            LegacyMcpCode.VALIDATION_ERROR
                         )
                     } else {
                         errorResponse(
                             "Parent item '${command.parentId}' is terminal under auto lifecycle; reopen it before adding children",
-                            ErrorCodes.VALIDATION_ERROR
+                            LegacyMcpCode.VALIDATION_ERROR
                         )
                     }
                 error.code == ErrorCode.NOT_FOUND ->
                     if (isAttachMode) {
                         errorResponse(
                             "Root item '$rootIdStr' not found: Parent item not found: ${rootItem.id}",
-                            ErrorCodes.RESOURCE_NOT_FOUND
+                            LegacyMcpCode.RESOURCE_NOT_FOUND
                         )
                     } else {
-                        errorResponse("Parent item '$parentId' not found: Parent item not found: $parentId", ErrorCodes.RESOURCE_NOT_FOUND)
+                        errorResponse(
+                            "Parent item '$parentId' not found: Parent item not found: $parentId",
+                            LegacyMcpCode.RESOURCE_NOT_FOUND
+                        )
                     }
-                error.code == ErrorCode.INVALID_REQUEST -> errorResponse(error.message, ErrorCodes.VALIDATION_ERROR)
-                else -> errorResponse("Work tree creation failed: ${LegacyFaults.message(error)}", ErrorCodes.INTERNAL_ERROR)
+                error.code == ErrorCode.INVALID_REQUEST -> errorResponse(error.message, LegacyMcpCode.VALIDATION_ERROR, cause = error)
+                else ->
+                    errorResponse(
+                        "Work tree creation failed: ${LegacyFaults.message(error)}",
+                        LegacyMcpCode.INTERNAL_ERROR,
+                        cause = error
+                    )
             }
 
         fun treeFailure(error: DomainError): JsonElement =
-            errorResponse("Work tree creation failed: ${LegacyFaults.message(error)}", ErrorCodes.INTERNAL_ERROR)
+            errorResponse("Work tree creation failed: ${LegacyFaults.message(error)}", LegacyMcpCode.INTERNAL_ERROR, cause = error)
 
         val unit =
             try {
@@ -1485,7 +1493,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                                 failureVar =
                                     errorResponse(
                                         "Root item '$rootIdStr' not found: Parent item not found: ${rootItem.id}",
-                                        ErrorCodes.RESOURCE_NOT_FOUND
+                                        LegacyMcpCode.RESOURCE_NOT_FOUND
                                     )
                                 return@write Outcome.Err(rollback)
                             }
@@ -1569,7 +1577,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                 return null to
                     errorResponse(
                         "Work tree creation failed: ${e.message}",
-                        ErrorCodes.INTERNAL_ERROR
+                        LegacyMcpCode.INTERNAL_ERROR
                     )
             }
         configFault?.let { throw it }
@@ -1578,7 +1586,8 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
             return null to
                 errorResponse(
                     "Work tree creation failed: ${LegacyFaults.message(unit.error)}",
-                    ErrorCodes.INTERNAL_ERROR
+                    LegacyMcpCode.INTERNAL_ERROR,
+                    cause = unit.error
                 )
         }
 

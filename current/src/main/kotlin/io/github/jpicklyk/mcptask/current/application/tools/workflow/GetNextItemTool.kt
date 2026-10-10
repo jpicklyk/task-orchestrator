@@ -289,7 +289,7 @@ Call when choosing what to work on next — at session start or after finishing 
         val roleStr = optionalString(params, "role") ?: "queue"
         val targetRole =
             Role.fromString(roleStr)
-                ?: return errorResponse("invalid_role: unrecognized role '$roleStr'", ErrorCodes.VALIDATION_ERROR)
+                ?: return errorResponse("invalid_role: unrecognized role '$roleStr'", LegacyMcpCode.VALIDATION_ERROR)
 
         val (parentId, parentIdError) = resolveItemId(params, "parentId", context, required = false)
         if (parentIdError != null) return parentIdError
@@ -348,7 +348,7 @@ Call when choosing what to work on next — at session start or after finishing 
                 run {
                     val counted =
                         legacyRead(
-                            { return errorResponse(it, ErrorCodes.DATABASE_ERROR) }
+                            { return errorResponse(it, LegacyMcpCode.DATABASE_ERROR) }
                         ) { context.nextItemRecommender.recommendCounted(criteria, limit) }
                     eligibleCount = counted.candidateCount
                     counted.items
@@ -356,7 +356,7 @@ Call when choosing what to work on next — at session start or after finishing 
             } else {
                 val dependencyRepo = context.dependencyRepository()
                 val candidatesResult =
-                    legacyRead({ return errorResponse(it, ErrorCodes.DATABASE_ERROR) }) {
+                    legacyRead({ return errorResponse(it, LegacyMcpCode.DATABASE_ERROR) }) {
                         workItemRepo.findForNextItem(
                             role = targetRole,
                             parentId = parentId,
