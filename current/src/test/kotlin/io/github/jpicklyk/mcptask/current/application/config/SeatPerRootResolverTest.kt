@@ -276,14 +276,13 @@ class SeatPerRootResolverTest {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // S8c (N2) -- base-schema seats follow the layer schema_resolution selects: LEGACY lets the
-    // per-root `default` schema shadow global's EXACT type match; `layered` lets global's exact match
-    // win instead. Same per-root fixture on both roots, ONLY schema_resolution differs, so a mutation
-    // that ignores the mode reddens (both roots would otherwise resolve identically).
+    // S8c (N2) -- base-schema seats follow the layer the one precedence rule selects: global's EXACT
+    // type match beats the per-root `default`, and the removed `schema_resolution` key changes nothing.
+    // A type neither layer names still falls to the per-root `default`.
     // ─────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `S8c base-schema seats follow schema_resolution -- LEGACY per-root default shadows global's exact type, layered lets it win (N2)`(
+    fun `S8c base-schema seats follow the one precedence rule -- global exact type beats a per-root default (N2)`(
         @TempDir tempDir: Path,
     ) {
         val globalConfig =
@@ -312,9 +311,13 @@ class SeatPerRootResolverTest {
         val legacySeats = seatNames(schemaByType(composition, "special-type", legacyRoot))
         val layeredSeats = seatNames(schemaByType(composition, "special-type", layeredRoot))
 
-        assertEquals(listOf("p1"), legacySeats, "N2/LEGACY: the per-root default schema must shadow global's exact-type match")
-        assertEquals(listOf("g1"), layeredSeats, "N2/layered: global's exact-type match must win over the per-root default")
-        assertFalse(legacySeats == layeredSeats, "toggling schema_resolution alone must change which layer's base schema is served")
+        assertEquals(listOf("g1"), legacySeats, "global's exact-type match must win over the per-root default")
+        assertEquals(listOf("g1"), layeredSeats, "the removed schema_resolution key must change nothing")
+        assertEquals(
+            listOf("p1"),
+            seatNames(schemaByType(composition, "other-type", legacyRoot)),
+            "a type no layer names falls to the per-root default"
+        )
     }
 
     // ─────────────────────────────────────────────────────────────────────

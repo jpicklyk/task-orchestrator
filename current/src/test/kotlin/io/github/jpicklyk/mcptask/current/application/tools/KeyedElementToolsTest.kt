@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
@@ -15,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -65,33 +65,29 @@ class KeyedElementToolsTest {
     private val db get() = sqlite.db
     private val items get() = db.repositoryProvider().workItemRepository()
 
-    private val gateSchema: NoteSchemaService =
-        object : NoteSchemaService {
-            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                if (tags.isNotEmpty()) {
-                    listOf(
-                        NoteSchemaEntry(
-                            key = "acceptance-criteria",
-                            role = Role.QUEUE,
-                            required = true,
-                            description = "Acceptance criteria for this task",
-                            guidance = "List each criterion as a bullet point"
-                        )
-                    )
-                } else {
-                    null
-                }
-        }
+    private val gateEntries: List<NoteSchemaEntry> =
+        listOf(
+            NoteSchemaEntry(
+                key = "acceptance-criteria",
+                role = Role.QUEUE,
+                required = true,
+                description = "Acceptance criteria for this task",
+                guidance = "List each criterion as a bullet point"
+            )
+        )
+
+    private val gateSchema: EffectiveConfigResolver
+        get() = TestConfigResolver.forSchemas(mapOf("feature-task" to gateEntries))
 
     private fun context(
-        schema: NoteSchemaService? = null,
+        schema: EffectiveConfigResolver? = null,
         policy: DegradedModePolicy? = null
     ): ToolExecutionContext =
         when {
             schema != null ->
                 ToolExecutionContext(
                     repositoryProvider = db.repositoryProvider(),
-                    noteSchemaService = schema,
+                    configResolver = schema,
                     unitOfWork = db.unitOfWork()
                 )
             policy != null ->
@@ -161,7 +157,8 @@ class KeyedElementToolsTest {
     private suspend fun queueItem(
         title: String,
         tags: String? = null
-    ): WorkItem = items.create(WorkItem(title = title, role = Role.QUEUE, depth = 0, tags = tags))
+    ): WorkItem =
+        items.create(WorkItem(title = title, role = Role.QUEUE, depth = 0, tags = tags, type = tags?.substringBefore(",")?.trim()))
 
     private fun transition(
         itemId: UUID,
@@ -553,30 +550,14 @@ class KeyedElementToolsTest {
 
     // ---------------------------------------------------------------- S10 tool level
 
-    private val leaseSchema: WorkItemSchemaService =
-        object : WorkItemSchemaService {
-            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                if (tags.isNotEmpty()) {
-                    listOf(
-                        NoteSchemaEntry(
-                            key = "acceptance-criteria",
-                            role = Role.QUEUE,
-                            required = true,
-                            description = "Acceptance criteria for this task",
-                            guidance = "List each criterion as a bullet point"
-                        )
-                    )
-                } else {
-                    null
-                }
-
-            override fun getTraitResources(traitName: String): List<ResourceRequirement> =
-                if (traitName == "needs-staging-db") {
-                    listOf(ResourceRequirement("staging-db-credential", ResourceMode.EXCLUSIVE, 600))
-                } else {
-                    emptyList()
-                }
-        }
+    private val leaseSchema: EffectiveConfigResolver
+        get() =
+            TestConfigResolver.resolver(
+                TestConfigResolver.document(mapOf("feature-task" to gateEntries)).copy(
+                    traitResources =
+                        mapOf("needs-staging-db" to listOf(ResourceRequirement("staging-db-credential", ResourceMode.EXCLUSIVE, 600))),
+                ),
+            )
 
     @Test
     fun `S10 a keyed advance that fails its gate leaves no lease, no transition and no record, and the retry executes`(): Unit =
@@ -584,7 +565,7 @@ class KeyedElementToolsTest {
             val ctx =
                 ToolExecutionContext(
                     repositoryProvider = db.repositoryProvider(),
-                    noteSchemaService = leaseSchema,
+                    configResolver = leaseSchema,
                     unitOfWork = db.unitOfWork()
                 )
             val item =
@@ -594,6 +575,7 @@ class KeyedElementToolsTest {
                         role = Role.QUEUE,
                         depth = 0,
                         tags = "feature-task",
+                        type = "feature-task",
                         properties = """{"traits":["needs-staging-db"]}"""
                     )
                 )

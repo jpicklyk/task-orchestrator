@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
@@ -14,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -255,10 +255,7 @@ class CreateWorkTreeToolTest {
                     NoteSchemaEntry(key = "acceptance-criteria", role = Role.QUEUE, required = true)
                 )
             val noteSchemaService =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        if (tags.contains("feature-task")) schemaEntries else null
-                }
+                TestConfigResolver.forSchemas(mapOf("feature-task" to schemaEntries))
             // Rebuild context with custom NoteSchemaService
             val provider2 = mockk<RepositoryProvider>()
             every { provider2.workItemRepository() } returns workItemRepo
@@ -266,7 +263,8 @@ class CreateWorkTreeToolTest {
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
             fakes.install(provider2)
-            val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
+            val contextWithSchema =
+                ToolExecutionContext(provider2, configResolver = TestConfigResolver.withoutTypeValidation(noteSchemaService))
 
             // Echo back items + notes from the input
 
@@ -275,7 +273,7 @@ class CreateWorkTreeToolTest {
                     add(
                         buildJsonObject {
                             put("ref", JsonPrimitive("c1"))
-                            put("type", JsonPrimitive("test-item"))
+                            put("type", JsonPrimitive("feature-task"))
                             put("title", JsonPrimitive("Child with schema"))
                             put("tags", JsonPrimitive("feature-task"))
                         }
@@ -804,10 +802,7 @@ class CreateWorkTreeToolTest {
                     )
                 )
             val noteSchemaService =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        if (tags.contains("feature-task")) schemaEntries else null
-                }
+                TestConfigResolver.forSchemas(mapOf("feature-task" to schemaEntries))
 
             val provider2 = mockk<RepositoryProvider>()
             every { provider2.workItemRepository() } returns workItemRepo
@@ -815,11 +810,12 @@ class CreateWorkTreeToolTest {
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
             fakes.install(provider2)
-            val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
+            val contextWithSchema =
+                ToolExecutionContext(provider2, configResolver = TestConfigResolver.withoutTypeValidation(noteSchemaService))
 
             val rootSpec =
                 buildJsonObject {
-                    put("type", JsonPrimitive("test-item"))
+                    put("type", JsonPrimitive("feature-task"))
                     put("title", JsonPrimitive("Feature Root"))
                     put("tags", JsonPrimitive("feature-task"))
                 }
@@ -868,10 +864,7 @@ class CreateWorkTreeToolTest {
                     )
                 )
             val noteSchemaService =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        if (tags.contains("subtask")) schemaEntries else null
-                }
+                TestConfigResolver.forSchemas(mapOf("subtask" to schemaEntries))
 
             val provider2 = mockk<RepositoryProvider>()
             every { provider2.workItemRepository() } returns workItemRepo
@@ -879,7 +872,8 @@ class CreateWorkTreeToolTest {
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
             fakes.install(provider2)
-            val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
+            val contextWithSchema =
+                ToolExecutionContext(provider2, configResolver = TestConfigResolver.withoutTypeValidation(noteSchemaService))
 
             // Root has no schema tag; child has "subtask" tag
             val rootSpec =
@@ -892,7 +886,7 @@ class CreateWorkTreeToolTest {
                     add(
                         buildJsonObject {
                             put("ref", JsonPrimitive("c1"))
-                            put("type", JsonPrimitive("test-item"))
+                            put("type", JsonPrimitive("subtask"))
                             put("title", JsonPrimitive("Child with subtask tag"))
                             put("tags", JsonPrimitive("subtask"))
                         }
@@ -937,9 +931,7 @@ class CreateWorkTreeToolTest {
         runBlocking {
             // NoteSchemaService that never matches any tag
             val noteSchemaService =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
-                }
+                TestConfigResolver.resolver()
 
             val provider2 = mockk<RepositoryProvider>()
             every { provider2.workItemRepository() } returns workItemRepo
@@ -947,11 +939,12 @@ class CreateWorkTreeToolTest {
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
             fakes.install(provider2)
-            val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
+            val contextWithSchema =
+                ToolExecutionContext(provider2, configResolver = TestConfigResolver.withoutTypeValidation(noteSchemaService))
 
             val rootSpec =
                 buildJsonObject {
-                    put("type", JsonPrimitive("test-item"))
+                    put("type", JsonPrimitive("some-tag"))
                     put("title", JsonPrimitive("Untagged Root"))
                     put("tags", JsonPrimitive("some-tag"))
                 }
@@ -960,7 +953,7 @@ class CreateWorkTreeToolTest {
                     add(
                         buildJsonObject {
                             put("ref", JsonPrimitive("c1"))
-                            put("type", JsonPrimitive("test-item"))
+                            put("type", JsonPrimitive("another-tag"))
                             put("title", JsonPrimitive("Untagged Child"))
                             put("tags", JsonPrimitive("another-tag"))
                         }
@@ -997,10 +990,7 @@ class CreateWorkTreeToolTest {
             // When getSchemaForTags returns emptyList() (non-null, zero entries),
             // schemaMatch is true and expectedNotes is an empty array.
             val noteSchemaService =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        if (tags.contains("empty-schema")) emptyList() else null
-                }
+                TestConfigResolver.forSchemas(mapOf("empty-schema" to emptyList<NoteSchemaEntry>()))
 
             val provider2 = mockk<RepositoryProvider>()
             every { provider2.workItemRepository() } returns workItemRepo
@@ -1008,11 +998,12 @@ class CreateWorkTreeToolTest {
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
             fakes.install(provider2)
-            val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
+            val contextWithSchema =
+                ToolExecutionContext(provider2, configResolver = TestConfigResolver.withoutTypeValidation(noteSchemaService))
 
             val rootSpec =
                 buildJsonObject {
-                    put("type", JsonPrimitive("test-item"))
+                    put("type", JsonPrimitive("empty-schema"))
                     put("title", JsonPrimitive("Root With Empty Schema"))
                     put("tags", JsonPrimitive("empty-schema"))
                 }
@@ -1021,7 +1012,7 @@ class CreateWorkTreeToolTest {
                     add(
                         buildJsonObject {
                             put("ref", JsonPrimitive("c1"))
-                            put("type", JsonPrimitive("test-item"))
+                            put("type", JsonPrimitive("empty-schema"))
                             put("title", JsonPrimitive("Child With Empty Schema"))
                             put("tags", JsonPrimitive("empty-schema"))
                         }
@@ -1059,14 +1050,7 @@ class CreateWorkTreeToolTest {
                     NoteSchemaEntry(key = "impl-notes", role = Role.WORK, required = false, description = "Impl notes")
                 )
             val noteSchemaService =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        when {
-                            tags.contains("root-tag") -> rootSchemaEntries
-                            tags.contains("child-tag") -> childSchemaEntries
-                            else -> null
-                        }
-                }
+                TestConfigResolver.forSchemas(mapOf("root-tag" to rootSchemaEntries, "child-tag" to childSchemaEntries))
 
             val provider2 = mockk<RepositoryProvider>()
             every { provider2.workItemRepository() } returns workItemRepo
@@ -1074,11 +1058,12 @@ class CreateWorkTreeToolTest {
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
             fakes.install(provider2)
-            val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
+            val contextWithSchema =
+                ToolExecutionContext(provider2, configResolver = TestConfigResolver.withoutTypeValidation(noteSchemaService))
 
             val rootSpec =
                 buildJsonObject {
-                    put("type", JsonPrimitive("test-item"))
+                    put("type", JsonPrimitive("root-tag"))
                     put("title", JsonPrimitive("Root"))
                     put("tags", JsonPrimitive("root-tag"))
                 }
@@ -1087,7 +1072,7 @@ class CreateWorkTreeToolTest {
                     add(
                         buildJsonObject {
                             put("ref", JsonPrimitive("c1"))
-                            put("type", JsonPrimitive("test-item"))
+                            put("type", JsonPrimitive("child-tag"))
                             put("title", JsonPrimitive("Child"))
                             put("tags", JsonPrimitive("child-tag"))
                         }
@@ -1344,23 +1329,21 @@ class CreateWorkTreeToolTest {
                     NoteSchemaEntry(key = "implementation-notes", role = Role.WORK, required = false)
                 )
             val noteSchemaService =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        if (tags.contains("feature-task")) schemaEntries else null
-                }
+                TestConfigResolver.forSchemas(mapOf("feature-task" to schemaEntries))
             val provider2 = mockk<RepositoryProvider>()
             every { provider2.workItemRepository() } returns workItemRepo
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
             fakes.install(provider2)
-            val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
+            val contextWithSchema =
+                ToolExecutionContext(provider2, configResolver = TestConfigResolver.withoutTypeValidation(noteSchemaService))
 
             var capturedInput: CapturedTree? = null
 
             val rootSpec =
                 buildJsonObject {
-                    put("type", JsonPrimitive("test-item"))
+                    put("type", JsonPrimitive("feature-task"))
                     put("title", JsonPrimitive("Feature Root"))
                     put("tags", JsonPrimitive("feature-task"))
                 }
@@ -1742,23 +1725,21 @@ class CreateWorkTreeToolTest {
                     NoteSchemaEntry(key = "acceptance-criteria", role = Role.QUEUE, required = true)
                 )
             val noteSchemaService =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        if (tags.contains("feature-task")) schemaEntries else null
-                }
+                TestConfigResolver.forSchemas(mapOf("feature-task" to schemaEntries))
             val provider2 = mockk<RepositoryProvider>()
             every { provider2.workItemRepository() } returns workItemRepo
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
             fakes.install(provider2)
-            val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
+            val contextWithSchema =
+                ToolExecutionContext(provider2, configResolver = TestConfigResolver.withoutTypeValidation(noteSchemaService))
 
             // Executor must NOT be invoked when validation rejects the request
 
             val rootSpec =
                 buildJsonObject {
-                    put("type", JsonPrimitive("test-item"))
+                    put("type", JsonPrimitive("feature-task"))
                     put("title", JsonPrimitive("Feature Root"))
                     put("tags", JsonPrimitive("feature-task"))
                 }
@@ -1800,23 +1781,21 @@ class CreateWorkTreeToolTest {
                     NoteSchemaEntry(key = "acceptance-criteria", role = Role.QUEUE, required = true)
                 )
             val noteSchemaService =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        if (tags.contains("feature-task")) schemaEntries else null
-                }
+                TestConfigResolver.forSchemas(mapOf("feature-task" to schemaEntries))
             val provider2 = mockk<RepositoryProvider>()
             every { provider2.workItemRepository() } returns workItemRepo
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
             fakes.install(provider2)
-            val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
+            val contextWithSchema =
+                ToolExecutionContext(provider2, configResolver = TestConfigResolver.withoutTypeValidation(noteSchemaService))
 
             var capturedInput: CapturedTree? = null
 
             val rootSpec =
                 buildJsonObject {
-                    put("type", JsonPrimitive("test-item"))
+                    put("type", JsonPrimitive("feature-task"))
                     put("title", JsonPrimitive("Feature Root"))
                     put("tags", JsonPrimitive("feature-task"))
                 }
@@ -1858,23 +1837,21 @@ class CreateWorkTreeToolTest {
                     NoteSchemaEntry(key = "acceptance-criteria", role = Role.QUEUE, required = true)
                 )
             val noteSchemaService =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        if (tags.contains("feature-task")) schemaEntries else null
-                }
+                TestConfigResolver.forSchemas(mapOf("feature-task" to schemaEntries))
             val provider2 = mockk<RepositoryProvider>()
             every { provider2.workItemRepository() } returns workItemRepo
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
             fakes.install(provider2)
-            val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
+            val contextWithSchema =
+                ToolExecutionContext(provider2, configResolver = TestConfigResolver.withoutTypeValidation(noteSchemaService))
 
             var capturedInput: CapturedTree? = null
 
             val rootSpec =
                 buildJsonObject {
-                    put("type", JsonPrimitive("test-item"))
+                    put("type", JsonPrimitive("feature-task"))
                     put("title", JsonPrimitive("Feature Root"))
                     put("tags", JsonPrimitive("feature-task"))
                 }
@@ -2026,17 +2003,15 @@ class CreateWorkTreeToolTest {
                     NoteSchemaEntry(key = "auto-blank-note", role = Role.QUEUE, required = true)
                 )
             val noteSchemaService =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        if (tags.contains("feature-task")) schemaEntries else null
-                }
+                TestConfigResolver.forSchemas(mapOf("feature-task" to schemaEntries))
             val provider2 = mockk<RepositoryProvider>()
             every { provider2.workItemRepository() } returns workItemRepo
             every { provider2.dependencyRepository() } returns mockk()
             every { provider2.noteRepository() } returns mockk()
             every { provider2.roleTransitionRepository() } returns mockk()
             fakes.install(provider2)
-            val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
+            val contextWithSchema =
+                ToolExecutionContext(provider2, configResolver = TestConfigResolver.withoutTypeValidation(noteSchemaService))
 
             var capturedInput: CapturedTree? = null
 
@@ -2045,7 +2020,7 @@ class CreateWorkTreeToolTest {
                     put(
                         "root",
                         buildJsonObject {
-                            put("type", JsonPrimitive("test-item"))
+                            put("type", JsonPrimitive("feature-task"))
                             put("title", JsonPrimitive("Feature Root"))
                             put("tags", JsonPrimitive("feature-task"))
                         }

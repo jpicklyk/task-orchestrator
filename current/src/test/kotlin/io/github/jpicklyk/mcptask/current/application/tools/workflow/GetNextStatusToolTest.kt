@@ -5,11 +5,11 @@ import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
+import io.github.jpicklyk.mcptask.current.test.MutableServerConfig
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -39,21 +39,18 @@ class GetNextStatusToolTest {
     private lateinit var context: ToolExecutionContext
     private lateinit var workItemRepo: WorkItemRepository
     private lateinit var depRepo: DependencyStore
-    private lateinit var noteSchemaService: NoteSchemaService
+    private lateinit var server: MutableServerConfig
 
     @BeforeEach
     fun setUp() {
         tool = GetNextStatusTool()
         workItemRepo = mockk()
         depRepo = mockk()
-        noteSchemaService = mockk()
+        server = MutableServerConfig()
 
-        // Default: no type-based schema; tag-based lookup returns a schema with a review phase
-        // so that existing tests (which don't set up tags) still expect WORK→REVIEW progression.
-        every { noteSchemaService.getSchemaForType(any()) } returns null
-        every { noteSchemaService.getDefaultTraits(any()) } returns emptyList()
-        every { noteSchemaService.getTraitNotes(any()) } returns null
-        every { noteSchemaService.getSchemaForTags(any()) } returns schemaWithReview().notes
+        // Default: a "default" schema with a review phase, so that existing tests (which don't
+        // set a type) still expect WORK→REVIEW progression.
+        server.schemas["default"] = schemaWithReview()
 
         val repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
@@ -64,7 +61,7 @@ class GetNextStatusToolTest {
             mockk<LeaseStore>().also { coEvery { it.findActiveByKeys(any()) } returns emptyList() }
         AdvanceMockStores(workItemRepo, depRepo)
 
-        context = ToolExecutionContext(repoProvider, noteSchemaService)
+        context = ToolExecutionContext(repoProvider, configResolver = server.resolver())
     }
 
     private fun params(vararg pairs: Pair<String, JsonElement>) = JsonObject(mapOf(*pairs))
@@ -400,7 +397,7 @@ class GetNextStatusToolTest {
             val item = makeItem(id = itemId, role = Role.WORK)
 
             // Override default: return a schema without a review phase for empty tag list
-            every { noteSchemaService.getSchemaForTags(emptyList()) } returns schemaWithoutReview().notes
+            server.schemas["default"] = schemaWithoutReview()
 
             coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
@@ -426,10 +423,10 @@ class GetNextStatusToolTest {
         runBlocking {
             val itemId = UUID.randomUUID()
             // Item has a tag that matches a schema with a review note
-            val item = makeItem(id = itemId, role = Role.WORK).copy(tags = "feature")
+            val item = makeItem(id = itemId, role = Role.WORK).copy(tags = "feature", type = "feature")
 
             // Override: tag lookup for "feature" returns a schema with a review phase
-            every { noteSchemaService.getSchemaForTags(listOf("feature")) } returns schemaWithReview("feature").notes
+            server.schemas["feature"] = schemaWithReview("feature")
 
             coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
@@ -588,7 +585,7 @@ class GetNextStatusToolTest {
                             NoteSchemaEntry(key = "review-note", role = Role.REVIEW, required = false, description = "Review")
                         )
                 )
-            every { noteSchemaService.getSchemaForType("typed-task") } returns typeSchema
+            server.schemas["typed-task"] = typeSchema
 
             coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()
@@ -615,7 +612,7 @@ class GetNextStatusToolTest {
                             NoteSchemaEntry(key = "work-note", role = Role.WORK, required = false, description = "Work")
                         )
                 )
-            every { noteSchemaService.getSchemaForType("simple-type") } returns typeSchema
+            server.schemas["simple-type"] = typeSchema
 
             coEvery { workItemRepo.getById(itemId) } returns item
             every { depRepo.findByToItemId(itemId) } returns emptyList()

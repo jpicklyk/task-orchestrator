@@ -3,21 +3,22 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
-import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
 import io.github.jpicklyk.mcptask.current.test.InMemoryEventStore
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.TestStatusLabelService
+import io.github.jpicklyk.mcptask.current.test.asServerConfig
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -67,17 +68,27 @@ class AdvanceItemToolTest {
     }
 
     /** Build a custom context with a specific StatusLabelService, reusing existing mocked repos. */
-    private fun contextWithLabels(labelService: StatusLabelService): ToolExecutionContext =
-        ToolExecutionContext(repoProvider, statusLabelService = labelService)
+    private fun contextWithLabels(labelService: TestStatusLabelService): ToolExecutionContext =
+        ToolExecutionContext(
+            repoProvider,
+            statusLabelService = labelService,
+            configResolver = TestConfigResolver.resolver(labelService.asServerConfig())
+        )
 
     /**
      * Build a custom context with a global [labelService] AND a [perRoot] layer, reusing existing
      * mocked repos — for t3's per-root status_labels tests.
      */
     private fun contextWithPerRootLabels(
-        labelService: StatusLabelService,
+        labelService: TestStatusLabelService,
         perRoot: PerRootConfigService
-    ): ToolExecutionContext = ToolExecutionContext(repoProvider, statusLabelService = labelService, perRootConfigService = perRoot)
+    ): ToolExecutionContext =
+        ToolExecutionContext(
+            repoProvider,
+            statusLabelService = labelService,
+            perRootConfigService = perRoot,
+            configResolver = TestConfigResolver.resolver(labelService.asServerConfig(), perRoot)
+        )
 
     /** Build a custom context with a specific ActorVerifier, reusing existing mocked repos. */
     private fun contextWithVerifier(verifier: ActorVerifier): ToolExecutionContext =
@@ -1161,19 +1172,17 @@ class AdvanceItemToolTest {
     // ──────────────────────────────────────────────
 
     /**
-     * Helper to create a NoteSchemaService that returns a fixed list of schema entries for any tags.
+     * Helper to create a config resolver whose server config declares [entries] as the `feature-task` schema.
      */
-    private fun schemaServiceWith(entries: List<NoteSchemaEntry>): NoteSchemaService =
-        object : NoteSchemaService {
-            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = if (tags.isNotEmpty()) entries else null
-        }
+    private fun schemaServiceWith(entries: List<NoteSchemaEntry>): EffectiveConfigResolver =
+        TestConfigResolver.forSchemas(mapOf("feature-task" to entries))
 
     /**
-     * Helper to create a ToolExecutionContext with a custom NoteSchemaService.
+     * Helper to create a ToolExecutionContext with a custom config resolver.
      */
     private fun contextWithSchema(
         noteRepo: NoteStore,
-        noteSchemaService: NoteSchemaService
+        noteSchemaService: EffectiveConfigResolver
     ): ToolExecutionContext {
         val repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
@@ -1182,7 +1191,7 @@ class AdvanceItemToolTest {
         every { repoProvider.noteRepository() } returns noteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
         every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
-        return ToolExecutionContext(repoProvider, noteSchemaService)
+        return ToolExecutionContext(repoProvider, configResolver = noteSchemaService)
     }
 
     @Test
@@ -1213,7 +1222,7 @@ class AdvanceItemToolTest {
         runBlocking {
             // Item has a tag that matches a schema with required notes
             val itemId = UUID.randomUUID()
-            val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
+            val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task", type = "feature-task")
 
             val schemaEntries =
                 listOf(
@@ -1259,7 +1268,7 @@ class AdvanceItemToolTest {
     fun `complete trigger with schema and all required notes filled succeeds`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
-            val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
+            val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task", type = "feature-task")
 
             val schemaEntries =
                 listOf(
@@ -1306,7 +1315,7 @@ class AdvanceItemToolTest {
         runBlocking {
             // Item is in QUEUE phase; schema requires "acceptance-criteria" for queue phase
             val itemId = UUID.randomUUID()
-            val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
+            val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task", type = "feature-task")
 
             val schemaEntries =
                 listOf(
@@ -1351,7 +1360,7 @@ class AdvanceItemToolTest {
     fun `start trigger with schema and required notes filled succeeds`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
-            val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
+            val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task", type = "feature-task")
 
             val schemaEntries =
                 listOf(
@@ -1400,7 +1409,7 @@ class AdvanceItemToolTest {
     fun `start gate failure includes missingNotes with guidance`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
-            val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
+            val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task", type = "feature-task")
 
             val schemaEntries =
                 listOf(
@@ -1461,7 +1470,7 @@ class AdvanceItemToolTest {
     fun `start gate failure without guidance omits guidance from missingNotes entries`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
-            val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
+            val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task", type = "feature-task")
 
             val schemaEntries =
                 listOf(
@@ -1506,7 +1515,7 @@ class AdvanceItemToolTest {
         runBlocking {
             val itemId = UUID.randomUUID()
             // Item is in WORK role — has been advanced past queue
-            val item = WorkItem(id = itemId, title = "Gated item", role = Role.WORK, tags = "feature-task")
+            val item = WorkItem(id = itemId, title = "Gated item", role = Role.WORK, tags = "feature-task", type = "feature-task")
 
             val schemaEntries =
                 listOf(
@@ -1655,7 +1664,7 @@ class AdvanceItemToolTest {
     fun `advance with schema returns guidanceKey for first unfilled required note`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
-            val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
+            val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task", type = "feature-task")
 
             val schemaEntries =
                 listOf(
@@ -1737,7 +1746,7 @@ class AdvanceItemToolTest {
     fun `advance with partially filled notes returns correct guidanceKey`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
-            val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
+            val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task", type = "feature-task")
 
             val schemaEntries =
                 listOf(
@@ -1812,7 +1821,7 @@ class AdvanceItemToolTest {
     fun `advance with all notes filled returns null guidanceKey`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
-            val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
+            val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task", type = "feature-task")
 
             val schemaEntries =
                 listOf(
@@ -1904,7 +1913,7 @@ class AdvanceItemToolTest {
     fun `advance with optional-only notes returns zero remaining`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
-            val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
+            val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task", type = "feature-task")
 
             val schemaEntries =
                 listOf(
@@ -1955,7 +1964,7 @@ class AdvanceItemToolTest {
     fun `advance with schema returns skillPointer when note has skill`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
-            val item = WorkItem(id = itemId, title = "Skill-routed item", role = Role.QUEUE, tags = "feature-task")
+            val item = WorkItem(id = itemId, title = "Skill-routed item", role = Role.QUEUE, tags = "feature-task", type = "feature-task")
 
             val schemaEntries =
                 listOf(
@@ -2007,7 +2016,7 @@ class AdvanceItemToolTest {
     fun `advance without skill on note omits skillPointer`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
-            val item = WorkItem(id = itemId, title = "No-skill item", role = Role.QUEUE, tags = "feature-task")
+            val item = WorkItem(id = itemId, title = "No-skill item", role = Role.QUEUE, tags = "feature-task", type = "feature-task")
 
             val schemaEntries =
                 listOf(
@@ -3638,7 +3647,7 @@ class AdvanceItemToolTest {
             val childId = UUID.randomUUID()
             // Parent in WORK role with tags matching a schema that has required work-phase notes
             // Use WorkItem directly to set tags (makeItem helper doesn't support tags param)
-            val parentItem = WorkItem(id = parentId, title = "Gated Parent", role = Role.WORK, tags = "feature-task")
+            val parentItem = WorkItem(id = parentId, title = "Gated Parent", role = Role.WORK, tags = "feature-task", type = "feature-task")
             // Child in WORK role under this parent
             val childItem = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
 
@@ -3652,11 +3661,7 @@ class AdvanceItemToolTest {
                         description = "Session tracking"
                     )
                 )
-            val noteSchemaService =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        if (tags.isNotEmpty()) schemaEntries else null
-                }
+            val noteSchemaService = schemaServiceWith(schemaEntries)
 
             val noteRepo = mockk<NoteStore>()
             // Parent has no notes filled — gate would block if trigger were "complete"
@@ -3675,7 +3680,7 @@ class AdvanceItemToolTest {
                     every { provider.noteRepository() } returns noteRepo
                     every { provider.roleTransitionRepository() } returns roleTransitionRepo
                     every { provider.resourceLeaseRepository() } returns mockk(relaxed = true)
-                    ToolExecutionContext(provider, noteSchemaService)
+                    ToolExecutionContext(provider, configResolver = noteSchemaService)
                 }
 
             coEvery { workItemRepo.getById(childId) } returns childItem
@@ -3716,7 +3721,7 @@ class AdvanceItemToolTest {
             // configured (e.g. "aborted"), the cascade must still bypass gate enforcement.
             val parentId = UUID.randomUUID()
             val childId = UUID.randomUUID()
-            val parentItem = WorkItem(id = parentId, title = "Parent", role = Role.WORK, tags = "feature-task")
+            val parentItem = WorkItem(id = parentId, title = "Parent", role = Role.WORK, tags = "feature-task", type = "feature-task")
             val childItem = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
 
             // Schema that requires a work-phase note on the parent — gate would block if not bypassed
@@ -3729,11 +3734,7 @@ class AdvanceItemToolTest {
                         description = "Required note"
                     )
                 )
-            val noteSchemaService =
-                object : NoteSchemaService {
-                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                        if (tags.isNotEmpty()) schemaEntries else null
-                }
+            val noteSchemaService = schemaServiceWith(schemaEntries)
 
             val noteRepo = mockk<NoteStore>()
             coEvery { noteRepo.findByItemId(any()) } returns emptyList()
@@ -3748,7 +3749,7 @@ class AdvanceItemToolTest {
                     every { provider.noteRepository() } returns noteRepo
                     every { provider.roleTransitionRepository() } returns roleTransitionRepo
                     every { provider.resourceLeaseRepository() } returns mockk(relaxed = true)
-                    ToolExecutionContext(provider, noteSchemaService)
+                    ToolExecutionContext(provider, configResolver = noteSchemaService)
                 }
 
             coEvery { workItemRepo.getById(childId) } returns childItem

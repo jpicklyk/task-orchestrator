@@ -167,7 +167,7 @@ class ServerComposition(
                 effectiveProvider.dependencyRepository(),
             )
         // Per-root schema layer (T3.2): resolveSchema() consults this root's pushed config before
-        // falling back to the global noteSchemaService above. Shares effectiveProvider so MCP tools
+        // falling back to the global config layer. Shares effectiveProvider so MCP tools
         // and REST routes see the same project_config access.
         val perRootConfigService = PerRootConfigService(effectiveProvider.projectConfigRepository())
         // Both MCP and REST resolve config through this ONE resolver — see O1 (task-scope f2c50e6d):
@@ -179,7 +179,6 @@ class ServerComposition(
         val toolContext =
             ToolExecutionContext(
                 repositoryProvider = effectiveProvider,
-                noteSchemaService = noteSchemaService,
                 statusLabelService = statusLabelService,
                 actorVerifier = actorVerifier,
                 degradedModePolicy = degradedModePolicy,

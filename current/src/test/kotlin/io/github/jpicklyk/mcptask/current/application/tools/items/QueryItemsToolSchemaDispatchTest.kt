@@ -1,14 +1,15 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
@@ -51,21 +52,20 @@ class QueryItemsToolSchemaDispatchTest {
 
     private fun params(vararg pairs: Pair<String, JsonElement>) = JsonObject(mapOf(*pairs))
 
-    /** A NoteSchemaService exposing one type schema plus a dispatch/resources map per trait name. */
+    /** A server config exposing one type schema plus a dispatch/resources map per trait name. */
     private fun schemaServiceWith(
         schema: WorkItemSchema,
         dispatchByTrait: Map<String, Map<Role, DispatchProfile>> = emptyMap(),
         resourcesByTrait: Map<String, List<ResourceRequirement>> = emptyMap()
-    ): NoteSchemaService =
-        object : NoteSchemaService {
-            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
-
-            override fun getSchemaForType(type: String?): WorkItemSchema? = if (type == schema.type) schema else null
-
-            override fun getTraitDispatch(traitName: String): Map<Role, DispatchProfile> = dispatchByTrait[traitName] ?: emptyMap()
-
-            override fun getTraitResources(traitName: String): List<ResourceRequirement> = resourcesByTrait[traitName] ?: emptyList()
-        }
+    ): EffectiveConfigResolver =
+        TestConfigResolver.resolver(
+            ConfigDocument(
+                workItemSchemas = mapOf(schema.type to schema),
+                traits = emptyMap(),
+                traitDispatch = dispatchByTrait,
+                traitResources = resourcesByTrait,
+            ),
+        )
 
     // ──────────────────────────────────────────────
     // S12 — schema operation by type surfaces dispatch {work,review} and trait resources
@@ -88,7 +88,7 @@ class QueryItemsToolSchemaDispatchTest {
                         ),
                     resourcesByTrait = mapOf("delegated" to listOf(ResourceRequirement(key = "db")))
                 )
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaService, unitOfWork = db.unitOfWork())
+            val schemaContext = ToolExecutionContext(repositoryProvider, configResolver = schemaService, unitOfWork = db.unitOfWork())
 
             val result =
                 tool.execute(
@@ -131,7 +131,7 @@ class QueryItemsToolSchemaDispatchTest {
                         ),
                     resourcesByTrait = mapOf("delegated" to listOf(ResourceRequirement(key = "db")))
                 )
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaService, unitOfWork = db.unitOfWork())
+            val schemaContext = ToolExecutionContext(repositoryProvider, configResolver = schemaService, unitOfWork = db.unitOfWork())
 
             val item = WorkItem(id = UUID.randomUUID(), title = "Tagged item", type = "feature-task", depth = 0)
             val created = schemaContext.workItemRepository().create(item)
@@ -164,7 +164,7 @@ class QueryItemsToolSchemaDispatchTest {
         runBlocking {
             val schema = WorkItemSchema(type = "plain-task", notes = emptyList(), defaultTraits = emptyList())
             val schemaService = schemaServiceWith(schema)
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaService, unitOfWork = db.unitOfWork())
+            val schemaContext = ToolExecutionContext(repositoryProvider, configResolver = schemaService, unitOfWork = db.unitOfWork())
 
             val result =
                 tool.execute(
@@ -193,7 +193,7 @@ class QueryItemsToolSchemaDispatchTest {
                     dispatchByTrait =
                         mapOf("delegated" to mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer")))
                 )
-            val schemaContext = ToolExecutionContext(repositoryProvider, schemaService, unitOfWork = db.unitOfWork())
+            val schemaContext = ToolExecutionContext(repositoryProvider, configResolver = schemaService, unitOfWork = db.unitOfWork())
 
             val result =
                 tool.execute(

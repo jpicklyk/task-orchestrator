@@ -7,7 +7,6 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaServ
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -68,9 +67,7 @@ class SharedConfigCacheRestMcpTest {
     }
 
     /** No global schema for any type — the note key in every scenario must come from the per-root push only. */
-    private object NoGlobalSchemaService : WorkItemSchemaService {
-        override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
-    }
+    private object NoGlobalSchemaService : WorkItemSchemaService
 
     private fun perRootYaml(): String =
         """
@@ -143,7 +140,6 @@ class SharedConfigCacheRestMcpTest {
             val ctx =
                 ToolExecutionContext(
                     provider,
-                    NoGlobalSchemaService,
                     perRootConfigService = PerRootConfigService(failable),
                     unitOfWork = db.unitOfWork()
                 )
@@ -230,7 +226,6 @@ class SharedConfigCacheRestMcpTest {
             val ctx =
                 ToolExecutionContext(
                     provider,
-                    NoGlobalSchemaService,
                     perRootConfigService = PerRootConfigService(failable),
                     unitOfWork = db.unitOfWork()
                 )
@@ -289,7 +284,6 @@ class SharedConfigCacheRestMcpTest {
             val ctx =
                 ToolExecutionContext(
                     provider,
-                    NoGlobalSchemaService,
                     perRootConfigService = PerRootConfigService(failable),
                     unitOfWork = db.unitOfWork()
                 )
@@ -342,7 +336,6 @@ class SharedConfigCacheRestMcpTest {
             val ctx =
                 ToolExecutionContext(
                     provider,
-                    NoGlobalSchemaService,
                     perRootConfigService = PerRootConfigService(spyConfigRepo),
                     unitOfWork = db.unitOfWork()
                 )

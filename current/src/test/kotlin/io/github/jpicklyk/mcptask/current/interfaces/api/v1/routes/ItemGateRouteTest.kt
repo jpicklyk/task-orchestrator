@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -19,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -69,7 +71,7 @@ class ItemGateRouteTest {
     fun `S1 GET items id gate returns missing w1 with guidance and skill when WORK item has no notes`() =
         testApplication {
             val repo = db.repositoryProvider()
-            val svc = GateFixtureSchemaService()
+            val svc = gateFixtureConfig()
             val item =
                 runBlocking {
                     repo.workItemRepository().create(WorkItem(title = "Gate S1", type = "gt", role = Role.WORK, depth = 0))!!
@@ -107,7 +109,7 @@ class ItemGateRouteTest {
     fun `S2 GET items id gate returns canAdvance true and omits guidanceKey and skillPointer when w1 is filled`() =
         testApplication {
             val repo = db.repositoryProvider()
-            val svc = GateFixtureSchemaService()
+            val svc = gateFixtureConfig()
             val item =
                 runBlocking {
                     val i =
@@ -146,7 +148,7 @@ class ItemGateRouteTest {
     fun `S4 GET items id gate on a TERMINAL item returns phase terminal canAdvance false and empty missing`() =
         testApplication {
             val repo = db.repositoryProvider()
-            val svc = GateFixtureSchemaService()
+            val svc = gateFixtureConfig()
             val item =
                 runBlocking {
                     repo
@@ -180,7 +182,7 @@ class ItemGateRouteTest {
     fun `S5 GET items id gate on a schema-free type returns canAdvance true with no guidanceKey`() =
         testApplication {
             val repo = db.repositoryProvider()
-            val svc = GateFixtureSchemaService()
+            val svc = gateFixtureConfig()
             val item =
                 runBlocking {
                     repo
@@ -214,7 +216,7 @@ class ItemGateRouteTest {
     fun `S6 GET items id gate treats a blank w1 body as missing`() =
         testApplication {
             val repo = db.repositoryProvider()
-            val svc = GateFixtureSchemaService()
+            val svc = gateFixtureConfig()
             val item =
                 runBlocking {
                     val i =
@@ -249,7 +251,7 @@ class ItemGateRouteTest {
     fun `S7 GET items id gate ignores queue-phase and optional work-phase notes when computing WORK missing`() =
         testApplication {
             val repo = db.repositoryProvider()
-            val svc = GateFixtureSchemaService()
+            val svc = gateFixtureConfig()
             val item =
                 runBlocking {
                     val i =
@@ -281,7 +283,7 @@ class ItemGateRouteTest {
     fun `S8 GET items id gate merges a per-item trait note from properties JSON into missing`() =
         testApplication {
             val repo = db.repositoryProvider()
-            val svc = GateFixtureSchemaService()
+            val svc = gateFixtureConfig()
             val item =
                 runBlocking {
                     val i =
@@ -324,7 +326,7 @@ class ItemGateRouteTest {
     fun `S9 GET items id gate uses per-root pushed schema instead of the global schema for the type`() =
         testApplication {
             val repo = db.repositoryProvider()
-            val svc = GateFixtureSchemaService()
+            val svc = gateFixtureConfig()
             val (root, item) =
                 runBlocking {
                     val r =
@@ -501,7 +503,7 @@ class ItemGateRouteTest {
     fun `S15 installRestApiRoutes wires the gate route so it is reachable in production topology`() =
         testApplication {
             val repo = db.repositoryProvider()
-            val svc = GateFixtureSchemaService()
+            val svc = gateFixtureConfig()
             val item =
                 runBlocking {
                     repo
@@ -527,13 +529,15 @@ class ItemGateRouteTest {
                     serverName = "gate-wiring-test",
                     serverVersion = "1.0.0",
                     actorAuthEnabled = false,
-                    noteSchemaService = svc,
+                    noteSchemaService = NoOpNoteSchemaService,
                     toolContext =
-                        ToolExecutionContext(
-                            repo,
-                            svc,
-                            perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
-                        ),
+                        PerRootConfigService(repo.projectConfigRepository()).let { perRoot ->
+                            ToolExecutionContext(
+                                repo,
+                                perRootConfigService = perRoot,
+                                configResolver = TestConfigResolver.resolver(svc, perRoot),
+                            )
+                        },
                     degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
                 )
             }
@@ -560,7 +564,7 @@ class ItemGateRouteTest {
     fun `S16 GET items id gate does not mutate item role modifiedAt or notes`() =
         testApplication {
             val repo = db.repositoryProvider()
-            val svc = GateFixtureSchemaService()
+            val svc = gateFixtureConfig()
             val item =
                 runBlocking {
                     val i =
@@ -596,7 +600,7 @@ class ItemGateRouteTest {
     fun `P1 GET items id gate ignores If-None-Match and never returns 304`() =
         testApplication {
             val repo = db.repositoryProvider()
-            val svc = GateFixtureSchemaService()
+            val svc = gateFixtureConfig()
             val item =
                 runBlocking {
                     val i =
@@ -653,7 +657,7 @@ class ItemGateRouteTest {
     fun `P2 P3 GET items id gate lists two missing required notes in schema order with guidance parity`() =
         testApplication {
             val repo = db.repositoryProvider()
-            val svc = GateFixtureSchemaService()
+            val svc = gateFixtureConfig()
             val item =
                 runBlocking {
                     repo
@@ -709,7 +713,7 @@ class ItemGateRouteTest {
     fun `P5 GET items id gate on a BLOCKED item matches get_context parity`() =
         testApplication {
             val repo = db.repositoryProvider()
-            val svc = GateFixtureSchemaService()
+            val svc = gateFixtureConfig()
             val item =
                 runBlocking {
                     repo
@@ -754,14 +758,15 @@ class ItemGateRouteTest {
     /** get_context item-mode data for the SAME repo/schema/item, for S3 parity assertions. */
     private fun getContextGateData(
         repo: DefaultRepositoryProvider,
-        schemaService: WorkItemSchemaService,
+        schemaService: ConfigDocument,
         itemId: UUID,
     ): JsonObject {
+        val perRoot = PerRootConfigService(repo.projectConfigRepository())
         val context =
             ToolExecutionContext(
                 repo,
-                schemaService,
-                perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
+                perRootConfigService = perRoot,
+                configResolver = TestConfigResolver.resolver(schemaService, perRoot),
                 unitOfWork = db.unitOfWork()
             )
         val params = JsonObject(mapOf("itemId" to JsonPrimitive(itemId.toString())))
@@ -772,7 +777,7 @@ class ItemGateRouteTest {
     /** S3: route's gateStatus/guidanceKey/skillPointer must equal get_context item mode's, field-for-field. */
     private fun assertParityWithGetContext(
         repo: DefaultRepositoryProvider,
-        schemaService: WorkItemSchemaService,
+        schemaService: ConfigDocument,
         itemId: UUID,
         routeJson: JsonObject,
     ) {
@@ -790,71 +795,58 @@ class ItemGateRouteTest {
  */
 private fun Application.configureGateApp(
     repo: DefaultRepositoryProvider,
-    schemaService: WorkItemSchemaService = GateFixtureSchemaService(),
+    schemaService: ConfigDocument = gateFixtureConfig(),
     authConfig: ApiAuthConfig = makeTestAuthConfig(),
     includeItemRoute: Boolean = false,
 ) {
     configureTestApp(authConfig) {
         if (includeItemRoute) itemRoutes(repo)
+        val perRoot = PerRootConfigService(repo.projectConfigRepository())
         ToolExecutionContext(
             repo,
-            schemaService,
-            perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
+            perRootConfigService = perRoot,
+            configResolver = TestConfigResolver.resolver(schemaService, perRoot),
         ).let { ctx -> itemGateRoutes(repo, ctx.configResolver, ctx.transitionPreview()) }
     }
 }
 
 /**
- * Fixture schema service for the gate route tests.
+ * Fixture server config for the gate route tests.
  *
  * Type `gt`: required WORK `w1` (guidance "g1", skill "s1"), optional WORK `wo`, required QUEUE
  * `q1`. Trait `tr` -> required WORK `t1` (per-item trait merge, S8). Type `probe-guidance`: two
  * required WORK notes, `p-first` (no guidance) then `p-second` (has guidance), for P2/P3. Any
- * other type (e.g. `free`) resolves schema-free (both lookups return null).
+ * other type (e.g. `free`) resolves schema-free (no `default` is declared).
  */
-private class GateFixtureSchemaService : WorkItemSchemaService {
-    private val gt =
-        WorkItemSchema(
-            type = "gt",
-            notes =
-                listOf(
-                    NoteSchemaEntry(key = "w1", role = Role.WORK, required = true, description = "w1", guidance = "g1", skill = "s1"),
-                    NoteSchemaEntry(key = "wo", role = Role.WORK, required = false, description = "wo"),
-                    NoteSchemaEntry(key = "q1", role = Role.QUEUE, required = true, description = "q1"),
-                ),
-        )
-
-    private val probeGuidance =
-        WorkItemSchema(
-            type = "probe-guidance",
-            notes =
-                listOf(
-                    NoteSchemaEntry(key = "p-first", role = Role.WORK, required = true, description = "first, no guidance"),
-                    NoteSchemaEntry(
-                        key = "p-second",
-                        role = Role.WORK,
-                        required = true,
-                        description = "second",
-                        guidance = "has guidance",
+private fun gateFixtureConfig(): ConfigDocument =
+    run {
+        val gt =
+            WorkItemSchema(
+                type = "gt",
+                notes =
+                    listOf(
+                        NoteSchemaEntry(key = "w1", role = Role.WORK, required = true, description = "w1", guidance = "g1", skill = "s1"),
+                        NoteSchemaEntry(key = "wo", role = Role.WORK, required = false, description = "wo"),
+                        NoteSchemaEntry(key = "q1", role = Role.QUEUE, required = true, description = "q1"),
                     ),
-                ),
-        )
+            )
 
-    private val t1 = NoteSchemaEntry(key = "t1", role = Role.WORK, required = true, description = "t1")
+        val probeGuidance =
+            WorkItemSchema(
+                type = "probe-guidance",
+                notes =
+                    listOf(
+                        NoteSchemaEntry(key = "p-first", role = Role.WORK, required = true, description = "first, no guidance"),
+                        NoteSchemaEntry(
+                            key = "p-second",
+                            role = Role.WORK,
+                            required = true,
+                            description = "second",
+                            guidance = "has guidance",
+                        ),
+                    ),
+            )
 
-    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-        when {
-            "gt" in tags -> gt.notes
-            "probe-guidance" in tags -> probeGuidance.notes
-            else -> null
-        }
-
-    override fun getSchemaForType(type: String?): WorkItemSchema? =
-        when (type) {
-            "gt" -> gt
-            "probe-guidance" -> probeGuidance
-            else -> null
-        }
-
-    override fun getTraitNotes(traitName: String): List<NoteSchemaEntry>? = if (traitName == "tr") listOf(t1) else null
-}
+        val t1 = NoteSchemaEntry(key = "t1", role = Role.WORK, required = true, description = "t1")
+        TestConfigResolver.documentOf(mapOf("gt" to gt, "probe-guidance" to probeGuidance), traits = mapOf("tr" to listOf(t1)))
+    }

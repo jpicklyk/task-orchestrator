@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.*
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
@@ -14,7 +14,7 @@ import kotlin.test.*
 
 /**
  * Integration tests validating the complete schema-gated lifecycle (queue -> work -> review -> terminal)
- * with gate enforcement at each transition. Uses a real SQLite database and inline NoteSchemaService
+ * with gate enforcement at each transition. Uses a real SQLite database and inline schema config
  * for test isolation.
  */
 class SchemaGatedLifecycleTest {
@@ -28,10 +28,10 @@ class SchemaGatedLifecycleTest {
     fun setUp() {
         val repositoryProvider = db.repositoryProvider()
 
-        // Inline NoteSchemaService that mirrors real config.yaml schemas
+        // Inline server config that mirrors real config.yaml schemas
         val noteSchemaService =
-            object : NoteSchemaService {
-                private val schemas =
+            run {
+                val schemas =
                     mapOf(
                         "feature-implementation" to
                             listOf(
@@ -120,11 +120,10 @@ class SchemaGatedLifecycleTest {
                                 )
                             )
                     )
-
-                override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = tags.firstNotNullOfOrNull { schemas[it] }
+                TestConfigResolver.forSchemas(schemas)
             }
 
-        context = ToolExecutionContext(repositoryProvider, noteSchemaService, unitOfWork = db.unitOfWork())
+        context = ToolExecutionContext(repositoryProvider, configResolver = noteSchemaService, unitOfWork = db.unitOfWork())
         transitionTool = AdvanceItemTool()
     }
 
@@ -146,7 +145,15 @@ class SchemaGatedLifecycleTest {
             } else {
                 0
             }
-        val item = WorkItem(title = title, tags = tags, parentId = parentId, depth = depth, type = type, properties = properties)
+        val item =
+            WorkItem(
+                title = title,
+                tags = tags,
+                parentId = parentId,
+                depth = depth,
+                type = type ?: tags?.substringBefore(",")?.trim(),
+                properties = properties
+            )
         val result = context.workItemRepository().create(item)
         return result
     }
@@ -1263,8 +1270,8 @@ class SchemaGatedLifecycleTest {
         val repoProvider = db.repositoryProvider()
 
         val schemaService =
-            object : NoteSchemaService {
-                private val typeSchemas =
+            run {
+                val typeSchemas =
                     mapOf(
                         "feature-task" to
                             WorkItemSchema(
@@ -1311,7 +1318,7 @@ class SchemaGatedLifecycleTest {
                             )
                     )
 
-                private val traitNotes =
+                val traitNotes =
                     mapOf(
                         "needs-security-review" to
                             listOf(
@@ -1323,19 +1330,10 @@ class SchemaGatedLifecycleTest {
                                 )
                             )
                     )
-
-                override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                    tags.firstNotNullOfOrNull { typeSchemas[it]?.notes }
-
-                override fun getSchemaForType(type: String?): WorkItemSchema? = if (type != null) typeSchemas[type] else null
-
-                override fun getTraitNotes(traitName: String): List<NoteSchemaEntry>? = traitNotes[traitName]
-
-                override fun getDefaultTraits(type: String?): List<String> =
-                    if (type != null) typeSchemas[type]?.defaultTraits ?: emptyList() else emptyList()
+                TestConfigResolver.resolver(TestConfigResolver.documentOf(typeSchemas, traitNotes))
             }
 
-        return ToolExecutionContext(repoProvider, schemaService, unitOfWork = db.unitOfWork())
+        return ToolExecutionContext(repoProvider, configResolver = schemaService, unitOfWork = db.unitOfWork())
     }
 
     private suspend fun createItemIn(

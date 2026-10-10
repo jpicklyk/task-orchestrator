@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
+import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import java.io.File
@@ -140,36 +141,6 @@ note_schemas:
     }
 
     @Test
-    fun `first matching tag wins when multiple tags provided`() {
-        val tempDir = createTempConfigDir()
-        writeConfig(
-            tempDir,
-            """
-note_schemas:
-  schema-a:
-    - key: note-a
-      role: queue
-      required: true
-      description: "Note A"
-  schema-b:
-    - key: note-b
-      role: work
-      required: false
-      description: "Note B"
-            """.trimIndent()
-        )
-
-        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
-
-        // schema-a comes first in the tag list so it should win
-        val schema = service.getSchemaForTags(listOf("schema-a", "schema-b"))
-        assertNotNull(schema)
-        assertEquals(1, schema.size)
-        assertEquals("note-a", schema[0].key)
-    }
-
-    @Test
     fun `multiple entries in schema are all parsed`() {
         val tempDir = createTempConfigDir()
         writeConfig(
@@ -284,36 +255,6 @@ note_schemas:
     // --- Default schema fallback tests ---
 
     @Test
-    fun `returns null when no named schema matches even with a default schema`() {
-        val tempDir = createTempConfigDir()
-        writeConfig(
-            tempDir,
-            """
-note_schemas:
-  my-schema:
-    - key: acceptance-criteria
-      role: queue
-      required: true
-      description: "Acceptance criteria"
-  default:
-    - key: implementation-notes
-      role: work
-      required: true
-      description: "Implementation notes"
-    - key: review-checklist
-      role: review
-      required: false
-      description: "Review checklist"
-            """.trimIndent()
-        )
-
-        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
-
-        assertNull(service.getSchemaForTags(listOf("unknown-tag")))
-    }
-
-    @Test
     fun `specific schema takes priority over default`() {
         val tempDir = createTempConfigDir()
         writeConfig(
@@ -343,61 +284,6 @@ note_schemas:
     }
 
     @Test
-    fun `later matching tag wins over default when earlier tag misses`() {
-        // Regression guard: getSchemaForTags must scan ALL tags before falling back to "default".
-        // A per-tag `workItemSchemas[tag]?.notes ?: default` collapse would wrongly return the
-        // default on the first (missing) tag instead of the schema of a later matching tag.
-        val tempDir = createTempConfigDir()
-        writeConfig(
-            tempDir,
-            """
-note_schemas:
-  my-schema:
-    - key: acceptance-criteria
-      role: queue
-      required: true
-      description: "Acceptance criteria"
-  default:
-    - key: implementation-notes
-      role: work
-      required: true
-      description: "Implementation notes"
-            """.trimIndent()
-        )
-
-        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
-
-        // First tag misses; second tag matches a named schema — the named schema must win,
-        // NOT the default.
-        val schema = service.getSchemaForTags(listOf("unknown-tag", "my-schema"))
-        assertNotNull(schema)
-        assertEquals(1, schema.size)
-        assertEquals("acceptance-criteria", schema[0].key)
-    }
-
-    @Test
-    fun `empty tags list returns null even with a default schema`() {
-        val tempDir = createTempConfigDir()
-        writeConfig(
-            tempDir,
-            """
-note_schemas:
-  default:
-    - key: implementation-notes
-      role: work
-      required: true
-      description: "Implementation notes"
-            """.trimIndent()
-        )
-
-        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
-
-        assertNull(service.getSchemaForTags(emptyList()))
-    }
-
-    @Test
     fun `hasReviewPhase returns false for default with only work notes`() {
         val tempDir = createTempConfigDir()
         writeConfig(
@@ -409,31 +295,6 @@ note_schemas:
       role: work
       required: true
       description: "Implementation notes"
-            """.trimIndent()
-        )
-
-        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
-        val service = YamlNoteSchemaService(configPath)
-
-        assertFalse(service.hasReviewPhase(listOf("unknown-tag")))
-    }
-
-    @Test
-    fun `hasReviewPhase does not fall back to default`() {
-        val tempDir = createTempConfigDir()
-        writeConfig(
-            tempDir,
-            """
-note_schemas:
-  default:
-    - key: implementation-notes
-      role: work
-      required: true
-      description: "Implementation notes"
-    - key: review-checklist
-      role: review
-      required: false
-      description: "Review checklist"
             """.trimIndent()
         )
 
@@ -1492,7 +1353,7 @@ note_schemas:
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
         val service = YamlNoteSchemaService(configPath)
 
-        assertEquals("warn", service.getNoteLimitsMode())
+        assertEquals("warn", noteLimitsMode(configPath))
     }
 
     @Test
@@ -1501,7 +1362,7 @@ note_schemas:
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
         val service = YamlNoteSchemaService(configPath)
 
-        assertEquals("warn", service.getNoteLimitsMode())
+        assertEquals("warn", noteLimitsMode(configPath))
     }
 
     @Test
@@ -1524,7 +1385,7 @@ note_schemas:
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
         val service = YamlNoteSchemaService(configPath)
 
-        assertEquals("reject", service.getNoteLimitsMode())
+        assertEquals("reject", noteLimitsMode(configPath))
     }
 
     @Test
@@ -1547,7 +1408,7 @@ note_schemas:
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
         val service = YamlNoteSchemaService(configPath)
 
-        assertEquals("warn", service.getNoteLimitsMode())
+        assertEquals("warn", noteLimitsMode(configPath))
         assertTrue(service.getLoadWarnings().any { it.contains("note_limits.mode") })
     }
 
@@ -1609,4 +1470,25 @@ note_schemas:
             "a new instance over the rewritten file must see the new maxLength"
         )
     }
+
+    // ──────────────────────────────────────────────
+    // Lookups over the parsed catalogue. 4.0 removed the service's own per-item lookups (schema
+    // resolution belongs to EffectiveConfigResolver); these read the same parsed maps so the
+    // parsing assertions above keep their meaning.
+    // ──────────────────────────────────────────────
+
+    private fun YamlNoteSchemaService.getSchemaForTags(tags: List<String>) = tags.firstNotNullOfOrNull { getAllSchemas()[it]?.notes }
+
+    private fun YamlNoteSchemaService.hasReviewPhase(tags: List<String>) = getSchemaForTags(tags)?.any { it.role == Role.REVIEW } ?: false
+
+    private fun YamlNoteSchemaService.getSchemaForType(type: String?) = type?.let { getAllSchemas()[it] }
+
+    private fun YamlNoteSchemaService.getTraitNotes(name: String) = getAllTraits()[name]
+
+    private fun YamlNoteSchemaService.getAvailableTraits() = getAllTraits().keys.toList()
+
+    private fun YamlNoteSchemaService.getDefaultTraits(type: String?) = getSchemaForType(type)?.defaultTraits ?: emptyList()
+
+    private fun noteLimitsMode(configPath: java.nio.file.Path) =
+        LayerBackedGlobalLookup(GlobalConfigFile(configPath).layer()).noteLimitsMode()
 }

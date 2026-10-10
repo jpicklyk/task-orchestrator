@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -31,7 +31,7 @@ import kotlin.test.assertTrue
  * Integration coverage for item 473e4f49 ("start cascades bypass the parent note gate") through
  * the real [AdvanceItemTool] JSON contract, backed by an SQLite database.
  *
- * Mirrors [SchemaGatedLifecycleTest]'s harness (real SQLite DB + inline [NoteSchemaService], no mocks)
+ * Mirrors [SchemaGatedLifecycleTest]'s harness (real SQLite DB + inline server config, no mocks)
  * but is scoped to the three scenarios the item's frozen test-plan note assigns to this file:
  * S1 (core suppression), S2 (happy path once filled), S4 (reopen cascade keeps bypassing the gate
  * — the documented start/reopen asymmetry).
@@ -47,10 +47,10 @@ class StartCascadeGateIntegrationTest {
     fun setUp() {
         val repositoryProvider = db.repositoryProvider()
 
-        // Inline NoteSchemaService mirroring the real "feature-implementation" config.yaml schema.
+        // Inline server config mirroring the real "feature-implementation" config.yaml schema.
         val noteSchemaService =
-            object : NoteSchemaService {
-                private val schemas =
+            run {
+                val schemas =
                     mapOf(
                         "feature-implementation" to
                             listOf(
@@ -74,11 +74,10 @@ class StartCascadeGateIntegrationTest {
                                 )
                             )
                     )
-
-                override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = tags.firstNotNullOfOrNull { schemas[it] }
+                TestConfigResolver.forSchemas(schemas)
             }
 
-        context = ToolExecutionContext(repositoryProvider, noteSchemaService, unitOfWork = db.unitOfWork())
+        context = ToolExecutionContext(repositoryProvider, configResolver = noteSchemaService, unitOfWork = db.unitOfWork())
         transitionTool = AdvanceItemTool()
     }
 
@@ -98,7 +97,7 @@ class StartCascadeGateIntegrationTest {
             } else {
                 0
             }
-        val item = WorkItem(title = title, tags = tags, parentId = parentId, depth = depth)
+        val item = WorkItem(title = title, tags = tags, type = tags?.substringBefore(",")?.trim(), parentId = parentId, depth = depth)
         val result = context.workItemRepository().create(item)
         return result
     }

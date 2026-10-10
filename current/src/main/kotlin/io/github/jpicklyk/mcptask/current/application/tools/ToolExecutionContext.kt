@@ -2,10 +2,10 @@ package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.config.LayeredConfig
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
-import io.github.jpicklyk.mcptask.current.application.config.ServiceBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
@@ -23,10 +23,8 @@ import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.ItemCommandService
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.TransitionPreview
@@ -52,7 +50,6 @@ import java.util.UUID
  */
 class ToolExecutionContext(
     val repositoryProvider: RepositoryProvider,
-    private val noteSchemaService: NoteSchemaService = NoOpNoteSchemaService,
     private val statusLabelService: StatusLabelService = NoOpStatusLabelService,
     private val actorVerifier: ActorVerifier = NoOpActorVerifier,
     val degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
@@ -64,12 +61,12 @@ class ToolExecutionContext(
     perRootConfigService: PerRootConfigSource? = null,
     /**
      * The single resolution entry point every resolver method below delegates to. Defaults to a
-     * resolver over the legacy global services and `perRootConfigService`, so existing
-     * constructions compile and behave unchanged.
+     * resolver with NO server config (an empty server layer) over `perRootConfigService`; production
+     * and any test that needs server schemas pass a resolver built over a real server [LayerBackedGlobalLookup].
      */
     val configResolver: EffectiveConfigResolver =
         EffectiveConfigResolver(
-            ServiceBackedGlobalLookup(noteSchemaService, statusLabelService),
+            LayerBackedGlobalLookup(null),
             perRootConfigService
         ),
     /** Time source for units of work; production wires the system clock. */
@@ -150,9 +147,6 @@ class ToolExecutionContext(
     /** Access to RoleTransition audit trail operations. */
     fun roleTransitionRepository(): TransitionStore = repositoryProvider.roleTransitionRepository()
 
-    /** Access to Note schema configuration service. */
-    fun noteSchemaService(): NoteSchemaService = noteSchemaService
-
     /** Access to the status label configuration service. */
     fun statusLabelService(): StatusLabelService = statusLabelService
 
@@ -164,8 +158,9 @@ class ToolExecutionContext(
 
     /**
      * Resolves the effective [WorkItemSchema] for a [WorkItem], including trait note merging.
-     * Delegates to [EffectiveConfigResolver.resolveSchema]; see [LayeredConfig] for the LEGACY
-     * per-root-over-global precedence table (type step, tag step, trait notes).
+     * Delegates to [EffectiveConfigResolver.resolveSchema]; see [LayeredConfig] for the one
+     * per-root-over-server precedence rule and [io.github.jpicklyk.mcptask.current.application.config.TraitResolver]
+     * for the trait merge.
      */
     suspend fun resolveSchema(item: WorkItem): WorkItemSchema? = configResolver.resolveSchema(item)
 
@@ -179,7 +174,7 @@ class ToolExecutionContext(
 
     /**
      * Type-only counterpart to [resolveSchemaWithSource] for callers that have a type name but no
-     * [WorkItem]: no tag fallback and no trait merging. Returns null when neither layer defines [type].
+     * [WorkItem]: no trait merging. Returns null when no layer resolves [type] (its own schema or a `"default"`).
      */
     suspend fun resolveTypeSchema(
         type: String,
@@ -226,7 +221,7 @@ class ToolExecutionContext(
      * Resolves the dispatch routing profile for [item] at [role], using [resolvedSchema]'s
      * `defaultTraits` instead of re-resolving the schema. A trait-less item costs zero per-root
      * reads (`AdvanceItemToolTest.kt:2119` pins the rooted, trait-less advance's read count). Trait
-     * order is item traits first, then defaultTraits (the reverse of note merging). Delegates to
+     * order is item traits first, then defaultTraits (the one order every trait merge uses). Delegates to
      * [EffectiveConfigResolver.resolveDispatchProfile].
      */
     suspend fun resolveDispatchProfile(
@@ -254,8 +249,8 @@ class ToolExecutionContext(
     ): Map<Role, DispatchProfile> = configResolver.resolveDispatchProfilesForType(defaultTraits, rootId)
 
     /**
-     * Resolves the effective resource registry (top-level `resources:`) visible to [rootId]. GLOBAL
-     * WINS on a key collision (logged). Delegates to [EffectiveConfigResolver.resolveResourceRegistry].
+     * Resolves the effective resource registry (top-level `resources:`) visible to [rootId]: the
+     * server registry only. Delegates to [EffectiveConfigResolver.resolveResourceRegistry].
      */
     suspend fun resolveResourceRegistry(rootId: UUID?): Map<String, ResourceDefinition> = configResolver.resolveResourceRegistry(rootId)
 

@@ -7,11 +7,10 @@ import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.*
+import io.github.jpicklyk.mcptask.current.test.MutableServerConfig
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -36,7 +35,7 @@ class GetContextToolTest {
     private lateinit var workItemRepo: WorkItemRepository
     private lateinit var noteRepo: NoteStore
     private lateinit var roleTransitionRepo: TransitionStore
-    private lateinit var noteSchemaService: NoteSchemaService
+    private lateinit var server: MutableServerConfig
 
     // Default context uses NoOpNoteSchemaService (schema-free mode)
     private lateinit var context: ToolExecutionContext
@@ -50,12 +49,7 @@ class GetContextToolTest {
         workItemRepo = mockk()
         noteRepo = mockk()
         roleTransitionRepo = mockk()
-        noteSchemaService = mockk()
-        every { noteSchemaService.getSchemaForType(any()) } returns null
-        every { noteSchemaService.getDefaultTraits(any()) } returns emptyList()
-        every { noteSchemaService.getTraitNotes(any()) } returns null
-        every { noteSchemaService.getTraitResources(any()) } returns emptyList()
-        every { noteSchemaService.getTraitDispatch(any()) } returns emptyMap()
+        server = MutableServerConfig()
 
         val repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
@@ -66,8 +60,8 @@ class GetContextToolTest {
         every { repoProvider.resourceLeaseRepository() } returns
             mockk<LeaseStore>().also { coEvery { it.findActiveByKeys(any()) } returns emptyList() }
 
-        context = ToolExecutionContext(repoProvider, NoOpNoteSchemaService)
-        schemaContext = ToolExecutionContext(repoProvider, noteSchemaService)
+        context = ToolExecutionContext(repoProvider)
+        schemaContext = ToolExecutionContext(repoProvider, configResolver = server.resolver())
 
         // Default stub for countByClaimStatus (called in health-check mode, additive field)
         coEvery { workItemRepo.countByClaimStatus(any()) } returns
@@ -92,7 +86,7 @@ class GetContextToolTest {
             title = title,
             role = role,
             tags = tags,
-            type = type,
+            type = type ?: tags?.substringBefore(",")?.trim(),
             properties = properties,
             depth = depth
         )
@@ -156,7 +150,7 @@ class GetContextToolTest {
                         description = "Notes on implementation"
                     )
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             coEvery { workItemRepo.getById(itemId) } returns item
             // No notes exist → missing required note
@@ -206,7 +200,7 @@ class GetContextToolTest {
                         skill = "impl-quality"
                     )
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             coEvery { workItemRepo.getById(itemId) } returns item
             coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
@@ -245,7 +239,7 @@ class GetContextToolTest {
                         description = "Notes on implementation"
                     )
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             val existingNote =
                 Note(
@@ -749,7 +743,7 @@ class GetContextToolTest {
                         guidance = "Use T-shirt sizing: XS/S/M/L/XL"
                     )
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             coEvery { workItemRepo.getById(itemId) } returns item
             coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
@@ -791,7 +785,7 @@ class GetContextToolTest {
                         guidance = "Use T-shirt sizing: XS/S/M/L/XL"
                     )
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             // First required note is filled
             val filledNote =
@@ -841,7 +835,7 @@ class GetContextToolTest {
                         guidance = "Use T-shirt sizing: XS/S/M/L/XL"
                     )
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             val note1 = Note(itemId = itemId, key = "acceptance-criteria", role = "queue", body = "AC content filled in.")
             val note2 = Note(itemId = itemId, key = "effort-estimate", role = "queue", body = "M - medium effort.")
@@ -893,7 +887,7 @@ class GetContextToolTest {
                         guidance = "Work-phase guidance — this should be the pointer"
                     )
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             // Queue note is filled, work note is missing
             val queueNote = Note(itemId = itemId, key = "acceptance-criteria", role = "queue", body = "AC is done.")
@@ -950,7 +944,7 @@ class GetContextToolTest {
                         guidance = "Work guidance"
                     )
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             // Both notes filled (queue and work)
             val queueNote = Note(itemId = itemId, key = "acceptance-criteria", role = "queue", body = "AC done.")
@@ -1018,7 +1012,7 @@ class GetContextToolTest {
                         guidance = "Guidance"
                     )
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             coEvery { workItemRepo.getById(itemId) } returns item
             coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
@@ -1059,7 +1053,7 @@ class GetContextToolTest {
                         guidance = "Write the implementation approach here"
                     )
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns listOf(item)
             coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
@@ -1106,7 +1100,7 @@ class GetContextToolTest {
                         guidance = null
                     )
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns listOf(item)
             coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
@@ -1143,7 +1137,7 @@ class GetContextToolTest {
                         guidance = "Describe the implementation"
                     )
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns listOf(item)
             coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
@@ -1190,7 +1184,7 @@ class GetContextToolTest {
                         skill = "review-quality"
                     )
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns listOf(item)
             coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
@@ -1224,7 +1218,7 @@ class GetContextToolTest {
                         guidance = "Write the implementation"
                     )
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns listOf(item)
             coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
@@ -1265,7 +1259,7 @@ class GetContextToolTest {
                         guidance = "Second guidance"
                     )
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns listOf(item)
             coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
@@ -1318,7 +1312,7 @@ class GetContextToolTest {
                         guidance = "Write impl"
                     )
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             // Child is active (WORK) and stalled (missing required note)
             coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns listOf(childItem)
@@ -1370,7 +1364,7 @@ class GetContextToolTest {
                         guidance = "Write impl"
                     )
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns listOf(childItem)
             coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns emptyList()
@@ -1413,7 +1407,7 @@ class GetContextToolTest {
                         guidance = null
                     )
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             coEvery { workItemRepo.getById(itemId) } returns item
             coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
@@ -1449,7 +1443,7 @@ class GetContextToolTest {
                     NoteSchemaEntry(key = "design-notes", role = Role.WORK, required = true, description = "Design notes"),
                     NoteSchemaEntry(key = "test-plan", role = Role.WORK, required = true, description = "Test plan")
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             coEvery { workItemRepo.getById(itemId) } returns item
             coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
@@ -1497,7 +1491,7 @@ class GetContextToolTest {
                 listOf(
                     NoteSchemaEntry(key = "impl-notes", role = Role.WORK, required = true, description = "Impl notes")
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             coEvery { workItemRepo.getById(itemId) } returns item
             coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
@@ -1532,7 +1526,7 @@ class GetContextToolTest {
                         description = "Notes on implementation"
                     )
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             // Note row exists in the DB but body is blank (whitespace only)
             val blankBodyNote = Note(itemId = itemId, key = "implementation-notes", role = "work", body = "   ")
@@ -1584,7 +1578,7 @@ class GetContextToolTest {
                             NoteSchemaEntry(key = "impl-notes", role = Role.WORK, required = true, description = "Implementation notes")
                         )
                 )
-            every { noteSchemaService.getSchemaForType("feature-task") } returns typeSchema
+            server.schemas["feature-task"] = typeSchema
 
             coEvery { workItemRepo.getById(itemId) } returns item
             coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
@@ -1615,9 +1609,8 @@ class GetContextToolTest {
                         ),
                     defaultTraits = listOf("security-trait")
                 )
-            every { noteSchemaService.getSchemaForType("feature-with-traits") } returns typeSchema
-            every { noteSchemaService.getDefaultTraits("feature-with-traits") } returns listOf("security-trait")
-            every { noteSchemaService.getTraitNotes("security-trait") } returns
+            server.schemas["feature-with-traits"] = typeSchema
+            server.traits["security-trait"] =
                 listOf(
                     NoteSchemaEntry(key = "security-review", role = Role.REVIEW, required = true, description = "Security review")
                 )
@@ -1656,7 +1649,7 @@ class GetContextToolTest {
                         skill = "review-quality"
                     )
                 )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+            server.schema("feature-task", schemaEntries)
 
             coEvery { workItemRepo.getById(itemId) } returns item
             // No notes exist → first unfilled required note drives skillPointer
