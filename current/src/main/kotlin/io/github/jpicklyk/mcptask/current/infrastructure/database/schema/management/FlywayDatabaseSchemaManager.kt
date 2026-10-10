@@ -29,6 +29,10 @@ class FlywayDatabaseSchemaManager(
      * Flyway's default (false): a non-empty schema without history is refused by
      * [refuseDirectModeDatabase] before Flyway runs, and baselining at 0 could never be correct
      * because V1 is not idempotent.
+     *
+     * No migration pattern is ignored at validation. Flyway's default (`*:future`) would validate a database whose
+     * history is AHEAD of this binary (for example one a 4.0 binary migrated past V17) and let this process serve
+     * and write it; with no ignore patterns, such a database fails validation and startup refuses it (AR-37).
      */
     internal fun flywayConfiguration(): FluentConfiguration =
         Flyway
@@ -36,6 +40,7 @@ class FlywayDatabaseSchemaManager(
             .dataSource(jdbcUrl, null, null) // SQLite: no username/password needed
             .locations("classpath:db/migration")
             .validateMigrationNaming(true)
+            .ignoreMigrationPatterns(*emptyArray<String>())
             .cleanDisabled(true)
 
     /**
