@@ -1,6 +1,9 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
-import io.github.jpicklyk.mcptask.current.application.port.ItemSortFields
+import io.github.jpicklyk.mcptask.current.application.port.ItemFilter
+import io.github.jpicklyk.mcptask.current.application.port.ItemSort
+import io.github.jpicklyk.mcptask.current.application.port.ItemSortField
+import io.github.jpicklyk.mcptask.current.application.port.SortDirection
 import io.github.jpicklyk.mcptask.current.domain.model.ClaimStatus
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -76,16 +79,18 @@ internal object ItemQueries {
 
     /**
      * Matches tags at word boundaries within a comma-separated string: alone ("bug"), at the start
-     * ("bug,feature"), in the middle ("alpha,bug,beta") or at the end ("alpha,bug"). OR across the list.
+     * ("bug,feature"), in the middle ("alpha,bug,beta") or at the end ("alpha,bug"). OR across the list. The tag
+     * is a literal: `%`, `_` and the escape character in it are escaped ([LikeLiteral]), never pattern characters.
      */
     fun tagFilter(tags: List<String>): Op<Boolean> =
         tags
             .map { tag ->
                 val t = tag.trim().lowercase()
+                val e = LikeLiteral.escape(t)
                 (WorkItemsTable.tags eq t) or
-                    (WorkItemsTable.tags like "$t,%") or
-                    (WorkItemsTable.tags like "%,$t,%") or
-                    (WorkItemsTable.tags like "%,$t")
+                    (WorkItemsTable.tags like LikeLiteral.pattern("$e,%")) or
+                    (WorkItemsTable.tags like LikeLiteral.pattern("%,$e,%")) or
+                    (WorkItemsTable.tags like LikeLiteral.pattern("%,$e"))
             }.reduce { acc, op -> acc or op }
 
     /** Priority rank HIGH=0, MEDIUM=1, LOW=2 (anything else 99), the single definition behind every priority sort. */
@@ -96,38 +101,49 @@ internal object ItemQueries {
             .When(WorkItemsTable.priority eq Priority.LOW.name.lowercase(), LiteralOp(IntegerColumnType(), 2))
             .Else(LiteralOp(IntegerColumnType(), 99))
 
+    /** The infrastructure form of [filter] (its `ancestorId` is a scope, applied by the caller, not a spec field). */
+    fun specOf(filter: ItemFilter): ItemQuerySpec =
+        ItemQuerySpec(
+            parentId = filter.parentId,
+            depth = filter.depth,
+            role = filter.role,
+            priority = filter.priority,
+            tags = filter.tagsAny,
+            type = filter.type,
+            createdAfter = filter.createdAfter,
+            createdBefore = filter.createdBefore,
+            modifiedAfter = filter.modifiedAfter,
+            modifiedBefore = filter.modifiedBefore,
+            roleChangedAfter = filter.roleChangedAfter,
+            roleChangedBefore = filter.roleChangedBefore,
+            claimStatus = filter.claimStatus,
+        )
+
     /**
-     * Applies the shared sortBy/sortOrder mapping: every value [ItemSortFields] advertises (`title`, `priority`,
-     * `complexity`, `createdAt`, `modifiedAt`) sorts by its own column, plus the legacy `created`/`modified`
-     * aliases. `priority` sorts by rank (high/medium/low), not the raw varchar. `complexity` sorts with NULLs last
-     * regardless of direction. Unresolved/null [sortBy] falls back to `createdAt`. A secondary `id ASC` tiebreak
-     * makes pagination stable across ties on the primary key.
+     * Orders [query] by [sort]: [ItemSortField.PRIORITY] by rank (high/medium/low), not the raw varchar;
+     * [ItemSortField.COMPLEXITY] with NULLs last regardless of direction. A secondary `id ASC` tiebreak makes
+     * pagination stable across ties on the primary key.
      */
     fun applySort(
         query: Query,
-        sortBy: String?,
-        sortOrder: String?
+        sort: ItemSort,
     ): Query {
-        val order =
-            when (sortOrder?.lowercase()) {
-                "asc" -> SortOrder.ASC
-                else -> SortOrder.DESC
+        val order = if (sort.direction == SortDirection.ASC) SortOrder.ASC else SortOrder.DESC
+        val ordered =
+            when (sort.field) {
+                ItemSortField.TITLE -> query.orderBy(WorkItemsTable.title, order)
+                ItemSortField.PRIORITY -> {
+                    // "desc" means high-first, i.e. rank ASCENDING; "asc" means low-first, i.e. rank DESCENDING.
+                    val rankOrder = if (order == SortOrder.DESC) SortOrder.ASC else SortOrder.DESC
+                    query.orderBy(priorityRank(), rankOrder)
+                }
+                ItemSortField.COMPLEXITY -> {
+                    val complexityOrder = if (order == SortOrder.ASC) SortOrder.ASC_NULLS_LAST else SortOrder.DESC_NULLS_LAST
+                    query.orderBy(WorkItemsTable.complexity, complexityOrder)
+                }
+                ItemSortField.MODIFIED_AT -> query.orderBy(WorkItemsTable.modifiedAt, order)
+                ItemSortField.CREATED_AT -> query.orderBy(WorkItemsTable.createdAt, order)
             }
-        val canonical = sortBy?.let { ItemSortFields.canonicalField(it) } ?: ItemSortFields.CREATED_AT
-
-        return when (canonical) {
-            ItemSortFields.TITLE -> query.orderBy(WorkItemsTable.title, order).orderBy(WorkItemsTable.id, SortOrder.ASC)
-            ItemSortFields.PRIORITY -> {
-                // "desc" means high-first, i.e. rank ASCENDING; "asc" means low-first, i.e. rank DESCENDING.
-                val rankOrder = if (order == SortOrder.DESC) SortOrder.ASC else SortOrder.DESC
-                query.orderBy(priorityRank(), rankOrder).orderBy(WorkItemsTable.id, SortOrder.ASC)
-            }
-            ItemSortFields.COMPLEXITY -> {
-                val complexityOrder = if (order == SortOrder.ASC) SortOrder.ASC_NULLS_LAST else SortOrder.DESC_NULLS_LAST
-                query.orderBy(WorkItemsTable.complexity, complexityOrder).orderBy(WorkItemsTable.id, SortOrder.ASC)
-            }
-            ItemSortFields.MODIFIED_AT -> query.orderBy(WorkItemsTable.modifiedAt, order).orderBy(WorkItemsTable.id, SortOrder.ASC)
-            else -> query.orderBy(WorkItemsTable.createdAt, order).orderBy(WorkItemsTable.id, SortOrder.ASC)
-        }
+        return ordered.orderBy(WorkItemsTable.id, SortOrder.ASC)
     }
 }

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.knowledge.search
 
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.Analyzer
 import io.github.jpicklyk.mcptask.current.application.port.Candidate
 import io.github.jpicklyk.mcptask.current.application.port.Corpus

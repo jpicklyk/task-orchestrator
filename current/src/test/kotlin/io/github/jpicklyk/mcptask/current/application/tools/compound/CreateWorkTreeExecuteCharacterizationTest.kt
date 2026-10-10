@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
 import io.github.jpicklyk.mcptask.current.test.CountingUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase

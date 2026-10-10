@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.items
 import io.github.jpicklyk.mcptask.current.application.port.Candidate
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.application.port.ItemFetchResult
+import io.github.jpicklyk.mcptask.current.application.port.ItemPage
 import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
@@ -219,48 +220,12 @@ class QueryItemsLimitContractTest {
     fun `S4 list mode omitted limit defaults to 50`() =
         runBlocking {
             val mocks = MockRepositoryProvider()
-            val limitSlot = slot<Int>()
+            val pageSlot = slot<ItemPage>()
 
             coEvery {
-                mocks.workItemRepo.findByFilters(
-                    parentId = any(),
-                    depth = any(),
-                    role = any(),
-                    priority = any(),
-                    tags = any(),
-                    query = any(),
-                    createdAfter = any(),
-                    createdBefore = any(),
-                    modifiedAfter = any(),
-                    modifiedBefore = any(),
-                    roleChangedAfter = any(),
-                    roleChangedBefore = any(),
-                    sortBy = any(),
-                    sortOrder = any(),
-                    limit = capture(limitSlot),
-                    offset = any(),
-                    type = any(),
-                    claimStatus = any(),
-                )
-            } returns ItemFetchResult(items = emptyList(), skipped = 0)
-            coEvery {
-                mocks.workItemRepo.countByFilters(
-                    parentId = any(),
-                    depth = any(),
-                    role = any(),
-                    priority = any(),
-                    tags = any(),
-                    query = any(),
-                    createdAfter = any(),
-                    createdBefore = any(),
-                    modifiedAfter = any(),
-                    modifiedBefore = any(),
-                    roleChangedAfter = any(),
-                    roleChangedBefore = any(),
-                    type = any(),
-                    claimStatus = any(),
-                )
-            } returns 0
+                mocks.workItemRepo.find(any(), any(), capture(pageSlot), any())
+            } returns emptyList()
+            coEvery { mocks.workItemRepo.count(any(), any()) } returns 0
 
             val tool = QueryItemsTool()
             val result =
@@ -270,55 +235,19 @@ class QueryItemsLimitContractTest {
                 ) as JsonObject
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean)
-            assertEquals(50, limitSlot.captured, "list-mode default must be 50 (L224)")
+            assertEquals(50, pageSlot.captured.limit, "list-mode default must be 50 (L224)")
         }
 
     @Test
     fun `S5 list mode limit above 100 is capped at 100`() =
         runBlocking {
             val mocks = MockRepositoryProvider()
-            val limitSlot = slot<Int>()
+            val pageSlot = slot<ItemPage>()
 
             coEvery {
-                mocks.workItemRepo.findByFilters(
-                    parentId = any(),
-                    depth = any(),
-                    role = any(),
-                    priority = any(),
-                    tags = any(),
-                    query = any(),
-                    createdAfter = any(),
-                    createdBefore = any(),
-                    modifiedAfter = any(),
-                    modifiedBefore = any(),
-                    roleChangedAfter = any(),
-                    roleChangedBefore = any(),
-                    sortBy = any(),
-                    sortOrder = any(),
-                    limit = capture(limitSlot),
-                    offset = any(),
-                    type = any(),
-                    claimStatus = any(),
-                )
-            } returns ItemFetchResult(items = emptyList(), skipped = 0)
-            coEvery {
-                mocks.workItemRepo.countByFilters(
-                    parentId = any(),
-                    depth = any(),
-                    role = any(),
-                    priority = any(),
-                    tags = any(),
-                    query = any(),
-                    createdAfter = any(),
-                    createdBefore = any(),
-                    modifiedAfter = any(),
-                    modifiedBefore = any(),
-                    roleChangedAfter = any(),
-                    roleChangedBefore = any(),
-                    type = any(),
-                    claimStatus = any(),
-                )
-            } returns 0
+                mocks.workItemRepo.find(any(), any(), capture(pageSlot), any())
+            } returns emptyList()
+            coEvery { mocks.workItemRepo.count(any(), any()) } returns 0
 
             val tool = QueryItemsTool()
             val result =
@@ -331,7 +260,7 @@ class QueryItemsLimitContractTest {
                 ) as JsonObject
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean)
-            assertEquals(100, limitSlot.captured, "list-mode cap must be 100 (L224)")
+            assertEquals(100, pageSlot.captured.limit, "list-mode cap must be 100 (L224)")
         }
 
     // ──────────────────────────────────────────────

@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.knowledge.search
 
-import io.github.jpicklyk.mcptask.current.application.knowledge.search.AccessScope
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.Ranker
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchRequest
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.Analyzer
 import io.github.jpicklyk.mcptask.current.application.port.Candidate
 import io.github.jpicklyk.mcptask.current.application.port.Corpus
