@@ -10,6 +10,7 @@ import org.jetbrains.exposed.v1.core.LiteralOp
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.QueryBuilder
 import org.jetbrains.exposed.v1.core.Sum
+import org.jetbrains.exposed.v1.core.TextColumnType
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.jdbc.JdbcTransaction
@@ -112,6 +113,31 @@ internal object WorkViewSql {
 
     /** `SUM(CASE WHEN condition THEN 1 ELSE 0 END)`: one bucket of a single-statement breakdown. */
     fun countWhen(condition: Op<Boolean>): Sum<Int> = Sum(Case().When(condition, int(1)).Else(int(0)), IntegerColumnType())
+
+    /**
+     * `SELECT` of the 16-byte ids of an id set from ONE bound JSON-array parameter (`json_each` + `unhex`), so an
+     * id set of any size is a single statement with a single bound variable: no `IN` list to chunk, and a view's
+     * statement count stays independent of how many ids it batches. Use it inside `IN (...)` and bind
+     * [idSetArgument] at its `?`.
+     */
+    const val ID_SET_SELECT = "SELECT unhex(value) FROM json_each(?)"
+
+    /** The bound value for [ID_SET_SELECT]: a JSON array of the ids as 32-digit hex strings. */
+    fun idSetArgument(ids: Collection<UUID>): Pair<IColumnType<*>, Any?> =
+        TextColumnType() to ids.joinToString(",", "[", "]") { "\"" + it.toString().replace("-", "") + "\"" }
+
+    /** `column IN (<ids>)` for an id set of any size, as one statement with one bound parameter ([ID_SET_SELECT]). */
+    fun inIdSet(
+        column: Expression<*>,
+        ids: Collection<UUID>,
+    ): Op<Boolean> =
+        SqlOp {
+            val (type, value) = idSetArgument(ids)
+            append(column)
+            append(" IN (SELECT unhex(value) FROM json_each(")
+            registerArgument(type, value)
+            append("))")
+        }
 
     /** [role] as stored (lower case). */
     fun stored(role: Role): String = role.name.lowercase()

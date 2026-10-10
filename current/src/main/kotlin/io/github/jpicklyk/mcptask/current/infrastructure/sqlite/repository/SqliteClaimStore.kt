@@ -28,7 +28,6 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.count
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
-import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.lessEq
@@ -502,13 +501,11 @@ class SqliteClaimStore(
             val result = LinkedHashMap<UUID, ClaimStatusCounts>()
             parentIds.forEach { result[it] = ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0) }
             val buckets = claimBuckets(now)
-            parentIds.chunked(SQL_IN_CHUNK_SIZE).forEach { chunk ->
-                WorkItemsTable
-                    .select(WorkItemsTable.parentId, buckets.active, buckets.expired, buckets.unclaimed)
-                    .where { WorkItemsTable.parentId inList chunk }
-                    .groupBy(WorkItemsTable.parentId)
-                    .forEach { row -> row[WorkItemsTable.parentId]?.let { result[it] = buckets.read(row) } }
-            }
+            WorkItemsTable
+                .select(WorkItemsTable.parentId, buckets.active, buckets.expired, buckets.unclaimed)
+                .where { WorkViewSql.inIdSet(WorkItemsTable.parentId, parentIds) }
+                .groupBy(WorkItemsTable.parentId)
+                .forEach { row -> row[WorkItemsTable.parentId]?.let { result[it] = buckets.read(row) } }
             result
         }
     }

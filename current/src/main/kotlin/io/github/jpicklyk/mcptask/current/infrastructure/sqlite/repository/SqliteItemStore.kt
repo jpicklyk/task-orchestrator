@@ -14,7 +14,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
-import org.jetbrains.exposed.v1.core.IColumnType
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
@@ -24,7 +23,6 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
-import org.jetbrains.exposed.v1.core.java.UUIDColumnType
 import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.like
 import org.jetbrains.exposed.v1.core.neq
@@ -319,18 +317,18 @@ class SqliteItemStore(
             val result = LinkedHashMap<UUID, MutableMap<Role, Int>>()
             parentIds.forEach { result[it] = mutableMapOf() }
             val total = WorkItemsTable.id.count()
-            parentIds.chunked(SQL_IN_CHUNK_SIZE).forEach { chunk ->
-                WorkItemsTable
-                    .select(WorkItemsTable.parentId, WorkItemsTable.role, total)
-                    .where { WorkItemsTable.parentId inList chunk }
-                    .groupBy(WorkItemsTable.parentId, WorkItemsTable.role)
-                    .forEach { row ->
-                        val parent = row[WorkItemsTable.parentId] ?: return@forEach
-                        val role = Role.fromString(row[WorkItemsTable.role]) ?: Role.QUEUE
-                        val counts = result.getOrPut(parent) { mutableMapOf() }
-                        counts[role] = (counts[role] ?: 0) + row[total].toInt()
-                    }
-            }
+            // One statement for any number of parents (a JSON id set, not a chunked IN list), so the views that
+            // batch through this keep a constant statement count.
+            WorkItemsTable
+                .select(WorkItemsTable.parentId, WorkItemsTable.role, total)
+                .where { WorkViewSql.inIdSet(WorkItemsTable.parentId, parentIds) }
+                .groupBy(WorkItemsTable.parentId, WorkItemsTable.role)
+                .forEach { row ->
+                    val parent = row[WorkItemsTable.parentId] ?: return@forEach
+                    val role = Role.fromString(row[WorkItemsTable.role]) ?: Role.QUEUE
+                    val counts = result.getOrPut(parent) { mutableMapOf() }
+                    counts[role] = (counts[role] ?: 0) + row[total].toInt()
+                }
             result
         }
     }
@@ -340,31 +338,27 @@ class SqliteItemStore(
         return databaseManager.readTx {
             val result = LinkedHashMap<UUID, MutableMap<Role, Int>>()
             topIds.forEach { result[it] = mutableMapOf() }
-            val uuidType = UUIDColumnType()
-            topIds.chunked(SQL_IN_CHUNK_SIZE).forEach { chunk ->
-                val placeholders = chunk.joinToString(",") { "?" }
-                // One downward walk carrying the top id; UNION (not UNION ALL) dedups (top, id) pairs, so a
-                // descendant is counted once per top and cyclic parent_id data terminates.
-                val sql =
-                    """
-                    WITH RECURSIVE walk(top, id) AS (
-                        SELECT id, id FROM work_items WHERE id IN ($placeholders)
-                        UNION
-                        SELECT w.top, x.id FROM work_items x JOIN walk w ON x.parent_id = w.id
-                    )
-                    SELECT walk.top AS top, y.role AS role, COUNT(*) AS n
-                    FROM walk JOIN work_items y ON y.id = walk.id
-                    WHERE walk.id <> walk.top
-                    GROUP BY walk.top, y.role
-                    """.trimIndent()
-                val args: List<Pair<IColumnType<*>, Any?>> = chunk.map { uuidType to it }
-                selectSql(sql, args) { rs ->
-                    while (rs.next()) {
-                        val top = uuidOf(rs.getObject("top")!!)
-                        val role = Role.fromString(rs.getString("role")) ?: Role.QUEUE
-                        val counts = result.getOrPut(top) { mutableMapOf() }
-                        counts[role] = (counts[role] ?: 0) + rs.getInt("n")
-                    }
+            // One downward walk carrying the top id, seeded from ONE bound JSON id set (constant statement count
+            // for any number of tops); UNION (not UNION ALL) dedups (top, id) pairs, so a descendant is counted
+            // once per top and cyclic parent_id data terminates.
+            val sql =
+                """
+                WITH RECURSIVE walk(top, id) AS (
+                    SELECT id, id FROM work_items WHERE id IN (${WorkViewSql.ID_SET_SELECT})
+                    UNION
+                    SELECT w.top, x.id FROM work_items x JOIN walk w ON x.parent_id = w.id
+                )
+                SELECT walk.top AS top, y.role AS role, COUNT(*) AS n
+                FROM walk JOIN work_items y ON y.id = walk.id
+                WHERE walk.id <> walk.top
+                GROUP BY walk.top, y.role
+                """.trimIndent()
+            selectSql(sql, listOf(WorkViewSql.idSetArgument(topIds))) { rs ->
+                while (rs.next()) {
+                    val top = uuidOf(rs.getObject("top")!!)
+                    val role = Role.fromString(rs.getString("role")) ?: Role.QUEUE
+                    val counts = result.getOrPut(top) { mutableMapOf() }
+                    counts[role] = (counts[role] ?: 0) + rs.getInt("n")
                 }
             }
             result
@@ -376,17 +370,15 @@ class SqliteItemStore(
         return databaseManager.readTx {
             val result = LinkedHashMap<UUID, MutableList<WorkItem>>()
             parentIds.forEach { result[it] = mutableListOf() }
-            parentIds.chunked(SQL_IN_CHUNK_SIZE).forEach { chunk ->
-                WorkItemsTable
-                    .selectAll()
-                    .where { WorkItemsTable.parentId inList chunk }
-                    .orderBy(WorkItemsTable.createdAt, SortOrder.DESC)
-                    .orderBy(WorkItemsTable.id, SortOrder.ASC)
-                    .forEach { row ->
-                        val item = WorkItemRows.toWorkItem(row)
-                        item.parentId?.let { result.getOrPut(it) { mutableListOf() }.add(item) }
-                    }
-            }
+            WorkItemsTable
+                .selectAll()
+                .where { WorkViewSql.inIdSet(WorkItemsTable.parentId, parentIds) }
+                .orderBy(WorkItemsTable.createdAt, SortOrder.DESC)
+                .orderBy(WorkItemsTable.id, SortOrder.ASC)
+                .forEach { row ->
+                    val item = WorkItemRows.toWorkItem(row)
+                    item.parentId?.let { result.getOrPut(it) { mutableListOf() }.add(item) }
+                }
             result
         }
     }
