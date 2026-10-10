@@ -48,7 +48,7 @@ object ItemSchemaView {
     /**
      * Type-only counterpart to [buildItemSchemaJson]: no item, so dispatch/resources resolve from
      * [WorkItemSchema.defaultTraits] alone (no per-item trait merge, no per-item trait order). `null`
-     * when neither config layer defines [type] under [rootId]'s effective `schema_resolution` mode.
+     * when no config layer resolves [type] (its own schema or a `"default"`) under [rootId].
      */
     suspend fun buildTypeSchemaJson(
         type: String,

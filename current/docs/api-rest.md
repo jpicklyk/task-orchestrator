@@ -843,8 +843,7 @@ layer's fingerprint, omitted when that layer has none.
   "statusGraph": <StatusGraphDto>,
   "defaultSchema": <EffectiveSchemaDto>|null,
   "globalFingerprint": "e3b0c44298fc1c14...",
-  "perRootFingerprint": "a94a8fe5cc...",
-  "schemaResolution": "legacy"
+  "perRootFingerprint": "a94a8fe5cc..."
 }
 ```
 Every registered type (the union of this root's per-root `work_item_schemas` keys and the global
@@ -853,16 +852,16 @@ per-root/global view `EffectiveConfigResolver` and MCP `query_items(schema, type
 already compute, surfaced as one REST resource instead of requiring a dashboard to probe per type.
 `types` lists every schema key (per-root and global, ascending natural `String` order) that
 resolves to a schema for this root, and `schemas` follows that same order — `types` always equals
-the `type` values of `schemas`. A key that does not resolve under the root's mode is omitted from
-both (e.g. under `schema_resolution: isolated`, a global-only type with no per-root `default`). `traits` lists every trait name visible to this root (per-root names first,
+the `type` values of `schemas`. Each key resolves by the one precedence rule (per-root exact type,
+then global exact type, then per-root `default`, then global `default`), so every listed key resolves.
+`traits` lists every trait name visible to this root (per-root names first,
 then global, distinct) with its resolved notes/dispatch/resources — a trait unknown to both layers
 is skipped. `globalFingerprint`/`perRootFingerprint` are omitted when null (no global config loaded
 / no per-root config pushed for this root, respectively). `defaultSchema` is the resolved `"default"`
-entry, omitted when no layer defines one. `schemaResolution` (AR-39) is this root's effective
-`schema_resolution` mode — `"legacy"`, `"layered"`, or `"isolated"` — always populated on a `200`
-(`"legacy"` when the key is absent everywhere); see
-[`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md)
-→ "Global vs Per-Project Config". Distinct from `ConfigSnapshotDto` (GLOBAL-only, `/config`) and the
+entry, omitted when no layer defines one. A trait the per-root config declares is reported from the
+per-root entry alone (notes, dispatch and resources together; a dimension it does not declare is
+empty). The `schemaResolution` field was removed in 4.0 (the 3.x `schema_resolution` modes are
+gone). Distinct from `ConfigSnapshotDto` (GLOBAL-only, `/config`) and the
 raw stored YAML `GET /roots/{rootId}/config` returns — this route performs no trait merging (same
 as `SchemaDto`/the MCP type-path): it reports each type's RESOLVED BASE schema only.
 
@@ -1745,7 +1744,7 @@ item) is applied before the 50-hit page is taken.
 
 All require `READ`. All config endpoints emit a fingerprint-based ETag (`"cfg-<fingerprint>"`) and support `If-None-Match` → `304 Not Modified`.
 
-These endpoints describe the **global** config only. For what a specific project root actually resolves to (its per-root config layered over the global one, per its `schema_resolution` mode), use `GET /roots/{rootId}/config/effective` (§18).
+These endpoints describe the **global** config only. For what a specific project root actually resolves to (its per-root config layered over the global one), use `GET /roots/{rootId}/config/effective` (§18).
 
 ### GET /config
 
@@ -1851,11 +1850,12 @@ compare-and-set precondition the caller supplied for this request is still enfor
 
 On success, the parsed document's top-level keys are checked against the honored allowlist -
 `work_item_schemas`, `note_schemas`, `traits`, `project`, `note_limits`, `status_labels`,
-`resources`, `schema_resolution` (AR-39) - and any other key present (e.g. `actor_authentication`, which stays global-only - see
+`independence` - and any other key present (e.g. `actor_authentication`, which stays global-only - see
 [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md))
 is reported in the response's `ignoredSections` array so a push is never silently partial.
-`resources` is honored with an inverted precedence versus the other six keys - global wins on a
-registry key collision, not per-root - see "Per-root honorable settings" in `config-format.md`.
+A per-root `resources:` registry is not honored (the resource registry is server-only) and is
+reported in `ignoredSections`, and so is the removed 3.x `schema_resolution` key; a document carrying
+`schema_resolution` also gets one `schemaWarnings` entry saying the key was removed.
 
 **Responses:**
 - `200 OK` -> `ProjectConfigResponseDto` (no `configYaml` field on this verb; `version` is the head
@@ -1983,12 +1983,9 @@ read, wrapped in the same `config_unavailable` 503 envelope `POST /items/{id}/ad
 - `503 config_unavailable` — the per-root config read failed and there was no last-known-good
   cached config for `{rootId}` (see §6); transient, no `Retry-After` header
 
-`schemaResolution` on the response body is `{rootId}`'s effective `schema_resolution` mode —
-`"legacy"`, `"layered"`, or `"isolated"` — and is **always present** on a `200` response (never
-omitted; `"legacy"` when the key is absent everywhere). See
-[`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md)
-→ "Global vs Per-Project Config" for the mode precedence chains and how the effective mode is
-chosen, and `EffectiveConfigDto` above for the full response shape.
+The response body has no `schemaResolution` field (removed in 4.0). Every type resolves by one
+precedence rule: per-root exact type, then global exact type, then per-root `default`, then global
+`default`. See `EffectiveConfigDto` above for the full response shape.
 
 ---
 

@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
@@ -7,14 +9,13 @@ import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -51,16 +52,11 @@ class GetContextToolResourceLeaseTest {
     private lateinit var roleTransitionRepo: TransitionStore
     private lateinit var leaseRepo: LeaseStore
 
-    /** Test-only schema service declaring a single trait's resource requirements. */
-    private class FakeSchemaService(
-        private val traitResources: Map<String, List<ResourceRequirement>>
-    ) : WorkItemSchemaService {
-        override fun getSchemaForTags(tags: List<String>) = null
+    /** Test-only server config declaring trait resource requirements. */
+    private fun fakeSchemaService(traitResources: Map<String, List<ResourceRequirement>>): EffectiveConfigResolver =
+        TestConfigResolver.resolver(ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap(), traitResources = traitResources))
 
-        override fun getTraitResources(traitName: String): List<ResourceRequirement> = traitResources[traitName] ?: emptyList()
-    }
-
-    private fun contextWith(schemaService: WorkItemSchemaService = NoOpNoteSchemaService): ToolExecutionContext {
+    private fun contextWith(schemaService: EffectiveConfigResolver = TestConfigResolver.resolver()): ToolExecutionContext {
         val repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo
         every { repoProvider.noteRepository() } returns noteRepo
@@ -68,7 +64,7 @@ class GetContextToolResourceLeaseTest {
         every { repoProvider.dependencyRepository() } returns
             mockk<DependencyStore>().also { coEvery { it.findByItemId(any()) } returns emptyList() }
         every { repoProvider.resourceLeaseRepository() } returns leaseRepo
-        return ToolExecutionContext(repoProvider, schemaService)
+        return ToolExecutionContext(repoProvider, configResolver = schemaService)
     }
 
     @BeforeEach
@@ -121,7 +117,7 @@ class GetContextToolResourceLeaseTest {
                     properties = """{"traits":["needs-lock"]}"""
                 )
             val schemaService =
-                FakeSchemaService(
+                fakeSchemaService(
                     mapOf(
                         "needs-lock" to
                             listOf(ResourceRequirement(key = "db-migration-lock", mode = ResourceMode.EXCLUSIVE, ttlSeconds = 300))
@@ -161,7 +157,7 @@ class GetContextToolResourceLeaseTest {
                     properties = """{"traits":["needs-lock"]}"""
                 )
             val schemaService =
-                FakeSchemaService(
+                fakeSchemaService(
                     mapOf(
                         "needs-lock" to
                             listOf(ResourceRequirement(key = "db-migration-lock", mode = ResourceMode.ADVISORY, ttlSeconds = 60))
@@ -193,7 +189,7 @@ class GetContextToolResourceLeaseTest {
         runBlocking {
             val itemId = UUID.randomUUID()
             val item = WorkItem(id = itemId, title = "Plain task", role = Role.WORK)
-            val context = contextWith(NoOpNoteSchemaService)
+            val context = contextWith()
 
             coEvery { workItemRepo.getById(itemId) } returns item
             coEvery { noteRepo.findByItemId(itemId) } returns emptyList()
@@ -211,7 +207,7 @@ class GetContextToolResourceLeaseTest {
     @Test
     fun `health-check mode contains no resourceLeases or lease identity`(): Unit =
         runBlocking {
-            val context = contextWith(NoOpNoteSchemaService)
+            val context = contextWith()
             coEvery { workItemRepo.findByRole(Role.WORK, limit = any()) } returns emptyList()
             coEvery { workItemRepo.findByRole(Role.REVIEW, limit = any()) } returns emptyList()
             coEvery { workItemRepo.findByRole(Role.BLOCKED, limit = any()) } returns emptyList()
@@ -229,7 +225,7 @@ class GetContextToolResourceLeaseTest {
     @Test
     fun `session-resume mode contains no resourceLeases or lease identity`(): Unit =
         runBlocking {
-            val context = contextWith(NoOpNoteSchemaService)
+            val context = contextWith()
             val since = Instant.now().minusSeconds(3600)
             coEvery { workItemRepo.findByRole(Role.WORK, limit = any()) } returns emptyList()
             coEvery { workItemRepo.findByRole(Role.REVIEW, limit = any()) } returns emptyList()

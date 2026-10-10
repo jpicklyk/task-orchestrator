@@ -1,13 +1,13 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
@@ -16,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
@@ -59,7 +60,7 @@ import kotlin.test.assertTrue
  * - [SimpleLeaseFakeRepository] is an in-memory [LeaseStore] fake, reimplemented in
  *   this file per the test-author "own file" rule (mirrors the established pattern in
  *   `AdvanceRouteResourceLeaseTest.LeaseGateFakeRepository` / `AdvanceItemToolLeaseBlockedTest`).
- * - [TraitSchemaService] maps the `needs-staging-db` trait onto one exclusive, 600s-TTL resource —
+ * - [traitSchemaService] maps the `needs-staging-db` trait onto one exclusive, 600s-TTL resource —
  *   same mapping `AdvanceItemToolLeaseBlockedTest` uses for its own trait fixture.
  *
  * BLINDNESS: authored from `task-scope`/`test-plan` (queue-phase, frozen, `keys`-filtered
@@ -165,16 +166,15 @@ class AdvanceItemToolApplyFailureLeaseTest {
     }
 
     /** Maps `needs-staging-db` onto one exclusive resource with a 600s TTL. */
-    private class TraitSchemaService : WorkItemSchemaService {
-        override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
-
-        override fun getTraitResources(traitName: String): List<ResourceRequirement> =
-            if (traitName == "needs-staging-db") {
-                listOf(ResourceRequirement("staging-db-credential", ResourceMode.EXCLUSIVE, 600))
-            } else {
-                emptyList()
-            }
-    }
+    private fun traitSchemaService(): EffectiveConfigResolver =
+        TestConfigResolver.resolver(
+            ConfigDocument(
+                workItemSchemas = emptyMap(),
+                traits = emptyMap(),
+                traitResources =
+                    mapOf("needs-staging-db" to listOf(ResourceRequirement("staging-db-credential", ResourceMode.EXCLUSIVE, 600))),
+            ),
+        )
 
     private fun buildProvider(): DefaultRepositoryProvider = db.repositoryProvider()
 
@@ -213,7 +213,7 @@ class AdvanceItemToolApplyFailureLeaseTest {
             // P11: the real (transactional) lease store, so the advance unit's rollback is observable.
             val leaseFake = repositoryProvider.resourceLeaseRepository()
             val provider = LeaseOverrideProvider(RoleTransitionOverrideProvider(repositoryProvider, failingRoleTx), leaseFake)
-            val context = ToolExecutionContext(provider, TraitSchemaService(), unitOfWork = db.unitOfWork())
+            val context = ToolExecutionContext(provider, configResolver = traitSchemaService(), unitOfWork = db.unitOfWork())
 
             val result = AdvanceItemTool().execute(startParams(item.id), context) as JsonObject
             val data = result["data"]!!.jsonObject
@@ -251,7 +251,7 @@ class AdvanceItemToolApplyFailureLeaseTest {
             // P11: the real (transactional) lease store, so the advance unit's rollback is observable.
             val leaseFake = repositoryProvider.resourceLeaseRepository()
             val provider = LeaseOverrideProvider(RoleTransitionOverrideProvider(repositoryProvider, failingRoleTx), leaseFake)
-            val context = ToolExecutionContext(provider, TraitSchemaService(), unitOfWork = db.unitOfWork())
+            val context = ToolExecutionContext(provider, configResolver = traitSchemaService(), unitOfWork = db.unitOfWork())
 
             val result = AdvanceItemTool().execute(startParams(item.id, item.id), context) as JsonObject
             val results = result["data"]!!.jsonObject["results"]!!.jsonArray
@@ -289,7 +289,7 @@ class AdvanceItemToolApplyFailureLeaseTest {
             // P11: the real (transactional) lease store, so the advance unit's rollback is observable.
             val leaseFake = repositoryProvider.resourceLeaseRepository()
             val provider = LeaseOverrideProvider(RoleTransitionOverrideProvider(repositoryProvider, failingRoleTx), leaseFake)
-            val context = ToolExecutionContext(provider, TraitSchemaService(), unitOfWork = db.unitOfWork())
+            val context = ToolExecutionContext(provider, configResolver = traitSchemaService(), unitOfWork = db.unitOfWork())
 
             val result = AdvanceItemTool().execute(startParams(c.id), context) as JsonObject
             val data = result["data"]!!.jsonObject

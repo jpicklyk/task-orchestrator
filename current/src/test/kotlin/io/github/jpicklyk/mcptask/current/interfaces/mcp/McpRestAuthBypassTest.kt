@@ -96,10 +96,9 @@ class McpRestAuthBypassTest {
                     toolContext =
                         ToolExecutionContext(
                             provider,
-                            NoOpNoteSchemaService,
                             statusLabelService = YamlStatusLabelService(),
                             perRootConfigService = PerRootConfigService(provider.configStore()),
-                            unitOfWork = db.unitOfWork(),
+                            unitOfWork = db.unitOfWork()
                         ),
                     degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
                 )

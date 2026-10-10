@@ -54,7 +54,7 @@ class ConfigServiceIgnoredSectionsTest {
         }
 
     @Test
-    fun `S13 retrospective and actor_authentication are ignored, schema_resolution is honored and its invalid value warns`() =
+    fun `S13 retrospective, actor_authentication, the removed schema_resolution and a per-root resources registry are ignored`() =
         runBlocking {
             val yaml =
                 """
@@ -69,17 +69,20 @@ class ConfigServiceIgnoredSectionsTest {
                 actor_authentication:
                   enabled: true
                 schema_resolution: bogus
+                resources:
+                  db-lock:
+                    description: "a per-root registry entry"
                 """.trimIndent()
 
             val result = service.push(rootId, yaml)
 
             assertTrue(result is ConfigPushResult.Success, "expected Success, got: $result")
             val success = result as ConfigPushResult.Success
-            assertEquals(listOf("retrospective", "actor_authentication"), success.ignoredSections)
+            assertEquals(listOf("retrospective", "actor_authentication", "schema_resolution", "resources"), success.ignoredSections)
             assertEquals(
                 1,
                 success.schemaWarnings.count {
-                    it.contains("schema_resolution") && it.contains("bogus")
+                    it.contains("schema_resolution") && it.contains("removed")
                 },
                 "schemaWarnings: ${success.schemaWarnings}"
             )

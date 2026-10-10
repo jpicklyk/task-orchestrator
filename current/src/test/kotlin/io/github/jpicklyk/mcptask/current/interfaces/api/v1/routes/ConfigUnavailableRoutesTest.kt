@@ -1,20 +1,20 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.getFingerprint
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -125,10 +125,11 @@ class ConfigUnavailableRoutesTest {
             val provider = FailableRepositoryProvider(sqlite, failable)
             application {
                 configureTestApp(makeTestAuthConfig()) {
+                    val perRoot = PerRootConfigService(provider.configStore())
                     ToolExecutionContext(
                         provider,
-                        NoSchemaWorkItemSchemaService,
-                        perRootConfigService = PerRootConfigService(provider.configStore()),
+                        perRootConfigService = perRoot,
+                        configResolver = TestConfigResolver.resolver(NoSchemaWorkItemSchemaService, perRoot),
                         unitOfWork = db.unitOfWork(),
                     ).let { ctx -> itemGateRoutes(provider, ctx.configResolver, ctx.transitionPreview()) }
                 }
@@ -177,14 +178,12 @@ private class FailableRepositoryProvider(
 }
 
 /** No global schema for any type — mirrors the test-plan harness's "Global: no T, no default". */
-private object NoSchemaWorkItemSchemaService : WorkItemSchemaService {
-    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
-}
+private val NoSchemaWorkItemSchemaService: ConfigDocument = ConfigDocument.EMPTY
 
 /** Registers only [itemWriteRoutes], mirroring [AdvanceRouteResourceLeaseTest]'s `configureLeaseTestApp`. */
 private fun Application.configureAdvanceApp(
     provider: RepositoryProvider,
-    schemaService: WorkItemSchemaService,
+    schemaService: ConfigDocument,
     unitOfWork: UnitOfWork
 ) {
     install(ContentNegotiation) { json(McpJson) }
@@ -200,13 +199,15 @@ private fun Application.configureAdvanceApp(
                 provider,
                 DegradedModePolicy.ACCEPT_CACHED,
                 IdempotencyService(unitOfWork),
-                ToolExecutionContext(
-                    provider,
-                    schemaService,
-                    statusLabelService = NoOpStatusLabelService,
-                    perRootConfigService = PerRootConfigService(provider.configStore()),
-                    unitOfWork = unitOfWork
-                ).advanceServiceFactory(),
+                PerRootConfigService(provider.configStore()).let { perRoot ->
+                    ToolExecutionContext(
+                        provider,
+                        statusLabelService = NoOpStatusLabelService,
+                        perRootConfigService = perRoot,
+                        configResolver = TestConfigResolver.resolver(schemaService, perRoot),
+                        unitOfWork = unitOfWork
+                    ).advanceServiceFactory()
+                },
                 unitOfWork,
             )
         }

@@ -4,8 +4,8 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
-import io.github.jpicklyk.mcptask.current.application.config.ServiceBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
@@ -13,8 +13,7 @@ import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService
+import io.github.jpicklyk.mcptask.current.infrastructure.config.GlobalConfigFile
 import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
 import io.github.jpicklyk.mcptask.current.test.advanceSeeded
 import io.github.jpicklyk.mcptask.current.test.testClaimService
@@ -93,7 +92,7 @@ class AdvanceServiceFactoryTest {
     fun `S1 - forItem binds the resolved status label to the item's rootId, per-root over global`(): Unit =
         runBlocking {
             val globalPath = writeGlobalYaml("status_labels:\n  start: \"g-s\"\n")
-            val globalLookup = ServiceBackedGlobalLookup(YamlWorkItemSchemaService(globalPath), YamlStatusLabelService(globalPath))
+            val globalLookup = LayerBackedGlobalLookup(GlobalConfigFile(globalPath).layer())
 
             val prRoot = UUID.randomUUID()
             val prDoc = ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap(), statusLabels = mapOf("start" to "pr-s"))
@@ -157,7 +156,7 @@ class AdvanceServiceFactoryTest {
     fun `S2 - resourceLeasesEnforced is invoked once per forItem call, not memoized at construction`(): Unit =
         runBlocking {
             var calls = 0
-            val globalLookup = ServiceBackedGlobalLookup(NoOpNoteSchemaService, NoOpStatusLabelService)
+            val globalLookup = LayerBackedGlobalLookup(null)
             val resolver = EffectiveConfigResolver(globalLookup, null)
             val factory =
                 AdvanceServiceFactory(

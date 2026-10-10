@@ -101,6 +101,7 @@ internal class EventLogRig(
                 rootId = parent?.let { it.rootId ?: it.id },
                 role = role,
                 tags = tags,
+                type = tags?.substringBefore(",")?.trim(),
             ),
         )
 

@@ -7,7 +7,6 @@ import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigReso
 import io.github.jpicklyk.mcptask.current.application.config.GlobalConfigLookup
 import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
-import io.github.jpicklyk.mcptask.current.application.config.ServiceBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
@@ -44,6 +43,8 @@ import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.nio.file.Files
@@ -51,6 +52,7 @@ import java.nio.file.Path
 import java.security.MessageDigest
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -62,10 +64,10 @@ import kotlin.test.assertTrue
 // dispatch contract's instruction that C5 must not bind to any C4-owned `schema_resolution`
 // behaviour.
 //
-// Harness: ServiceBackedGlobalLookup built directly over a temp-file-backed
-// YamlWorkItemSchemaService (the SAME instance is also passed as the route's `schemaService`
-// enumeration param, so global-layer drift between the two params — R1 in the test-plan's
-// red-proof table — cannot occur by construction), mirroring
+// Harness: LayerBackedGlobalLookup over the GlobalConfigFile of a temp YAML file, beside a
+// YamlWorkItemSchemaService over the SAME file (passed as the route's `schemaService` param, so
+// global-layer drift between the two params — R1 in the test-plan's red-proof table — cannot occur
+// by construction), mirroring
 // EffectiveConfigResolverTest/AvailableTraitsOrderTest's proven pattern. Per-root layers use
 // PerRootConfigService over a real SQLite-backed ConfigStore (mirroring
 // ProjectConfigRoutesTest/ConfigUnavailableRoutesTest), except where a scenario needs a fixed
@@ -79,10 +81,10 @@ private fun writeYamlFile(content: String): Path {
     return path
 }
 
-/** Builds a [WorkItemSchemaService] and the [GlobalConfigLookup] wrapping the SAME instance. */
+/** Builds a [WorkItemSchemaService] and the [GlobalConfigLookup] over the SAME file. */
 private fun globalFixture(yaml: String): Pair<WorkItemSchemaService, GlobalConfigLookup> {
-    val service = YamlWorkItemSchemaService(writeYamlFile(yaml))
-    return service to ServiceBackedGlobalLookup(service, NoOpStatusLabelService)
+    val path = writeYamlFile(yaml)
+    return YamlWorkItemSchemaService(path) to LayerBackedGlobalLookup(GlobalConfigFile(path).layer())
 }
 
 /**
@@ -94,8 +96,7 @@ private fun globalFixture(yaml: String): Pair<WorkItemSchemaService, GlobalConfi
  */
 private fun absentGlobalFixture(): Pair<WorkItemSchemaService, GlobalConfigLookup> {
     val absentPath = Files.createTempDirectory("effective-config-routes-absent").resolve("config.yaml")
-    val service = YamlWorkItemSchemaService(absentPath)
-    return service to ServiceBackedGlobalLookup(service, NoOpStatusLabelService)
+    return YamlWorkItemSchemaService(absentPath) to LayerBackedGlobalLookup(GlobalConfigFile(absentPath).layer())
 }
 
 private fun Application.configureEffectiveConfigTestApp(
@@ -180,10 +181,7 @@ private fun decodeEffective(body: String): EffectiveConfigDto = McpJson.decodeFr
 
 /**
  * Builds the global layer via [GlobalConfigFile]/[LayerBackedGlobalLookup] — the PRODUCTION path
- * (C3 task-scope: `LayerBackedGlobalLookup(globalConfigFile.layer())`) — rather than [globalFixture]'s
- * [ServiceBackedGlobalLookup], whose `schemaResolution` is a constructor default (`null`) and is
- * never derived from the YAML file. Only this path actually parses a top-level `schema_resolution:`
- * key out of the global document, which S15's global-level cases need.
+ * (C3 task-scope: `LayerBackedGlobalLookup(globalConfigFile.layer())`), the same as [globalFixture].
  * The [WorkItemSchemaService] returned reads the SAME file, so the two params stay in parity.
  */
 private fun globalLayerFixture(yaml: String): Pair<WorkItemSchemaService, GlobalConfigLookup> {
@@ -276,7 +274,7 @@ class EffectiveConfigRoutesHappyPathTest {
         }
 
     @Test
-    fun `S2 - a per-root default schema answers a type only the global layer names, sourced per-root`() =
+    fun `S2 - a global exact type beats a per-root default schema, sourced global`() =
         testApplication {
             val globalYaml =
                 """
@@ -313,11 +311,11 @@ class EffectiveConfigRoutesHappyPathTest {
 
             val bugEntry = dto.schemas.first { it.type == "bug" }
             assertEquals(
-                "default",
+                "bug",
                 bugEntry.matchedType,
-                "the per-root default must answer for a type it does not name (LC per-root-default precedence)"
+                "a global exact type beats the per-root default (one precedence rule)"
             )
-            assertEquals("per-root", bugEntry.configSource)
+            assertEquals("global", bugEntry.configSource)
         }
 
     @Test
@@ -963,7 +961,6 @@ class EffectiveConfigRoutesEdgeTest {
                     toolContext =
                         ToolExecutionContext(
                             repo,
-                            schemaService,
                             statusLabelService = NoOpStatusLabelService,
                             perRootConfigService = PerRootConfigService(repo.configStore()),
                             unitOfWork = db.unitOfWork(),
@@ -1160,12 +1157,11 @@ class EffectiveConfigRoutesSchemaResolutionTest {
     val db = SqliteTestDatabase.perMethod()
 
     @Test
-    fun `S15 - schemaResolution reflects per-root, falls back to global, defaults legacy, downgrades isolated`() {
-        // Case 1: a per-root schema_resolution wins outright, regardless of the (absent) global value.
+    fun `S15 - the response carries no schemaResolution field, even when a document still sets the removed key`() {
         testApplication {
-            val (schemaService, global) = globalFixture("work_item_schemas: {}")
+            val (schemaService, global) = globalLayerFixture("schema_resolution: isolated\nwork_item_schemas: {}\n")
             val repo = db.repositoryProvider()
-            val root = createRootItem(repo, title = "S15 per-root layered")
+            val root = createRootItem(repo, title = "S15 removed field")
             runBlocking {
                 repo.configStore().upsert(root.id, "schema_resolution: layered\nwork_item_schemas: {}\n")
             }
@@ -1174,64 +1170,8 @@ class EffectiveConfigRoutesSchemaResolutionTest {
 
             val response = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
             assertEquals(HttpStatusCode.OK, response.status)
-            assertEquals(
-                "layered",
-                decodeEffective(response.bodyAsText()).schemaResolution,
-                "a per-root schema_resolution must win outright [task-scope effective-mode rule]"
-            )
-        }
-
-        // Case 2: no schema_resolution key anywhere (no per-root row, global YAML omits it) -> legacy.
-        testApplication {
-            val (schemaService, global) = globalFixture("work_item_schemas: {}")
-            val repo = db.repositoryProvider()
-            val root = createRootItem(repo, title = "S15 absent everywhere")
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
-            application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
-
-            val response = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
-            assertEquals(HttpStatusCode.OK, response.status)
-            assertEquals(
-                "legacy",
-                decodeEffective(response.bodyAsText()).schemaResolution,
-                "absent everywhere must default to legacy [D1: absent = legacy, no default flip]"
-            )
-        }
-
-        // Case 3: global layered, per-root document present but WITHOUT the key -> inherits layered.
-        testApplication {
-            val (schemaService, global) = globalLayerFixture("schema_resolution: layered\nwork_item_schemas: {}\n")
-            val repo = db.repositoryProvider()
-            val root = createRootItem(repo, title = "S15 global layered, per-root silent")
-            runBlocking { repo.configStore().upsert(root.id, "work_item_schemas: {}\n") }
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
-            application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
-
-            val response = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
-            assertEquals(HttpStatusCode.OK, response.status)
-            assertEquals(
-                "layered",
-                decodeEffective(response.bodyAsText()).schemaResolution,
-                "a per-root doc without the key must fall back to the global value [effective-mode rule]"
-            )
-        }
-
-        // Case 4: global isolated, no per-root row at all -> downgraded to layered (isolated has no
-        // meaning at the global level: nothing to isolate FROM).
-        testApplication {
-            val (schemaService, global) = globalLayerFixture("schema_resolution: isolated\nwork_item_schemas: {}\n")
-            val repo = db.repositoryProvider()
-            val root = createRootItem(repo, title = "S15 global isolated")
-            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.configStore()))
-            application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
-
-            val response = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
-            assertEquals(HttpStatusCode.OK, response.status)
-            assertEquals(
-                "layered",
-                decodeEffective(response.bodyAsText()).schemaResolution,
-                "global isolated must be treated as layered [task-scope effective-mode rule]"
-            )
+            val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertFalse("schemaResolution" in body.keys, "the REST schemaResolution field is removed: ${body.keys}")
         }
     }
 }
@@ -1495,7 +1435,7 @@ class EffectiveConfigRoutesTypesMatchSchemasTest {
         """.trimIndent()
 
     @Test
-    fun `types equals the type values of schemas, and isolated omits a global-only type with no per-root default`() =
+    fun `types equals the type values of schemas, and the removed isolated key no longer omits a global-only type`() =
         testApplication {
             val (schemaService, global) = globalFixture(globalYaml)
             val repo = db.repositoryProvider()
@@ -1522,15 +1462,14 @@ class EffectiveConfigRoutesTypesMatchSchemasTest {
             val dto = decodeEffective(response.bodyAsText())
 
             assertEquals(
-                listOf("feature-task"),
+                listOf("bug", "feature-task"),
                 dto.types,
-                "under isolated, a global-only type with no per-root default must be omitted [api-rest.md GET .../config/effective]",
+                "schema_resolution has no effect: a global-only type is still listed [api-rest.md GET .../config/effective]",
             )
             assertEquals(dto.types, dto.schemas.map { it.type }, "types must always equal the type values of schemas [api-rest.md]")
-            assertTrue(dto.schemas.none { it.type == "bug" }, "bug must be absent from schemas under isolated: ${dto.schemas}")
             assertTrue(
-                dto.statusGraph.types.none { it.type == "bug" },
-                "bug must be absent from the status graph under isolated: ${dto.statusGraph.types}",
+                dto.statusGraph.types.any { it.type == "bug" },
+                "bug must be present in the status graph: ${dto.statusGraph.types}",
             )
         }
 

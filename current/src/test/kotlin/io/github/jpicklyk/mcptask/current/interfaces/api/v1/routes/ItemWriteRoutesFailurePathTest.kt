@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.port.ChildPlacement
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
@@ -8,9 +9,7 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
@@ -30,6 +29,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.test.CountingUnitOfWork
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
@@ -268,33 +268,28 @@ class ItemWriteRoutesFailurePathTest {
     }
 
     /** Maps `needs-staging-db` onto one exclusive resource with a 600s TTL. */
-    private class TraitSchemaService : WorkItemSchemaService {
-        override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
+    private fun traitSchemaService(): ConfigDocument =
+        ConfigDocument(
+            workItemSchemas = emptyMap(),
+            traits = emptyMap(),
+            traitResources = mapOf("needs-staging-db" to listOf(ResourceRequirement("staging-db-credential", ResourceMode.EXCLUSIVE, 600))),
+        )
 
-        override fun getTraitResources(traitName: String): List<ResourceRequirement> =
-            if (traitName == "needs-staging-db") {
-                listOf(ResourceRequirement("staging-db-credential", ResourceMode.EXCLUSIVE, 600))
-            } else {
-                emptyList()
-            }
-    }
-
-    /** Supplies two required queue-phase notes for tag `s7-typed`: one with guidance+skill, one with neither. */
-    private class GateSchemaService : WorkItemSchemaService {
-        override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-            if (tags.contains("s7-typed")) {
-                listOf(
-                    NoteSchemaEntry(key = "n1", role = Role.QUEUE, required = true, description = "N1", guidance = "g1", skill = "sk1"),
-                    NoteSchemaEntry(key = "n2", role = Role.QUEUE, required = true, description = "N2")
-                )
-            } else {
-                null
-            }
-    }
+    /** Supplies two required queue-phase notes for type `s7-typed`: one with guidance+skill, one with neither. */
+    private fun gateSchemaService(): ConfigDocument =
+        TestConfigResolver.document(
+            mapOf(
+                "s7-typed" to
+                    listOf(
+                        NoteSchemaEntry(key = "n1", role = Role.QUEUE, required = true, description = "N1", guidance = "g1", skill = "sk1"),
+                        NoteSchemaEntry(key = "n2", role = Role.QUEUE, required = true, description = "N2")
+                    )
+            )
+        )
 
     private fun Application.configureFailurePathTestApp(
         repositoryProvider: RepositoryProvider,
-        schemaService: WorkItemSchemaService = NoOpNoteSchemaService,
+        schemaService: ConfigDocument = ConfigDocument.EMPTY,
         authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig()
     ) {
         // Fires a MutateOnFirstTransactionRepository's write at the first top-level unit's open.
@@ -317,13 +312,15 @@ class ItemWriteRoutesFailurePathTest {
                     repositoryProvider,
                     DegradedModePolicy.ACCEPT_CACHED,
                     IdempotencyService(uow),
-                    ToolExecutionContext(
-                        repositoryProvider,
-                        schemaService,
-                        statusLabelService = NoOpStatusLabelService,
-                        perRootConfigService = PerRootConfigService(repositoryProvider.configStore()),
-                        unitOfWork = uow
-                    ).advanceServiceFactory(),
+                    PerRootConfigService(repositoryProvider.configStore()).let { perRoot ->
+                        ToolExecutionContext(
+                            repositoryProvider,
+                            statusLabelService = NoOpStatusLabelService,
+                            perRootConfigService = perRoot,
+                            configResolver = TestConfigResolver.resolver(schemaService, perRoot),
+                            unitOfWork = uow
+                        ).advanceServiceFactory()
+                    },
                     uow,
                 )
             }
@@ -355,7 +352,7 @@ class ItemWriteRoutesFailurePathTest {
             // P11: the real (transactional) lease store, so the advance unit's rollback is observable.
             val leaseFake = sqlite.resourceLeaseRepository()
             val provider = LeaseOverrideProvider(RoleTransitionOverrideProvider(sqlite, failingRoleTx), leaseFake)
-            application { configureFailurePathTestApp(provider, schemaService = TraitSchemaService()) }
+            application { configureFailurePathTestApp(provider, schemaService = traitSchemaService()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -393,7 +390,7 @@ class ItemWriteRoutesFailurePathTest {
             // P11: the real (transactional) lease store, so the advance unit's rollback is observable.
             val leaseFake = sqlite.resourceLeaseRepository()
             val provider = LeaseOverrideProvider(RoleTransitionOverrideProvider(sqlite, failingRoleTx), leaseFake)
-            application { configureFailurePathTestApp(provider, schemaService = TraitSchemaService()) }
+            application { configureFailurePathTestApp(provider, schemaService = traitSchemaService()) }
 
             repeat(2) {
                 val response =
@@ -434,7 +431,7 @@ class ItemWriteRoutesFailurePathTest {
             // P11: the real (transactional) lease store, so the advance unit's rollback is observable.
             val leaseFake = sqlite.resourceLeaseRepository()
             val provider = LeaseOverrideProvider(RoleTransitionOverrideProvider(sqlite, failingRoleTx), leaseFake)
-            application { configureFailurePathTestApp(provider, schemaService = TraitSchemaService()) }
+            application { configureFailurePathTestApp(provider, schemaService = traitSchemaService()) }
 
             val response =
                 client.post("/api/v1/items/${c.id}/advance") {
@@ -543,10 +540,10 @@ class ItemWriteRoutesFailurePathTest {
             val item =
                 (
                     sqlite.workItemRepository().create(
-                        WorkItem(title = "Typed S7", role = Role.QUEUE, depth = 0, tags = "s7-typed")
+                        WorkItem(title = "Typed S7", role = Role.QUEUE, depth = 0, tags = "s7-typed", type = "s7-typed")
                     )!!
                 )
-            application { configureFailurePathTestApp(sqlite, schemaService = GateSchemaService()) }
+            application { configureFailurePathTestApp(sqlite, schemaService = gateSchemaService()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -592,7 +589,7 @@ class ItemWriteRoutesFailurePathTest {
             leaseFake.forceContended = listOf("staging-db-credential")
             leaseFake.forceRetryAfterMs = 1500
             val provider = LeaseOverrideProvider(sqlite, leaseFake)
-            application { configureFailurePathTestApp(provider, schemaService = TraitSchemaService()) }
+            application { configureFailurePathTestApp(provider, schemaService = traitSchemaService()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -634,7 +631,7 @@ class ItemWriteRoutesFailurePathTest {
             leaseFake.forceContended = listOf("staging-db-credential")
             leaseFake.forceRetryAfterMs = 1
             val provider = LeaseOverrideProvider(sqlite, leaseFake)
-            application { configureFailurePathTestApp(provider, schemaService = TraitSchemaService()) }
+            application { configureFailurePathTestApp(provider, schemaService = traitSchemaService()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -666,7 +663,7 @@ class ItemWriteRoutesFailurePathTest {
             leaseFake.forceContended = listOf("staging-db-credential")
             leaseFake.forceRetryAfterMs = 0
             val provider = LeaseOverrideProvider(sqlite, leaseFake)
-            application { configureFailurePathTestApp(provider, schemaService = TraitSchemaService()) }
+            application { configureFailurePathTestApp(provider, schemaService = traitSchemaService()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {

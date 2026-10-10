@@ -6,8 +6,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.P11FaultRig
-import io.github.jpicklyk.mcptask.current.test.P11FaultSchemaService
 import io.github.jpicklyk.mcptask.current.test.P11_FAULT_LEASE_KEY
+import io.github.jpicklyk.mcptask.current.test.p11FaultResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.text
 import io.ktor.client.request.header
@@ -49,7 +49,7 @@ class AdvanceRestNonPoisoningFaultTest {
 
     private fun Application.configureFaultApp(rig: P11FaultRig) {
         val uow = db.unitOfWork()
-        val ctx = ToolExecutionContext(rig.provider, P11FaultSchemaService(), unitOfWork = uow)
+        val ctx = ToolExecutionContext(rig.provider, configResolver = p11FaultResolver(), unitOfWork = uow)
         configureTestApp(makeWriteAuthConfig()) {
             itemWriteRoutes(rig.provider, DegradedModePolicy.ACCEPT_CACHED, IdempotencyService(uow), ctx.advanceServiceFactory(), uow)
         }

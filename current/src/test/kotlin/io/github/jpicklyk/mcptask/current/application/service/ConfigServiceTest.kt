@@ -236,9 +236,8 @@ class ConfigServiceTest {
                   mode: reject
                 status_labels:
                   start: "custom-started"
-                resources:
-                  staging-db-credential:
-                    description: "Shared staging DB credential"
+                independence:
+                  require_verified: false
                 """.trimIndent()
 
             val result = service.push(rootId, yaml)

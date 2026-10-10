@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.service.EventRecorder
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SqliteUnitOfWork
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
@@ -51,23 +52,25 @@ class KeyedRejectionRowsTest {
 
     private val raw get() = sqlite.repositoryProvider()
 
-    private val schema: WorkItemSchemaService =
-        object : WorkItemSchemaService {
-            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                if (tags.isNotEmpty()) {
-                    listOf(NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "spec"))
-                } else {
-                    null
-                }
-
-            override fun getTraitResources(traitName: String): List<ResourceRequirement> =
-                if (traitName == "needs-db") listOf(ResourceRequirement("db-credential", ResourceMode.EXCLUSIVE, 600)) else emptyList()
-        }
+    private val schema: EffectiveConfigResolver
+        get() =
+            TestConfigResolver.resolver(
+                TestConfigResolver
+                    .document(
+                        mapOf(
+                            "feature-task" to
+                                listOf(NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "spec"))
+                        )
+                    ).copy(
+                        traitResources =
+                            mapOf("needs-db" to listOf(ResourceRequirement("db-credential", ResourceMode.EXCLUSIVE, 600))),
+                    ),
+            )
 
     private fun context(): ToolExecutionContext {
         val recorder = EventRecorder(raw.eventStore(), sqlite.db.clock)
         val unitOfWork = SqliteUnitOfWork(sqlite.databaseManager, raw, sqlite.db.clock, recorder)
-        return ToolExecutionContext(repositoryProvider = raw, noteSchemaService = schema, unitOfWork = unitOfWork)
+        return ToolExecutionContext(repositoryProvider = raw, configResolver = schema, unitOfWork = unitOfWork)
     }
 
     private suspend fun rows(type: String) = raw.eventStore().readAfter(0L, null, 10_000).filter { it.type == type }
@@ -122,7 +125,10 @@ class KeyedRejectionRowsTest {
     fun `keyed advance_item that is gate-blocked records exactly one transition rejected row per attempt`(): Unit =
         runBlocking {
             val ctx = context()
-            val item = raw.workItemRepository().create(WorkItem(title = "Gated", role = Role.QUEUE, depth = 0, tags = "feature-task"))
+            val item =
+                raw.workItemRepository().create(
+                    WorkItem(title = "Gated", role = Role.QUEUE, depth = 0, tags = "feature-task", type = "feature-task")
+                )
             val key = UUID.randomUUID().toString()
 
             val first = AdvanceItemTool().execute(advance(item.id, key), ctx)

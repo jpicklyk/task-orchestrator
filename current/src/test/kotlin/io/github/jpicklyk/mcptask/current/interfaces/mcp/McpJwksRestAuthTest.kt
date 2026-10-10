@@ -165,10 +165,9 @@ class McpJwksRestAuthTest {
             toolContext =
                 ToolExecutionContext(
                     repositoryProvider,
-                    NoOpNoteSchemaService,
                     statusLabelService = YamlStatusLabelService(),
                     perRootConfigService = PerRootConfigService(repositoryProvider.configStore()),
-                    unitOfWork = db.unitOfWork(),
+                    unitOfWork = db.unitOfWork()
                 ),
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
             jwksVerifier = verifier,

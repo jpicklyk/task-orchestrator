@@ -104,7 +104,6 @@ abstract class FullApiWiringSmokeScenarios(
                 val toolContext =
                     ToolExecutionContext(
                         decorated,
-                        NoOpNoteSchemaService,
                         statusLabelService = YamlStatusLabelService(),
                         perRootConfigService = PerRootConfigService(decorated.configStore()),
                         unitOfWork = db.unitOfWork()

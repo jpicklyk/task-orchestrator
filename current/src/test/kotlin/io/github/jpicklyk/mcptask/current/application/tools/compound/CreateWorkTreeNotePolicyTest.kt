@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.tools.compound
 
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
@@ -8,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -54,13 +54,17 @@ class CreateWorkTreeNotePolicyTest {
 
     private fun context(globalMode: String): ToolExecutionContext {
         val schemaService =
-            object : NoteSchemaService {
-                override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                    if (tags.contains("lim-type")) listOf(NoteSchemaEntry(key = "lim", role = Role.WORK, maxLength = 10)) else null
-
-                override fun getNoteLimitsMode(): String = globalMode
-            }
-        return ToolExecutionContext(db.repositoryProvider(), schemaService, unitOfWork = db.unitOfWork())
+            TestConfigResolver.withoutTypeValidation(
+                TestConfigResolver.resolver(
+                    TestConfigResolver
+                        .document(
+                            mapOf(
+                                "lim-type" to listOf(NoteSchemaEntry(key = "lim", role = Role.WORK, maxLength = 10))
+                            )
+                        ).copy(noteLimitsMode = globalMode)
+                )
+            )
+        return ToolExecutionContext(db.repositoryProvider(), configResolver = schemaService, unitOfWork = db.unitOfWork())
     }
 
     private suspend fun run(
@@ -77,7 +81,7 @@ class CreateWorkTreeNotePolicyTest {
         tags: String? = null
     ) = buildJsonObject {
         put("ref", JsonPrimitive(ref))
-        put("type", JsonPrimitive("test-item"))
+        put("type", JsonPrimitive(tags?.substringBefore(",")?.trim() ?: "test-item"))
         put("title", JsonPrimitive(title))
         if (tags != null) put("tags", JsonPrimitive(tags))
     }
@@ -326,7 +330,7 @@ class CreateWorkTreeNotePolicyTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("c1"))
-                                    put("type", JsonPrimitive("test-item"))
+                                    put("type", JsonPrimitive("lim-type"))
                                     put("title", JsonPrimitive("S10 C1"))
                                     put("tags", JsonPrimitive("lim-type"))
                                     put(
@@ -379,7 +383,7 @@ class CreateWorkTreeNotePolicyTest {
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("c1"))
-                                    put("type", JsonPrimitive("test-item"))
+                                    put("type", JsonPrimitive("lim-type"))
                                     put("title", JsonPrimitive("S10c C1"))
                                     put("tags", JsonPrimitive("lim-type"))
                                     put(
@@ -512,7 +516,7 @@ class CreateWorkTreeNotePolicyTest {
                         add(
                             buildJsonObject {
                                 put("ref", JsonPrimitive("c1"))
-                                put("type", JsonPrimitive("test-item"))
+                                put("type", JsonPrimitive(tags?.substringBefore(",")?.trim() ?: "test-item"))
                                 put("title", JsonPrimitive("$title C1"))
                                 if (tags != null) put("tags", JsonPrimitive(tags))
                                 put(

@@ -7,7 +7,6 @@ import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -65,7 +64,7 @@ class GetContextToolClaimTest {
         every { repoProvider.resourceLeaseRepository() } returns
             mockk<LeaseStore>().also { coEvery { it.findActiveByKeys(any()) } returns emptyList() }
 
-        context = ToolExecutionContext(repoProvider, NoOpNoteSchemaService)
+        context = ToolExecutionContext(repoProvider)
     }
 
     private fun params(vararg pairs: Pair<String, JsonPrimitive>) = JsonObject(mapOf(*pairs))

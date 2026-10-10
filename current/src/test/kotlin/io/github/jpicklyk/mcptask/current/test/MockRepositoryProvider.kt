@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.test
 
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.DocumentStore
@@ -13,9 +14,7 @@ import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.mockk.*
@@ -81,10 +80,11 @@ class MockRepositoryProvider {
         coEvery { resourceLeaseRepo.findAllActive() } returns emptyList()
     }
 
-    /** Build a ToolExecutionContext with optional schema, status label, and actor verifier services. */
+    /** Build a ToolExecutionContext with an optional config resolver (see [TestConfigResolver]), status label and actor verifier services. */
     fun context(
-        noteSchemaService: NoteSchemaService = NoOpNoteSchemaService,
+        configResolver: EffectiveConfigResolver = TestConfigResolver.resolver(),
         statusLabelService: StatusLabelService = NoOpStatusLabelService,
         actorVerifier: ActorVerifier = NoOpActorVerifier
-    ): ToolExecutionContext = ToolExecutionContext(provider, noteSchemaService, statusLabelService, actorVerifier = actorVerifier)
+    ): ToolExecutionContext =
+        ToolExecutionContext(provider, statusLabelService, actorVerifier = actorVerifier, configResolver = configResolver)
 }

@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaServ
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
@@ -357,7 +356,6 @@ class ItemSchemaRouteTest {
             val toolContext =
                 ToolExecutionContext(
                     provider,
-                    ItemSchemaRouteNoGlobalSchemaService,
                     perRootConfigService = PerRootConfigService(provider.configStore()),
                     unitOfWork = db.unitOfWork(),
                 )
@@ -414,9 +412,7 @@ work_item_schemas:
 // ───────────────────────────── Shared test-file fixtures ─────────────────────────────
 
 /** No global schema for any type -- mirrors [ConfigUnavailableRoutesTest]'s own private fixture. */
-private object ItemSchemaRouteNoGlobalSchemaService : WorkItemSchemaService {
-    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
-}
+private object ItemSchemaRouteNoGlobalSchemaService : WorkItemSchemaService
 
 /** Mirrors [ConfigUnavailableRoutesTest]'s `FailableProjectConfigRepository`, named for this file's own scope. */
 private class SchemaRouteFailableProjectConfigRepository(

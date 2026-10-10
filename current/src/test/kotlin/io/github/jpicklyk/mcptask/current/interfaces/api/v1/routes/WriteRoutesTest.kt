@@ -1,11 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
@@ -21,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findB
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.upsert
@@ -72,8 +72,8 @@ private const val READ_ONLY_TOKEN = TEST_TOKEN
  * NO hand-rolled auth config. The WRITE_TOKEN principal has all write capabilities; the
  * TEST_TOKEN (READ_ONLY_TOKEN) principal has READ only.
  *
- * @param schemaService schema service used by the advance route to resolve hasReviewPhase.
- *   Defaults to [NoOpNoteSchemaService] (schema-free → no review phase).
+ * @param serverConfig the server config document the routes resolve schemas against (via
+ *   [TestConfigResolver]). Defaults to [ConfigDocument.EMPTY] (schema-free → no review phase).
  * @param statusLabelService config-driven status label resolution used by the advance route.
  *   Defaults to [NoOpStatusLabelService] (deterministic hardcoded defaults, no file I/O) — tests
  *   asserting REST/MCP status-label parity (bug 80e48e55) rely on this default.
@@ -82,7 +82,7 @@ fun Application.configureWriteTestApp(
     repo: DefaultRepositoryProvider,
     degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
     authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig(),
-    schemaService: WorkItemSchemaService = NoOpNoteSchemaService,
+    serverConfig: ConfigDocument = ConfigDocument.EMPTY,
     statusLabelService: StatusLabelService = NoOpStatusLabelService,
     unitOfWork: UnitOfWork
 ) {
@@ -102,12 +102,13 @@ fun Application.configureWriteTestApp(
             noteRoutes(repo)
             dependencyRoutes(repo)
             // WRITE routes under test
+            val perRoot = PerRootConfigService(repo.configStore())
             val toolContext =
                 ToolExecutionContext(
                     repo,
-                    schemaService,
                     statusLabelService = statusLabelService,
-                    perRootConfigService = PerRootConfigService(repo.configStore()),
+                    perRootConfigService = perRoot,
+                    configResolver = TestConfigResolver.resolver(serverConfig, perRoot),
                     unitOfWork = unitOfWork
                 )
             itemWriteRoutes(
@@ -860,7 +861,7 @@ class AdvanceRouteTest {
             application {
                 configureWriteTestApp(
                     repo,
-                    schemaService = ReviewPhaseSchemaService(),
+                    serverConfig = reviewPhaseSchemaService(),
                     statusLabelService = NoOpStatusLabelService,
                     unitOfWork = db.unitOfWork()
                 )
@@ -1046,7 +1047,7 @@ class AdvanceRouteTest {
                         .workItemRepository()
                         .create(WorkItem(title = "Gated", type = "gated-type", role = Role.QUEUE, depth = 0))!!
                 }
-            application { configureWriteTestApp(repo, schemaService = GatedSchemaService(), unitOfWork = db.unitOfWork()) }
+            application { configureWriteTestApp(repo, serverConfig = gatedSchemaService(), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -1086,7 +1087,7 @@ class AdvanceRouteTest {
                     repo.noteRepository().upsert(Note(itemId = i.id, key = "spec", role = "queue", body = "done"))
                     i
                 }
-            application { configureWriteTestApp(repo, schemaService = GatedSchemaService(), unitOfWork = db.unitOfWork()) }
+            application { configureWriteTestApp(repo, serverConfig = gatedSchemaService(), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -1116,21 +1117,19 @@ class AdvanceRouteTest {
  * Schema service for gate-enforcement tests: type `gated-type` has a REQUIRED queue-phase note
  * (`spec`). The REST advance route resolves this via type-first lookup and enforces the gate.
  */
-private class GatedSchemaService : WorkItemSchemaService {
-    private val schema =
-        WorkItemSchema(
-            type = "gated-type",
-            notes =
-                listOf(
-                    NoteSchemaEntry("spec", Role.QUEUE, required = true, description = "spec"),
-                    NoteSchemaEntry("impl", Role.WORK, required = false, description = "impl"),
-                ),
-        )
-
-    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = if ("gated-type" in tags) schema.notes else null
-
-    override fun getSchemaForType(type: String?): WorkItemSchema? = if (type == "gated-type") schema else null
-}
+private fun gatedSchemaService(): ConfigDocument =
+    run {
+        val schema =
+            WorkItemSchema(
+                type = "gated-type",
+                notes =
+                    listOf(
+                        NoteSchemaEntry("spec", Role.QUEUE, required = true, description = "spec"),
+                        NoteSchemaEntry("impl", Role.WORK, required = false, description = "impl"),
+                    ),
+            )
+        TestConfigResolver.documentOf(mapOf("gated-type" to schema))
+    }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Advance — schema review-phase resolution
@@ -1139,38 +1138,36 @@ private class GatedSchemaService : WorkItemSchemaService {
 /**
  * Minimal in-memory schema service for advance review-phase tests.
  *
- * Two TYPED schemas (resolved via type-first lookup in [ToolExecutionContext.resolveBaseSchema]):
+ * Two TYPED schemas (resolved by type):
  * - `review-type` → has a REVIEW-phase note (hasReviewPhase = true)
  * - `flat-type`   → only QUEUE/WORK notes (hasReviewPhase = false)
  */
-private class ReviewPhaseSchemaService : WorkItemSchemaService {
-    private val schemas =
-        mapOf(
-            "review-type" to
-                WorkItemSchema(
-                    type = "review-type",
-                    notes =
-                        listOf(
-                            NoteSchemaEntry("scope", Role.QUEUE, required = false, description = "scope"),
-                            NoteSchemaEntry("impl", Role.WORK, required = false, description = "impl"),
-                            NoteSchemaEntry("review", Role.REVIEW, required = false, description = "review"),
-                        ),
-                ),
-            "flat-type" to
-                WorkItemSchema(
-                    type = "flat-type",
-                    notes =
-                        listOf(
-                            NoteSchemaEntry("scope", Role.QUEUE, required = false, description = "scope"),
-                            NoteSchemaEntry("impl", Role.WORK, required = false, description = "impl"),
-                        ),
-                ),
-        )
-
-    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = tags.firstNotNullOfOrNull { schemas[it]?.notes }
-
-    override fun getSchemaForType(type: String?): WorkItemSchema? = type?.let { schemas[it] }
-}
+private fun reviewPhaseSchemaService(): ConfigDocument =
+    run {
+        val schemas =
+            mapOf(
+                "review-type" to
+                    WorkItemSchema(
+                        type = "review-type",
+                        notes =
+                            listOf(
+                                NoteSchemaEntry("scope", Role.QUEUE, required = false, description = "scope"),
+                                NoteSchemaEntry("impl", Role.WORK, required = false, description = "impl"),
+                                NoteSchemaEntry("review", Role.REVIEW, required = false, description = "review"),
+                            ),
+                    ),
+                "flat-type" to
+                    WorkItemSchema(
+                        type = "flat-type",
+                        notes =
+                            listOf(
+                                NoteSchemaEntry("scope", Role.QUEUE, required = false, description = "scope"),
+                                NoteSchemaEntry("impl", Role.WORK, required = false, description = "impl"),
+                            ),
+                    ),
+            )
+        TestConfigResolver.documentOf(schemas)
+    }
 
 class AdvanceReviewPhaseTest {
     @RegisterExtension
@@ -1189,7 +1186,7 @@ class AdvanceReviewPhaseTest {
                             WorkItem(title = "Has Review", type = "review-type", role = Role.WORK, depth = 0),
                         )!!
                 }
-            application { configureWriteTestApp(repo, schemaService = ReviewPhaseSchemaService(), unitOfWork = db.unitOfWork()) }
+            application { configureWriteTestApp(repo, serverConfig = reviewPhaseSchemaService(), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {
@@ -1223,7 +1220,7 @@ class AdvanceReviewPhaseTest {
                             WorkItem(title = "No Review", type = "flat-type", role = Role.WORK, depth = 0),
                         )!!
                 }
-            application { configureWriteTestApp(repo, schemaService = ReviewPhaseSchemaService(), unitOfWork = db.unitOfWork()) }
+            application { configureWriteTestApp(repo, serverConfig = reviewPhaseSchemaService(), unitOfWork = db.unitOfWork()) }
 
             val response =
                 client.post("/api/v1/items/${item.id}/advance") {

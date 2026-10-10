@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -64,7 +63,6 @@ class RestWriteEventActorTest {
             val toolContext =
                 ToolExecutionContext(
                     decorated,
-                    NoOpNoteSchemaService,
                     statusLabelService = NoOpStatusLabelService,
                     perRootConfigService = PerRootConfigService(decorated.configStore()),
                     unitOfWork = unitOfWork

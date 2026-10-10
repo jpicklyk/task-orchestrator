@@ -52,8 +52,6 @@ class ConfigRoutesTest {
         private val traits: Map<String, List<NoteSchemaEntry>> = buildDefaultTraits(),
         private val fingerprint: String? = "test-fingerprint-abc123",
     ) : WorkItemSchemaService {
-        override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = tags.firstNotNullOfOrNull { schemas[it]?.notes }
-
         override fun getAllSchemas(): Map<String, WorkItemSchema> = schemas
 
         override fun getAllTraits(): Map<String, List<NoteSchemaEntry>> = traits

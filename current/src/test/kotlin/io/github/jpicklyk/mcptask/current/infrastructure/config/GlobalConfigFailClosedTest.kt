@@ -78,7 +78,7 @@ class GlobalConfigFailClosedTest {
 
         val fingerprintBefore = service.getConfigFingerprint()
         assertEquals(sha256HexIndependent(Files.readAllBytes(file)), fingerprintBefore)
-        val schemaBefore = service.getSchemaForType("type-a")
+        val schemaBefore = service.getAllSchemas()["type-a"]
         assertTrue(schemaBefore != null, "type-a schema must resolve before the rewrite")
         assertEquals(1, schemaBefore.notes.size)
         assertEquals("spec-a", schemaBefore.notes[0].key)
@@ -98,19 +98,19 @@ class GlobalConfigFailClosedTest {
 
         // Same, already-constructed instance: still the FIRST bytes it ever read (`by lazy`).
         assertEquals(fingerprintBefore, service.getConfigFingerprint())
-        val schemaStillPinned = service.getSchemaForType("type-a")
+        val schemaStillPinned = service.getAllSchemas()["type-a"]
         assertTrue(schemaStillPinned != null, "a live instance must stay pinned to its first-read schema")
         assertEquals(1, schemaStillPinned.notes.size)
         assertEquals("spec-a", schemaStillPinned.notes[0].key)
-        assertNull(service.getSchemaForType("type-b"), "a live instance must not see the rewrite")
+        assertNull(service.getAllSchemas()["type-b"], "a live instance must not see the rewrite")
 
         // A NEW instance over the same path reflects the rewritten bytes.
         val serviceAfterRewrite = YamlNoteSchemaService(file)
         val fingerprintAfter = serviceAfterRewrite.getConfigFingerprint()
         assertEquals(sha256HexIndependent(Files.readAllBytes(file)), fingerprintAfter)
         assertNotEquals(fingerprintBefore, fingerprintAfter)
-        assertNull(serviceAfterRewrite.getSchemaForType("type-a"))
-        val schemaB = serviceAfterRewrite.getSchemaForType("type-b")
+        assertNull(serviceAfterRewrite.getAllSchemas()["type-a"])
+        val schemaB = serviceAfterRewrite.getAllSchemas()["type-b"]
         assertTrue(schemaB != null, "a new instance must see the rewritten type-b schema")
         assertEquals("spec-b", schemaB.notes[0].key)
     }

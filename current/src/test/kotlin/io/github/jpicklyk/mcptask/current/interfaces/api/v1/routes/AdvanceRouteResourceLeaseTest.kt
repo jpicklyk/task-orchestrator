@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
@@ -7,10 +8,8 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
@@ -21,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigSer
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
@@ -202,16 +202,12 @@ private class LeaseOverridingProvider(
 }
 
 /** Maps the `needs-staging-db` trait onto one exclusive resource with a 600s TTL. */
-private class LeaseTraitSchemaService : WorkItemSchemaService {
-    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
-
-    override fun getTraitResources(traitName: String): List<ResourceRequirement> =
-        if (traitName == "needs-staging-db") {
-            listOf(ResourceRequirement("staging-db-credential", ResourceMode.EXCLUSIVE, 600))
-        } else {
-            emptyList()
-        }
-}
+private val leaseTraitConfig: ConfigDocument =
+    ConfigDocument(
+        workItemSchemas = emptyMap(),
+        traits = emptyMap(),
+        traitResources = mapOf("needs-staging-db" to listOf(ResourceRequirement("staging-db-credential", ResourceMode.EXCLUSIVE, 600))),
+    )
 
 private fun Application.configureLeaseTestApp(
     provider: RepositoryProvider,
@@ -233,13 +229,15 @@ private fun Application.configureLeaseTestApp(
                 provider,
                 DegradedModePolicy.ACCEPT_CACHED,
                 IdempotencyService(unitOfWork),
-                ToolExecutionContext(
-                    provider,
-                    LeaseTraitSchemaService(),
-                    statusLabelService = NoOpStatusLabelService,
-                    perRootConfigService = PerRootConfigService(provider.configStore()),
-                    unitOfWork = unitOfWork
-                ).advanceServiceFactory(),
+                PerRootConfigService(provider.configStore()).let { perRoot ->
+                    ToolExecutionContext(
+                        provider,
+                        statusLabelService = NoOpStatusLabelService,
+                        perRootConfigService = perRoot,
+                        configResolver = TestConfigResolver.resolver(leaseTraitConfig, perRoot),
+                        unitOfWork = unitOfWork
+                    ).advanceServiceFactory()
+                },
                 unitOfWork,
             )
         }

@@ -4,15 +4,12 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
-import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.test.MutableServerConfig
 import io.mockk.coEvery
 import io.mockk.coVerify
-import io.mockk.every
 import io.mockk.mockk
-import io.mockk.verify
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -24,30 +21,22 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Unit tests for [ToolExecutionContext.resolveSchema] and [ToolExecutionContext.resolveHasReviewPhase].
+ * Unit tests for [ToolExecutionContext.resolveSchema] and [ToolExecutionContext.resolveHasReviewPhase] over a real
+ * server config document ([MutableServerConfig]) and, where relevant, a per-root layer.
  *
- * Verifies:
- * - Type-first lookup: when item.type is set and getSchemaForType returns a schema, that schema is returned
- * - Type miss, tag fallback: when getSchemaForType returns null, falls back to getSchemaForTags
- * - No type, tag match: items without type use getSchemaForTags
- * - No type, no tag match: returns null (schema-free)
- * - Empty tags with default schema: empty tag list uses getSchemaForTags([]) — falls back to default
- * - resolveHasReviewPhase true/false delegation
+ * Verifies the one precedence rule: per-root exact type -> server exact type -> per-root `"default"` -> server
+ * `"default"`; tags are never consulted; a null type uses only the `"default"` steps. Trait notes merge in item-first
+ * order with `required` true when any declaration marks it.
  */
 class ToolExecutionContextResolveSchemaTest {
-    private lateinit var noteSchemaService: NoteSchemaService
+    private lateinit var server: MutableServerConfig
     private lateinit var context: ToolExecutionContext
 
     @BeforeEach
     fun setUp() {
-        noteSchemaService = mockk()
-        // Default stubs for trait-related methods (tests override as needed)
-        every { noteSchemaService.getSchemaForType(any()) } returns null
-        every { noteSchemaService.getDefaultTraits(any()) } returns emptyList()
-        every { noteSchemaService.getTraitNotes(any()) } returns null
-
+        server = MutableServerConfig()
         val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-        context = ToolExecutionContext(repoProvider, noteSchemaService)
+        context = ToolExecutionContext(repoProvider, configResolver = server.resolver())
     }
 
     // ──────────────────────────────────────────────
@@ -77,115 +66,81 @@ class ToolExecutionContextResolveSchemaTest {
 
     private fun schemaWithoutReview(type: String): WorkItemSchema = WorkItemSchema(type = type, notes = listOf(workEntry()))
 
+    private fun perRootWith(
+        rootId: UUID,
+        document: ConfigDocument?
+    ): PerRootConfigService {
+        val perRoot = mockk<PerRootConfigService>()
+        coEvery { perRoot.layer(rootId) } returns
+            document?.let { ConfigLayer(document = it, fingerprint = "fp", source = ConfigSource.PER_ROOT) }
+        return perRoot
+    }
+
+    private fun contextWith(perRoot: PerRootConfigService?): ToolExecutionContext =
+        ToolExecutionContext(
+            mockk<RepositoryProvider>(relaxed = true),
+            perRootConfigService = perRoot,
+            configResolver = server.resolver(perRoot)
+        )
+
+    private fun schemasDoc(vararg schemas: Pair<String, WorkItemSchema>): ConfigDocument =
+        ConfigDocument(workItemSchemas = mapOf(*schemas), traits = emptyMap())
+
     // ──────────────────────────────────────────────
-    // Type-first lookup
+    // Type lookup; tags are never consulted
     // ──────────────────────────────────────────────
 
     @Test
     fun `resolveSchema returns type-based schema when item has type and schema exists`() =
         runBlocking {
-            val item = makeItem(type = "feature-task", tags = "some-tag")
             val expected = schemaWithReview("feature-task")
+            server.schemas["feature-task"] = expected
+            server.schemas["some-tag"] = schemaWithoutReview("some-tag")
 
-            every { noteSchemaService.getSchemaForType("feature-task") } returns expected
-            // Tags should NOT be consulted when type lookup succeeds
-            every { noteSchemaService.getSchemaForTags(any()) } throws AssertionError("should not call getSchemaForTags")
-
-            val result = context.resolveSchema(item)
-            assertEquals(expected, result)
+            assertEquals(expected, context.resolveSchema(makeItem(type = "feature-task", tags = "some-tag")))
         }
 
     @Test
-    fun `resolveSchema falls back to tag lookup when type lookup returns null`() =
+    fun `resolveSchema ignores a tag naming a schema when the type has none`() =
         runBlocking {
-            val item = makeItem(type = "unknown-type", tags = "feature-task")
-            val tagSchema = schemaWithReview("feature-task")
+            server.schemas["feature-task"] = schemaWithReview("feature-task")
 
-            every { noteSchemaService.getSchemaForType("unknown-type") } returns null
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns tagSchema.notes
-
-            val result = context.resolveSchema(item)
-            assertNotNull(result)
-            assertTrue(result.hasReviewPhase())
-            assertEquals(tagSchema.notes, result.notes)
-        }
-
-    // ──────────────────────────────────────────────
-    // No-type items use tag lookup
-    // ──────────────────────────────────────────────
-
-    @Test
-    fun `resolveSchema uses tag lookup when item has no type`() =
-        runBlocking {
-            val item = makeItem(type = null, tags = "feature-task")
-            val tagSchema = schemaWithReview("feature-task")
-
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns tagSchema.notes
-
-            val result = context.resolveSchema(item)
-            assertNotNull(result)
-            assertEquals(tagSchema.notes, result.notes)
+            assertNull(context.resolveSchema(makeItem(type = "unknown-type", tags = "feature-task")), "tags never select a schema")
         }
 
     @Test
-    fun `resolveSchema returns null when no type and tag lookup returns null`() =
+    fun `resolveSchema with no type uses only the default chain, never the tags`() =
         runBlocking {
-            val item = makeItem(type = null, tags = "unmatched-tag")
+            server.schemas["feature-task"] = schemaWithReview("feature-task")
 
-            every { noteSchemaService.getSchemaForTags(listOf("unmatched-tag")) } returns null
-
-            val result = context.resolveSchema(item)
-            assertNull(result)
+            assertNull(context.resolveSchema(makeItem(type = null, tags = "feature-task")))
         }
 
     @Test
     fun `resolveSchema returns null for schema-free item with no type and no tags`() =
         runBlocking {
-            val item = makeItem(type = null, tags = null)
-
-            every { noteSchemaService.getSchemaForTags(emptyList()) } returns null
-
-            val result = context.resolveSchema(item)
-            assertNull(result)
+            assertNull(context.resolveSchema(makeItem(type = null, tags = null)))
         }
 
     @Test
-    fun `resolveSchema returns default schema when item has no tags and getSchemaForTags returns default entries`() =
+    fun `resolveSchema returns the default schema when the item has no type`() =
         runBlocking {
-            val item = makeItem(type = null, tags = null)
-            val defaultEntries = listOf(workEntry())
+            val defaultSchema = WorkItemSchema(type = "default", notes = listOf(workEntry()))
+            server.schemas["default"] = defaultSchema
 
-            // Service returns a default schema for empty tag list (internal fallback in YamlNoteSchemaService)
-            every { noteSchemaService.getSchemaForTags(emptyList()) } returns defaultEntries
-
-            val result = context.resolveSchema(item)
+            val result = context.resolveSchema(makeItem(type = null, tags = "unmatched-tag"))
             assertNotNull(result)
             assertEquals("default", result.type)
-            assertEquals(defaultEntries, result.notes)
+            assertEquals(defaultSchema.notes, result.notes)
         }
 
-    // ──────────────────────────────────────────────
-    // Multi-tag items: first-match semantics
-    // ──────────────────────────────────────────────
-
     @Test
-    fun `resolveSchema uses first matching tag when multiple tags and first has no schema`() =
+    fun `resolveSchema falls back to the default schema when the type has none`() =
         runBlocking {
-            val item = makeItem(type = null, tags = "no-match, feature-task")
+            val defaultSchema = WorkItemSchema(type = "default", notes = listOf(workEntry()))
+            server.schemas["default"] = defaultSchema
 
-            // Full list lookup returns the schema (first-match logic inside service)
-            every { noteSchemaService.getSchemaForTags(listOf("no-match", "feature-task")) } returns
-                schemaWithReview("feature-task").notes
-
-            // Individual tag lookups used to determine matched key
-            every { noteSchemaService.getSchemaForTags(listOf("no-match")) } returns null
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns
-                schemaWithReview("feature-task").notes
-
-            val result = context.resolveSchema(item)
-            assertNotNull(result)
-            assertEquals("feature-task", result.type)
-            assertTrue(result.hasReviewPhase())
+            assertEquals(defaultSchema, context.resolveSchema(makeItem(type = "unknown-type")))
         }
 
     // ──────────────────────────────────────────────
@@ -195,28 +150,21 @@ class ToolExecutionContextResolveSchemaTest {
     @Test
     fun `resolveHasReviewPhase returns true when schema has review phase`() =
         runBlocking {
-            val item = makeItem(type = "feature-task")
-            every { noteSchemaService.getSchemaForType("feature-task") } returns schemaWithReview("feature-task")
-
-            assertTrue(context.resolveHasReviewPhase(item))
+            server.schemas["feature-task"] = schemaWithReview("feature-task")
+            assertTrue(context.resolveHasReviewPhase(makeItem(type = "feature-task")))
         }
 
     @Test
     fun `resolveHasReviewPhase returns false when schema has no review phase`() =
         runBlocking {
-            val item = makeItem(type = "simple-task")
-            every { noteSchemaService.getSchemaForType("simple-task") } returns schemaWithoutReview("simple-task")
-
-            assertFalse(context.resolveHasReviewPhase(item))
+            server.schemas["simple-task"] = schemaWithoutReview("simple-task")
+            assertFalse(context.resolveHasReviewPhase(makeItem(type = "simple-task")))
         }
 
     @Test
     fun `resolveHasReviewPhase returns false when no schema matches`() =
         runBlocking {
-            val item = makeItem(type = null, tags = null)
-            every { noteSchemaService.getSchemaForTags(emptyList()) } returns null
-
-            assertFalse(context.resolveHasReviewPhase(item))
+            assertFalse(context.resolveHasReviewPhase(makeItem(type = null, tags = null)))
         }
 
     // ──────────────────────────────────────────────
@@ -225,14 +173,12 @@ class ToolExecutionContextResolveSchemaTest {
 
     private fun makeItemWithProperties(
         type: String? = null,
-        tags: String? = null,
         properties: String? = null
     ): WorkItem =
         WorkItem(
             id = UUID.randomUUID(),
             title = "Test Item",
             type = type,
-            tags = tags,
             properties = properties,
             depth = 0
         )
@@ -245,18 +191,11 @@ class ToolExecutionContextResolveSchemaTest {
     @Test
     fun `resolveSchema merges trait notes after base schema notes`() =
         runBlocking {
-            val baseSchema =
-                WorkItemSchema(
-                    type = "feature-task",
-                    notes = listOf(workEntry()),
-                    defaultTraits = listOf("needs-security-review")
-                )
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
-            every { noteSchemaService.getTraitNotes("needs-security-review") } returns listOf(traitEntry("security-assessment"))
-            every { noteSchemaService.getDefaultTraits("feature-task") } returns listOf("needs-security-review")
+            server.schemas["feature-task"] =
+                WorkItemSchema(type = "feature-task", notes = listOf(workEntry()), defaultTraits = listOf("needs-security-review"))
+            server.traits["needs-security-review"] = listOf(traitEntry("security-assessment"))
 
-            val item = makeItem(type = "feature-task")
-            val result = context.resolveSchema(item)!!
+            val result = context.resolveSchema(makeItem(type = "feature-task"))!!
 
             assertEquals(2, result.notes.size)
             assertEquals("work-note", result.notes[0].key)
@@ -264,43 +203,32 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveSchema base key wins over trait key with same name`() =
+    fun `resolveSchema base content wins over a trait key with the same name and required is ORed`() =
         runBlocking {
-            val baseSchema =
+            server.schemas["feature-task"] =
                 WorkItemSchema(
                     type = "feature-task",
                     notes = listOf(NoteSchemaEntry(key = "shared-key", role = Role.WORK, required = false, description = "base")),
                     defaultTraits = listOf("my-trait")
                 )
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
-            every { noteSchemaService.getTraitNotes("my-trait") } returns
-                listOf(
-                    NoteSchemaEntry(key = "shared-key", role = Role.REVIEW, required = true, description = "trait")
-                )
-            every { noteSchemaService.getDefaultTraits("feature-task") } returns listOf("my-trait")
+            server.traits["my-trait"] =
+                listOf(NoteSchemaEntry(key = "shared-key", role = Role.REVIEW, required = true, description = "trait"))
 
-            val item = makeItem(type = "feature-task")
-            val result = context.resolveSchema(item)!!
+            val result = context.resolveSchema(makeItem(type = "feature-task"))!!
 
             assertEquals(1, result.notes.size)
             assertEquals("base", result.notes[0].description)
+            assertEquals(Role.WORK, result.notes[0].role)
+            assertTrue(result.notes[0].required, "required is true when any declaration marks it")
         }
 
     @Test
     fun `resolveSchema skips unknown traits with no error`() =
         runBlocking {
-            val baseSchema =
-                WorkItemSchema(
-                    type = "feature-task",
-                    notes = listOf(workEntry()),
-                    defaultTraits = listOf("nonexistent-trait")
-                )
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
-            every { noteSchemaService.getTraitNotes("nonexistent-trait") } returns null
-            every { noteSchemaService.getDefaultTraits("feature-task") } returns listOf("nonexistent-trait")
+            server.schemas["feature-task"] =
+                WorkItemSchema(type = "feature-task", notes = listOf(workEntry()), defaultTraits = listOf("nonexistent-trait"))
 
-            val item = makeItem(type = "feature-task")
-            val result = context.resolveSchema(item)!!
+            val result = context.resolveSchema(makeItem(type = "feature-task"))!!
 
             assertEquals(1, result.notes.size)
             assertEquals("work-note", result.notes[0].key)
@@ -309,16 +237,10 @@ class ToolExecutionContextResolveSchemaTest {
     @Test
     fun `resolveSchema merges per-item traits from properties JSON`() =
         runBlocking {
-            val baseSchema = WorkItemSchema(type = "feature-task", notes = listOf(workEntry()))
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
-            every { noteSchemaService.getTraitNotes("needs-perf-review") } returns listOf(traitEntry("performance-baseline", Role.QUEUE))
-            every { noteSchemaService.getDefaultTraits("feature-task") } returns emptyList()
+            server.schemas["feature-task"] = WorkItemSchema(type = "feature-task", notes = listOf(workEntry()))
+            server.traits["needs-perf-review"] = listOf(traitEntry("performance-baseline", Role.QUEUE))
 
-            val item =
-                makeItemWithProperties(
-                    type = "feature-task",
-                    properties = """{"traits": ["needs-perf-review"]}"""
-                )
+            val item = makeItemWithProperties(type = "feature-task", properties = """{"traits": ["needs-perf-review"]}""")
             val result = context.resolveSchema(item)!!
 
             assertEquals(2, result.notes.size)
@@ -326,105 +248,59 @@ class ToolExecutionContextResolveSchemaTest {
         }
 
     @Test
-    fun `resolveSchema unions default and per-item traits with deduplication`() =
+    fun `resolveSchema unions item and default traits item-first with deduplication`() =
         runBlocking {
-            val baseSchema =
-                WorkItemSchema(
-                    type = "feature-task",
-                    notes = listOf(workEntry()),
-                    defaultTraits = listOf("trait-a")
-                )
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
-            every { noteSchemaService.getTraitNotes("trait-a") } returns listOf(traitEntry("note-a"))
-            every { noteSchemaService.getTraitNotes("trait-b") } returns listOf(traitEntry("note-b"))
-            every { noteSchemaService.getDefaultTraits("feature-task") } returns listOf("trait-a")
+            server.schemas["feature-task"] =
+                WorkItemSchema(type = "feature-task", notes = listOf(workEntry()), defaultTraits = listOf("trait-a"))
+            server.traits["trait-a"] = listOf(traitEntry("note-a"))
+            server.traits["trait-b"] = listOf(traitEntry("note-b"))
 
-            val item =
-                makeItemWithProperties(
-                    type = "feature-task",
-                    properties = """{"traits": ["trait-a", "trait-b"]}"""
-                )
+            val item = makeItemWithProperties(type = "feature-task", properties = """{"traits": ["trait-b", "trait-a"]}""")
             val result = context.resolveSchema(item)!!
 
-            assertEquals(3, result.notes.size)
-            assertEquals("note-a", result.notes[1].key)
-            assertEquals("note-b", result.notes[2].key)
+            assertEquals(listOf("work-note", "note-b", "note-a"), result.notes.map { it.key })
         }
 
     @Test
     fun `resolveSchema returns base schema unchanged when no traits`() =
         runBlocking {
             val baseSchema = WorkItemSchema(type = "feature-task", notes = listOf(workEntry()))
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
-            every { noteSchemaService.getDefaultTraits("feature-task") } returns emptyList()
+            server.schemas["feature-task"] = baseSchema
 
-            val item = makeItem(type = "feature-task")
-            val result = context.resolveSchema(item)!!
-
-            assertEquals(baseSchema, result)
+            assertEquals(baseSchema, context.resolveSchema(makeItem(type = "feature-task")))
         }
 
     @Test
     fun `resolveHasReviewPhase returns true when trait adds review note`() =
         runBlocking {
-            val baseSchema =
-                WorkItemSchema(
-                    type = "feature-task",
-                    notes = listOf(workEntry()),
-                    defaultTraits = listOf("needs-review-trait")
-                )
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
-            every { noteSchemaService.getTraitNotes("needs-review-trait") } returns listOf(traitEntry("review-from-trait", Role.REVIEW))
-            every { noteSchemaService.getDefaultTraits("feature-task") } returns listOf("needs-review-trait")
+            server.schemas["feature-task"] =
+                WorkItemSchema(type = "feature-task", notes = listOf(workEntry()), defaultTraits = listOf("needs-review-trait"))
+            server.traits["needs-review-trait"] = listOf(traitEntry("review-from-trait", Role.REVIEW))
 
-            val item = makeItem(type = "feature-task")
-            assertTrue(context.resolveHasReviewPhase(item))
+            assertTrue(context.resolveHasReviewPhase(makeItem(type = "feature-task")))
         }
 
     @Test
     fun `resolveSchema first trait wins for duplicate trait note keys`() =
         runBlocking {
-            val baseSchema =
-                WorkItemSchema(
-                    type = "feature-task",
-                    notes = listOf(workEntry()),
-                    defaultTraits = listOf("trait-a", "trait-b")
-                )
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
-            every { noteSchemaService.getTraitNotes("trait-a") } returns
-                listOf(
-                    NoteSchemaEntry(key = "duplicate-key", role = Role.REVIEW, required = true, description = "from trait-a")
-                )
-            every { noteSchemaService.getTraitNotes("trait-b") } returns
-                listOf(
-                    NoteSchemaEntry(key = "duplicate-key", role = Role.QUEUE, required = false, description = "from trait-b")
-                )
-            every { noteSchemaService.getDefaultTraits("feature-task") } returns listOf("trait-a", "trait-b")
+            server.schemas["feature-task"] =
+                WorkItemSchema(type = "feature-task", notes = listOf(workEntry()), defaultTraits = listOf("trait-a", "trait-b"))
+            server.traits["trait-a"] =
+                listOf(NoteSchemaEntry(key = "duplicate-key", role = Role.REVIEW, required = true, description = "from trait-a"))
+            server.traits["trait-b"] =
+                listOf(NoteSchemaEntry(key = "duplicate-key", role = Role.QUEUE, required = false, description = "from trait-b"))
 
-            val item = makeItem(type = "feature-task")
-            val result = context.resolveSchema(item)!!
+            val result = context.resolveSchema(makeItem(type = "feature-task"))!!
 
             assertEquals(2, result.notes.size)
             assertEquals("from trait-a", result.notes[1].description)
         }
 
-    // ──────────────────────────────────────────────
-    // Bug regression: schema fallback preserves lifecycleMode + defaultTraits (Bug 5)
-    // ──────────────────────────────────────────────
-
     @Test
-    fun `resolveSchema preserves lifecycleMode and defaultTraits on default fallback (bug 5 regression)`() =
+    fun `resolveSchema preserves lifecycleMode and defaultTraits on the default fallback`() =
         runBlocking {
-            // Scenario: item has tags ["bug","tools-layer"], no type set.
-            // No individual tag matches a schema.
-            // getSchemaForTags(["bug","tools-layer"]) falls back to default entries.
-            // getSchemaForType("default") returns a WorkItemSchema with MANUAL lifecycle + defaultTraits.
-            // Before fix: getSchemaForTags was called a THIRD time in the fallback constructor.
-            //   (Redundant, but functionally equivalent — the real risk is a future refactor breaks capture.)
-            //   The fix captures tagNotes once and reuses them. Verified via: getSchemaForType("default") returned.
-            val item = makeItem(type = null, tags = "bug,tools-layer")
             val defaultNotes = listOf(workEntry())
-            val defaultSchema =
+            server.schemas["default"] =
                 WorkItemSchema(
                     type = "default",
                     lifecycleMode = LifecycleMode.MANUAL,
@@ -432,210 +308,78 @@ class ToolExecutionContextResolveSchemaTest {
                     defaultTraits = listOf("some-trait")
                 )
 
-            // Individual tag lookups return null (neither "bug" nor "tools-layer" matches)
-            every { noteSchemaService.getSchemaForTags(listOf("bug")) } returns null
-            every { noteSchemaService.getSchemaForTags(listOf("tools-layer")) } returns null
-            // Full tag list lookup falls back to default schema entries
-            every { noteSchemaService.getSchemaForTags(listOf("bug", "tools-layer")) } returns defaultNotes
-            // getSchemaForType("default") returns the full WorkItemSchema with lifecycle + traits
-            every { noteSchemaService.getSchemaForType("default") } returns defaultSchema
-
-            val result = context.resolveSchema(item)
+            val result = context.resolveSchema(makeItem(type = null, tags = "bug,tools-layer"))
             assertNotNull(result, "Should return a schema (default fallback)")
             assertEquals("default", result.type)
-            assertEquals(
-                LifecycleMode.MANUAL,
-                result.lifecycleMode,
-                "lifecycleMode must be preserved from the WorkItemSchema returned by getSchemaForType"
-            )
-            assertEquals(listOf("some-trait"), result.defaultTraits, "defaultTraits must be preserved from the WorkItemSchema")
+            assertEquals(LifecycleMode.MANUAL, result.lifecycleMode)
+            assertEquals(listOf("some-trait"), result.defaultTraits)
             assertEquals(defaultNotes, result.notes)
         }
 
-    @Test
-    fun `resolveSchema uses captured tagNotes when getSchemaForType returns null (bug 5 graceful fallback)`() =
-        runBlocking {
-            // Scenario: item has multiple tags, none individually match a schema,
-            // getSchemaForTags(fullList) returns default notes (default fallback inside the service),
-            // but getSchemaForType("default") returns null (default not defined as a full WorkItemSchema).
-            // Before fix: getSchemaForTags(tags) was called a SECOND time inside the fallback constructor.
-            // After fix: tagNotes is captured once and reused — functionally equivalent, no redundant call.
-            val item = makeItem(type = null, tags = "bug,tools-layer")
-            val fallbackNotes = listOf(workEntry())
-
-            // Individual tag lookups return null — no single tag matches
-            every { noteSchemaService.getSchemaForTags(listOf("bug")) } returns null
-            every { noteSchemaService.getSchemaForTags(listOf("tools-layer")) } returns null
-            // Full tag list returns notes (service's internal default fallback)
-            every { noteSchemaService.getSchemaForTags(listOf("bug", "tools-layer")) } returns fallbackNotes
-            // getSchemaForType("default") returns null — no full WorkItemSchema defined for default
-            every { noteSchemaService.getSchemaForType("default") } returns null
-
-            val result = context.resolveSchema(item)
-            assertNotNull(result, "Should return a bare schema using the captured tagNotes")
-            assertEquals("default", result.type)
-            assertEquals(
-                fallbackNotes,
-                result.notes,
-                "Notes must come from the already-captured getSchemaForTags result — no redundant call"
-            )
-        }
-
     // ──────────────────────────────────────────────
-    // T3.2: per-root config layering (perRootConfigService)
+    // Per-root layering
     // ──────────────────────────────────────────────
 
     @Test
-    fun `resolveSchema per-root type match overrides global type lookup`() =
+    fun `resolveSchema per-root type match overrides server type`() =
         runBlocking {
             val rootId = UUID.randomUUID()
-            val perRoot = mockk<PerRootConfigService>()
             val perRootSchema = schemaWithReview("feature-task")
-            coEvery { perRoot.layer(rootId) } returns
-                ConfigLayer(
-                    document =
-                        ConfigDocument(
-                            workItemSchemas = mapOf("feature-task" to perRootSchema),
-                            traits = emptyMap(),
-                            noteLimitsMode = null,
-                            statusLabels = null,
-                        ),
-                    fingerprint = "fp",
-                    source = ConfigSource.PER_ROOT,
-                )
+            server.schemas["feature-task"] = schemaWithoutReview("feature-task")
+            val ctx = contextWith(perRootWith(rootId, schemasDoc("feature-task" to perRootSchema)))
 
-            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-            val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
-
-            val item = makeItem(type = "feature-task", rootId = rootId)
-            val result = ctx.resolveSchema(item)
-
-            assertEquals(perRootSchema, result)
-            // The global type lookup must be short-circuited once the per-root layer matches.
-            verify(exactly = 0) { noteSchemaService.getSchemaForType("feature-task") }
+            assertEquals(perRootSchema, ctx.resolveSchema(makeItem(type = "feature-task", rootId = rootId)))
         }
 
     @Test
-    fun `resolveSchema per-root type miss falls through to global type lookup`() =
+    fun `resolveSchema per-root type miss falls through to server type`() =
         runBlocking {
             val rootId = UUID.randomUUID()
-            val perRoot = mockk<PerRootConfigService>()
-            // Per-root row exists but defines neither the exact type nor "default".
-            coEvery { perRoot.layer(rootId) } returns
-                ConfigLayer(
-                    document =
-                        ConfigDocument(
-                            workItemSchemas = emptyMap(),
-                            traits = emptyMap(),
-                            noteLimitsMode = null,
-                            statusLabels = null,
-                        ),
-                    fingerprint = "fp",
-                    source = ConfigSource.PER_ROOT,
-                )
-
+            val perRoot = perRootWith(rootId, schemasDoc())
             val globalSchema = schemaWithReview("feature-task")
-            every { noteSchemaService.getSchemaForType("feature-task") } returns globalSchema
+            server.schemas["feature-task"] = globalSchema
 
-            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-            val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
-
-            val item = makeItem(type = "feature-task", rootId = rootId)
-            val result = ctx.resolveSchema(item)
-
-            assertEquals(globalSchema, result)
-            // Exactly ONE snapshot fetch for the whole resolveSchema call (schema/trait resolution
-            // reuse the same already-fetched snapshot instead of re-querying per facet).
+            assertEquals(globalSchema, contextWith(perRoot).resolveSchema(makeItem(type = "feature-task", rootId = rootId)))
+            // Exactly ONE per-root fetch for the whole resolveSchema call.
             coVerify(exactly = 1) { perRoot.layer(rootId) }
         }
 
     @Test
-    fun `resolveSchema per-root default wins over global exact type match (whole-algorithm-first)`() =
+    fun `resolveSchema server exact type beats a per-root default`() =
         runBlocking {
             val rootId = UUID.randomUUID()
-            val perRoot = mockk<PerRootConfigService>()
             val perRootDefault = WorkItemSchema(type = "default", notes = listOf(workEntry()))
-            coEvery { perRoot.layer(rootId) } returns
-                ConfigLayer(
-                    document =
-                        ConfigDocument(
-                            workItemSchemas = mapOf("default" to perRootDefault),
-                            traits = emptyMap(),
-                            noteLimitsMode = null,
-                            statusLabels = null,
-                        ),
-                    fingerprint = "fp",
-                    source = ConfigSource.PER_ROOT,
-                )
-
-            // Global has an EXACT type match — under whole-algorithm-first, the per-root default
-            // must still win; the global layer must never be consulted.
             val globalSchema = schemaWithReview("feature-task")
-            every { noteSchemaService.getSchemaForType("feature-task") } returns globalSchema
+            server.schemas["feature-task"] = globalSchema
+            val ctx = contextWith(perRootWith(rootId, schemasDoc("default" to perRootDefault)))
 
-            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-            val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
-
-            val item = makeItem(type = "feature-task", rootId = rootId)
-            val result = ctx.resolveSchema(item)
-
-            assertEquals(perRootDefault, result)
-            verify(exactly = 0) { noteSchemaService.getSchemaForType("feature-task") }
+            assertEquals(globalSchema, ctx.resolveSchema(makeItem(type = "feature-task", rootId = rootId)))
         }
 
     @Test
-    fun `resolveSchema empty per-root default schema fences off global entirely`() =
+    fun `resolveSchema empty per-root default beats the server default when no layer has the type`() =
         runBlocking {
             val rootId = UUID.randomUUID()
-            val perRoot = mockk<PerRootConfigService>()
-            val emptyPerRootDefault = WorkItemSchema(type = "default", notes = emptyList())
-            coEvery { perRoot.layer(rootId) } returns
-                ConfigLayer(
-                    document =
-                        ConfigDocument(
-                            workItemSchemas = mapOf("default" to emptyPerRootDefault),
-                            traits = emptyMap(),
-                            noteLimitsMode = null,
-                            statusLabels = null,
-                        ),
-                    fingerprint = "fp",
-                    source = ConfigSource.PER_ROOT,
-                )
+            server.schemas["default"] = WorkItemSchema(type = "default", notes = listOf(workEntry()))
+            val ctx = contextWith(perRootWith(rootId, schemasDoc("default" to WorkItemSchema(type = "default", notes = emptyList()))))
 
-            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-            val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
-
-            val item = makeItem(type = "feature-task", rootId = rootId)
-            val result = ctx.resolveSchema(item)
+            val result = ctx.resolveSchema(makeItem(type = "feature-task", rootId = rootId))
 
             assertNotNull(result)
-            assertTrue(result.notes.isEmpty(), "Empty per-root default must resolve to a zero-note schema")
-            // Global must NEVER be consulted once a per-root default (even an empty one) resolves.
-            verify(exactly = 0) { noteSchemaService.getSchemaForType(any()) }
-            verify(exactly = 0) { noteSchemaService.getSchemaForTags(any()) }
+            assertTrue(result.notes.isEmpty(), "the per-root default beats the server default")
         }
 
     @Test
-    fun `resolveSchema no per-root row and no global exact match falls through to global default`() =
+    fun `resolveSchema no per-root row and no server exact match falls through to server default`() =
         runBlocking {
             val rootId = UUID.randomUUID()
-            val perRoot = mockk<PerRootConfigService>()
-            // No per-root config row at all for this root.
-            coEvery { perRoot.layer(rootId) } returns null
-
-            // No global exact match either — but getSchemaForType("feature-task") mimics the real
-            // YamlNoteSchemaService's own internal exact -> "default" fallback by directly returning
-            // the global default schema here (the mock stands in for that internal behavior).
             val globalDefault = WorkItemSchema(type = "default", notes = listOf(workEntry()))
-            every { noteSchemaService.getSchemaForType("feature-task") } returns globalDefault
+            server.schemas["default"] = globalDefault
 
-            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-            val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
-
-            val item = makeItem(type = "feature-task", rootId = rootId)
-            val result = ctx.resolveSchema(item)
-
-            assertEquals(globalDefault, result)
+            assertEquals(
+                globalDefault,
+                contextWith(perRootWith(rootId, null)).resolveSchema(makeItem(type = "feature-task", rootId = rootId))
+            )
         }
 
     @Test
@@ -643,236 +387,115 @@ class ToolExecutionContextResolveSchemaTest {
         runBlocking {
             val perRoot = mockk<PerRootConfigService>()
             val globalSchema = schemaWithReview("feature-task")
-            every { noteSchemaService.getSchemaForType("feature-task") } returns globalSchema
+            server.schemas["feature-task"] = globalSchema
 
-            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-            val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
-
-            val item = makeItem(type = "feature-task", rootId = null)
-            val result = ctx.resolveSchema(item)
-
-            assertEquals(globalSchema, result)
-            // Zero interactions with the per-root layer at all — a null rootId must never even
-            // attempt a snapshot fetch.
+            assertEquals(globalSchema, contextWith(perRoot).resolveSchema(makeItem(type = "feature-task", rootId = null)))
             coVerify(exactly = 0) { perRoot.layer(any()) }
         }
 
     @Test
-    fun `resolveSchema per-root trait notes override the global trait definition`() =
+    fun `resolveSchema per-root trait notes override the server trait definition`() =
         runBlocking {
             val rootId = UUID.randomUUID()
-            val perRoot = mockk<PerRootConfigService>()
-
-            val baseSchema =
-                WorkItemSchema(
-                    type = "feature-task",
-                    notes = listOf(workEntry()),
-                    defaultTraits = listOf("needs-perf-review")
+            server.schemas["feature-task"] =
+                WorkItemSchema(type = "feature-task", notes = listOf(workEntry()), defaultTraits = listOf("needs-perf-review"))
+            server.traits["needs-perf-review"] = listOf(traitEntry("performance-baseline-server"))
+            val perRootDoc =
+                ConfigDocument(
+                    workItemSchemas = emptyMap(),
+                    traits =
+                        mapOf(
+                            "needs-perf-review" to listOf(traitEntry("performance-baseline-per-root"))
+                        )
                 )
-            val perRootTraitNote = traitEntry("performance-baseline-per-root")
-            // Type lookup misses per-root (exact and "default") and falls to the global base
-            // schema — trait layering is independent of where the base schema itself came from.
-            coEvery { perRoot.layer(rootId) } returns
-                ConfigLayer(
-                    document =
-                        ConfigDocument(
-                            workItemSchemas = emptyMap(),
-                            traits = mapOf("needs-perf-review" to listOf(perRootTraitNote)),
-                            noteLimitsMode = null,
-                            statusLabels = null,
-                        ),
-                    fingerprint = "fp",
-                    source = ConfigSource.PER_ROOT,
-                )
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
-            every { noteSchemaService.getDefaultTraits("feature-task") } returns listOf("needs-perf-review")
 
-            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-            val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
+            val result = contextWith(perRootWith(rootId, perRootDoc)).resolveSchema(makeItem(type = "feature-task", rootId = rootId))!!
 
-            val item = makeItem(type = "feature-task", rootId = rootId)
-            val result = ctx.resolveSchema(item)!!
-
-            assertEquals(2, result.notes.size)
-            assertEquals("performance-baseline-per-root", result.notes[1].key)
-            // The global trait lookup must be short-circuited once the per-root layer provides notes.
-            verify(exactly = 0) { noteSchemaService.getTraitNotes("needs-perf-review") }
+            assertEquals(listOf("work-note", "performance-baseline-per-root"), result.notes.map { it.key })
         }
 
     @Test
-    fun `resolveSchema per-root default schema wins in the tag fallback path`() =
+    fun `resolveSchema per-root default beats the server default for an untyped item`() =
         runBlocking {
             val rootId = UUID.randomUUID()
-            val perRoot = mockk<PerRootConfigService>()
             val perRootDefault = WorkItemSchema(type = "default", notes = listOf(workEntry()))
-            coEvery { perRoot.layer(rootId) } returns
-                ConfigLayer(
-                    document =
-                        ConfigDocument(
-                            workItemSchemas = mapOf("default" to perRootDefault),
-                            traits = emptyMap(),
-                            noteLimitsMode = null,
-                            statusLabels = null,
-                        ),
-                    fingerprint = "fp",
-                    source = ConfigSource.PER_ROOT,
-                )
+            server.schemas["default"] = schemaWithReview("default")
+            val ctx = contextWith(perRootWith(rootId, schemasDoc("default" to perRootDefault)))
 
-            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-            val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
-
-            val item = makeItem(type = null, tags = "unmatched-tag", rootId = rootId)
-            val result = ctx.resolveSchema(item)
-
-            assertEquals(perRootDefault, result)
-            // The global tag algorithm must be short-circuited once the per-root tag/"default" match resolves.
-            verify(exactly = 0) { noteSchemaService.getSchemaForTags(any()) }
+            assertEquals(perRootDefault, ctx.resolveSchema(makeItem(type = null, tags = "unmatched-tag", rootId = rootId)))
         }
 
     @Test
     fun `resolveSchema treats a null perRootConfigService identically to a per-root config miss`() =
         runBlocking {
-            val rootId = UUID.randomUUID()
             val globalSchema = schemaWithReview("feature-task")
-            every { noteSchemaService.getSchemaForType("feature-task") } returns globalSchema
+            server.schemas["feature-task"] = globalSchema
 
-            // No perRootConfigService wired at all (default null) — must behave exactly like a
-            // wired service that returns null for every call (e.g. a per-root config row that
-            // fails to parse). PerRootConfigService's contract treats "no row" and "parse failure"
-            // identically (both return null); this asserts resolveSchema treats "no service" the
-            // same way too, so all three collapse to the one "fall through to global" behavior.
-            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-            val ctxWithoutService = ToolExecutionContext(repoProvider, noteSchemaService)
+            assertEquals(globalSchema, contextWith(null).resolveSchema(makeItem(type = "feature-task", rootId = UUID.randomUUID())))
+        }
 
-            val item = makeItem(type = "feature-task", rootId = rootId)
-            val result = ctxWithoutService.resolveSchema(item)
-
-            assertEquals(globalSchema, result)
+    @Test
+    fun `the default context resolver has no server config`() =
+        runBlocking {
+            val ctx = ToolExecutionContext(mockk<RepositoryProvider>(relaxed = true))
+            assertNull(ctx.resolveSchema(makeItem(type = "feature-task")))
+            assertNull(ctx.configResolver.global.fingerprint())
         }
 
     // ──────────────────────────────────────────────
-    // T3: resolveNoteLimitsMode / resolveStatusLabel (per-root layering)
+    // resolveNoteLimitsMode / resolveStatusLabel (per-root layering)
     // ──────────────────────────────────────────────
 
     @Test
-    fun `resolveNoteLimitsMode falls through to global when rootId is null`() =
+    fun `resolveNoteLimitsMode falls through to the server when rootId is null`() =
         runBlocking {
             val perRoot = mockk<PerRootConfigService>()
-            val globalStatusLabels = mockk<StatusLabelService>(relaxed = true)
-            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-            every { noteSchemaService.getNoteLimitsMode() } returns "warn"
-            val ctx =
-                ToolExecutionContext(
-                    repoProvider,
-                    noteSchemaService,
-                    statusLabelService = globalStatusLabels,
-                    perRootConfigService = perRoot
-                )
+            server.noteLimitsMode = "reject"
 
-            assertEquals("warn", ctx.resolveNoteLimitsMode(null))
+            assertEquals("reject", contextWith(perRoot).resolveNoteLimitsMode(null))
             coVerify(exactly = 0) { perRoot.layer(any()) }
         }
 
     @Test
-    fun `resolveNoteLimitsMode falls through to global when the per-root doc has no explicit mode`() =
+    fun `resolveNoteLimitsMode falls through to the server when the per-root doc has no explicit mode`() =
         runBlocking {
             val rootId = UUID.randomUUID()
-            val perRoot = mockk<PerRootConfigService>()
-            coEvery { perRoot.layer(rootId) } returns
-                ConfigLayer(
-                    document =
-                        ConfigDocument(
-                            workItemSchemas = emptyMap(),
-                            traits = emptyMap(),
-                            noteLimitsMode = null,
-                            statusLabels = null,
-                        ),
-                    fingerprint = "fp",
-                    source = ConfigSource.PER_ROOT,
-                )
-            every { noteSchemaService.getNoteLimitsMode() } returns "warn"
-            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-            val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
+            server.noteLimitsMode = "reject"
 
-            assertEquals("warn", ctx.resolveNoteLimitsMode(rootId))
+            assertEquals("reject", contextWith(perRootWith(rootId, schemasDoc())).resolveNoteLimitsMode(rootId))
         }
 
     @Test
-    fun `resolveNoteLimitsMode uses the per-root explicit mode over the global mode`() =
+    fun `resolveNoteLimitsMode uses the per-root explicit mode over the server mode`() =
         runBlocking {
             val rootId = UUID.randomUUID()
-            val perRoot = mockk<PerRootConfigService>()
-            coEvery { perRoot.layer(rootId) } returns
-                ConfigLayer(
-                    document =
-                        ConfigDocument(
-                            workItemSchemas = emptyMap(),
-                            traits = emptyMap(),
-                            noteLimitsMode = "reject",
-                            statusLabels = null,
-                        ),
-                    fingerprint = "fp",
-                    source = ConfigSource.PER_ROOT,
-                )
-            every { noteSchemaService.getNoteLimitsMode() } returns "warn"
-            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-            val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
+            val ctx = contextWith(perRootWith(rootId, schemasDoc().copy(noteLimitsMode = "reject")))
 
             assertEquals("reject", ctx.resolveNoteLimitsMode(rootId))
         }
 
     @Test
-    fun `resolveStatusLabel falls through to global when rootId is null`() =
+    fun `resolveStatusLabel falls through to the server when rootId is null`() =
         runBlocking {
             val perRoot = mockk<PerRootConfigService>()
-            val globalLabels = mockk<StatusLabelService>()
-            every { globalLabels.resolveLabel("start") } returns "in-progress"
-            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-            val ctx =
-                ToolExecutionContext(
-                    repoProvider,
-                    noteSchemaService,
-                    statusLabelService = globalLabels,
-                    perRootConfigService = perRoot
-                )
+            server.statusLabels = mapOf("start" to "in-progress")
 
-            assertEquals("in-progress", ctx.resolveStatusLabel("start", null))
+            assertEquals("in-progress", contextWith(perRoot).resolveStatusLabel("start", null))
             coVerify(exactly = 0) { perRoot.layer(any()) }
         }
 
     @Test
-    fun `resolveStatusLabel falls through to global per-trigger when the per-root map is partial`() =
+    fun `resolveStatusLabel falls through to the server per-trigger when the per-root map is partial`() =
         runBlocking {
             val rootId = UUID.randomUUID()
-            val perRoot = mockk<PerRootConfigService>()
-            coEvery { perRoot.layer(rootId) } returns
-                ConfigLayer(
-                    document =
-                        ConfigDocument(
-                            workItemSchemas = emptyMap(),
-                            traits = emptyMap(),
-                            noteLimitsMode = null,
-                            statusLabels = mapOf("start" to "root-started"),
-                        ),
-                    fingerprint = "fp",
-                    source = ConfigSource.PER_ROOT,
-                )
-            val globalLabels = mockk<StatusLabelService>()
-            every { globalLabels.resolveLabel("complete") } returns "done"
-            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-            val ctx =
-                ToolExecutionContext(
-                    repoProvider,
-                    noteSchemaService,
-                    statusLabelService = globalLabels,
-                    perRootConfigService = perRoot
-                )
+            server.statusLabels = mapOf("complete" to "done")
+            val ctx = contextWith(perRootWith(rootId, schemasDoc().copy(statusLabels = mapOf("start" to "root-started"))))
 
             assertEquals("root-started", ctx.resolveStatusLabel("start", rootId))
             assertEquals(
                 "done",
                 ctx.resolveStatusLabel("complete", rootId),
-                "A trigger absent from the partial per-root map must fall through to global"
+                "A trigger absent from the partial per-root map must fall through"
             )
         }
 
@@ -880,66 +503,23 @@ class ToolExecutionContextResolveSchemaTest {
     fun `resolveStatusLabel honors an explicit null per-root label without falling through`() =
         runBlocking {
             val rootId = UUID.randomUUID()
-            val perRoot = mockk<PerRootConfigService>()
-            coEvery { perRoot.layer(rootId) } returns
-                ConfigLayer(
-                    document =
-                        ConfigDocument(
-                            workItemSchemas = emptyMap(),
-                            traits = emptyMap(),
-                            noteLimitsMode = null,
-                            statusLabels = mapOf("complete" to null),
-                        ),
-                    fingerprint = "fp",
-                    source = ConfigSource.PER_ROOT,
-                )
-            val globalLabels = mockk<StatusLabelService>()
-            every { globalLabels.resolveLabel("complete") } returns "done"
-            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-            val ctx =
-                ToolExecutionContext(
-                    repoProvider,
-                    noteSchemaService,
-                    statusLabelService = globalLabels,
-                    perRootConfigService = perRoot
-                )
+            server.statusLabels = mapOf("complete" to "done")
+            val ctx = contextWith(perRootWith(rootId, schemasDoc().copy(statusLabels = mapOf("complete" to null))))
 
             assertNull(
                 ctx.resolveStatusLabel("complete", rootId),
-                "An explicit null value for a present trigger key must win over the global label, not fall through"
+                "An explicit null value for a present trigger key must win over the server label, not fall through"
             )
-            verify(exactly = 0) { globalLabels.resolveLabel("complete") }
         }
 
     @Test
     fun `resolveStatusLabels resolves the whole trigger set from a single snapshot fetch`() =
         runBlocking {
             val rootId = UUID.randomUUID()
-            val perRoot = mockk<PerRootConfigService>()
-            coEvery { perRoot.layer(rootId) } returns
-                ConfigLayer(
-                    document =
-                        ConfigDocument(
-                            workItemSchemas = emptyMap(),
-                            traits = emptyMap(),
-                            noteLimitsMode = null,
-                            statusLabels = mapOf("start" to "root-started"),
-                        ),
-                    fingerprint = "fp",
-                    source = ConfigSource.PER_ROOT,
-                )
-            val globalLabels = mockk<StatusLabelService>()
-            every { globalLabels.resolveLabel("cascade") } returns "done"
-            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
-            val ctx =
-                ToolExecutionContext(
-                    repoProvider,
-                    noteSchemaService,
-                    statusLabelService = globalLabels,
-                    perRootConfigService = perRoot
-                )
+            server.statusLabels = mapOf("cascade" to "done")
+            val perRoot = perRootWith(rootId, schemasDoc().copy(statusLabels = mapOf("start" to "root-started")))
 
-            val resolved = ctx.resolveStatusLabels(setOf("start", "cascade"), rootId)
+            val resolved = contextWith(perRoot).resolveStatusLabels(setOf("start", "cascade"), rootId)
 
             assertEquals("root-started", resolved["start"])
             assertEquals("done", resolved["cascade"])
