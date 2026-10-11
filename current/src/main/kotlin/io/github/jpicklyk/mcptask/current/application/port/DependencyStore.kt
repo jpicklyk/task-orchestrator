@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
+import io.github.jpicklyk.mcptask.current.domain.graph.BlockingEdge
 import io.github.jpicklyk.mcptask.current.domain.model.BacklinkRow
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
@@ -64,4 +65,13 @@ interface DependencyStore {
         itemId: UUID,
         type: DependencyType? = null,
     ): List<BacklinkRow>
+
+    /**
+     * The normalized blocking edges ([io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges.normalize])
+     * whose BLOCKED side is in [itemIds], in one statement for up to 500 ids (a larger set is chunked
+     * in the same transaction). RELATES_TO rows are excluded. Feed the result, with the blockers'
+     * roles, to [io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator.unsatisfied]. An
+     * empty [itemIds] returns an empty list without touching the database.
+     */
+    suspend fun blockingEdgesFor(itemIds: Set<UUID>): List<BlockingEdge>
 }
