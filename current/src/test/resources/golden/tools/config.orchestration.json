@@ -1,0 +1,97 @@
+{
+  "name": "config",
+  "inputSchema": {
+    "properties": {
+      "ops": {
+        "type": "array",
+        "description": "Write operations, one flat object per op, run in order. A field marked [ops: ...] applies only to the ops named.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "description": "The operation this element runs.",
+              "enum": [
+                "get",
+                "history",
+                "push",
+                "validate",
+                "rollback",
+                "reset",
+                "effective",
+                "rules"
+              ]
+            },
+            "rootId": {
+              "type": "string",
+              "description": "Project root item (depth 0): a UUID or a hex prefix of 8 to 32 characters."
+            },
+            "version": {
+              "type": "integer",
+              "description": "Config version number, 1 or greater. [ops: get, rollback]"
+            },
+            "fingerprint": {
+              "type": "string",
+              "description": "Content fingerprint to classify against the root's history; adds relation: current, superseded or unknown. [ops: get]"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Page size, 1 to 200 (default 50). [ops: history]"
+            },
+            "before": {
+              "type": "integer",
+              "description": "Page back: only versions below this number (exclusive); pass the last version of the previous page. [ops: history]"
+            },
+            "configYaml": {
+              "type": "string",
+              "description": "The config document, YAML text of at most 131072 bytes. [ops: push, validate]"
+            },
+            "force": {
+              "type": "boolean",
+              "description": "Skip the project.rootId mismatch and older-content guards (default false). Never skips validation or expectedVersion. [ops: push]"
+            },
+            "expectedVersion": {
+              "type": "integer",
+              "description": "Compare-and-set: the head version this write expects, 1 or greater. A different head is version_conflict; force does not skip it. [ops: push, rollback]"
+            },
+            "key": {
+              "type": "string",
+              "description": "Rule key: lowercase letters, digits, dot, underscore or hyphen, starting alphanumeric, at most 100 characters. [ops: rules]"
+            },
+            "itemId": {
+              "type": "string",
+              "description": "Item whose effective schema holds noteKey: a UUID or a hex prefix of 8 to 32 characters. A root item is its own root. [ops: rules]"
+            },
+            "noteKey": {
+              "type": "string",
+              "description": "Note key looked up in itemId's effective schema; its skill field names the rule key. [ops: rules]"
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "Optional client key (1-128 chars, needs actor). Resending the same op with the same key returns the stored result."
+            }
+          },
+          "required": [
+            "op"
+          ]
+        }
+      },
+      "atomic": {
+        "type": "boolean",
+        "description": "true: the first failing op rolls back the whole batch. Default false: each op commits on its own."
+      },
+      "describe": {
+        "type": "boolean",
+        "description": "true: return the operations, their parameters and errors instead of running the tool."
+      }
+    },
+    "type": "object"
+  },
+  "description": "Per-root config and rules. Each ops[] element has an op: get, history, push, validate, rollback, reset (a root's versioned config document), effective (the resolved view), or rules (rule text). Reads need the read capability, push, rollback and reset the write-config capability. rootId is a depth-0 item. Call with describe:true for each operation's parameters and errors.",
+  "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

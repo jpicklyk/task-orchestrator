@@ -41,6 +41,14 @@ class ConfigSession : AbstractCoroutineContextElement(ConfigSession) {
     private val memo = mutableMapOf<Pair<Any, UUID>, Result<ConfigLayer?>>()
 
     /**
+     * Drops every memoised read of [rootId]'s per-root layer, so the next lookup in this session reads fresh. A write
+     * that appended a config version calls this so a later op of the same call sees the new head.
+     */
+    internal suspend fun evict(rootId: UUID) {
+        mutex.withLock { memo.keys.removeAll { it.second == rootId } }
+    }
+
+    /**
      * Returns the memoised [ConfigLayer] for `(source, rootId)`, invoking [fetch] and storing its
      * outcome (success, null, or failure) on the first call for that key within this session, and
      * replaying the same outcome (rethrowing on failure) on every subsequent call.
@@ -80,4 +88,9 @@ suspend fun <T> withConfigSession(block: suspend () -> T): T {
     } else {
         withContext(ConfigSession()) { block() }
     }
+}
+
+/** Evicts [rootId] from the ambient [ConfigSession] memo, if one is installed (see [ConfigSession.evict]). */
+suspend fun evictConfigSession(rootId: UUID) {
+    coroutineContext[ConfigSession.Key]?.evict(rootId)
 }

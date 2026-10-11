@@ -66,10 +66,7 @@ class ToolTokenBudgetTest {
      * the test permanently red on day one.
      */
     private val perToolCeilings: Map<String, Int> =
-        mapOf(
-            "manage_project_config" to 3750, // was 3150; measured 3247 after `schemaWarnings` on push responses (40d755cc)
-            "query_rules" to 1600, // measured 1384; new tool: per-root rule text get/list + skill-pointer resolution (A3, 840e700a)
-        )
+        mapOf()
 
     /**
      * Sum of the (unrounded) measured-per-tool-values * 1.15; see BUDGET PHILOSOPHY point 2.
@@ -82,8 +79,9 @@ class ToolTokenBudgetTest {
      * Q21 -6_729 (create_work_tree 4_539, complete_tree 2_190, both measured just before their removal).
      * Q22 -7_700 (get_next_item 3_150, get_context 2_650, get_blocked_items 1_250, get_next_status 650; they are the
      * `items_read` selects context / next / blocked, budgeted by the 4.0 tool-profile guards).
+     * Q23 -5_350 (manage_project_config 3_750, query_rules 1_600).
      */
-    private val totalCeiling = 8_111 // Q19 33_300 (measured 28_919) - Q13 5_700 - Q18 2_950 - Q25 2_110 - Q21 6_729 - Q22 7_700
+    private val totalCeiling = 2_761 // Q19 33_300 (measured 28_919) - Q13 5_700 - Q18 2_950 - Q25 2_110 - Q21 6_729 - Q22 7_700 - Q23 5_350
 
     // explicitNulls = false mirrors the compact-wire-shape convention already used elsewhere
     // in this codebase (see EventRoutes.kt / ItemWriteRoutes.kt / NoteWriteRoutes.kt) — a

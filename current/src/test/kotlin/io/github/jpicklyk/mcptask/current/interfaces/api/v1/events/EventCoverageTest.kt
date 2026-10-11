@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -16,7 +15,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
@@ -652,7 +650,7 @@ class EventCoverageTest {
         }
 
     @Test
-    fun `S6 manage_project_config push and a plan document stash record config and plan document rows`(
+    fun `S6 config push and a plan document stash record config and plan document rows`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -660,14 +658,7 @@ class EventCoverageTest {
             val root = rig.seed("cfg root")
 
             val (_, cfg) =
-                rig.written {
-                    rig.callOk(
-                        ManageProjectConfigTool(YamlConfigDocumentParser),
-                        "operation" to JsonPrimitive("push"),
-                        "rootId" to JsonPrimitive(root.id.toString()),
-                        "configYaml" to JsonPrimitive(EventLogRig.GATED_CONFIG),
-                    )
-                }
+                rig.written { rig.ctx.callTool("config", configPush(root.id, EventLogRig.GATED_CONFIG)) }
             val pushed = cfg.single()
             assertEquals("config.version_created", pushed.type)
             assertEquals("config", pushed.entityKind)
@@ -1072,12 +1063,7 @@ class EventCoverageTest {
                     "deps_write" to emptyArray(),
                     "advance" to emptyArray(),
                     "docs_write" to emptyArray(),
-                    "manage_project_config" to
-                        arrayOf(
-                            "operation" to JsonPrimitive("push"),
-                            "rootId" to JsonPrimitive(root.id.toString()),
-                            "configYaml" to JsonPrimitive(EventLogRig.GATED_CONFIG),
-                        ),
+                    "config" to emptyArray(),
                 )
             assertEquals(WRITE_TOOLS_COVERED.keys, perTool.keys, "the scenario table must cover exactly the covered write tools")
             for ((name, params) in perTool) {
@@ -1088,6 +1074,7 @@ class EventCoverageTest {
                             "notes_write" -> rig.ctx.upsertNoteVia(child.id, "k", "work", "b")
                             "deps_write" -> rig.ctx.callTool("deps_write", depsCreate(child.id, depTarget.id))
                             "advance" -> rig.ctx.callTool("advance", advanceStart(other.id))
+                            "config" -> rig.ctx.callTool("config", configPush(root.id, EventLogRig.GATED_CONFIG))
                             "docs_write" -> rig.ctx.callTool("docs_write", docsUpsert(root.id))
                             else -> rig.call(tools.getValue(name), *params)
                         }
@@ -1104,7 +1091,6 @@ class EventCoverageTest {
             val mark = rig.maxSeq()
             val reads: Map<String, Array<Pair<String, JsonElement>>> =
                 mapOf(
-                    "query_rules" to arrayOf("operation" to JsonPrimitive("list"), "rootId" to JsonPrimitive(root.id.toString())),
                     "notes_read" to emptyArray(),
                     "deps_read" to emptyArray(),
                     "items_read" to emptyArray(),
@@ -1161,13 +1147,12 @@ class EventCoverageTest {
                 "deps_write" to setOf("dependency.added"),
                 "advance" to setOf("item.transitioned"),
                 "docs_write" to setOf("document.created"),
-                "manage_project_config" to setOf("config.version_created"),
+                "config" to setOf("config.version_created"),
             )
 
         /** Tools that never mutate store state; each is exercised and must leave the log untouched. */
         val READ_ONLY_TOOLS: Set<String> =
             setOf(
-                "query_rules",
                 "notes_read",
                 "deps_read",
                 "items_read",
@@ -1188,6 +1173,26 @@ class EventCoverageTest {
                             }
                         )
                     }
+                )
+            }
+
+        /** A `config` call pushing [configYaml] as the next config version of [root]. */
+        fun configPush(
+            root: UUID,
+            configYaml: String,
+        ): JsonObject =
+            buildJsonObject {
+                put(
+                    "ops",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("op", "push")
+                                put("rootId", root.toString())
+                                put("configYaml", configYaml)
+                            },
+                        )
+                    },
                 )
             }
 

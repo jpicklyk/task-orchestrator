@@ -29,7 +29,10 @@ import io.ktor.server.application.install
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
@@ -194,8 +197,29 @@ class EventRestCoverageTest {
     // Project config, leases
     // ---------------------------------------------------------------------------------------------
 
+    /** A `POST /ops/config` body with one [op] element for [root], plus string [fields]. */
+    private fun configOps(
+        op: String,
+        root: String,
+        vararg fields: Pair<String, String>,
+    ): String =
+        buildJsonObject {
+            put(
+                "ops",
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("op", op)
+                            put("rootId", root)
+                            fields.forEach { (k, v) -> put(k, v) }
+                        },
+                    )
+                },
+            )
+        }.toString()
+
     @Test
-    fun `REST project config PUT and DELETE record their rows`(
+    fun `REST config tool push and reset record their rows`(
         @TempDir dir: Path,
     ): Unit =
         testApplication {
@@ -205,10 +229,10 @@ class EventRestCoverageTest {
 
             val mark = rig.maxSeq()
             val config =
-                client.put("/api/v1/roots/${root.id}/config") {
+                client.post("/api/v1/ops/config") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Text.Plain)
-                    setBody(EventLogRig.GATED_CONFIG)
+                    contentType(ContentType.Application.Json)
+                    setBody(configOps("push", root.id.toString(), "configYaml" to EventLogRig.GATED_CONFIG))
                 }
             assertEquals(HttpStatusCode.OK, config.status, config.bodyAsText())
             val configRows = rig.rowsAfter(mark)
@@ -217,7 +241,11 @@ class EventRestCoverageTest {
 
             val markDelete = rig.maxSeq()
             val removed =
-                client.delete("/api/v1/roots/${root.id}/config") { header("Authorization", "Bearer $WRITE_TOKEN") }
+                client.post("/api/v1/ops/config") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody(configOps("reset", root.id.toString()))
+                }
             assertTrue(removed.status.value in 200..299, "config delete status ${removed.status}: ${removed.bodyAsText()}")
             assertEquals(listOf("config.version_created"), rig.rowsAfter(markDelete).types())
         }

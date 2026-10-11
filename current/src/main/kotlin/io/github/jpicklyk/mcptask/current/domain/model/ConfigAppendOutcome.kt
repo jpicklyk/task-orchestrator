@@ -10,10 +10,15 @@ sealed class ConfigAppendOutcome {
         val appended: Boolean
     ) : ConfigAppendOutcome()
 
-    /** The content's fingerprint classified as SUPERSEDED (fast-forward guard); nothing was written. */
+    /**
+     * The content's fingerprint classified as SUPERSEDED (fast-forward guard); nothing was written.
+     * [matchedVersion] is the newest stored version carrying that fingerprint, or 0 when only the pre-versioning
+     * known-fingerprint history has it.
+     */
     data class Superseded(
         val currentVersion: Int,
-        val currentCreatedAt: Instant
+        val currentCreatedAt: Instant,
+        val matchedVersion: Int = 0
     ) : ConfigAppendOutcome()
 
     /** An expected version / fingerprint did not match the head; nothing was written. */

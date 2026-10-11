@@ -3,6 +3,8 @@ package io.github.jpicklyk.mcptask.current.parity
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
@@ -23,6 +25,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.test.pushConfig
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -71,8 +74,37 @@ internal val PARITY_CLOCK: Clock = Clock { PARITY_NOW }
 /** Seeds work items with caller-chosen ids through the undecorated repository (no event rows, same on both legs). */
 class ParitySeeder(
     private val repo: WorkItemRepository,
-    private val deps: DependencyStore? = null
+    private val deps: DependencyStore? = null,
+    private val provider: RepositoryProvider? = null,
+    private val unitOfWork: UnitOfWork? = null
 ) {
+    /**
+     * Appends [yaml] as the next config version of [rootId] through the undecorated store inside a write unit (no event rows, the
+     * same on both legs; the version is stamped by the fixed parity clock).
+     */
+    suspend fun config(
+        rootId: UUID,
+        yaml: String
+    ) {
+        pushConfig(
+            checkNotNull(provider) { "this seeder was built without a repository provider" },
+            checkNotNull(unitOfWork) { "this seeder was built without a unit of work" },
+            rootId,
+            yaml
+        )
+    }
+
+    /** Stashes the rule document `rule/[key]` under [rootId] through the undecorated repository (no event rows). */
+    suspend fun rule(
+        rootId: UUID,
+        key: String,
+        body: String
+    ) {
+        checkNotNull(provider) { "this seeder was built without a repository provider" }
+            .planDocumentRepository()
+            .stash(rootId, "rule/$key", body)
+    }
+
     /**
      * Seeds a dependency with a caller-chosen id through the undecorated store (no event rows, same on both legs). The
      * `createdAt` is the fixed [PARITY_NOW], so list order falls to the id tiebreak. The domain invariants (distinct ends,
@@ -251,7 +283,7 @@ class ParityHarness(
             val rig = EventLogRig.build(db, dir, clock = PARITY_CLOCK)
             runBlocking {
                 val provider = db.repositoryProvider()
-                ParitySeeder(provider.workItemRepository(), provider.dependencyRepository()).seed()
+                ParitySeeder(provider.workItemRepository(), provider.dependencyRepository(), provider, db.unitOfWork()).seed()
             }
             return Leg(db, dir, rig)
         } catch (e: Throwable) {
@@ -397,7 +429,18 @@ class ParityHarness(
     }
 
     companion object {
-        private val TABLES = listOf("work_items", "notes", "dependencies", "events", "documents", "document_versions", "links")
+        private val TABLES =
+            listOf(
+                "work_items",
+                "notes",
+                "dependencies",
+                "events",
+                "documents",
+                "document_versions",
+                "links",
+                "config_versions",
+                "config_heads"
+            )
 
         private val TIMESTAMP = Regex("\"(createdAt|modifiedAt)\":\"([^\"]*)\"")
 
@@ -441,6 +484,9 @@ class ParityHarness(
                             label == "seq" ||
                                 label == "req_id" ||
                                 label == "session_id" ||
+                                // config_heads.version_id points at a generated config_versions id (the seeded versions get a
+                                // fresh id per leg), the same kind of per-leg generated id as the dropped `id` columns
+                                (label == "version_id" && table == "config_heads") ||
                                 (label == "host" && table == "events") ||
                                 label == "at" ||
                                 (label.endsWith("_at") && label != "unblock_at")
@@ -454,7 +500,19 @@ class ParityHarness(
             tables.mapValues { (table, rows) -> if (table == "events") rows else rows.sortedBy { it.toString() } }
 
         /** The [snapshot] projection of [rawTables] output: noise columns dropped, non-event rows sorted. */
-        internal fun project(raw: Map<String, List<Map<String, Any?>>>): Map<String, List<Map<String, Any?>>> = sorted(withoutNoise(raw))
+        internal fun project(raw: Map<String, List<Map<String, Any?>>>): Map<String, List<Map<String, Any?>>> =
+            sorted(withoutNoise(withDocumentRowids(raw)))
+
+        /**
+         * [raw] with each `document_versions.document_id` replaced by its document's `doc_rowid`: the id is generated per leg (a seeded
+         * rule document gets a fresh one on each leg, like the dropped `documents.id`), while the rowid is assigned in write order and
+         * so keeps the version-to-document link comparable.
+         */
+        private fun withDocumentRowids(raw: Map<String, List<Map<String, Any?>>>): Map<String, List<Map<String, Any?>>> {
+            val rowids = raw["documents"].orEmpty().associate { it["id"] to it["doc_rowid"] }
+            val versions = raw["document_versions"] ?: return raw
+            return raw + ("document_versions" to versions.map { row -> row + ("document_id" to "doc#" + rowids[row["document_id"]]) })
+        }
 
         private val UUID_TEXT = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
         private val HEX_BLOB = Regex("[0-9a-f]{32}")
@@ -495,7 +553,7 @@ class ParityHarness(
             known: Set<String>
         ): Pair<String, Map<String, List<Map<String, Any?>>>> {
             // noise columns carry per-call generated ids (request and session ids): they must not take token numbers
-            val raw = withoutNoise(rawWithNoise)
+            val raw = withoutNoise(withDocumentRowids(rawWithNoise))
             val tokens = LinkedHashMap<String, String>()
 
             fun note(uuid: String) {

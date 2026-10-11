@@ -7,7 +7,7 @@ rejects, and how the server reports a rejection. The structure itself is publish
 
 A config document is YAML. It reaches the server two ways: the server-wide file `.taskorchestrator/config.yaml`
 (imported into the database at every boot from `AGENT_CONFIG_DIR`, see [Fleet Deployment](fleet-deployment.md)), and a
-per-root document pushed with `manage_project_config` or `PUT /api/v1/roots/{rootId}/config`, which layers over the
+per-root document pushed with the `config` tool's `push` op (`POST /api/v1/ops/config`), which layers over the
 server config for that project root's items and hot-reloads without a restart. The runtime reads the stored copy of the
 file, never the file itself.
 
@@ -84,18 +84,17 @@ How a rejection reaches you:
 
 | Surface | Rejection |
 |---------|-----------|
-| REST `PUT /api/v1/roots/{rootId}/config` | `422` with error `parse_error`; `details.errors` holds the list (and `details.warnings` any advisory findings). |
-| MCP `manage_project_config` push | `VALIDATION_ERROR`; the same list is in `details` (text) and `data.errors`. |
+| `config` tool `push` (MCP, or `POST /api/v1/ops/config`) | The element fails `config_invalid` (`422` on a single-element or atomic call, `207 partial_failure` otherwise); `detail.errors` holds the `{path, reason}` list. Advisory findings come back in a successful push's `warnings` and in `validate`'s `warnings`. |
 
-`force` bypasses the rootId-mismatch and superseded guards. It does not bypass validation.
+`force` bypasses the rootId-mismatch and older-content guards (the latter is `version_conflict` otherwise). It does not bypass validation or `expectedVersion`.
 
 ### Checking before you push
 
-`ConfigService.validate` runs the push pipeline without the write, the compare-and-set and the superseded guard. It
-returns the errors and warnings and, when the document is valid, a diff against the root's head version:
-`{types, traits, settings}`, each with `added`, `removed` and `changed` entry names. An entry is `changed` when its
-canonical JSON differs. With no head (or a reset head) everything is `added`. This is a service method today; the MCP
-and REST entry points for it arrive with the 4.0 `config` tool.
+The `config` tool's `validate` op runs the push pipeline without the write, the compare-and-set and the older-content
+guard. It returns `valid`, the errors and warnings and, when the document is valid, a diff against the root's head
+version: `{types, traits, settings}`, each with `added`, `removed` and `changed` entry names. An entry is `changed`
+when its canonical JSON differs. With no head (or a reset head) everything is `added`. A problem (including a parse
+failure) comes back in the result as `valid: false`, not as an error.
 
 ## Parse modes
 

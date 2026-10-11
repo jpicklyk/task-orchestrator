@@ -24,6 +24,7 @@ import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.application.telemetry.currentCallTelemetry
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigAppendOutcome
@@ -143,6 +144,11 @@ class ConfigService(
             "ConfigService.push",
             onFault = { ConfigPushResult.RepositoryError(it) }
         ) {
+            try {
+                rootConfigRead(rootItemId) { store.head(ConfigScope.ROOT, rootItemId) }
+            } catch (e: PerRootConfigUnavailableException) {
+                return@writeUnit UnitResult.Rollback(ConfigPushResult.RepositoryError(headReadFault(e)))
+            }
             val outcome =
                 store.append(
                     scope = ConfigScope.ROOT,
@@ -170,7 +176,13 @@ class ConfigService(
                             warning = typeWarning,
                             schemaWarnings = schemaWarnings,
                         )
-                    is ConfigAppendOutcome.Superseded -> ConfigPushResult.Superseded(rootItemId, outcome.currentCreatedAt)
+                    is ConfigAppendOutcome.Superseded ->
+                        ConfigPushResult.Superseded(
+                            rootItemId,
+                            outcome.currentCreatedAt,
+                            outcome.matchedVersion,
+                            outcome.currentVersion
+                        )
                     is ConfigAppendOutcome.PreconditionFailed ->
                         ConfigPushResult.PreconditionFailed(rootItemId, outcome.currentVersion, outcome.currentFingerprint)
                 }
@@ -219,10 +231,8 @@ class ConfigService(
             return ConfigValidateResult.Checked(validation.errors, validation.warnings, diff = null)
         }
 
-        val headRoot =
-            legacyReadFault({ return ConfigValidateResult.RepositoryError(it) }) {
-                get(rootItemId)?.let { headRoot(it) }
-            }
+        // A head read fault propagates as PerRootConfigUnavailableException (unavailable), never internal.
+        val headRoot = get(rootItemId)?.let { headRoot(it) }
         return ConfigValidateResult.Checked(
             errors = emptyList(),
             warnings = validation.warnings,
@@ -253,27 +263,54 @@ class ConfigService(
     suspend fun get(
         rootItemId: UUID,
         version: Int? = null,
-    ): ConfigVersion? {
-        val store = repositoryProvider.configStore()
-        if (version != null) return store.versionAt(ConfigScope.ROOT, rootItemId, version)
-        val head = store.head(ConfigScope.ROOT, rootItemId) ?: return null
-        if (head.source == ConfigVersionSource.RESET) return null
-        return store.version(head.versionId)
-    }
+    ): ConfigVersion? =
+        rootConfigRead(rootItemId) {
+            val store = repositoryProvider.configStore()
+            if (version != null) return@rootConfigRead store.versionAt(ConfigScope.ROOT, rootItemId, version)
+            val head = store.head(ConfigScope.ROOT, rootItemId) ?: return@rootConfigRead null
+            if (head.source == ConfigVersionSource.RESET) null else store.version(head.versionId)
+        }
 
     /** Versions of [rootItemId]'s config, newest first; [before] is an exclusive upper bound on the version. */
     suspend fun history(
         rootItemId: UUID,
         limit: Int = DEFAULT_HISTORY_LIMIT,
         before: Int? = null,
-    ): List<ConfigVersion> = repositoryProvider.configStore().history(ConfigScope.ROOT, rootItemId, limit, before)
+    ): List<ConfigVersion> =
+        rootConfigRead(rootItemId) {
+            repositoryProvider.configStore().history(ConfigScope.ROOT, rootItemId, limit, before)
+        }
 
     /** The head version number of [rootItemId]'s config, or null when it has none. */
-    suspend fun headVersion(rootItemId: UUID): Int? = repositoryProvider.configStore().head(ConfigScope.ROOT, rootItemId)?.version
+    suspend fun headVersion(rootItemId: UUID): Int? =
+        rootConfigRead(rootItemId) { repositoryProvider.configStore().head(ConfigScope.ROOT, rootItemId)?.version }
+
+    /**
+     * Runs [block], a store read of [rootItemId]'s config. A thrown store fault becomes the typed transient
+     * [PerRootConfigUnavailableException] (`unavailable`), the same split as [serverHead]: a config read fault is
+     * never an untyped `internal` (Q17).
+     */
+    private inline fun <T> rootConfigRead(
+        rootItemId: UUID,
+        block: () -> T,
+    ): T =
+        try {
+            block()
+        } catch (e: PerRootConfigUnavailableException) {
+            throw e
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            throw PerRootConfigUnavailableException(rootItemId, "Config of root $rootItemId is temporarily unavailable (read failed)", e)
+        }
+
+    /** The `unavailable` a write unit returns for a config head it could not read (rolled back, never `internal`). */
+    private fun headReadFault(e: PerRootConfigUnavailableException): DomainError =
+        DomainError(ErrorCode.UNAVAILABLE, e.message, ErrorDetail.Unavailable(HEAD_READ_RETRY_MS))
 
     /**
      * Appends a copy of version [toVersion] as the new head with source `rollback`. A target equal to the head
-     * writes nothing and reports `appended = false`. A target whose `canonical_json` is still NULL is canonicalized
+     * writes nothing and reports `appended = false`. A target that is a RESET version appends a RESET (or writes
+     * nothing when the head is already a reset): same as [reset], so the root falls through to the server layer. A target whose `canonical_json` is still NULL is canonicalized
      * first, in the same unit.
      */
     suspend fun rollback(
@@ -289,10 +326,60 @@ class ConfigService(
             "ConfigService.rollback",
             onFault = { ConfigRollbackResult.RepositoryError(it) }
         ) {
-            val head = store.head(ConfigScope.ROOT, rootItemId)
-            val target = store.versionAt(ConfigScope.ROOT, rootItemId, toVersion)
+            val (head, target) =
+                try {
+                    rootConfigRead(rootItemId) {
+                        store.head(ConfigScope.ROOT, rootItemId) to store.versionAt(ConfigScope.ROOT, rootItemId, toVersion)
+                    }
+                } catch (e: PerRootConfigUnavailableException) {
+                    return@writeUnit UnitResult.Rollback(ConfigRollbackResult.RepositoryError(headReadFault(e)))
+                }
             if (head == null || target == null) {
                 return@writeUnit UnitResult.Commit(ConfigRollbackResult.NotFound(rootItemId, toVersion))
+            }
+            if (target.source == ConfigVersionSource.RESET) {
+                // A reset version means "no per-root config": rolling back to it is a reset, not a copy of its empty content.
+                if (head.source == ConfigVersionSource.RESET) {
+                    if (expectedVersion != null &&
+                        expectedVersion != head.version ||
+                        expectedFingerprint != null &&
+                        expectedFingerprint != head.fingerprint
+                    ) {
+                        return@writeUnit UnitResult.Commit(
+                            ConfigRollbackResult.PreconditionFailed(rootItemId, head.version, head.fingerprint)
+                        )
+                    }
+                    val headVersion = store.version(head.versionId) ?: target
+                    return@writeUnit UnitResult.Commit(ConfigRollbackResult.Success(headVersion, appended = false))
+                }
+                val resetOutcome =
+                    store.append(
+                        scope = ConfigScope.ROOT,
+                        rootId = rootItemId,
+                        append = resetAppend(principalId, reqId),
+                        expectedVersion = expectedVersion,
+                        expectedFingerprint = expectedFingerprint,
+                        rejectSuperseded = false,
+                        now = now,
+                    )
+                return@writeUnit UnitResult.Commit(
+                    when (resetOutcome) {
+                        is ConfigAppendOutcome.Applied -> {
+                            if (resetOutcome.appended) events.record(createdEvent(resetOutcome.version))
+                            ConfigRollbackResult.Success(resetOutcome.version, resetOutcome.appended)
+                        }
+                        is ConfigAppendOutcome.PreconditionFailed ->
+                            ConfigRollbackResult.PreconditionFailed(
+                                rootItemId,
+                                resetOutcome.currentVersion,
+                                resetOutcome.currentFingerprint
+                            )
+                        is ConfigAppendOutcome.Superseded ->
+                            ConfigRollbackResult.RepositoryError(
+                                DomainError(ErrorCode.INTERNAL, "Rollback append was unexpectedly rejected as superseded")
+                            )
+                    }
+                )
             }
             val canonical =
                 target.canonicalJson ?: run {
@@ -355,7 +442,12 @@ class ConfigService(
         val principalId = currentEventActor()?.id
         val reqId = currentCallTelemetry()?.reqId
         return unitOfWork.write("ConfigService.reset") {
-            val head = store.head(ConfigScope.ROOT, rootItemId)
+            val head =
+                try {
+                    rootConfigRead(rootItemId) { store.head(ConfigScope.ROOT, rootItemId) }
+                } catch (e: PerRootConfigUnavailableException) {
+                    return@write Outcome.Err(headReadFault(e))
+                }
             if (head == null || head.source == ConfigVersionSource.RESET) {
                 return@write Outcome.Ok(false)
             }
@@ -363,17 +455,7 @@ class ConfigService(
                 store.append(
                     scope = ConfigScope.ROOT,
                     rootId = rootItemId,
-                    append =
-                        ConfigAppend(
-                            yaml = "",
-                            fingerprint = store.computeFingerprint(""),
-                            canonicalJson = CanonicalConfigJson.encode(null),
-                            modelVersion = CanonicalConfigJson.MODEL_VERSION,
-                            source = ConfigVersionSource.RESET,
-                            principalId = principalId,
-                            reqId = reqId,
-                            warnings = emptyList(),
-                        ),
+                    append = resetAppend(principalId, reqId),
                     now = now,
                 )
             if (outcome is ConfigAppendOutcome.Applied && outcome.appended) {
@@ -382,6 +464,22 @@ class ConfigService(
             Outcome.Ok(outcome is ConfigAppendOutcome.Applied && outcome.appended)
         }
     }
+
+    /** The empty RESET version shared by [reset] and a [rollback] whose target is a reset. */
+    private fun resetAppend(
+        principalId: String?,
+        reqId: String?,
+    ): ConfigAppend =
+        ConfigAppend(
+            yaml = "",
+            fingerprint = repositoryProvider.configStore().computeFingerprint(""),
+            canonicalJson = CanonicalConfigJson.encode(null),
+            modelVersion = CanonicalConfigJson.MODEL_VERSION,
+            source = ConfigVersionSource.RESET,
+            principalId = principalId,
+            reqId = reqId,
+            warnings = emptyList(),
+        )
 
     /**
      * Classifies [fingerprint] against [rootItemId]'s stored state and returns the lowercase [FingerprintRelation]
@@ -567,6 +665,9 @@ class ConfigService(
     }
 
     companion object {
+        /** Retry hint (ms) of the `unavailable` a config head read fault answers with. */
+        private const val HEAD_READ_RETRY_MS = 1000L
+
         /** `configYaml` size limit for `push`, in KiB — see [MAX_CONFIG_YAML_BYTES]. */
         private const val MAX_CONFIG_YAML_KIB = 128
 
@@ -674,10 +775,16 @@ sealed class ConfigPushResult {
         val embeddedRootId: UUID
     ) : ConfigPushResult()
 
-    /** The content's fingerprint is known-old (SUPERSEDED); rejected unless `force`. [currentUpdatedAt] = head's creation time. */
+    /**
+     * The content's fingerprint is known-old (SUPERSEDED); rejected unless `force`. [currentUpdatedAt] = head's creation
+     * time, [currentVersion] the head's version, [matchedVersion] the newest stored version with that content (0 when
+     * only the pre-versioning history knew it).
+     */
     data class Superseded(
         val rootItemId: UUID,
-        val currentUpdatedAt: Instant
+        val currentUpdatedAt: Instant,
+        val matchedVersion: Int = 0,
+        val currentVersion: Int = 0
     ) : ConfigPushResult()
 
     /** A supplied expected version / fingerprint did not match the head at the point of the write. Not skipped by `force`. */
