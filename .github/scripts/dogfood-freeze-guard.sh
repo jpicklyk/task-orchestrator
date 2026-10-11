@@ -2,8 +2,10 @@
 # Dogfood freeze guard (v4 plan 2, F19).
 #
 # While 4.0 is developed on release/4.0, the live dogfood config and the global process-schema floor stay as
-# main has them: they are the 3.x-format files the running server and the plugin hooks read today. Only the
-# periodic main->release/4.0 sync PR (head branch 4.0/sync-main-*) may change them.
+# main has them: they are the 3.x-format files the running server and the plugin hooks read today. There is no
+# main->release/4.0 merge sync (3.x fixes land on release/4.0 as parallel twin PRs), so the only exemption is an
+# explicit hatch: a head branch named 4.0/sync-main-*, for a twin PR that must mirror a main-side change to
+# these files. Use it only for that.
 #
 # Usage: dogfood-freeze-guard.sh <base-branch> <head-branch>   (changed paths, one per line, on stdin)
 #
