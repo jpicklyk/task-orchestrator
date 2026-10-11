@@ -470,7 +470,18 @@ class ItemDeleteRecursiveSqliteRouteTest {
                 }
             assertEquals(HttpStatusCode.OK, childrenResponse.status)
             val childrenJson = Json.parseToJsonElement(childrenResponse.bodyAsText()).jsonObject
-            assertEquals(0L, childrenJson["totalItems"]?.jsonPrimitive?.content?.toLong())
+            // The items_read list envelope since Q19: data.page.total.
+            assertEquals(
+                0L,
+                childrenJson["data"]
+                    ?.jsonObject
+                    ?.get("page")
+                    ?.jsonObject
+                    ?.get("total")
+                    ?.jsonPrimitive
+                    ?.content
+                    ?.toLong()
+            )
         }
 
     // -----------------------------------------------------------------------

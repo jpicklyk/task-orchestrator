@@ -90,7 +90,6 @@ fun Application.configureWriteTestApp(
             }
             // READ routes too (for asserting persisted state)
             itemRoutes(repo)
-            noteRoutes(repo)
             // WRITE routes under test
             val perRoot = PerRootConfigService(repo.configStore())
             val toolContext =

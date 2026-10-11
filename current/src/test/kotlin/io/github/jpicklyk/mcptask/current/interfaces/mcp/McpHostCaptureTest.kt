@@ -260,7 +260,7 @@ class McpHostCaptureTest {
     fun `S2 a 3x tool call records the normalized clientInfo name as call_log host`(): Unit =
         runBlocking {
             val client = attach(server3x(), "Claude Code")
-            val result = client.call("query_items", "operation" to jstr("overview"))
+            val result = client.call("get_context")
             val reqId = reqIdOf(result)
 
             val row = flush().single()
@@ -288,9 +288,9 @@ class McpHostCaptureTest {
             val blank = attach(server, "   ")
             val empty = attach(server, "")
             val control = attach(server, "Named")
-            val rb = blank.call("query_items", "operation" to jstr("overview"))
-            val re = empty.call("query_items", "operation" to jstr("overview"))
-            val rc = control.call("query_items", "operation" to jstr("overview"))
+            val rb = blank.call("get_context")
+            val re = empty.call("get_context")
+            val rc = control.call("get_context")
             val rows = flush().associateBy { it["req_id"] }
             assertNull(rows.getValue(reqIdOf(rb))["host"], "blank name")
             assertNull(rows.getValue(reqIdOf(re))["host"], "empty name")
@@ -303,8 +303,8 @@ class McpHostCaptureTest {
             val server = server3x()
             val dirty = attach(server, "  Pi\u0000-Agent\t ")
             val long = attach(server, "X".repeat(70))
-            val rd = dirty.call("query_items", "operation" to jstr("overview"))
-            val rl = long.call("query_items", "operation" to jstr("overview"))
+            val rd = dirty.call("get_context")
+            val rl = long.call("get_context")
             val rows = flush().associateBy { it["req_id"] }
             assertEquals("pi-agent", rows.getValue(reqIdOf(rd))["host"], "N2 removes NUL and tab, N3 trims, N4 lowercases")
             assertEquals("x".repeat(64), rows.getValue(reqIdOf(rl))["host"], "N5 keeps the first 64")
@@ -388,7 +388,7 @@ class McpHostCaptureTest {
                 client: Client,
                 host: String
             ) {
-                expected[reqIdOf(client.call("query_items", "operation" to jstr("overview")))] = host
+                expected[reqIdOf(client.call("get_context"))] = host
             }
             go(alpha, "alpha")
             go(beta, "beta")
@@ -399,7 +399,7 @@ class McpHostCaptureTest {
                     .map { i ->
                         async {
                             val even = i % 2 == 0
-                            reqIdOf((if (even) alpha else beta).call("query_items", "operation" to jstr("overview"))) to
+                            reqIdOf((if (even) alpha else beta).call("get_context")) to
                                 (if (even) "alpha" else "beta")
                         }
                     }.awaitAll()
@@ -449,8 +449,8 @@ class McpHostCaptureTest {
             val server = server3x()
             val one = attach(server, "Same Name")
             val two = attach(server, "same name")
-            val r1 = one.call("query_items", "operation" to jstr("overview"))
-            val r2 = two.call("query_items", "operation" to jstr("overview"))
+            val r1 = one.call("get_context")
+            val r2 = two.call("get_context")
             val rows = flush().associateBy { it["req_id"] }
             assertEquals("same name", rows.getValue(reqIdOf(r1))["host"])
             assertEquals("same name", rows.getValue(reqIdOf(r2))["host"])
@@ -542,9 +542,9 @@ class McpHostCaptureTest {
             val item = rig.seed("S13 read")
             val x = attach(server, "x")
             val y = attach(server, "y")
-            val args = arrayOf("operation" to jstr("get"), "itemId" to jstr(item.id.toString()))
-            val rx = x.call("query_items", *args)
-            val ry = y.call("query_items", *args)
+            val args = arrayOf("itemId" to jstr(item.id.toString()))
+            val rx = x.call("get_context", *args)
+            val ry = y.call("get_context", *args)
             assertNotEquals(reqIdOf(rx), reqIdOf(ry), "fixture: each call has its own reqId")
             assertTrue(
                 rx.structuredContent.toString().contains("S13 read"),
@@ -659,7 +659,7 @@ class McpHostCaptureTest {
         val response =
             rpc(
                 sessionId,
-                """{"jsonrpc":"2.0","id":$id,"method":"tools/call","params":{"name":"query_items","arguments":{"operation":"overview"}}}"""
+                """{"jsonrpc":"2.0","id":$id,"method":"tools/call","params":{"name":"get_context","arguments":{}}}"""
             )
         val text = response.bodyAsText()
         val payload =
