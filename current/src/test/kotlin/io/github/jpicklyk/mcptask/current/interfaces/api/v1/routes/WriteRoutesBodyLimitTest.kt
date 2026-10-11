@@ -40,7 +40,6 @@ import kotlin.test.assertTrue
  * exactly-at-cap body (constructed once, reused nowhere else) on the most central route.
  */
 private const val MAX_CONFIG_YAML_BYTES = 131_072 // ConfigService.MAX_CONFIG_YAML_BYTES — unchanged by this item
-private const val MAX_PLAN_DOCUMENT_BODY_BYTES = 65_536 // PlanDocumentService.MAX_BODY_BYTES — unchanged by this item
 
 /** A declared length that disagrees with what [actualBytes] really delivers. */
 private class RouteMismatchedLengthContent(
@@ -144,12 +143,11 @@ class WriteRoutesBodyLimitTest {
             assertEquals("Patch Target", persisted!!.title, "PATCH body must never have been applied")
         }
 
-    // S6 regression, folded into the same wiring proof: the 2 ALREADY-capped routes keep their
-    // own unchanged numeric cap and now also go through receiveBounded (same shared shape).
-    // The existing "over the size cap returns 413" tests in ProjectConfigRoutesTest.kt:245 and
-    // PlanDocumentRoutesTest.kt:174 already assert the numeric-cap regression with an accurate
-    // Content-Length; these two assert the SAME caps via a lying Content-Length, proving the new
-    // receiveBounded wiring reached these routes too without disturbing their cap values.
+    // S6 regression, folded into the same wiring proof: the ALREADY-capped config route keeps its
+    // own unchanged numeric cap and now also goes through receiveBounded (same shared shape).
+    // The existing "over the size cap returns 413" test in ProjectConfigRoutesTest.kt:245 already
+    // asserts the numeric-cap regression with an accurate Content-Length; this one asserts the SAME
+    // cap via a lying Content-Length, proving the new receiveBounded wiring reached the route too.
 
     @Test
     fun `PUT roots rootId config with an overstated Content-Length is rejected 413`(): Unit =
@@ -174,31 +172,6 @@ class WriteRoutesBodyLimitTest {
             assertTrue(response.bodyAsText().contains("payload_too_large"))
             val persisted = runBlocking { repo.configStore().get(root.id) }
             assertTrue(persisted == null, "oversized payload must never be stored")
-        }
-
-    @Test
-    fun `PUT roots rootId plans slug with an overstated Content-Length is rejected 413`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val root = createRoot(repo)
-            application { configurePlanDocumentTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            val response =
-                client.put("/api/v1/roots/${root.id}/plans/plan-a") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    setBody(
-                        RouteMismatchedLengthContent(
-                            contentLength = MAX_PLAN_DOCUMENT_BODY_BYTES + 1L,
-                            contentType = ContentType.Text.Plain,
-                            actualBytes = byteArrayOf('x'.code.toByte()),
-                        ),
-                    )
-                }
-
-            assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
-            assertTrue(response.bodyAsText().contains("payload_too_large"))
-            val persisted = runBlocking { repo.planDocumentRepository().get(root.id, "plan-a") }
-            assertTrue(persisted == null)
         }
 
     // S4 (edge, NEW-SURFACE): the exact-at-cap acceptance boundary, proven ONCE at real

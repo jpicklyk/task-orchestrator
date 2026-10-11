@@ -6,6 +6,8 @@ import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLo
 import io.github.jpicklyk.mcptask.current.application.config.LayeredConfig
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
+import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService
+import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
 import io.github.jpicklyk.mcptask.current.application.port.BodySource
 import io.github.jpicklyk.mcptask.current.application.port.Clock
@@ -143,6 +145,12 @@ class ToolExecutionContext(
 
     /** The plan-document write owner (stash, and the adoption `create_work_tree` runs in its unit). */
     val planDocumentService: PlanDocumentService by lazy { PlanDocumentService(repositoryProvider, unitOfWork) }
+
+    /** The document write owner, shared by `docs_write`. Lazy for the same reason as [advanceServiceFactoryLazy]. */
+    val documentService: DocumentService by lazy { DocumentService(repositoryProvider, unitOfWork) }
+
+    /** The link write owner (attach and detach), shared by `docs_write`. Lazy for the same reason as [advanceServiceFactoryLazy]. */
+    val linkService: LinkService by lazy { LinkService(repositoryProvider, unitOfWork) }
 
     /**
      * Full-text search over items and notes, built from [RepositoryProvider.searchIndex] on first use (a provider

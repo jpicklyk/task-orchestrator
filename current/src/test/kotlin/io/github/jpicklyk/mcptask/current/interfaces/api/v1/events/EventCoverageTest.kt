@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
@@ -708,7 +707,7 @@ class EventCoverageTest {
         }
 
     @Test
-    fun `S6 manage_project_config push and manage_plan_documents stash record config and plan document rows`(
+    fun `S6 manage_project_config push and a plan document stash record config and plan document rows`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -733,13 +732,7 @@ class EventCoverageTest {
 
             val (_, plans) =
                 rig.written {
-                    rig.callOk(
-                        ManagePlanDocumentsTool(),
-                        "operation" to JsonPrimitive("stash"),
-                        "rootId" to JsonPrimitive(root.id.toString()),
-                        "slug" to JsonPrimitive("p8-plan"),
-                        "body" to JsonPrimitive("A plan body."),
-                    )
+                    rig.ctx.planDocumentService.stash(root.id, "p8-plan", "A plan body.")
                 }
             val stashed = plans.single()
             assertEquals("document.created", stashed.type)
@@ -958,13 +951,7 @@ class EventCoverageTest {
             val project = rig.seed("adoption project root")
             val (_, stashRows) =
                 rig.written {
-                    rig.callOk(
-                        ManagePlanDocumentsTool(),
-                        "operation" to JsonPrimitive("stash"),
-                        "rootId" to JsonPrimitive(project.id.toString()),
-                        "slug" to JsonPrimitive("r2-plan"),
-                        "body" to JsonPrimitive("# Overview - a plan body."),
-                    )
+                    rig.ctx.planDocumentService.stash(project.id, "r2-plan", "# Overview - a plan body.")
                 }
             val stashed = stashRows.single { it.type == "document.created" }
 
@@ -1159,13 +1146,6 @@ class EventCoverageTest {
                             "rootId" to JsonPrimitive(root.id.toString()),
                             "configYaml" to JsonPrimitive(EventLogRig.GATED_CONFIG),
                         ),
-                    "manage_plan_documents" to
-                        arrayOf(
-                            "operation" to JsonPrimitive("stash"),
-                            "rootId" to JsonPrimitive(root.id.toString()),
-                            "slug" to JsonPrimitive("s17"),
-                            "body" to JsonPrimitive("s17 body"),
-                        ),
                 )
             assertEquals(WRITE_TOOLS_COVERED.keys, perTool.keys, "the scenario table must cover exactly the covered write tools")
             for ((name, params) in perTool) {
@@ -1232,7 +1212,6 @@ class EventCoverageTest {
                 "complete_tree" to setOf("item.transitioned"),
                 "create_work_tree" to setOf("item.created"),
                 "manage_project_config" to setOf("config.version_created"),
-                "manage_plan_documents" to setOf("document.created", "document.updated"),
             )
 
         /** Tools that never mutate store state; each is exercised and must leave the log untouched. */

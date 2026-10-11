@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.config
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentStashResult
 import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
@@ -21,6 +22,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
@@ -97,20 +99,12 @@ class QueryRulesToolTest {
         slug: String,
         body: String,
     ): JsonObject {
-        val result =
-            runBlocking {
-                ManagePlanDocumentsTool().execute(
-                    params(
-                        "operation" to JsonPrimitive("stash"),
-                        "rootId" to JsonPrimitive(rootId.toString()),
-                        "slug" to JsonPrimitive(slug),
-                        "body" to JsonPrimitive(body),
-                    ),
-                    context,
-                )
-            } as JsonObject
-        assertTrue(result["success"]!!.jsonPrimitive.boolean, "fixture stash failed: $result")
-        return result
+        val stashed = runBlocking { context.planDocumentService.stash(rootId, slug, body) }
+        assertTrue(stashed is PlanDocumentStashResult.Success, "fixture stash failed: $stashed")
+        return buildJsonObject {
+            put("success", true)
+            put("data", buildJsonObject { put("contentHash", (stashed as PlanDocumentStashResult.Success).document.contentHash) })
+        }
     }
 
     /** Fixture setup that bypasses the tool surface, for scenarios where stash mechanics aren't the oracle under test. */

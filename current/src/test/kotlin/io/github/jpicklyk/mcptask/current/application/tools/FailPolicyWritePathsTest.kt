@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
@@ -12,7 +12,6 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.OutsideUnitPolic
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.ADMIN_TOKEN
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.WRITE_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeWriteAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
@@ -21,11 +20,8 @@ import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.delete
 import io.ktor.client.request.header
 import io.ktor.client.request.put
-import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -53,8 +49,7 @@ import kotlin.test.assertTrue
 
 /**
  * Write paths that no other test runs under the production [OutsideUnitPolicy.FAIL]: `complete_tree`,
- * `manage_plan_documents` stash (MCP) and `PUT /roots/{rootId}/plans/{slug}` (REST), `claim_item` claim and
- * release, and the operator lease force-release `DELETE /resources/leases/{key}`. Each runs over a REAL
+ * the document write, `claim_item` claim and release, and the operator lease force-release `DELETE /resources/leases/{key}`. Each runs over a REAL
  * [ServerComposition] whose database refuses any store write outside a unit of work, so a write site that
  * escapes its unit fails here instead of only in production. Fixtures are seeded inside a unit.
  *
@@ -150,57 +145,27 @@ class FailPolicyWritePathsTest {
         }
 
     @Test
-    fun `manage_plan_documents stash commits under the FAIL policy`(
+    fun `document write commits under the FAIL policy`(
         @TempDir tempDir: Path
     ): Unit =
         runBlocking {
             val composition = buildComposition(tempDir)
-            val root = composition.seedItem("FAIL plan-doc MCP root")
+            val root = composition.seedItem("FAIL plan-doc root")
 
-            val result =
-                ManagePlanDocumentsTool().execute(
-                    buildJsonObject {
-                        put("operation", "stash")
-                        put("rootId", root.id.toString())
-                        put("slug", "fail-policy-mcp")
-                        put("body", "A plan document stashed under the FAIL policy.")
-                    },
-                    composition.toolContext
+            val written =
+                composition.toolContext.documentService.write(
+                    root.id,
+                    DocumentKind.PLAN,
+                    "fail-policy-doc",
+                    "A plan document written under the FAIL policy."
                 )
 
-            assertSuccess(result)
+            assertTrue(written is Outcome.Ok, "the write must succeed: $written")
             assertNotNull(
                 composition.toolContext.repositoryProvider
-                    .planDocumentRepository()
-                    .get(root.id, "fail-policy-mcp"),
-                "the stashed document must be persisted: $result"
-            )
-        }
-
-    @Test
-    fun `PUT plans commits under the FAIL policy`(
-        @TempDir tempDir: Path
-    ): Unit =
-        testApplication {
-            val composition = buildComposition(tempDir)
-            val root = runBlocking { composition.seedItem("FAIL plan-doc REST root") }
-            application { configureProductionApp(composition) }
-
-            val response =
-                client.put("/api/v1/roots/${root.id}/plans/fail-policy-rest") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Text.Plain)
-                    setBody("A plan document pushed under the FAIL policy.")
-                }
-
-            assertEquals(HttpStatusCode.OK, response.status, "body: ${response.bodyAsText()}")
-            assertNotNull(
-                runBlocking {
-                    composition.toolContext.repositoryProvider
-                        .planDocumentRepository()
-                        .get(root.id, "fail-policy-rest")
-                },
-                "the pushed document must be persisted"
+                    .documentStore()
+                    .get(root.id, DocumentKind.PLAN, "fail-policy-doc"),
+                "the written document must be persisted"
             )
         }
 
