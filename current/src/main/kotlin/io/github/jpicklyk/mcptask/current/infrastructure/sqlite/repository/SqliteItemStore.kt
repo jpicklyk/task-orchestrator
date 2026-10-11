@@ -305,7 +305,10 @@ class SqliteItemStore(
                 WorkItemsTable
                     .select(WorkItemsTable.id, WorkItemsTable.role)
                     .where { WorkItemsTable.id inList chunk.map { EntityID(it, WorkItemsTable) } }
-                    .forEach { row -> roles[row[WorkItemsTable.id].value] = Role.fromString(row[WorkItemsTable.role]) ?: Role.QUEUE }
+                    .forEach { row ->
+                        roles[row[WorkItemsTable.id].value] =
+                            row[WorkItemsTable.role]?.let { Role.fromString(it) } ?: Role.QUEUE
+                    }
             }
             roles
         }
@@ -336,7 +339,7 @@ class SqliteItemStore(
                 .groupBy(WorkItemsTable.parentId, WorkItemsTable.role)
                 .forEach { row ->
                     val parent = row[WorkItemsTable.parentId] ?: return@forEach
-                    val role = Role.fromString(row[WorkItemsTable.role]) ?: Role.QUEUE
+                    val role = row[WorkItemsTable.role]?.let { Role.fromString(it) } ?: Role.QUEUE
                     val counts = result.getOrPut(parent) { mutableMapOf() }
                     counts[role] = (counts[role] ?: 0) + row[total].toInt()
                 }
@@ -502,7 +505,8 @@ class SqliteItemStore(
             .where { condition }
             .groupBy(WorkItemsTable.role)
             .forEach { row ->
-                val role = Role.fromString(row[WorkItemsTable.role]) ?: Role.QUEUE
+                // role is nullable since V26; Q31a replaces this fallback with Role?.
+                val role = row[WorkItemsTable.role]?.let { Role.fromString(it) } ?: Role.QUEUE
                 counts[role] = (counts[role] ?: 0) + row[total].toInt()
             }
         return counts
