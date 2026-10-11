@@ -67,7 +67,7 @@ class ItemsWriteRegistrationTest {
     @Test
     fun `S18 manage_items is gone from the MCP tool list while other tools remain`() {
         val names = buildMcpTools().map { it.name }
-        assertTrue(names.isNotEmpty() && "advance_item" in names, "control: the list still holds other tools: $names")
+        assertTrue(names.isNotEmpty() && "complete_tree" in names, "control: the list still holds other tools: $names")
         assertTrue("manage_items" !in names, "manage_items must not be registered: $names")
     }
 
@@ -129,11 +129,11 @@ class ItemsWriteRegistrationTest {
             )
             assertEquals(before, IwKit(rig).snapshot(), "the removed write routes changed no table (AC1, C1)")
             val advance =
-                client.post("/api/v1/items/${item.id}/advance") {
+                client.post("/api/v1/ops/advance") {
                     auth()
-                    setBody("""{"trigger":"start"}""")
+                    setBody("""{"ops":[{"op":"transition","itemId":"${item.id}","trigger":"start"}]}""")
                 }
-            assertNotEquals(404, advance.status.value, "control: POST /items/{id}/advance is still routed for an existing item")
+            assertNotEquals(404, advance.status.value, "control: POST /ops/advance is routed for an existing item")
             assertEquals(1, kotlinx.coroutines.runBlocking { IwKit(rig).all().size }, "the 404 routes did not touch the item")
         }
     }
