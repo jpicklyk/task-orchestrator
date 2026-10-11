@@ -45,15 +45,16 @@ import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Independent P5b REST tests (item c01d2e90): S4 (409 version_conflict), S5 (write fault -> 500 db_error with the
  * route's text, nothing written) and S9 (read fault -> 500 db_error, GET by id is NOT a 404).
  *
  * Oracles (PART A "legacy wire shapes at BASE", carry-in F4/F5):
- *  - GET /items fault: 500, `{"error":"db_error","message":"Database query failed"}`.
+ *  - GET /items/{id} fault (the items_read envelope since Q19): 500, never not_found.
  *  - POST /items fault: 500, error `db_error`, message `Failed to create item`.
  *  - PATCH fault: 500, error `db_error`, message `Failed to update item`.
  *  - PATCH lost optimistic lock: 409, error `version_conflict`, message
@@ -238,24 +239,7 @@ class P5bRouteFaultTest {
 
     // ---------------------------------------------------------------- S9
     @Test
-    fun `S9 GET items on a read fault returns 500 db_error Database query failed`(): Unit =
-        testApplication {
-            runBlocking { db.repositoryProvider().workItemRepository().create(WorkItem(title = "REST read", depth = 0)) }
-            application { configureWriteTestApp(db.repositoryProvider(), unitOfWork = db.unitOfWork()) }
-            val healthy = client.get("/api/v1/items") { header("Authorization", "Bearer $TEST_TOKEN") }
-            assertEquals(HttpStatusCode.OK, healthy.status, "control: the list works before the fault")
-
-            rawExec("ALTER TABLE work_items RENAME TO work_items_gone")
-            val response = client.get("/api/v1/items") { header("Authorization", "Bearer $TEST_TOKEN") }
-
-            val body = response.bodyAsText()
-            assertEquals(HttpStatusCode.InternalServerError, response.status, body)
-            assertEquals("db_error", errorOf(body)["error"]!!.jsonPrimitive.content, body)
-            assertEquals("Database query failed", errorOf(body)["message"]!!.jsonPrimitive.content, body)
-        }
-
-    @Test
-    fun `S9 GET items by id on a read fault returns 500 db_error and never 404`(): Unit =
+    fun `S9 GET items by id on a read fault returns 500 and never 404`(): Unit =
         testApplication {
             val item = runBlocking { db.repositoryProvider().workItemRepository().create(WorkItem(title = "REST read one", depth = 0)) }
             application { configureWriteTestApp(db.repositoryProvider(), unitOfWork = db.unitOfWork()) }
@@ -267,7 +251,7 @@ class P5bRouteFaultTest {
 
             val body = response.bodyAsText()
             assertEquals(HttpStatusCode.InternalServerError, response.status, "F4: not-found only for a null row, never for a fault: $body")
-            assertEquals("db_error", errorOf(body)["error"]!!.jsonPrimitive.content, body)
+            assertFalse("not_found" in body, "a store fault is never answered as not_found: $body") // 4.0 envelope since Q19
         }
 
     @Test
@@ -276,6 +260,6 @@ class P5bRouteFaultTest {
             application { configureWriteTestApp(db.repositoryProvider(), unitOfWork = db.unitOfWork()) }
             val response = client.get("/api/v1/items/${UUID.randomUUID()}") { header("Authorization", "Bearer $TEST_TOKEN") }
             assertEquals(HttpStatusCode.NotFound, response.status, response.bodyAsText())
-            assertNull(errorOf(response.bodyAsText())["error"]?.takeIf { it.jsonPrimitive.content == "db_error" })
+            assertTrue("\"not_found\"" in response.bodyAsText(), "the items_read get envelope names not_found: ${response.bodyAsText()}")
         }
 }

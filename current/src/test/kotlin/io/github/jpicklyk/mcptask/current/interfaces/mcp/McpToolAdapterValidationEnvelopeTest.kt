@@ -10,7 +10,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
+import io.github.jpicklyk.mcptask.current.application.tools.notes.QueryNotesTool
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
@@ -316,10 +316,10 @@ class McpToolAdapterValidationEnvelopeTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S8 - real query_items with a non-boolean includeAncestors maps to VALIDATION_ERROR naming the parameter`(): Unit =
+    fun `S8 - real query_notes with a non-boolean includeBody maps to VALIDATION_ERROR naming the parameter`(): Unit =
         runBlocking {
             adapter.registerToolWithServer(server, ManageItemsTool(), dummyContext)
-            adapter.registerToolWithServer(server, QueryItemsTool(), dummyContext)
+            adapter.registerToolWithServer(server, QueryNotesTool(), dummyContext)
 
             val createResult =
                 client.callTool(
@@ -337,12 +337,12 @@ class McpToolAdapterValidationEnvelopeTest {
 
             val queryResult =
                 client.callTool(
-                    name = "query_items",
+                    name = "query_notes",
                     arguments =
                         mapOf(
-                            "operation" to "get",
+                            "operation" to "list",
                             "itemId" to itemId,
-                            "includeAncestors" to 42
+                            "includeBody" to 42
                         )
                 )
 
@@ -356,14 +356,14 @@ class McpToolAdapterValidationEnvelopeTest {
                     ?.jsonPrimitive
                     ?.content
                     .orEmpty()
-                    .contains("includeAncestors"),
+                    .contains("includeBody"),
                 "Error message should name the offending parameter: ${error["message"]}"
             )
 
             val textContent = queryResult.content.filterIsInstance<TextContent>()
             assertTrue(textContent.isNotEmpty())
             assertTrue(
-                textContent[0].text.startsWith("Validation error in 'query_items':"),
+                textContent[0].text.startsWith("Validation error in 'query_notes':"),
                 "Expected a validation-error prefix, not an Internal error, got: ${textContent[0].text}"
             )
         }

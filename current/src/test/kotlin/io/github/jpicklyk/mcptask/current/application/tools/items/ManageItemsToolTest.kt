@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.ItemGetProbe
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.BeforeEach
@@ -770,7 +771,7 @@ class ManageItemsToolTest {
             )
 
             // Verify via query_items get
-            val queryTool = QueryItemsTool()
+            val queryTool = ItemGetProbe()
             val getResult =
                 queryTool.execute(
                     params(
@@ -880,7 +881,7 @@ class ManageItemsToolTest {
             assertEquals(1, (updateResult["data"] as JsonObject)["updated"]!!.jsonPrimitive.int)
 
             // Verify depth is still 1 (moved from one root to another)
-            val queryTool = QueryItemsTool()
+            val queryTool = ItemGetProbe()
             val getResult =
                 queryTool.execute(
                     params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(childId)),
@@ -916,7 +917,7 @@ class ManageItemsToolTest {
             }
 
             suspend fun depthOf(itemId: String): Int {
-                val queryTool = QueryItemsTool()
+                val queryTool = ItemGetProbe()
                 val getResult =
                     queryTool.execute(
                         params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(itemId)),
@@ -984,7 +985,7 @@ class ManageItemsToolTest {
             }
 
             suspend fun depthOf(itemId: String): Int {
-                val queryTool = QueryItemsTool()
+                val queryTool = ItemGetProbe()
                 val getResult =
                     queryTool.execute(
                         params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(itemId)),
@@ -1048,7 +1049,7 @@ class ManageItemsToolTest {
             }
 
             suspend fun depthOf(itemId: String): Int {
-                val queryTool = QueryItemsTool()
+                val queryTool = ItemGetProbe()
                 val getResult =
                     queryTool.execute(
                         params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(itemId)),
@@ -1155,7 +1156,7 @@ class ManageItemsToolTest {
             assertTrue(updateResult["success"]!!.jsonPrimitive.boolean)
 
             // Verify depth=0 and no parentId
-            val queryTool = QueryItemsTool()
+            val queryTool = ItemGetProbe()
             val getResult =
                 queryTool.execute(
                     params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(childId)),
@@ -1767,7 +1768,7 @@ class ManageItemsToolTest {
                     .jsonPrimitive.content
 
             // Verify via get
-            val queryTool = QueryItemsTool()
+            val queryTool = ItemGetProbe()
             val getResult =
                 queryTool.execute(
                     params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(itemId)),
@@ -1808,7 +1809,7 @@ class ManageItemsToolTest {
                     .jsonPrimitive.content
 
             // Verify via get
-            val queryTool = QueryItemsTool()
+            val queryTool = ItemGetProbe()
             val getResult =
                 queryTool.execute(
                     params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(itemId)),
@@ -1867,7 +1868,7 @@ class ManageItemsToolTest {
             assertEquals(1, (updateResult["data"] as JsonObject)["updated"]!!.jsonPrimitive.int)
 
             // Verify via get
-            val queryTool = QueryItemsTool()
+            val queryTool = ItemGetProbe()
             val getResult =
                 queryTool.execute(
                     params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(itemId)),
@@ -1930,7 +1931,7 @@ class ManageItemsToolTest {
             assertEquals("permanent", failure["errorKind"]!!.jsonPrimitive.content)
 
             // The stored type is untouched.
-            val queryTool = QueryItemsTool()
+            val queryTool = ItemGetProbe()
             val getResult =
                 queryTool.execute(
                     params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(itemId)),
@@ -2175,7 +2176,7 @@ class ManageItemsToolTest {
                     .jsonObject["id"]!!
                     .jsonPrimitive.content
 
-            val queryTool = QueryItemsTool()
+            val queryTool = ItemGetProbe()
             val getResult =
                 queryTool.execute(
                     params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(itemId)),
@@ -2237,7 +2238,7 @@ class ManageItemsToolTest {
             assertTrue(updateResult["success"]!!.jsonPrimitive.boolean)
 
             // Verify properties has both custom key and traits
-            val queryTool = QueryItemsTool()
+            val queryTool = ItemGetProbe()
             val getResult =
                 queryTool.execute(
                     params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(itemId)),
@@ -2256,7 +2257,7 @@ class ManageItemsToolTest {
         }
 
     private suspend fun traitsOf(itemId: String): List<String> {
-        val queryTool = QueryItemsTool()
+        val queryTool = ItemGetProbe()
         val getResult =
             queryTool.execute(
                 params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(itemId)),

@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.read
 import io.github.jpicklyk.mcptask.current.application.api.CursorCodec
 import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.api.PageRequest
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.ItemSlice
 import io.github.jpicklyk.mcptask.current.application.port.ReadScope
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
@@ -88,30 +89,31 @@ class WorkViewQueries(
         unitOfWork.read {
             val items = stores.itemStore()
             val page = request.page
+            val scope = request.scope
             when {
                 request.itemId != null -> {
                     val item = items.getById(request.itemId) ?: return@read OverviewView.NotFound(request.itemId)
-                    val slice = items.findChildrenPage(item.id, request.excludeTerminal, page.limit, page.offset)
+                    val slice = items.findChildrenPage(item.id, request.excludeTerminal, page.limit, page.offset, scope)
                     // One grouped count serves the item's own (unfiltered) child counts and each listed child's counts.
-                    val counts = items.countByParentAndRole(slice.items.map { it.id }.toSet() + item.id)
+                    val counts = items.countByParentAndRole(slice.items.map { it.id }.toSet() + item.id, scope)
                     val entries = slice.items.map { OverviewEntry(it, counts[it.id] ?: emptyMap()) }
                     OverviewView.Scoped(item, counts[item.id] ?: emptyMap(), pageOf(entries, slice.total, page))
                 }
 
                 request.anchorId != null -> {
                     val anchor = items.getById(request.anchorId) ?: return@read OverviewView.NotFound(request.anchorId)
-                    val slice = items.findChildrenPage(anchor.id, request.excludeTerminal, page.limit, page.offset)
-                    val rollup = items.rollupByTopChild(slice.items.map { it.id }.toSet())
+                    val slice = items.findChildrenPage(anchor.id, request.excludeTerminal, page.limit, page.offset, scope)
+                    val rollup = items.rollupByTopChild(slice.items.map { it.id }.toSet(), scope)
                     val entries = slice.items.map { OverviewEntry(it, rollup[it.id] ?: emptyMap()) }
                     OverviewView.Anchored(anchor, pageOf(entries, slice.total, page))
                 }
 
                 else -> {
-                    val slice = items.findChildrenPage(null, request.excludeTerminal, page.limit, page.offset)
+                    val slice = items.findChildrenPage(null, request.excludeTerminal, page.limit, page.offset, scope)
                     val rootIds = slice.items.map { it.id }.toSet()
-                    val claims = stores.claimStore().claimSummaryByParent(rootIds)
-                    val children = if (request.includeChildren) globalChildren(rootIds, request.excludeTerminal) else null
-                    val counts = items.countByParentAndRole(rootIds + (children?.childIds ?: emptySet()))
+                    val claims = stores.claimStore().claimSummaryByParent(rootIds, scope)
+                    val children = if (request.includeChildren) globalChildren(rootIds, request.excludeTerminal, scope) else null
+                    val counts = items.countByParentAndRole(rootIds + (children?.childIds ?: emptySet()), scope)
                     val entries =
                         slice.items.map { root ->
                             OverviewEntry(
@@ -159,8 +161,9 @@ class WorkViewQueries(
     private suspend fun ReadScope.globalChildren(
         rootIds: Set<UUID>,
         excludeTerminal: Boolean,
+        scope: AccessScope,
     ): Children {
-        val all = stores.itemStore().findByParents(rootIds)
+        val all = stores.itemStore().findByParents(rootIds, scope)
         val visible =
             if (!excludeTerminal) {
                 all
@@ -171,7 +174,7 @@ class WorkViewQueries(
                         .filter { it.role == Role.TERMINAL }
                         .map { it.id }
                         .toSet()
-                val below = stores.itemStore().rollupByTopChild(terminal)
+                val below = stores.itemStore().rollupByTopChild(terminal, scope)
                 all.mapValues { (_, kids) ->
                     kids.filter { kid ->
                         kid.role != Role.TERMINAL || (below[kid.id] ?: emptyMap()).any { (role, n) -> role != Role.TERMINAL && n > 0 }

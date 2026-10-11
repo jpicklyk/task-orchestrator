@@ -837,7 +837,7 @@ class SearchServiceOnSqliteTest {
     ) = service.search(
         SearchRequest(
             query = query,
-            corpus = corpus,
+            corpora = setOf(corpus),
             matchMode = mode,
             ancestorId = ancestorId,
             limit = limit,

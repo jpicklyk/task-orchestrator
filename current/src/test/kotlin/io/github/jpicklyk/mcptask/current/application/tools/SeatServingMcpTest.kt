@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
-import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
+import io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
@@ -40,7 +40,7 @@ import kotlin.test.assertTrue
  *
  * HARNESS (task-scope-addendum "Harness rule", pattern: `SeatlessResponseGoldenTest`): every capture
  * runs the REAL [ServerComposition.build] over an SQLite DB and executes the REAL tool classes
- * ([GetContextTool], [QueryItemsTool], [AdvanceItemTool]) against the resulting
+ * ([GetContextTool], [ItemSchemaView], [AdvanceItemTool]) against the resulting
  * `composition.toolContext` — never a hand-built `ToolExecutionContext` replica. The fixture config
  * is supplied as the GLOBAL layer only (a real temp `.taskorchestrator/config.yaml` read by
  * `GlobalConfigFile`, exactly as `SeatlessResponseGoldenTest.materializeGlobalConfig` does) — no
@@ -235,6 +235,28 @@ traits:
         return obj["data"] as JsonObject
     }
 
+    /**
+     * The schema view items_read(select=schema) serves (query_items was removed in Q19), built by the same
+     * [ItemSchemaView] builder from 3.x-style `type` / `itemId` params, wrapped as `{success, data}` for [extractData].
+     */
+    private suspend fun schemaView(
+        params: JsonObject,
+        toolContext: ToolExecutionContext,
+    ): JsonObject {
+        val type = params["type"]?.jsonPrimitive?.content
+        val data =
+            if (type != null) {
+                ItemSchemaView.buildTypeSchemaJson(type, null, toolContext.configResolver)
+            } else {
+                val id = java.util.UUID.fromString(params["itemId"]!!.jsonPrimitive.content)
+                ItemSchemaView.buildItemSchemaJson(toolContext.workItemRepository().getById(id)!!, toolContext.configResolver)
+            }
+        return buildJsonObject {
+            put("success", JsonPrimitive(data != null))
+            data?.let { put("data", it) }
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────────────
     // S10 — get_context: current-phase seats, flat dispatchBySeat, per-entry seat, missingBySeat
     // ─────────────────────────────────────────────────────────────────────
@@ -418,7 +440,7 @@ traits:
             val toolContext = newToolContext(tempDir)
 
             val seatAwareResult =
-                QueryItemsTool().execute(
+                schemaView(
                     buildJsonObject {
                         put("operation", JsonPrimitive("schema"))
                         put("type", JsonPrimitive("bug-fix"))
@@ -442,7 +464,7 @@ traits:
             assertEquals("implementer", implementerNote["seat"]!!.jsonPrimitive.content)
 
             val seatlessResult =
-                QueryItemsTool().execute(
+                schemaView(
                     buildJsonObject {
                         put("operation", JsonPrimitive("schema"))
                         put("type", JsonPrimitive("plain-task"))
@@ -467,7 +489,7 @@ traits:
             val toolContext = newToolContext(tempDir)
 
             val seatAwareResult =
-                QueryItemsTool().execute(
+                schemaView(
                     buildJsonObject {
                         put("operation", JsonPrimitive("schema"))
                         put("itemId", JsonPrimitive(SEAT_AWARE_WORK_ID.toString()))
@@ -480,7 +502,7 @@ traits:
             )
 
             val seatlessResult =
-                QueryItemsTool().execute(
+                schemaView(
                     buildJsonObject {
                         put("operation", JsonPrimitive("schema"))
                         put("itemId", JsonPrimitive(SEATLESS_WORK_ID.toString()))
@@ -517,7 +539,7 @@ traits:
             assertEquals(JsonPrimitive("implementer"), contextOwnedNote["seat"], "sanity: the owned note keeps its seat")
 
             val queryResult =
-                QueryItemsTool().execute(
+                schemaView(
                     buildJsonObject {
                         put("operation", JsonPrimitive("schema"))
                         put("itemId", JsonPrimitive(UNOWNED_NOTE_WORK_ID.toString()))

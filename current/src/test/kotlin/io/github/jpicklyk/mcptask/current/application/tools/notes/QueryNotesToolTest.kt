@@ -308,62 +308,6 @@ class QueryNotesToolTest {
         }
 
     // ──────────────────────────────────────────────
-    // FTS search (real SQLite fixture)
-    // ──────────────────────────────────────────────
-
-    private suspend fun searchNotes(
-        query: String,
-        scopeItemId: String? = null
-    ): JsonObject {
-        val result =
-            tool.execute(
-                JsonObject(
-                    buildMap<String, JsonElement> {
-                        put("operation", JsonPrimitive("search"))
-                        put("query", JsonPrimitive(query))
-                        scopeItemId?.let { put("scope", buildJsonObject { put("itemId", JsonPrimitive(it)) }) }
-                    }
-                ),
-                context
-            ) as JsonObject
-        assertTrue(result["success"]!!.jsonPrimitive.boolean)
-        return result["data"] as JsonObject
-    }
-
-    @Test
-    fun `S5 search hits a seeded note body and scope itemId excludes another item's note`(): Unit =
-        runBlocking {
-            val itemA = createTestItem("Item A")
-            val itemB = createTestItem("Item B")
-            createNote(itemA, "approach", "work", "Migrate the quokkaflux pipeline carefully")
-            createNote(itemB, "approach", "work", "Also touches the quokkaflux pipeline")
-
-            val unscoped = searchNotes("quokkaflux")
-            assertEquals(2, unscoped["totalHits"]!!.jsonPrimitive.int)
-
-            val scoped = searchNotes("quokkaflux", scopeItemId = itemA)
-            assertEquals(1, scoped["totalHits"]!!.jsonPrimitive.int)
-            assertEquals(
-                itemA,
-                scoped["hits"]!!
-                    .jsonArray[0]
-                    .jsonObject["itemId"]!!
-                    .jsonPrimitive.content
-            )
-        }
-
-    @Test
-    fun `S6 search with a non-matching query succeeds with zero hits`(): Unit =
-        runBlocking {
-            val itemId = createTestItem()
-            createNote(itemId, "approach", "work", "Migrate the quokkaflux pipeline carefully")
-
-            val data = searchNotes("nonexistentterm")
-            assertEquals(0, data["totalHits"]!!.jsonPrimitive.int)
-            assertEquals(0, data["hits"]!!.jsonArray.size)
-        }
-
-    // ──────────────────────────────────────────────
     // Validation
     // ──────────────────────────────────────────────
 

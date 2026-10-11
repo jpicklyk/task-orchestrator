@@ -243,16 +243,16 @@ class McpCallLogTest {
             assertEquals(0, flush().size, "tools/list and initialize write no call_log row")
 
             val capture = LogCapture().attach(McpToolAdapter::class.java.name)
-            val args = arrayOf("operation" to jstr("overview"))
+            val args = arrayOf("operation" to jstr("list"), "itemId" to jstr(rig.seed("S2 read").id.toString()))
             val before = Instant.now()
-            val result = call("query_items", *args)
+            val result = call("query_notes", *args)
             val after = Instant.now()
             capture.detach()
 
             val reqId = assertNotNull(reqIdOf(result), "_meta.reqId must be present: ${result.meta}")
             assertTrue(ReqId.isValid(reqId), "reqId must be 8 Crockford characters: $reqId")
 
-            val mdc = capture.events.lastOrNull { it.mdc["tool"] == "query_items" }
+            val mdc = capture.events.lastOrNull { it.mdc["tool"] == "query_notes" }
             assertNotNull(mdc, "the adapter logs its tool-call line inside the call's MDC scope")
             assertEquals(reqId, mdc.mdc["reqId"], "MDC reqId equals _meta.reqId (A1)")
             assertTrue(
@@ -265,8 +265,8 @@ class McpCallLogTest {
             val row = all.single()
             assertEquals(reqId, row["req_id"])
             assertEquals("mcp", row["surface"])
-            assertEquals("query_items", row["tool"])
-            assertEquals("overview", row["operation"])
+            assertEquals("query_notes", row["tool"])
+            assertEquals("list", row["operation"])
             assertEquals("ok", row["outcome"])
             assertNull(row["error_code"])
             assertEquals(1L, row["attempts"])
@@ -291,7 +291,8 @@ class McpCallLogTest {
     @Test
     fun `S2 concurrent calls get distinct reqIds and one row each`() =
         runBlocking {
-            val results = (1..80).map { async { call("query_items", "operation" to jstr("overview")) } }.awaitAll()
+            val seeded = jstr(rig.seed("S2 concurrent").id.toString())
+            val results = (1..80).map { async { call("query_notes", "operation" to jstr("list"), "itemId" to seeded) } }.awaitAll()
             val ids = results.map { assertNotNull(reqIdOf(it)) }
             assertEquals(80, ids.toSet().size, "every call has its own reqId")
             assertTrue(ids.all { ReqId.isValid(it) })
@@ -346,40 +347,6 @@ class McpCallLogTest {
         }
 
     // ------------------------------------------------------------------ S6
-
-    @Test
-    fun `S6 query_items get records its shape, its target id and the item version`() =
-        runBlocking {
-            val item = rig.seed("S6 get")
-            val version =
-                rig.raw
-                    .workItemRepository()
-                    .getById(item.id)!!
-                    .version
-            val result =
-                call(
-                    "query_items",
-                    "operation" to jstr("get"),
-                    "itemId" to jstr(item.id.toString()),
-                    "includeAncestors" to JsonPrimitive(true)
-                )
-            assertTrue(result.isError != true, "${result.content}")
-            val row = flush().single()
-            val shape = Json.parseToJsonElement(row["request_shape"] as String).jsonObject
-            assertEquals(setOf("includeAncestors"), shape.keys)
-            assertEquals("true", shape["includeAncestors"]!!.jsonPrimitive.content)
-            assertEquals(
-                listOf(item.id.toString()),
-                Json.parseToJsonElement(row["target_ids"] as String).jsonArray.map { it.jsonPrimitive.content }
-            )
-            val versions = Json.parseToJsonElement(row["target_versions"] as String).jsonObject
-            assertEquals(setOf(item.id.toString()), versions.keys)
-            assertEquals(
-                version.toLong(),
-                versions[item.id.toString()]!!.jsonPrimitive.content.toLong(),
-                "WorkItem.version is the target version"
-            )
-        }
 
     @Test
     fun `S6 get_context in item mode records the item version`() =
@@ -715,9 +682,9 @@ class McpCallLogTest {
         runBlocking {
             val results =
                 listOf(
-                    call("query_items", "operation" to jstr("overview")),
-                    call("query_items", "operation" to jstr("not-an-operation")),
-                    call("query_items")
+                    call("query_notes", "operation" to jstr("list"), "itemId" to jstr(rig.seed("A2 read").id.toString())),
+                    call("query_notes", "operation" to jstr("not-an-operation")),
+                    call("query_notes")
                 )
             assertTrue(results.any { it.isError == true }, "fixture: at least one of the calls must fail")
             assertTrue(results.any { it.isError != true }, "fixture: at least one of the calls must succeed")
@@ -753,7 +720,7 @@ class McpCallLogTest {
             val junkOp = call("manage_items", "operation" to jstr(long))
             val badOp = call("manage_items", "operation" to jstr("Not Valid!"))
             val noOp = call("p10_echo", "m" to jstr("x"))
-            val goodOp = call("query_items", "operation" to jstr("overview"))
+            val goodOp = call("query_notes", "operation" to jstr("list"), "itemId" to jstr(rig.seed("F1 read").id.toString()))
             val flags =
                 call(
                     "p10_echo",
@@ -765,7 +732,7 @@ class McpCallLogTest {
             assertEquals("invalid", rowOf(reqIdOf(junkOp))["operation"], "5000-char operation")
             assertEquals("invalid", rowOf(reqIdOf(badOp))["operation"], "non-conforming operation")
             assertNull(rowOf(reqIdOf(noOp))["operation"], "absent stays null")
-            assertEquals("overview", rowOf(reqIdOf(goodOp))["operation"])
+            assertEquals("list", rowOf(reqIdOf(goodOp))["operation"])
             val shape = Json.parseToJsonElement(rowOf(reqIdOf(flags))["request_shape"] as String).jsonObject
             assertEquals(16, shape.size, "30 conforming flags are capped at 16: ${shape.keys}")
             assertEquals(shape.keys.sorted(), shape.keys.toList())

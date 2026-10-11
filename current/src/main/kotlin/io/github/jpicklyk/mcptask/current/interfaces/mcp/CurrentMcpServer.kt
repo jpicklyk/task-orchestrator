@@ -17,7 +17,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.config.QueryRulesToo
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.QueryDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.QueryNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
@@ -63,7 +62,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.planDocumentR
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.projectConfigRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.resourceLeaseRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.ruleRoutes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.searchRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.serviceRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.transitionRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.wellKnownRoutes
@@ -606,7 +604,6 @@ internal fun buildMcpTools(): List<ToolDefinition> =
     listOf(
         // Phase 1: CRUD
         ManageItemsTool(),
-        QueryItemsTool(),
         ManageNotesTool(),
         QueryNotesTool(),
         // Phase 2: Dependencies
@@ -768,16 +765,15 @@ internal fun Application.installRestApiRoutes(
                 serverVersion = serverVersion,
                 actorAuthEnabled = actorAuthEnabled,
             )
-            // Phase 3: read API — items, notes, dependencies, transitions, search
-            itemRoutes(effectiveProvider)
+            // Phase 3: read API — items (through the items_read select), notes, dependencies, transitions
+            itemRoutes(toolRegistry, toolDispatcher)
             itemGateRoutes(effectiveProvider, toolContext.configResolver, toolContext.transitionPreview())
-            noteRoutes(effectiveProvider, toolContext.unitOfWork)
+            noteRoutes(effectiveProvider)
             dependencyRoutes(effectiveProvider)
             transitionRoutes(
                 effectiveProvider,
                 redactAttribution = appConfig.apiRedactNoteAttribution,
             )
-            searchRoutes(effectiveProvider, toolContext.unitOfWork)
             // Phase 4: config/schema-discovery + status-graph
             configRoutes(noteSchemaService)
             // Phase 5: write API — items, notes, dependencies, advance

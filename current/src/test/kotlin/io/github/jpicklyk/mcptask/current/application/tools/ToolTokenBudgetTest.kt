@@ -67,7 +67,6 @@ class ToolTokenBudgetTest {
      */
     private val perToolCeilings: Map<String, Int> =
         mapOf(
-            "query_items" to 7550, // was 7350; +163 chars, per-mode limit semantics (97aa5855)
             "create_work_tree" to 5100, // was 3080; measured 4408 after docRef/noteAnchors (materialize-from-document)
             "get_next_item" to 3150, // was 2500; T2.3 added the `ancestorId` scope parameter
             "manage_dependencies" to 2585,

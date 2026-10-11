@@ -186,41 +186,60 @@ interface ItemStore {
      */
     suspend fun findByIdSet(ids: Set<UUID>): List<WorkItem>
 
+    // The [scope] parameter of the four primitives below restricts what they return or count to the
+    // items the caller may see, in SQL, with the predicates [find] applies ([AccessScope.rootIds]:
+    // the listed subtrees; [AccessScope.tagsInclude]: the item carries a listed tag). It defaults to
+    // unrestricted, so a caller that passes none gets the unscoped result. Resolving a root
+    // restriction adds at most a fixed number of statements per call, never one per id.
+
     /**
      * Direct-children counts grouped by role, per parent in [parentIds]. Every requested id is a
      * key; a parent with no children (or no row) maps to an empty map. Roles with zero children are
-     * omitted from the inner map.
+     * omitted from the inner map. Only children visible under [scope] are counted.
      */
-    suspend fun countByParentAndRole(parentIds: Set<UUID>): Map<UUID, Map<Role, Int>>
+    suspend fun countByParentAndRole(
+        parentIds: Set<UUID>,
+        scope: AccessScope = AccessScope.unrestricted(),
+    ): Map<UUID, Map<Role, Int>>
 
     /**
      * Descendant counts grouped by role, per top item in [topIds]: every item below the top at any
      * depth, the top itself EXCLUDED. One recursive walk carries the top id, so overlapping tops
      * (one inside another's subtree) each get their own full count. Every requested id is a key; a
-     * top with no descendants maps to an empty map.
+     * top with no descendants maps to an empty map. Only descendants visible under [scope] are
+     * counted (the walk passes through invisible items; they are never counted).
      */
-    suspend fun rollupByTopChild(topIds: Set<UUID>): Map<UUID, Map<Role, Int>>
+    suspend fun rollupByTopChild(
+        topIds: Set<UUID>,
+        scope: AccessScope = AccessScope.unrestricted(),
+    ): Map<UUID, Map<Role, Int>>
 
     /**
      * Every direct child of each parent in [parentIds], grouped by parent. Every requested id is a
      * key (an empty list when it has no children). Children are ordered newest `createdAt` first,
-     * then `id` ascending.
+     * then `id` ascending. Only children visible under [scope] are returned.
      */
-    suspend fun findByParents(parentIds: Set<UUID>): Map<UUID, List<WorkItem>>
+    suspend fun findByParents(
+        parentIds: Set<UUID>,
+        scope: AccessScope = AccessScope.unrestricted(),
+    ): Map<UUID, List<WorkItem>>
 
     /**
      * One page of the direct children of [parentId] (the parentless roots when [parentId] is null),
      * newest `createdAt` first, then `id` ascending, plus the exact count of the whole filtered set.
+     * Only children visible under [scope] are listed or counted.
      *
      * With [excludeTerminal], a TERMINAL child is dropped UNLESS it still has a non-terminal
      * descendant (QUEUE, WORK, REVIEW or BLOCKED) anywhere below it: active work parked under a
-     * done container stays visible (bug 18fd99a7). The same rule applies to roots.
+     * done container stays visible (bug 18fd99a7). The same rule applies to roots. Under [scope] only a
+     * visible non-terminal descendant keeps a terminal child.
      */
     suspend fun findChildrenPage(
         parentId: UUID?,
         excludeTerminal: Boolean,
         limit: Int,
         offset: Int,
+        scope: AccessScope = AccessScope.unrestricted(),
     ): ItemSlice
 
     /**

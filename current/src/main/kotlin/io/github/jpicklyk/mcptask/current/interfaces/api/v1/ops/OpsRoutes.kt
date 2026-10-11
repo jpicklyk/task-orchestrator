@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.toAccessScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelope
@@ -114,19 +115,28 @@ fun Route.opsRoutes(
             return@post
         }
 
-        val access =
-            CallAccess(
-                principal = CallPrincipal(ApiAuditBridge.toActorClaim(principal), ApiAuditBridge.toVerificationResult(principal)),
-                scope = principal.toAccessScope(),
-                capabilities = principal.capabilities
-            )
+        val access = principal.toCallAccess()
         val dispatched = dispatcher.dispatch(spec, profile, arguments, reqId, SURFACE_REST, access)
         call.attributes.put(OPS_CALL_INFO, OpsCallInfo(spec.name, dispatched))
         call.respondEnvelope(dispatched.envelope)
     }
 }
 
-private const val SURFACE_REST = "rest"
+/** The `surface` of every call a REST route dispatches. */
+internal const val SURFACE_REST = "rest"
+
+/**
+ * The ONE builder of a REST caller's [CallAccess], shared by `POST /api/v1/ops/{tool}` and the resource GETs that
+ * dispatch a select (`GET /items/{id}`, `GET /items/{id}/children`): the bearer principal (never a body `actor`),
+ * its access scope and its capabilities, so both routes answer the same bytes for the same principal.
+ */
+fun ApiPrincipal.toCallAccess(): CallAccess =
+    CallAccess(
+        principal = CallPrincipal(ApiAuditBridge.toActorClaim(this), ApiAuditBridge.toVerificationResult(this)),
+        scope = toAccessScope(),
+        capabilities = capabilities
+    )
+
 private const val IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
 private const val MAX_RECEIVED = 100
 

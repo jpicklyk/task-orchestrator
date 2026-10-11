@@ -1,19 +1,11 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchRequest
-import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
-import io.github.jpicklyk.mcptask.current.application.port.Corpus
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.support.UnscopedUnitOfWork
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.resolveSearchAccess
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.SearchHitDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.DB_QUERY_FAILED
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
@@ -37,23 +29,16 @@ private val noteLogger = LoggerFactory.getLogger("NoteRoutes")
  * Endpoints:
  * - `GET /items/{id}/notes`        — list notes for an item, optional `?role=` or `?key=` filter
  * - `GET /items/{id}/notes/{key}`  — single note by key; 404 when absent
- * - `GET /notes/search`            — FTS5 search over note bodies; scope-filtered
  *
  * All routes require [ApiCapability.READ]. Attribution redaction is applied via
  * [AttributionRedactor] (env-driven, defaults to redact).
  *
- * A principal with `tags_include` sees `/notes/search` hits only for notes whose owning item carries an
- * allowed tag (filtered inside the search, before the page is taken); the per-item routes are already gated by
- * [enforceScopeForItem].
+ * The per-item routes are gated by [enforceScopeForItem]. Note search is `items_read` (`select: search`).
  */
-fun Route.noteRoutes(
-    repositoryProvider: RepositoryProvider,
-    unitOfWork: UnitOfWork = UnscopedUnitOfWork(repositoryProvider),
-) {
+fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
     val workItemRepo = repositoryProvider.workItemRepository()
     val noteRepo = repositoryProvider.noteRepository()
     val redactor = AttributionRedactor.fromEnv()
-    val searchService by lazy { SearchService(repositoryProvider.searchIndex(), unitOfWork) }
 
     requireCapability(ApiCapability.READ) {
         // ─── GET /items/{id}/notes ──────────────────────────────────────────
@@ -152,50 +137,6 @@ fun Route.noteRoutes(
                     }
                 }
             }
-        }
-
-        // ─── GET /notes/search ──────────────────────────────────────────────
-        get("/notes/search") {
-            val rawQuery =
-                call.request.queryParameters["q"]?.takeIf { it.isNotBlank() } ?: run {
-                    call.respondError(LegacyRestCode.BAD_REQUEST, "Query parameter 'q' is required")
-                    return@get
-                }
-
-            val requestedAncestorId = (call.uuidParamOrRespond("ancestorId") ?: return@get).value
-
-            // Same access rule as /search: one builder, applied inside the search (before ranking and the page).
-            val access =
-                resolveSearchAccess(call, requestedAncestorId, workItemRepo) ?: run {
-                    call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Requested ancestorId is outside your scope")
-                    return@get
-                }
-
-            val result =
-                call.searchOrRespond(searchService) {
-                    SearchRequest(
-                        query = rawQuery,
-                        corpus = Corpus.NOTE,
-                        matchMode = SearchMatchMode.AUTO,
-                        ancestorId = requestedAncestorId,
-                        limit = REST_SEARCH_LIMIT,
-                        offset = 0,
-                        access = access,
-                    )
-                } ?: return@get
-
-            val hits =
-                result.hits.map { hit ->
-                    SearchHitDto(
-                        itemId = hit.itemId.toString(),
-                        noteKey = hit.noteKey,
-                        field = hit.field,
-                        snippet = hit.snippet,
-                        score = hit.score,
-                        title = hit.title,
-                    )
-                }
-            call.respond(HttpStatusCode.OK, hits)
         }
     }
 }

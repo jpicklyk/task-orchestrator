@@ -1227,7 +1227,6 @@ class EventCoverageTest {
             val mark = rig.maxSeq()
             val reads: Map<String, Array<Pair<String, JsonElement>>> =
                 mapOf(
-                    "query_items" to arrayOf("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(root.id.toString())),
                     "query_notes" to arrayOf("operation" to JsonPrimitive("list"), "itemId" to JsonPrimitive(child.id.toString())),
                     "get_context" to arrayOf("itemId" to JsonPrimitive(root.id.toString())),
                     "query_dependencies" to arrayOf("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(child.id.toString())),
@@ -1289,7 +1288,6 @@ class EventCoverageTest {
         /** Tools that never mutate store state; each is exercised and must leave the log untouched. */
         val READ_ONLY_TOOLS: Set<String> =
             setOf(
-                "query_items",
                 "query_notes",
                 "query_dependencies",
                 "get_next_status",

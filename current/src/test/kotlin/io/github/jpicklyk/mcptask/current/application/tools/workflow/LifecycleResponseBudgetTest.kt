@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.QueryNotesTool
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
@@ -38,7 +37,7 @@ import kotlin.test.assertTrue
  * health-check -> get_context item -> advance start (gated FAILURE — queue note unfilled) ->
  * manage_notes (fill queue note) -> advance start (-> work) -> manage_notes (fill both work
  * notes) -> advance start (-> review) -> manage_notes (fill review note) -> advance start
- * (-> terminal) -> get_next_item -> query_items overview -> query_items get -> query_notes list.
+ * (-> terminal) -> get_next_item -> query_notes list (query_items was removed in Q19).
  * The note schema (1 queue + 2 work + 1 review notes, each with guidance text) mirrors a
  * realistic feature-task schema, per the "Reference for the flow (Python original, for shapes
  * only)" drive_workflow.py script this test's call sequence is modeled on.
@@ -61,7 +60,6 @@ class LifecycleResponseBudgetTest {
     private val advanceItemTool = AdvanceItemTool()
     private val manageNotesTool = ManageNotesTool()
     private val getNextItemTool = GetNextItemTool()
-    private val queryItemsTool = QueryItemsTool()
     private val queryNotesTool = QueryNotesTool()
 
     /** Insertion-ordered label -> measured response char count, populated by [measureCall]. */
@@ -215,8 +213,6 @@ class LifecycleResponseBudgetTest {
             "manage_notes(fill review note)" to 400,
             "advance_item(start -> terminal)" to 500,
             "get_next_item" to 350,
-            "query_items(overview)" to 400,
-            "query_items(get t1)" to 350,
             "query_notes(list t1)" to 950,
         )
 
@@ -372,23 +368,6 @@ class LifecycleResponseBudgetTest {
                 "get_next_item",
                 getNextItemTool,
                 buildJsonObject { put("includeDetails", JsonPrimitive(true)) }
-            )
-
-            // ── 12. query_items overview ──
-            measureCall(
-                "query_items(overview)",
-                queryItemsTool,
-                buildJsonObject { put("operation", JsonPrimitive("overview")) }
-            )
-
-            // ── 13. query_items get t1 ──
-            measureCall(
-                "query_items(get t1)",
-                queryItemsTool,
-                buildJsonObject {
-                    put("operation", JsonPrimitive("get"))
-                    put("itemId", JsonPrimitive(t1Id))
-                }
             )
 
             // ── 14. query_notes list t1 (default includeBody=false) ──
