@@ -9,7 +9,6 @@ import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
-import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
@@ -19,6 +18,9 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifie
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.envelopeOk
+import io.github.jpicklyk.mcptask.current.test.getNoteVia
+import io.github.jpicklyk.mcptask.current.test.notesWriteFromLegacyParams
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.Runs
 import io.mockk.coEvery
@@ -27,10 +29,8 @@ import io.mockk.just
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -53,7 +53,7 @@ import kotlin.test.assertTrue
 /**
  * Independent test-author suite for item 983615e7 -- "Stop persisting raw actor proof JWTs; scrub
  * existing rows". Covers test-plan scenarios S1-S3, S11, S13-S16, S18, S19 (the application/tools
- * layer's persistence-side behavior of the fix: what `manage_notes` / `advance_item` actually write
+ * layer's persistence-side behavior of the fix: what `notes_write` / `advance_item` actually write
  * to the `notes` / `role_transitions` tables, as distinct from what the MCP response itself shows,
  * which [ActorProofMcpExposureTest] already covers and continues to guard).
  *
@@ -81,7 +81,6 @@ class ActorProofEvidencePersistenceTest {
 
     private lateinit var repositoryProvider: DefaultRepositoryProvider
     private lateinit var context: ToolExecutionContext
-    private lateinit var manageNotesTool: ManageNotesTool
     private lateinit var advanceItemTool: AdvanceItemTool
 
     /** Raw handle to the same SQLite database, for the B1 at-rest (raw-SQL) assertions. */
@@ -92,7 +91,6 @@ class ActorProofEvidencePersistenceTest {
         database = db.database
         repositoryProvider = db.repositoryProvider()
         context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
-        manageNotesTool = ManageNotesTool()
         advanceItemTool = AdvanceItemTool()
     }
 
@@ -233,18 +231,18 @@ class ActorProofEvidencePersistenceTest {
     }
 
     // ===========================================================================================
-    // S1 -- manage_notes, noop verifier, proof "abc" -> actor_proof NULL, sha256=H, claims NULL
+    // S1 -- notes_write, noop verifier, proof "abc" -> actor_proof NULL, sha256=H, claims NULL
     // ===========================================================================================
 
     @Test
-    fun `S1 manage_notes upsert with a noop-verified proof scrubs actor_proof and persists its sha256`(): Unit =
+    fun `S1 notes_write upsert with a noop-verified proof scrubs actor_proof and persists its sha256`(): Unit =
         runBlocking {
             val itemId = createTestItem()
             // Oracle: FIPS 180-2 Appendix B.1 SHA-256 test vector for the message "abc".
             val expectedHash = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
             assertEquals(expectedHash, sha256Hex("abc"), "sanity: local hash helper must match the FIPS test vector")
 
-            manageNotesTool.execute(
+            notesWriteFromLegacyParams(
                 buildJsonObject {
                     put("operation", "upsert")
                     put(
@@ -277,12 +275,12 @@ class ActorProofEvidencePersistenceTest {
     // ===========================================================================================
 
     @Test
-    fun `B1a raw SQL confirms actor_proof is NULL and actor_proof_sha256 is set at rest after manage_notes upsert`(): Unit =
+    fun `B1a raw SQL confirms actor_proof is NULL and actor_proof_sha256 is set at rest after notes_write upsert`(): Unit =
         runBlocking {
             val itemId = createTestItem()
             val expectedHash = sha256Hex("abc")
 
-            manageNotesTool.execute(
+            notesWriteFromLegacyParams(
                 buildJsonObject {
                     put("operation", "upsert")
                     put(
@@ -296,7 +294,7 @@ class ActorProofEvidencePersistenceTest {
             ) as JsonObject
 
             val (rawProof, rawSha) = rawNoteProofColumns("B1a body")
-            assertNull(rawProof, "physical notes.actor_proof column must be NULL at rest after manage_notes upsert")
+            assertNull(rawProof, "physical notes.actor_proof column must be NULL at rest after notes_write upsert")
             assertEquals(expectedHash, rawSha, "physical notes.actor_proof_sha256 column must hold the expected hash at rest")
         }
 
@@ -305,7 +303,7 @@ class ActorProofEvidencePersistenceTest {
         runBlocking {
             val itemId = createTestItem()
 
-            manageNotesTool.execute(
+            notesWriteFromLegacyParams(
                 buildJsonObject {
                     put("operation", "upsert")
                     put(
@@ -323,7 +321,7 @@ class ActorProofEvidencePersistenceTest {
 
             // Re-upsert the SAME (itemId, key) with a different proof -- exercises the onUpdate
             // path (an existing row), not the insert path.
-            manageNotesTool.execute(
+            notesWriteFromLegacyParams(
                 buildJsonObject {
                     put("operation", "upsert")
                     put(
@@ -410,7 +408,7 @@ class ActorProofEvidencePersistenceTest {
     // ===========================================================================================
 
     @Test
-    fun `S3 manage_notes with a VERIFIED jwks proof persists all 8 verified claims exactly`(): Unit =
+    fun `S3 notes_write with a VERIFIED jwks proof persists all 8 verified claims exactly`(): Unit =
         runBlocking {
             val itemId = createTestItem()
             val verifiedContext = contextWithVerifier(jwksVerifier())
@@ -419,7 +417,7 @@ class ActorProofEvidencePersistenceTest {
             val jti = UUID.randomUUID().toString()
             val jwt = signClaims(rsaKey, "evidence-test-key", subject = "agent-s3", jti = jti, iat = iat, exp = exp)
 
-            manageNotesTool.execute(
+            notesWriteFromLegacyParams(
                 buildJsonObject {
                     put("operation", "upsert")
                     put(
@@ -504,7 +502,7 @@ class ActorProofEvidencePersistenceTest {
     // ===========================================================================================
 
     @Test
-    fun `S11 manage_notes with a jwks-REJECTED proof still persists sha256 but no claims`(): Unit =
+    fun `S11 notes_write with a jwks-REJECTED proof still persists sha256 but no claims`(): Unit =
         runBlocking {
             val itemId = createTestItem()
             val verifiedContext = contextWithVerifier(jwksVerifier())
@@ -512,7 +510,7 @@ class ActorProofEvidencePersistenceTest {
             // signature verification must fail (crypto), regardless of any other claim value.
             val badJwt = signClaims(wrongKey, "evidence-test-key", subject = "agent-s11")
 
-            manageNotesTool.execute(
+            notesWriteFromLegacyParams(
                 buildJsonObject {
                     put("operation", "upsert")
                     put(
@@ -546,7 +544,7 @@ class ActorProofEvidencePersistenceTest {
                 val itemId = createTestItem()
                 val verifiedContext = contextWithVerifier(jwksVerifier())
 
-                manageNotesTool.execute(
+                notesWriteFromLegacyParams(
                     buildJsonObject {
                         put("operation", "upsert")
                         put(
@@ -603,7 +601,7 @@ class ActorProofEvidencePersistenceTest {
             val itemId = createTestItem()
             val proof = "x".repeat(10000)
 
-            manageNotesTool.execute(
+            notesWriteFromLegacyParams(
                 buildJsonObject {
                     put("operation", "upsert")
                     put(
@@ -638,7 +636,7 @@ class ActorProofEvidencePersistenceTest {
             for (blank in listOf("", "   ")) {
                 val itemId = createTestItem()
 
-                manageNotesTool.execute(
+                notesWriteFromLegacyParams(
                     buildJsonObject {
                         put("operation", "upsert")
                         put(
@@ -682,7 +680,7 @@ class ActorProofEvidencePersistenceTest {
             val verifiedContext = contextWithVerifier(jwksVerifier(listOf(unicodeKidKey)))
             val jwt = signClaims(unicodeKidKey, unicodeKid, subject = "agent-s16")
 
-            manageNotesTool.execute(
+            notesWriteFromLegacyParams(
                 buildJsonObject {
                     put("operation", "upsert")
                     put(
@@ -714,7 +712,7 @@ class ActorProofEvidencePersistenceTest {
         runBlocking {
             val itemId = createTestItem()
 
-            manageNotesTool.execute(
+            notesWriteFromLegacyParams(
                 buildJsonObject {
                     put("operation", "upsert")
                     put(
@@ -741,7 +739,7 @@ class ActorProofEvidencePersistenceTest {
             assertEquals(sha256Hex("abc"), firstNote.verification?.proofSha256, "sanity: first write must persist a hash")
 
             // Second write: same note key, same actor id, but no proof supplied this time.
-            manageNotesTool.execute(
+            notesWriteFromLegacyParams(
                 buildJsonObject {
                     put("operation", "upsert")
                     put(
@@ -790,7 +788,7 @@ class ActorProofEvidencePersistenceTest {
             val jwt = signClaims(rsaKey, "evidence-test-key", subject = "agent-s19")
 
             val result =
-                manageNotesTool.execute(
+                notesWriteFromLegacyParams(
                     buildJsonObject {
                         put("operation", "upsert")
                         put(
@@ -811,13 +809,15 @@ class ActorProofEvidencePersistenceTest {
                     verifiedContext
                 ) as JsonObject
 
-            assertTrue(result["success"]!!.jsonPrimitive.boolean, "expected success; got $result")
-            val responseText = result.toString()
+            assertTrue(envelopeOk(result), "expected success; got $result")
+            // The write answers ids and versions only; attribution is read back through notes_read get (MCP sees it).
+            val read = verifiedContext.getNoteVia(UUID.fromString(itemId), "s19-note")
+            val responseText = result.toString() + read.toString()
             assertFalse(responseText.contains("proofSha256"), "MCP response must never surface proofSha256: $responseText")
             assertFalse(responseText.contains("proofClaims"), "MCP response must never surface proofClaims: $responseText")
             assertFalse(responseText.contains(jwt), "MCP response must remain proof-free")
 
-            val note = (result["data"] as JsonObject)["notes"]!!.jsonArray[0].jsonObject
+            val note = read["data"]!!.jsonObject
             val verification = note["verification"]!!.jsonObject
             assertEquals("verified", verification["status"]!!.jsonPrimitive.content)
             assertFalse(verification.containsKey("proofSha256"), "verification object must not carry a proofSha256 field")

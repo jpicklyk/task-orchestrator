@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
@@ -19,6 +20,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.NoteDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ProofEvidenceDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.VerificationDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildToolDispatcher
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -26,6 +30,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.ApplicationRequest
+import io.ktor.server.routing.Route
 import io.ktor.server.testing.testApplication
 import io.ktor.util.Attributes
 import io.mockk.every
@@ -64,6 +69,12 @@ class ProofEvidenceRestTest {
     @RegisterExtension
     val db = SqliteTestDatabase.perMethod()
 
+    /** The note resource reads (GET /items/{id}/notes), over the production registry and dispatcher, default redaction. */
+    private fun Route.notesRoutes(repo: DefaultRepositoryProvider) {
+        val toolContext = ToolExecutionContext(repo, unitOfWork = db.unitOfWork())
+        noteResourceRoutes(ToolRegistry(buildToolSpecs()), buildToolDispatcher(toolContext))
+    }
+
     private fun makeItemAndEvidenceNote(
         repo: DefaultRepositoryProvider,
         proofSha256: String,
@@ -98,7 +109,7 @@ class ProofEvidenceRestTest {
     // ===========================================================================================
 
     @Test
-    fun `S5 admin GET notes shows verification proof evidence with matching fields, actor proof absent`() =
+    fun `S5 admin GET notes shows attribution but never proof evidence, and actor proof is absent`() =
         testApplication {
             val repo = db.repositoryProvider()
             val sha = "deadbeef".repeat(8)
@@ -114,7 +125,7 @@ class ProofEvidenceRestTest {
                     alg = "RS256"
                 )
             val (item, _) = makeItemAndEvidenceNote(repo, proofSha256 = sha, claims = claims)
-            application { configureTestApp { noteRoutes(repo) } }
+            application { configureTestApp { notesRoutes(repo) } }
 
             val response =
                 client.get("/api/v1/items/${item.id}/notes") {
@@ -122,13 +133,12 @@ class ProofEvidenceRestTest {
                 }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
-            assertTrue(body.contains("\"sha256\":\"$sha\""), "expected sha256 evidence: $body")
-            assertTrue(body.contains("\"iss\":\"https://test-issuer.example\""), "expected iss claim: $body")
-            assertTrue(body.contains("\"sub\":\"agent-evidence\""), "expected sub claim: $body")
-            assertTrue(body.contains("\"jti\":\"jti-s5\""), "expected jti claim: $body")
-            assertTrue(body.contains("\"kid\":\"kid-s5\""), "expected kid claim: $body")
-            assertTrue(body.contains("\"alg\":\"RS256\""), "expected alg claim: $body")
-            assertFalse(body.contains("\"proof\":\""), "actor.proof must never carry a value on the wire: $body")
+            assertTrue(body.contains("\"actor\":{\"id\":\"agent-evidence\""), "an admin sees the note's actor: $body")
+            assertTrue(body.contains("\"verification\":{\"status\":\"verified\""), "an admin sees the verification status: $body")
+            // Proof evidence (hash + verified claims) is never emitted by the note views, even to an admin (Q11 D10).
+            for (evidence in listOf(sha, "jti-s5", "kid-s5", "RS256", "test-issuer", "\"sha256\"", "\"proof\"")) {
+                assertFalse(body.contains(evidence), "note views carry no proof evidence ($evidence): $body")
+            }
         }
 
     @Test
@@ -185,7 +195,7 @@ class ProofEvidenceRestTest {
         testApplication {
             val repo = db.repositoryProvider()
             val (item, _) = makeItemAndEvidenceNote(repo, proofSha256 = "11".repeat(32), claims = null)
-            application { configureTestApp { noteRoutes(repo) } }
+            application { configureTestApp { notesRoutes(repo) } }
 
             val response =
                 client.get("/api/v1/items/${item.id}/notes") {
@@ -193,14 +203,8 @@ class ProofEvidenceRestTest {
                 }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
-            assertTrue(
-                body.contains("\"actor\":null") || !body.contains("\"actor\":{"),
-                "non-admin must see no actor under default redaction: $body"
-            )
-            assertTrue(
-                body.contains("\"verification\":null") || !body.contains("\"verification\":{"),
-                "non-admin must see no verification under default redaction: $body"
-            )
+            assertFalse(body.contains("\"actor\""), "non-admin must see no actor under default redaction: $body")
+            assertFalse(body.contains("\"verification\""), "non-admin must see no verification under default redaction: $body")
         }
 
     // ===========================================================================================
@@ -335,21 +339,22 @@ class ProofEvidenceRestTest {
     // ===========================================================================================
 
     @Test
-    fun `admin GET notes with include=proof returns 200, no Warning header, and no actor proof value`() =
+    fun `GET notes with the retired include query parameter is rejected as invalid_request`() =
         testApplication {
             val repo = db.repositoryProvider()
             val (item, _) = makeItemAndEvidenceNote(repo, proofSha256 = "22".repeat(32), claims = null)
-            application { configureTestApp { noteRoutes(repo) } }
+            application { configureTestApp { notesRoutes(repo) } }
 
             val response =
                 client.get("/api/v1/items/${item.id}/notes?include=proof") {
                     header("Authorization", "Bearer $ADMIN_TOKEN")
                 }
-            assertEquals(HttpStatusCode.OK, response.status)
-            val warnings = response.headers.getAll("Warning") ?: emptyList()
-            assertTrue(warnings.isEmpty(), "?include=proof must no longer add a Warning header; got $warnings")
+            assertEquals(HttpStatusCode.BadRequest, response.status)
             val body = response.bodyAsText()
-            assertFalse(body.contains("\"proof\":\""), "actor.proof must never carry a value: $body")
+            assertTrue(
+                body.contains("\"code\":\"invalid_request\"") && body.contains("include"),
+                "unknown query parameters are rejected: $body"
+            )
         }
 
     // ===========================================================================================

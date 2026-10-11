@@ -236,7 +236,9 @@ object BaselineDataset {
             "verification_verifier" to if (proofStatus != null) "jwks" else null,
             "verification_reason" to if (proofStatus == "REJECTED") "signature-mismatch" else null,
             "actor_proof_sha256" to if (proofStatus != null) PROOF_SHA256 else null,
-            "actor_proof_claims" to if (proofStatus != null) PROOF_CLAIMS else null
+            "actor_proof_claims" to if (proofStatus != null) PROOF_CLAIMS else null,
+            // V28: a non-default version (dropped below V28, where the column does not exist yet).
+            "version" to if (key == "notes-extra") 3 else 1
         )
         note("feature", "feature-summary", "queue", "Summary of the baseline feature")
         note("feature", "notes-extra", "work", "A second note for the feature", proofStatus = "REJECTED")

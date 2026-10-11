@@ -2,15 +2,17 @@ package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
-import io.github.jpicklyk.mcptask.current.application.tools.notes.QueryNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.envelopeOk
+import io.github.jpicklyk.mcptask.current.test.getNoteVia
+import io.github.jpicklyk.mcptask.current.test.listNotesVia
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
@@ -31,13 +33,13 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Regression tests for item d426fbfa: an actor proof (a bearer JWT) supplied on `manage_notes`,
- * `query_notes`, `advance_item`, or `create_work_tree` must never be echoed back over MCP.
+ * Regression tests for item d426fbfa: an actor proof (a bearer JWT) supplied on `notes_write`,
+ * `notes_read`, `advance_item`, or `create_work_tree` must never be echoed back over MCP.
  *
- * [ActorClaim.toJson] is the single serializer all four tools funnel through, so these tests
- * exercise it end to end via each tool's real `execute()` against a real (SQLite) database
- * — the same harness pattern used by `ManageNotesToolTest` / `QueryNotesToolTest` /
- * `CreateWorkTreeToolIntegrationTest`.
+ * The 3.x tools funnel through [ActorClaim.toJson]; the 4.0 note tools have no proof mapping at all (a note view
+ * maps `actor` to `{id, kind, parent?}` and `verification` to `{status, verifier?, reason?}`). These tests exercise
+ * both end to end against a real (SQLite) database: the 3.x tools via `execute()`, the note tools through the real
+ * dispatcher.
  *
  * "SECRET" below is a unique, JWT-shaped string used as the actor proof in every scenario; a
  * scenario passes only when SECRET is not a substring of the tool's serialized JSON response.
@@ -48,8 +50,6 @@ class ActorProofMcpExposureTest {
 
     private lateinit var repositoryProvider: DefaultRepositoryProvider
     private lateinit var context: ToolExecutionContext
-    private lateinit var manageNotesTool: ManageNotesTool
-    private lateinit var queryNotesTool: QueryNotesTool
     private lateinit var advanceItemTool: AdvanceItemTool
     private lateinit var createWorkTreeTool: CreateWorkTreeTool
 
@@ -60,8 +60,6 @@ class ActorProofMcpExposureTest {
     fun setUp() {
         repositoryProvider = db.repositoryProvider()
         context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
-        manageNotesTool = ManageNotesTool()
-        queryNotesTool = QueryNotesTool()
         advanceItemTool = AdvanceItemTool()
         createWorkTreeTool = CreateWorkTreeTool()
     }
@@ -86,61 +84,30 @@ class ActorProofMcpExposureTest {
             proof?.let { put("proof", it) }
         }
 
-    /**
-     * A `manage_notes` note element carrying its own per-note `actor` — the documented shape for
-     * attributing a note's authorship (manage_notes's `notes[].actor` field), as distinct from
-     * `advance_item`'s per-transition `actor` (S3) or `create_work_tree`'s top-level `actor` (S4).
-     */
-    private fun noteWithActorJson(
-        itemId: String,
-        key: String,
-        role: String,
-        body: String,
-        actor: JsonObject
-    ): JsonObject =
-        buildJsonObject {
-            put("itemId", itemId)
-            put("key", key)
-            put("role", role)
-            put("body", body)
-            put("actor", actor)
-        }
-
     // -----------------------------------------------------------------------
-    // S1 — manage_notes upsert never echoes proof
+    // S1 - notes_write upsert never echoes proof
     // -----------------------------------------------------------------------
 
     @Test
-    fun `S1 manage_notes upsert omits proof from echoed actor and response is SECRET-free`(): Unit =
+    fun `S1 notes_write upsert omits proof and the read-back actor is proof-free`(): Unit =
         runBlocking {
-            val itemId = createTestItem()
+            val itemId = UUID.fromString(createTestItem())
             val secret = freshSecret()
 
-            val params =
-                buildJsonObject {
-                    put("operation", "upsert")
-                    put(
-                        "notes",
-                        buildJsonArray {
-                            add(
-                                noteWithActorJson(
-                                    itemId = itemId,
-                                    key = "approach",
-                                    role = "work",
-                                    body = "Some approach text",
-                                    actor = actorJson(id = "agent-1", parent = "session-1", proof = secret)
-                                )
-                            )
-                        }
-                    )
-                }
+            val result =
+                context.upsertNoteVia(
+                    itemId,
+                    "approach",
+                    "work",
+                    "Some approach text",
+                    actor = actorJson(id = "agent-1", parent = "session-1", proof = secret)
+                )
+            assertTrue(envelopeOk(result), "expected success; got $result")
+            assertFalse(result.toString().contains(secret), "notes_write response must be SECRET-free")
 
-            val result = manageNotesTool.execute(params, context) as JsonObject
-            assertTrue(result["success"]!!.jsonPrimitive.boolean, "expected success; got $result")
-            assertFalse(result.toString().contains(secret), "manage_notes response must be SECRET-free")
-
-            val note = (result["data"] as JsonObject)["notes"]!!.jsonArray[0].jsonObject
-            val actor = note["actor"]!!.jsonObject
+            val read = context.getNoteVia(itemId, "approach")
+            assertFalse(read.toString().contains(secret), "notes_read get response must be SECRET-free")
+            val actor = read["data"]!!.jsonObject["actor"]!!.jsonObject
             assertEquals("agent-1", actor["id"]!!.jsonPrimitive.content)
             assertEquals("subagent", actor["kind"]!!.jsonPrimitive.content)
             assertEquals("session-1", actor["parent"]!!.jsonPrimitive.content)
@@ -148,82 +115,30 @@ class ActorProofMcpExposureTest {
         }
 
     // -----------------------------------------------------------------------
-    // S2 — query_notes get/list (both includeBody variants) never echo proof
+    // S2 - notes_read get/list never echo proof
     // -----------------------------------------------------------------------
 
     @Test
-    fun `S2 query_notes get and list omit proof from actor at every includeBody variant`(): Unit =
+    fun `S2 notes_read get and list omit proof from actor`(): Unit =
         runBlocking {
-            val itemId = createTestItem()
+            val itemId = UUID.fromString(createTestItem())
             val secret = freshSecret()
 
-            val upsertResult =
-                manageNotesTool.execute(
-                    buildJsonObject {
-                        put("operation", "upsert")
-                        put(
-                            "notes",
-                            buildJsonArray {
-                                add(
-                                    noteWithActorJson(
-                                        itemId = itemId,
-                                        key = "spec",
-                                        role = "queue",
-                                        body = "Spec body",
-                                        actor = actorJson(id = "agent-2", proof = secret)
-                                    )
-                                )
-                            }
-                        )
-                    },
-                    context
-                ) as JsonObject
-            val noteId =
-                (upsertResult["data"] as JsonObject)["notes"]!!
+            context.upsertNoteVia(itemId, "spec", "queue", "Spec body", actor = actorJson(id = "agent-2", proof = secret))
+
+            val getResult = context.getNoteVia(itemId, "spec")
+            assertFalse(getResult.toString().contains(secret), "notes_read get response must be SECRET-free")
+            assertFalse(getResult["data"]!!.jsonObject["actor"]!!.jsonObject.containsKey("proof"), "get: actor must not carry a proof key")
+
+            val listResult = context.listNotesVia(itemId)
+            assertFalse(listResult.toString().contains(secret), "notes_read list response must be SECRET-free")
+            val listActor =
+                listResult["data"]!!
+                    .jsonObject["items"]!!
                     .jsonArray[0]
-                    .jsonObject["id"]!!
-                    .jsonPrimitive.content
-
-            // get
-            val getResult =
-                queryNotesTool.execute(
-                    buildJsonObject {
-                        put("operation", "get")
-                        put("noteId", noteId)
-                    },
-                    context
-                ) as JsonObject
-            assertFalse(getResult.toString().contains(secret), "query_notes get response must be SECRET-free")
-            val getActor = (getResult["data"] as JsonObject)["actor"]!!.jsonObject
-            assertFalse(getActor.containsKey("proof"), "get: echoed actor must not carry a proof key")
-
-            // list includeBody=false
-            val listFalse =
-                queryNotesTool.execute(
-                    buildJsonObject {
-                        put("operation", "list")
-                        put("itemId", itemId)
-                        put("includeBody", false)
-                    },
-                    context
-                ) as JsonObject
-            assertFalse(listFalse.toString().contains(secret), "list includeBody=false response must be SECRET-free")
-            val listFalseActor = (listFalse["data"] as JsonObject)["notes"]!!.jsonArray[0].jsonObject["actor"]!!.jsonObject
-            assertFalse(listFalseActor.containsKey("proof"), "list includeBody=false: actor must not carry a proof key")
-
-            // list includeBody=true
-            val listTrue =
-                queryNotesTool.execute(
-                    buildJsonObject {
-                        put("operation", "list")
-                        put("itemId", itemId)
-                        put("includeBody", true)
-                    },
-                    context
-                ) as JsonObject
-            assertFalse(listTrue.toString().contains(secret), "list includeBody=true response must be SECRET-free")
-            val listTrueActor = (listTrue["data"] as JsonObject)["notes"]!!.jsonArray[0].jsonObject["actor"]!!.jsonObject
-            assertFalse(listTrueActor.containsKey("proof"), "list includeBody=true: actor must not carry a proof key")
+                    .jsonObject["actor"]!!
+                    .jsonObject
+            assertFalse(listActor.containsKey("proof"), "list: actor must not carry a proof key")
         }
 
     // -----------------------------------------------------------------------
@@ -264,11 +179,11 @@ class ActorProofMcpExposureTest {
         }
 
     // -----------------------------------------------------------------------
-    // S4 — create_work_tree top-level actor proof never leaks, including via follow-up query_notes
+    // S4 — create_work_tree top-level actor proof never leaks, including via follow-up notes_read
     // -----------------------------------------------------------------------
 
     @Test
-    fun `S4 create_work_tree response and follow-up query_notes list are SECRET-free`(): Unit =
+    fun `S4 create_work_tree response and follow-up notes_read list are SECRET-free`(): Unit =
         runBlocking {
             val secret = freshSecret()
 
@@ -303,29 +218,21 @@ class ActorProofMcpExposureTest {
 
             val rootId = ((result["data"] as JsonObject)["root"] as JsonObject)["id"]!!.jsonPrimitive.content
 
-            val listResult =
-                queryNotesTool.execute(
-                    buildJsonObject {
-                        put("operation", "list")
-                        put("itemId", rootId)
-                        put("includeBody", true)
-                    },
-                    context
-                ) as JsonObject
-            assertFalse(listResult.toString().contains(secret), "follow-up query_notes list must be SECRET-free")
-            val notes = (listResult["data"] as JsonObject)["notes"]!!.jsonArray
+            val listResult = context.listNotesVia(UUID.fromString(rootId))
+            assertFalse(listResult.toString().contains(secret), "follow-up notes_read list must be SECRET-free")
+            val notes = listResult["data"]!!.jsonObject["items"]!!.jsonArray
             assertEquals(1, notes.size)
             assertFalse(notes[0].jsonObject["actor"]!!.jsonObject.containsKey("proof"), "note actor must not carry a proof key")
         }
 
     // -----------------------------------------------------------------------
-    // S5 — a non-noop (jwks) verifier still keeps verification metadata, still omits proof
+    // S5 - a non-noop (jwks) verifier still keeps verification metadata, still omits proof
     // -----------------------------------------------------------------------
 
     @Test
-    fun `S5 manage_notes with a VERIFIED jwks actor keeps verification status but omits proof`(): Unit =
+    fun `S5 notes_write with a VERIFIED jwks actor keeps verification status but omits proof`(): Unit =
         runBlocking {
-            val itemId = createTestItem()
+            val itemId = UUID.fromString(createTestItem())
             val secret = freshSecret()
 
             val verifiedContext =
@@ -339,29 +246,19 @@ class ActorProofMcpExposureTest {
                     unitOfWork = db.unitOfWork()
                 )
 
-            val params =
-                buildJsonObject {
-                    put("operation", "upsert")
-                    put(
-                        "notes",
-                        buildJsonArray {
-                            add(
-                                noteWithActorJson(
-                                    itemId = itemId,
-                                    key = "verified-approach",
-                                    role = "work",
-                                    body = "Verified body",
-                                    actor = actorJson(id = "agent-5", proof = secret)
-                                )
-                            )
-                        }
-                    )
-                }
-
-            val result = manageNotesTool.execute(params, verifiedContext) as JsonObject
+            val result =
+                verifiedContext.upsertNoteVia(
+                    itemId,
+                    "verified-approach",
+                    "work",
+                    "Verified body",
+                    actor = actorJson(id = "agent-5", proof = secret)
+                )
             assertFalse(result.toString().contains(secret), "response must be SECRET-free")
 
-            val note = (result["data"] as JsonObject)["notes"]!!.jsonArray[0].jsonObject
+            val read = verifiedContext.getNoteVia(itemId, "verified-approach")
+            assertFalse(read.toString().contains(secret), "read-back must be SECRET-free")
+            val note = read["data"]!!.jsonObject
             assertFalse(note["actor"]!!.jsonObject.containsKey("proof"), "echoed actor must not carry a proof key")
 
             val verification = note["verification"]!!.jsonObject
@@ -370,72 +267,36 @@ class ActorProofMcpExposureTest {
         }
 
     // -----------------------------------------------------------------------
-    // S14a — blank / absent proof: still no proof key (guard, not just SECRET-based)
+    // S14a - blank / absent proof: still no proof key (guard, not just SECRET-based)
     // -----------------------------------------------------------------------
 
     @Test
-    fun `S14a manage_notes with a blank proof omits the proof key`(): Unit =
+    fun `S14a notes_write with a blank proof omits the proof key`(): Unit =
         runBlocking {
-            val itemId = createTestItem()
+            val itemId = UUID.fromString(createTestItem())
 
-            val params =
-                buildJsonObject {
-                    put("operation", "upsert")
-                    put(
-                        "notes",
-                        buildJsonArray {
-                            add(
-                                noteWithActorJson(
-                                    itemId = itemId,
-                                    key = "blank-proof",
-                                    role = "work",
-                                    body = "Blank proof body",
-                                    actor = actorJson(id = "agent-6", proof = "")
-                                )
-                            )
-                        }
-                    )
-                }
-
-            val result = manageNotesTool.execute(params, context) as JsonObject
-            assertTrue(result["success"]!!.jsonPrimitive.boolean, "expected success; got $result")
-            val actor = (result["data"] as JsonObject)["notes"]!!.jsonArray[0].jsonObject["actor"]!!.jsonObject
+            val result =
+                context.upsertNoteVia(itemId, "blank-proof", "work", "Blank proof body", actor = actorJson(id = "agent-6", proof = ""))
+            assertTrue(envelopeOk(result), "expected success; got $result")
+            val actor = context.getNoteVia(itemId, "blank-proof")["data"]!!.jsonObject["actor"]!!.jsonObject
             assertFalse(actor.containsKey("proof"), "actor with a blank proof must not carry a proof key")
         }
 
     @Test
-    fun `S14a manage_notes with an absent proof field omits the proof key`(): Unit =
+    fun `S14a notes_write with an absent proof field omits the proof key`(): Unit =
         runBlocking {
-            val itemId = createTestItem()
+            val itemId = UUID.fromString(createTestItem())
 
-            val params =
-                buildJsonObject {
-                    put("operation", "upsert")
-                    put(
-                        "notes",
-                        buildJsonArray {
-                            add(
-                                // actorJson with proof = null omits the "proof" field entirely.
-                                noteWithActorJson(
-                                    itemId = itemId,
-                                    key = "absent-proof",
-                                    role = "work",
-                                    body = "Absent proof body",
-                                    actor = actorJson(id = "agent-7", proof = null)
-                                )
-                            )
-                        }
-                    )
-                }
-
-            val result = manageNotesTool.execute(params, context) as JsonObject
-            assertTrue(result["success"]!!.jsonPrimitive.boolean, "expected success; got $result")
-            val actor = (result["data"] as JsonObject)["notes"]!!.jsonArray[0].jsonObject["actor"]!!.jsonObject
+            // actorJson with proof = null omits the "proof" field entirely.
+            val result =
+                context.upsertNoteVia(itemId, "absent-proof", "work", "Absent proof body", actor = actorJson(id = "agent-7", proof = null))
+            assertTrue(envelopeOk(result), "expected success; got $result")
+            val actor = context.getNoteVia(itemId, "absent-proof")["data"]!!.jsonObject["actor"]!!.jsonObject
             assertFalse(actor.containsKey("proof"), "actor with no proof field must not carry a proof key")
         }
 
     // -----------------------------------------------------------------------
-    // S15 — raw proof is scrubbed to null in the repository (item 983615e7 D5: proof evidence,
+    // S15 - raw proof is scrubbed to null in the repository (item 983615e7 D5: proof evidence,
     // not the credential itself, is what gets persisted)
     // -----------------------------------------------------------------------
 
@@ -446,73 +307,39 @@ class ActorProofMcpExposureTest {
             val secret = freshSecret()
 
             val upsertResult =
-                manageNotesTool.execute(
-                    buildJsonObject {
-                        put("operation", "upsert")
-                        put(
-                            "notes",
-                            buildJsonArray {
-                                add(
-                                    noteWithActorJson(
-                                        itemId = itemId,
-                                        key = "persisted-proof",
-                                        role = "work",
-                                        body = "Persisted proof body",
-                                        actor = actorJson(id = "agent-8", proof = secret)
-                                    )
-                                )
-                            }
-                        )
-                    },
-                    context
-                ) as JsonObject
-            assertTrue(upsertResult["success"]!!.jsonPrimitive.boolean, "expected success; got $upsertResult")
+                context.upsertNoteVia(
+                    UUID.fromString(itemId),
+                    "persisted-proof",
+                    "work",
+                    "Persisted proof body",
+                    actor = actorJson(id = "agent-8", proof = secret)
+                )
+            assertTrue(envelopeOk(upsertResult), "expected success; got $upsertResult")
             // The MCP echo itself must still be SECRET-free even though it never reaches storage underneath.
             assertFalse(upsertResult.toString().contains(secret), "MCP echo must remain SECRET-free")
 
             val persisted = context.noteRepository().findByItemIdAndKey(UUID.fromString(itemId), "persisted-proof")
             assertNotNull(persisted, "expected the note to be found; got $persisted")
-            val note = persisted
-            assertNotNull(note, "note should be persisted")
-            assertNull(note.actorClaim?.proof, "raw proof must be scrubbed to null on write per item 983615e7 D5")
+            assertNull(persisted.actorClaim?.proof, "raw proof must be scrubbed to null on write per item 983615e7 D5")
         }
 
     // -----------------------------------------------------------------------
-    // Probe — idempotent replay (same requestId twice) must remain SECRET-free
+    // Probe - idempotent replay (same idempotencyKey twice) must remain SECRET-free
     // -----------------------------------------------------------------------
 
     @Test
-    fun `Probe idempotent replay of manage_notes upsert with the same requestId stays SECRET-free`(): Unit =
+    fun `Probe idempotent replay of notes_write upsert with the same idempotencyKey stays SECRET-free`(): Unit =
         runBlocking {
-            val itemId = createTestItem()
+            val itemId = UUID.fromString(createTestItem())
             val secret = freshSecret()
-            val requestId = UUID.randomUUID().toString()
+            val key = UUID.randomUUID().toString()
+            val actor = actorJson(id = "agent-9", proof = secret)
 
-            val params =
-                buildJsonObject {
-                    put("operation", "upsert")
-                    put("requestId", requestId)
-                    put("actor", actorJson(id = "agent-9"))
-                    put(
-                        "notes",
-                        buildJsonArray {
-                            add(
-                                noteWithActorJson(
-                                    itemId = itemId,
-                                    key = "idempotent-note",
-                                    role = "work",
-                                    body = "Idempotent body",
-                                    actor = actorJson(id = "agent-9", proof = secret)
-                                )
-                            )
-                        }
-                    )
-                }
-
-            val first = manageNotesTool.execute(params, context) as JsonObject
+            val first = context.upsertNoteVia(itemId, "idempotent-note", "work", "Idempotent body", actor = actor, idempotencyKey = key)
             assertFalse(first.toString().contains(secret), "first call must be SECRET-free")
 
-            val second = manageNotesTool.execute(params, context) as JsonObject
-            assertFalse(second.toString().contains(secret), "replayed call with the same requestId must remain SECRET-free")
+            val second = context.upsertNoteVia(itemId, "idempotent-note", "work", "Idempotent body", actor = actor, idempotencyKey = key)
+            assertTrue(second.toString().contains("\"replayed\":true"), "the second call is a replay: $second")
+            assertFalse(second.toString().contains(secret), "replayed call with the same idempotencyKey must remain SECRET-free")
         }
 }

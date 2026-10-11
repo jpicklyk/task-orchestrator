@@ -16,7 +16,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProject
 import io.github.jpicklyk.mcptask.current.application.tools.config.QueryRulesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.QueryNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
@@ -53,8 +52,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemGateRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemWriteRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteResourceRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteRoutes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteWriteRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.planDocumentRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.projectConfigRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.resourceLeaseRoutes
@@ -603,7 +602,6 @@ internal fun buildMcpTools(): List<ToolDefinition> =
         // Phase 1: CRUD
         ManageItemsTool(),
         QueryItemsTool(),
-        ManageNotesTool(),
         QueryNotesTool(),
         // Phase 2: Workflow
         AdvanceItemTool(),
@@ -765,6 +763,8 @@ internal fun Application.installRestApiRoutes(
             itemRoutes(effectiveProvider)
             itemGateRoutes(effectiveProvider, toolContext.configResolver, toolContext.transitionPreview())
             noteRoutes(effectiveProvider, toolContext.unitOfWork)
+            // Note resource reads: thin translations to notes_read over the same dispatcher /ops uses (writes are /ops/notes_write).
+            noteResourceRoutes(toolRegistry, toolDispatcher, redactNoteAttribution = appConfig.apiRedactNoteAttribution)
             transitionRoutes(
                 effectiveProvider,
                 redactAttribution = appConfig.apiRedactNoteAttribution,
@@ -782,13 +782,6 @@ internal fun Application.installRestApiRoutes(
                 toolContext.itemCommandService,
                 warnOnClaimedAdvance = appConfig.apiWarnOnClaimedAdvance,
                 clock = toolContext.clock,
-            )
-            noteWriteRoutes(
-                effectiveProvider,
-                degradedModePolicy,
-                toolContext.idempotency,
-                toolContext.unitOfWork,
-                toolContext.noteCommandService
             )
             // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete —
             // converges on the same ConfigService the manage_project_config MCP tool uses.
@@ -815,7 +808,7 @@ internal fun Application.installRestApiRoutes(
             resourceLeaseRoutes(effectiveProvider, toolContext.unitOfWork)
             // Canonical RPC route over the tool registry (Q6): per-op capability and scope are enforced
             // by the dispatcher from the bearer principal; mounted last so it never shadows a resource route.
-            opsRoutes(toolRegistry, toolDispatcher)
+            opsRoutes(toolRegistry, toolDispatcher, redactNoteAttribution = appConfig.apiRedactNoteAttribution)
         }
         // Phase 6: real-time SSE event stream — registered in a separate, sibling
         // `route("/api/v1")` block from the one above. NOTE: this sibling-route registration does

@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.parity
 
-import io.github.jpicklyk.mcptask.current.application.api.CallPrincipal
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
@@ -10,12 +9,11 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.toAccessScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildToolDispatcher
@@ -150,14 +148,10 @@ internal fun parityAuthConfig(token: ParityToken): ApiAuthConfig.Bearer =
     ApiAuthConfig.Bearer(tokens = mapOf(HashBytes(sha256(token.raw)) to token.principal()))
 
 /** The [CallAccess] an MCP leg runs under so it carries the REST leg's identity (principal, scope, capabilities). */
-internal fun parityAccess(token: ParityToken): CallAccess {
-    val principal = token.principal()
-    return CallAccess(
-        principal = CallPrincipal(ApiAuditBridge.toActorClaim(principal), ApiAuditBridge.toVerificationResult(principal)),
-        scope = principal.toAccessScope(),
-        capabilities = principal.capabilities
-    )
-}
+internal fun parityAccess(token: ParityToken): CallAccess =
+    // The same builder the REST route uses, with the default redaction (API_REDACT_NOTE_ATTRIBUTION on): both legs
+    // then agree on whether note attribution is visible.
+    token.principal().toCallAccess(redactNoteAttribution = true)
 
 internal class McpResult(
     val isError: Boolean,
@@ -387,16 +381,31 @@ class ParityHarness(
     ): String {
         val marker = "\"reqId\":\"$reqId\""
         assertTrue(marker in body, "body carries its reqId marker: $body")
-        return body.replace(marker, "\"reqId\":\"<REQ>\"")
+        // A stamp on the fixed clock is compared exactly; a stamp some store takes from the wall clock instead (note rows are
+        // stamped by the repository, not the injected clock) differs between the legs by milliseconds, so it must still be an
+        // ISO-8601 instant and is masked.
+        val fixed = PARITY_NOW.toString()
+        return body.replace(marker, "\"reqId\":\"<REQ>\"").replace(TIMESTAMP) { match ->
+            val value = match.groupValues[2]
+            if (value == fixed) {
+                match.value
+            } else {
+                Instant.parse(value)
+                "\"${match.groupValues[1]}\":\"<WALL>\""
+            }
+        }
     }
 
     companion object {
         private val TABLES = listOf("work_items", "notes", "dependencies", "events")
 
+        private val TIMESTAMP = Regex("\"(createdAt|modifiedAt)\":\"([^\"]*)\"")
+
         /**
          * The comparable content of every table: generated ids (all `id` columns except work_items, whose ids are seeded),
          * `seq`, request/session correlation ids, an event's transport `host` and every timestamp column are dropped; rows are
-         * sorted (events by `seq`).
+         * sorted (events by `seq`). `host` records the caller's transport identity, which differs between the legs by design
+         * (Q7: MCP records `clientInfo.name`, REST the `X-Client-Host` header or user agent).
          */
         fun snapshot(jdbcUrl: String): Map<String, List<Map<String, Any?>>> = project(rawTables(jdbcUrl))
 

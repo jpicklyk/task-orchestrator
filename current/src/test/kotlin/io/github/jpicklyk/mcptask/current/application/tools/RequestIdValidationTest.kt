@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.tools
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -30,8 +29,9 @@ import kotlin.test.assertTrue
 
 /**
  * Independent test-author coverage for item 71dea46e (frozen test-plan note `b703941a`):
- * a malformed `requestId` on any of the five mutating tools (manage_items, manage_notes,
- * advance_item, complete_tree, create_work_tree) must be rejected with a
+ * a malformed `requestId` on any of the four 3.x mutating tools (manage_items, advance_item,
+ * complete_tree, create_work_tree; manage_notes and manage_dependencies were replaced by notes_write and
+ * deps_write, which take a per-element idempotencyKey instead) must be rejected with a
  * validation error naming `requestId`, with NOTHING written and the idempotency cache left
  * empty. A valid `requestId` must still replay idempotently. `requestId`-without-actor and the
  * `create_work_tree` malformed-actor contract are UNCHANGED (guard regressions, not new gates).
@@ -142,32 +142,6 @@ class RequestIdValidationTest {
                 val check: suspend () -> Boolean = {
                     val count = (context.workItemRepository().findRootItems()!!).items.size
                     count > baseline
-                }
-                params to check
-            },
-            ToolCase("manage_notes", ManageNotesTool()) { context, actorId ->
-                val itemId = createItem(context, "Notes Target ${UUID.randomUUID()}")
-                val params =
-                    buildJsonObject {
-                        put("operation", JsonPrimitive("upsert"))
-                        put(
-                            "notes",
-                            JsonArray(
-                                listOf(
-                                    buildJsonObject {
-                                        put("itemId", JsonPrimitive(itemId.toString()))
-                                        put("key", JsonPrimitive("approach"))
-                                        put("role", JsonPrimitive("work"))
-                                        put("body", JsonPrimitive("body"))
-                                    }
-                                )
-                            )
-                        )
-                        put("actor", actorJson(actorId))
-                    }
-                val check: suspend () -> Boolean = {
-                    val notes = context.noteRepository().findByItemId(itemId)
-                    notes?.isNotEmpty() == true
                 }
                 params to check
             },

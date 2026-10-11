@@ -171,32 +171,6 @@ class WriteRoutesBodyLimitTest {
             assertEquals(Role.QUEUE, persisted!!.role, "advance must never have been applied")
         }
 
-    @Test
-    fun `PUT note with an overstated Content-Length is rejected 413`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Note Target", depth = 0))!! }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            val response =
-                client.put("/api/v1/items/${item.id}/notes/impl-note") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    setBody(
-                        RouteMismatchedLengthContent(
-                            contentLength = MAX_JSON_WRITE_BODY_BYTES + 1L,
-                            contentType = ContentType.Application.Json,
-                            actualBytes = byteArrayOf('{'.code.toByte()),
-                        ),
-                    )
-                }
-
-            assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
-            assertTrue(response.bodyAsText().contains("payload_too_large"))
-
-            val noteResult = runBlocking { repo.noteRepository().findByItemIdAndKey(item.id, "impl-note") }
-            assertTrue(noteResult == null, "no note should be created on 413")
-        }
-
     // S6 regression, folded into the same wiring proof: the 2 ALREADY-capped routes keep their
     // own unchanged numeric cap and now also go through receiveBounded (same shared shape).
     // The existing "over the size cap returns 413" tests in ProjectConfigRoutesTest.kt:245 and
