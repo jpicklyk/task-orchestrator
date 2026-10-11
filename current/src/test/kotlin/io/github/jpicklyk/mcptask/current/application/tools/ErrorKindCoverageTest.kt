@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
@@ -37,7 +36,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -105,7 +103,6 @@ class ErrorKindCoverageTest {
                 )
             val adapter = McpToolAdapter()
             listOf(
-                ManageItemsTool(),
                 CompleteTreeTool(),
                 ClaimItemTool(),
                 AdvanceItemTool()
@@ -302,106 +299,6 @@ class ErrorKindCoverageTest {
             assertEquals("true", entry["applied"]!!.jsonPrimitive.content, "control: it completes: $entry")
             assertNull(entry["errorCode"])
             assertNull(entry["errorKind"])
-        }
-
-    // ----------------------------------------------
-    // S5 - manage_items per-element failures
-    // ----------------------------------------------
-
-    @Test
-    fun `S5 manage_items update of an unknown id keeps its error and gains errorCode not_found with errorKind permanent`(): Unit =
-        runBlocking {
-            val result =
-                call(
-                    "manage_items",
-                    mapOf("operation" to "update", "items" to listOf(mapOf("itemId" to UUID.randomUUID().toString(), "title" to "x")))
-                )
-
-            val failure = result.data().entries("failures").single()
-            assertTrue(failure.str("error")!!.contains("not found", ignoreCase = true), "error text kept: $failure")
-            assertEquals("not_found", failure.str("errorCode"))
-            assertEquals("permanent", failure.str("errorKind"))
-        }
-
-    @Test
-    fun `S5 manage_items update that changes the role is an invalid_request failure with errorKind permanent`(): Unit =
-        runBlocking {
-            val existing = item("role change")
-
-            val result =
-                call(
-                    "manage_items",
-                    mapOf("operation" to "update", "items" to listOf(mapOf("itemId" to existing.id.toString(), "role" to "work")))
-                )
-
-            val failure = result.data().entries("failures").single()
-            assertTrue(failure.str("error")!!.contains("role changes are not allowed"), "error text kept: $failure")
-            assertEquals("invalid_request", failure.str("errorCode"))
-            assertEquals("permanent", failure.str("errorKind"))
-        }
-
-    @Test
-    fun `S5 manage_items create under a missing parent keeps its error and gains errorCode not_found with errorKind permanent`(): Unit =
-        runBlocking {
-            val result =
-                call(
-                    "manage_items",
-                    mapOf(
-                        "operation" to "create",
-                        "items" to listOf(mapOf("title" to "orphan", "type" to "test-item", "parentId" to UUID.randomUUID().toString()))
-                    )
-                )
-
-            val failure = result.data().entries("failures").single()
-            assertTrue(failure.str("error")!!.contains("not found"), "error text kept: $failure")
-            assertEquals("not_found", failure.str("errorCode"))
-            assertEquals("permanent", failure.str("errorKind"))
-        }
-
-    @Test
-    fun `S5 manage_items delete of an unknown id gains errorCode not_found with errorKind permanent`(): Unit =
-        runBlocking {
-            val result = call("manage_items", mapOf("operation" to "delete", "itemIds" to listOf(UUID.randomUUID().toString())))
-
-            val failure = result.data().entries("failures").single()
-            assertEquals("not_found", failure.str("errorCode"))
-            assertEquals("permanent", failure.str("errorKind"))
-        }
-
-    @Test
-    fun `S5 probe a keyed replay of a failing manage_items update returns the identical failure entry`(): Unit =
-        runBlocking {
-            val args =
-                mapOf(
-                    "operation" to "update",
-                    "items" to listOf(mapOf("itemId" to UUID.randomUUID().toString(), "title" to "x")),
-                    "requestId" to UUID.randomUUID().toString(),
-                    "actor" to actor
-                )
-
-            val first = call("manage_items", args).data().entries("failures").single()
-            val second = call("manage_items", args).data().entries("failures").single()
-
-            assertEquals(first, second)
-            assertEquals("permanent", second.str("errorKind"))
-        }
-
-    @Test
-    fun `S5 probe successful create and update responses carry no failure entries and no error fields`(): Unit =
-        runBlocking {
-            val created =
-                call(
-                    "manage_items",
-                    mapOf(
-                        "operation" to "create",
-                        "items" to listOf(mapOf("title" to "fine", "type" to "test-item"))
-                    )
-                )
-
-            assertTrue(created.isError != true, "control: create succeeds: ${created.content}")
-            assertNull(created.data()["failures"], "no failures key on a clean batch: ${created.data()}")
-            assertFalse(created.data().toString().contains("errorKind"), "no errorKind anywhere on a clean batch: ${created.data()}")
-            assertFalse(created.data().toString().contains("errorCode"), "no errorCode anywhere on a clean batch: ${created.data()}")
         }
 
     // ----------------------------------------------

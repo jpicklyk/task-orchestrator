@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -14,37 +13,32 @@ import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.orFail
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.patchOf
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.str
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.WRITE_TOKEN
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureWriteTestApp
 import io.github.jpicklyk.mcptask.current.test.P11Driver
 import io.github.jpicklyk.mcptask.current.test.P11_BASE_YAML
 import io.github.jpicklyk.mcptask.current.test.P11_LEASE_KEY
 import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
+import io.github.jpicklyk.mcptask.current.test.createOp
+import io.github.jpicklyk.mcptask.current.test.deleteOp
+import io.github.jpicklyk.mcptask.current.test.errorAt
+import io.github.jpicklyk.mcptask.current.test.itemsWrite
+import io.github.jpicklyk.mcptask.current.test.okId
+import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.rawCount
+import io.github.jpicklyk.mcptask.current.test.results
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.strings
+import io.github.jpicklyk.mcptask.current.test.updateOp
 import io.ktor.client.request.delete
-import io.ktor.client.request.header
 import io.ktor.client.request.patch
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
-import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
@@ -216,7 +210,7 @@ class ItemCommandServiceTest {
         }
 
     @Test
-    fun `S1 manage_items create and a hex prefix parent stamp the same placement`(
+    fun `S1 items_write create and a hex prefix parent stamp the same placement`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -225,37 +219,18 @@ class ItemCommandServiceTest {
             val p = d.make("P", d.make("A", r))
 
             val result =
-                d.rig.callOk(
-                    ManageItemsTool(),
-                    "operation" to JsonPrimitive("create"),
-                    "items" to
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("type", "test-item")
-                                    put("title", "by full id")
-                                    put("parentId", p.id.toString())
-                                }
-                            )
-                            add(
-                                buildJsonObject {
-                                    put("type", "test-item")
-                                    put("title", "by prefix")
-                                    put("parentId", p.id.toString().substring(0, 8))
-                                }
-                            )
-                        },
+                d.rig.itemsWrite(
+                    createOp("by full id", p.id),
+                    createOp("by prefix", null, TEST_ITEM_TYPE, "parentId" to JsonPrimitive(p.id.toString().substring(0, 8))),
                 )
 
-            val data = result["data"]!!.jsonObject
-            assertEquals(2, data["created"]!!.jsonPrimitive.int, "$result")
-            for (element in data["items"]!!.jsonArray) {
-                val stored = d.reload(WorkItem(id = UUID.fromString(element.jsonObject["id"]!!.jsonPrimitive.content), title = "x"))
+            assertEquals(2, result.results().size, "$result")
+            for (i in 0..1) {
+                val stored = d.reload(WorkItem(id = result.okId(i), title = "x"))
                 assertEquals(3, stored.depth)
                 assertEquals(r.id, stored.rootId)
                 assertEquals(p.id, stored.parentId)
                 assertEquals(Role.QUEUE, stored.role)
-                assertEquals("queue", element.jsonObject["role"]!!.jsonPrimitive.content)
             }
         }
 
@@ -1043,7 +1018,7 @@ class ItemCommandServiceTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `S6 manage_items update reports the old parent cascade on the element and omits cascadeEvents when nothing cascaded`(
+    fun `S6 items_write update reports the old parent cascade on the element and omits cascade when nothing cascaded`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -1052,49 +1027,40 @@ class ItemCommandServiceTest {
             val other = d.family()
 
             val moved =
-                d.rig.callOk(
-                    ManageItemsTool(),
-                    "operation" to JsonPrimitive("update"),
-                    "items" to
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", fam.open.id.toString())
-                                    put("parentId", JsonNull)
-                                }
-                            )
-                            add(
-                                buildJsonObject {
-                                    put("itemId", other.done.id.toString())
-                                    put("title", "renamed only")
-                                }
-                            )
-                        },
+                d.rig.itemsWrite(
+                    updateOp(fam.open.id, "clear" to strings("parentId")),
+                    updateOp(other.done.id, "title" to JsonPrimitive("renamed only")),
                 )
 
-            val data = moved["data"]!!.jsonObject
-            assertEquals(2, data["updated"]!!.jsonPrimitive.int, "$moved")
-            val elements = data["items"]!!.jsonArray.map { it.jsonObject }
-            val movedElement = elements.single { it["id"]!!.jsonPrimitive.content == fam.open.id.toString() }
-            val cascade = movedElement["cascadeEvents"]!!.jsonArray.single().jsonObject
+            assertEquals(
+                2,
+                moved["data"]!!
+                    .jsonObject["summary"]!!
+                    .jsonObject["ok"]!!
+                    .jsonPrimitive.int,
+                "$moved"
+            )
+            val movedElement = moved.okResult(0)
+            assertEquals(fam.open.id.toString(), movedElement["id"]!!.jsonPrimitive.content)
+            val cascade = movedElement["cascade"]!!.jsonArray.single().jsonObject
             assertEquals(fam.parent.id.toString(), cascade["itemId"]!!.jsonPrimitive.content)
-            assertEquals("work", cascade["previousRole"]!!.jsonPrimitive.content)
-            assertEquals("terminal", cascade["targetRole"]!!.jsonPrimitive.content)
+            assertEquals("work", cascade["from"]!!.jsonPrimitive.content)
+            assertEquals("terminal", cascade["to"]!!.jsonPrimitive.content)
             assertTrue(cascade["applied"]!!.jsonPrimitive.boolean)
-            val plain = elements.single { it["id"]!!.jsonPrimitive.content == other.done.id.toString() }
-            assertFalse("cascadeEvents" in plain, "an update with nothing to cascade omits the key: $plain")
+            val plain = moved.okResult(1)
+            assertFalse("cascade" in plain, "an update with nothing to cascade omits the key: $plain")
             assertEquals(
                 other.parent.id,
                 d.reload(other.done).parentId,
-                "an absent parentId keeps the parent, only an explicit null moves to root"
+                "an absent parentId keeps the parent, only clear parentId moves to root"
             )
-            assertNull(d.reload(fam.open).parentId, "an explicit null parentId moves the item to root")
+            assertNull(d.reload(fam.open).parentId, "clear parentId moves the item to root")
             assertEquals(Role.TERMINAL, d.role(fam.parent))
             assertEquals(Role.WORK, d.role(other.parent))
         }
 
     @Test
-    fun `S6 S9 manage_items delete reports cascades at the top level and a suppressed one with gateBlocked`(
+    fun `S6 S9 items_write delete reports cascades on the element and a suppressed one with its blocking code`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -1105,26 +1071,19 @@ class ItemCommandServiceTest {
             d.setRole(lone, Role.WORK)
             val only = d.make("only kid", lone)
 
-            fun deleteParams(vararg ids: UUID) =
-                arrayOf<Pair<String, JsonElement>>(
-                    "operation" to JsonPrimitive("delete"),
-                    "itemIds" to buildJsonArray { ids.forEach { add(JsonPrimitive(it.toString())) } },
-                )
-
-            val completed = d.rig.callOk(ManageItemsTool(), *deleteParams(fam.open.id))["data"]!!.jsonObject
-            val completedEvent = completed["cascadeEvents"]!!.jsonArray.single().jsonObject
+            val completed = d.rig.itemsWrite(deleteOp(fam.open.id)).okResult(0)
+            val completedEvent = completed["cascade"]!!.jsonArray.single().jsonObject
             assertEquals(fam.parent.id.toString(), completedEvent["itemId"]!!.jsonPrimitive.content)
             assertTrue(completedEvent["applied"]!!.jsonPrimitive.boolean)
 
-            val blocked = d.rig.callOk(ManageItemsTool(), *deleteParams(gated.open.id))["data"]!!.jsonObject
-            val blockedEvent = blocked["cascadeEvents"]!!.jsonArray.single().jsonObject
+            val blocked = d.rig.itemsWrite(deleteOp(gated.open.id)).okResult(0)
+            val blockedEvent = blocked["cascade"]!!.jsonArray.single().jsonObject
             assertFalse(blockedEvent["applied"]!!.jsonPrimitive.boolean)
-            assertTrue(blockedEvent["gateBlocked"]!!.jsonPrimitive.boolean)
-            assertTrue(blockedEvent["missingNotes"].toString().contains("spec"), "the missing note is named: $blockedEvent")
+            assertEquals("gate_blocked", blockedEvent["reason"]!!.jsonPrimitive.content, "$blockedEvent")
 
-            val quiet = d.rig.callOk(ManageItemsTool(), *deleteParams(only.id))["data"]!!.jsonObject
+            val quiet = d.rig.itemsWrite(deleteOp(only.id)).okResult(0)
             assertEquals(1, quiet["deleted"]!!.jsonPrimitive.int)
-            assertFalse("cascadeEvents" in quiet, "no cascade, no key: $quiet")
+            assertFalse("cascade" in quiet, "no cascade, no key: $quiet")
         }
 
     // ---------------------------------------------------------------------------------------------
@@ -1205,7 +1164,7 @@ class ItemCommandServiceTest {
         }
 
     @Test
-    fun `S7 manage_items names the reopen fix for create and update and still creates under an open parent`(
+    fun `S7 items_write fails create and update under a closed parent as invalid_transition and writes nothing`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -1213,56 +1172,11 @@ class ItemCommandServiceTest {
             val closed = d.terminal()
             val stray = d.make("stray")
 
-            val create =
-                d.rig
-                    .callOk(
-                        ManageItemsTool(),
-                        "operation" to JsonPrimitive("create"),
-                        "items" to
-                            buildJsonArray {
-                                add(
-                                    buildJsonObject {
-                                        put("type", "test-item")
-                                        put("title", "late")
-                                        put("parentId", closed.id.toString())
-                                    }
-                                )
-                            },
-                    )["data"]!!
-                    .jsonObject
-            assertEquals(0, create["created"]!!.jsonPrimitive.int)
-            assertEquals(
-                "Item at index 0: parent '${closed.id}' is terminal under auto lifecycle; reopen it before adding children",
-                create["failures"]!!
-                    .jsonArray[0]
-                    .jsonObject["error"]!!
-                    .jsonPrimitive.content,
-            )
+            val create = d.rig.itemsWrite(createOp("late", closed.id))
+            assertEquals("invalid_transition", create.errorAt(0)["code"]!!.jsonPrimitive.content, "$create")
 
-            val update =
-                d.rig
-                    .callOk(
-                        ManageItemsTool(),
-                        "operation" to JsonPrimitive("update"),
-                        "items" to
-                            buildJsonArray {
-                                add(
-                                    buildJsonObject {
-                                        put("itemId", stray.id.toString())
-                                        put("parentId", closed.id.toString())
-                                    }
-                                )
-                            },
-                    )["data"]!!
-                    .jsonObject
-            assertEquals(0, update["updated"]!!.jsonPrimitive.int)
-            assertEquals(
-                "Item '${stray.id}': parent '${closed.id}' is terminal under auto lifecycle; reopen it before moving items under it",
-                update["failures"]!!
-                    .jsonArray[0]
-                    .jsonObject["error"]!!
-                    .jsonPrimitive.content,
-            )
+            val update = d.rig.itemsWrite(updateOp(stray.id, "parentId" to JsonPrimitive(closed.id.toString())))
+            assertEquals("invalid_transition", update.errorAt(0)["code"]!!.jsonPrimitive.content, "$update")
             assertNull(d.reload(stray).parentId, "the stray item did not move")
             assertEquals(2, d.count("work_items"), "nothing was created under the closed parent")
         }
@@ -1343,70 +1257,31 @@ class ItemCommandServiceTest {
     // S8 -- create always lands in queue; role is rejected
     // ---------------------------------------------------------------------------------------------
 
-    private suspend fun P11Driver.mcpCreate(vararg specs: JsonObject): JsonObject =
-        rig
-            .call(
-                ManageItemsTool(),
-                "operation" to JsonPrimitive("create"),
-                "items" to JsonArray(specs.toList()),
-            )["data"]!!
-            .jsonObject
-
-    private fun spec(
-        title: String,
-        role: String? = null,
-    ): JsonObject =
-        buildJsonObject {
-            put("type", "test-item")
-            put("title", title)
-            if (role != null) put("role", role)
-        }
-
     @Test
-    fun `S8 a role on create is rejected for work queue and a bogus value and nothing is created`(
+    fun `S8 a role on create is an unknown parameter and nothing is created`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
             val d = driver(dir)
             for (role in listOf("work", "queue", "bogus")) {
-                val data = d.mcpCreate(spec("with role $role", role))
+                val result = d.rig.itemsWrite(createOp("with role $role", null, TEST_ITEM_TYPE, "role" to JsonPrimitive(role)))
 
-                assertEquals(0, data["created"]!!.jsonPrimitive.int, "role=$role: $data")
-                assertEquals(1, data["failed"]!!.jsonPrimitive.int)
-                assertEquals(
-                    "Item at index 0: 'role' is not accepted on create; items are created in queue (use advance_item to move them)",
-                    data["failures"]!!
-                        .jsonArray[0]
-                        .jsonObject["error"]!!
-                        .jsonPrimitive.content,
-                    "role=$role",
-                )
+                assertEquals("unknown_parameter", result.errorAt(0)["code"]!!.jsonPrimitive.content, "role=$role: $result")
             }
-            assertEquals(0, d.count("work_items"), "no rejected spec created a row")
+            assertEquals(0, d.count("work_items"), "no rejected element created a row")
         }
 
     @Test
-    fun `S8 a batch applies the valid spec and rejects only the one with a role at its own index`(
+    fun `S8 a batch applies the valid element and rejects only the one with a role at its own index`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
             val d = driver(dir)
 
-            val data = d.mcpCreate(spec("plain"), spec("rejected", "work"))
+            val result = d.rig.itemsWrite(createOp("plain"), createOp("rejected", null, TEST_ITEM_TYPE, "role" to JsonPrimitive("work")))
 
-            assertEquals(1, data["created"]!!.jsonPrimitive.int)
-            assertEquals(1, data["failed"]!!.jsonPrimitive.int)
-            assertTrue(
-                data["failures"]!!
-                    .jsonArray[0]
-                    .jsonObject["error"]!!
-                    .jsonPrimitive.content
-                    .startsWith("Item at index 1: 'role' is not accepted on create"),
-                "$data",
-            )
-            val created = data["items"]!!.jsonArray.single().jsonObject
-            assertEquals("queue", created["role"]!!.jsonPrimitive.content)
-            assertEquals(Role.QUEUE, d.role(WorkItem(id = UUID.fromString(created["id"]!!.jsonPrimitive.content), title = "x")))
+            assertEquals("unknown_parameter", result.errorAt(1)["code"]!!.jsonPrimitive.content, "$result")
+            assertEquals(Role.QUEUE, d.role(WorkItem(id = result.okId(0), title = "x")))
             assertEquals(1, d.count("work_items"))
         }
 
@@ -1416,30 +1291,17 @@ class ItemCommandServiceTest {
     ): Unit =
         runBlocking {
             val d = driver(dir)
-            val requestId = UUID.randomUUID().toString()
-            val params =
-                arrayOf<Pair<String, JsonElement>>(
-                    "operation" to JsonPrimitive("create"),
-                    "items" to
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("type", "test-item")
-                                    put("title", "replayed")
-                                }
-                            )
-                        },
-                    "actor" to
-                        buildJsonObject {
-                            put("id", "agent-replay")
-                            put("kind", "subagent")
-                        },
-                    "requestId" to JsonPrimitive(requestId),
-                )
+            val actor =
+                buildJsonObject {
+                    put("id", "agent-replay")
+                    put("kind", "subagent")
+                }
+            val element = createOp("replayed", null, TEST_ITEM_TYPE, "idempotencyKey" to JsonPrimitive("replay-key-1"))
 
-            d.rig.callOk(ManageItemsTool(), *params)
-            d.rig.callOk(ManageItemsTool(), *params)
+            d.rig.itemsWrite(element, actor = actor)
+            val again = d.rig.itemsWrite(element, actor = actor)
 
+            assertEquals("true", again.okResult(0)["replayed"]!!.jsonPrimitive.content, "$again")
             assertEquals(1, rawCount(d.jdbcUrl, "SELECT COUNT(*) FROM work_items WHERE title = 'replayed'"), "the replay creates nothing")
             assertEquals(
                 1,
@@ -1695,140 +1557,5 @@ class ItemCommandServiceTest {
                         setOf("item.created", "dependency.added", "note.upserted", "document.adopted")
                 },
             )
-        }
-}
-
-/**
- * REST half of the structural rules (3.x wire shapes kept): the item routes run the same command service, so closed
- * parents map to 409 invalid_transition with the parent id, and a delete or a move out re-evaluates the old parent while
- * the REST bodies stay unchanged (no cascadeEvents, D7).
- */
-@Timeout(value = 240, unit = TimeUnit.SECONDS)
-class ItemCommandServiceRestTest {
-    @RegisterExtension
-    val db = SqliteTestDatabase.perMethod()
-
-    private val repo get() = db.repositoryProvider()
-
-    private suspend fun create(
-        title: String,
-        parent: WorkItem? = null,
-        role: Role = Role.QUEUE,
-    ): WorkItem =
-        repo.workItemRepository().create(
-            WorkItem(
-                title = title,
-                role = role,
-                parentId = parent?.id,
-                depth = (parent?.depth ?: -1) + 1,
-                rootId = parent?.let { it.rootId ?: it.id },
-            ),
-        )
-
-    private fun etag(item: WorkItem) = "\"v1-${item.modifiedAt.toEpochMilli()}\""
-
-    private fun jsonOf(body: String): JsonObject = Json.parseToJsonElement(body).jsonObject
-
-    @Test
-    fun `S7 POST under a terminal auto parent is 409 invalid_transition naming the parent and writes nothing`(): Unit =
-        testApplication {
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val closed = create("closed", role = Role.TERMINAL)
-
-            val response =
-                client.post("/api/v1/items") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"type":"test-item","title":"late child","parentId":"${closed.id}"}""")
-                }
-
-            val body = response.bodyAsText()
-            assertEquals(HttpStatusCode.Conflict, response.status, body)
-            val json = jsonOf(body)
-            assertEquals("invalid_transition", json["error"]!!.jsonPrimitive.content)
-            assertEquals(closed.id.toString(), json["details"]!!.jsonObject["parentId"]!!.jsonPrimitive.content)
-            assertEquals(
-                1,
-                repo
-                    .workItemRepository()
-                    .findByFilters(limit = 100)
-                    .items.size,
-                "only the fixture parent exists"
-            )
-        }
-
-    @Test
-    fun `S7 PATCH reparent under a terminal auto parent is 409 invalid_transition and the item stays put`(): Unit =
-        testApplication {
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val closed = create("closed", role = Role.TERMINAL)
-            val home = create("home")
-            val x = create("x", home)
-
-            val response =
-                client.patch("/api/v1/items/${x.id}") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    header(HttpHeaders.IfMatch, etag(x))
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"parentId":"${closed.id}"}""")
-                }
-
-            val body = response.bodyAsText()
-            assertEquals(HttpStatusCode.Conflict, response.status, body)
-            val json = jsonOf(body)
-            assertEquals("invalid_transition", json["error"]!!.jsonPrimitive.content)
-            assertEquals(closed.id.toString(), json["details"]!!.jsonObject["parentId"]!!.jsonPrimitive.content)
-            assertEquals(home.id, repo.workItemRepository().getById(x.id)!!.parentId)
-        }
-
-    @Test
-    fun `S6 REST DELETE of the last open child completes the old parent and the body carries no cascadeEvents`(): Unit =
-        testApplication {
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val parent = create("parent", role = Role.WORK)
-            create("done kid", parent, Role.TERMINAL)
-            val open = create("open kid", parent)
-
-            val response =
-                client.delete("/api/v1/items/${open.id}") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                }
-
-            assertTrue(response.status.value in 200..299, "${response.status} ${response.bodyAsText()}")
-            assertFalse(response.bodyAsText().contains("cascadeEvents"), "REST bodies are unchanged (D7)")
-            assertEquals(Role.TERMINAL, repo.workItemRepository().getById(parent.id)!!.role)
-            assertEquals(
-                "cascade",
-                repo
-                    .roleTransitionRepository()
-                    .findByItemId(parent.id, limit = 50)
-                    .single()
-                    .trigger
-            )
-        }
-
-    @Test
-    fun `S6 REST PATCH moving the last open child out completes the old parent`(): Unit =
-        testApplication {
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val parent = create("parent", role = Role.WORK)
-            create("done kid", parent, Role.TERMINAL)
-            val open = create("open kid", parent)
-
-            val response =
-                client.patch("/api/v1/items/${open.id}") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    header(HttpHeaders.IfMatch, etag(open))
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"parentId":null}""")
-                }
-
-            assertEquals(HttpStatusCode.OK, response.status, response.bodyAsText())
-            assertFalse(response.bodyAsText().contains("cascadeEvents"), "REST bodies are unchanged (D7)")
-            assertEquals(Role.TERMINAL, repo.workItemRepository().getById(parent.id)!!.role)
-            val moved = repo.workItemRepository().getById(open.id)!!
-            assertNull(moved.parentId)
-            assertEquals(0, moved.depth)
-            assertEquals(moved.id, moved.rootId)
         }
 }

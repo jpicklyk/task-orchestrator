@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
@@ -15,7 +14,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.VersionConflictException
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SqliteUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.CountingUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
 import io.github.jpicklyk.mcptask.current.test.callTool
@@ -38,7 +36,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.sql.DriverManager
-import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
@@ -99,22 +96,6 @@ class P5bWriteUnitToolsTest {
         ) to uow
 
     private fun obj(vararg pairs: Pair<String, JsonElement>) = JsonObject(mapOf(*pairs))
-
-    private fun itemsCreate(vararg titles: String) =
-        obj(
-            "operation" to JsonPrimitive("create"),
-            "items" to
-                buildJsonArray {
-                    titles.forEach { t ->
-                        add(
-                            buildJsonObject {
-                                put("type", "test-item")
-                                put("title", t)
-                            }
-                        )
-                    }
-                }
-        )
 
     /** A `notes_write` call upserting one `work` note per key (an element per key, each its own write unit). */
     private fun noteUpsertCall(
@@ -199,71 +180,6 @@ class P5bWriteUnitToolsTest {
             assertEquals(1, rawInt("SELECT count(*) FROM role_transitions"))
         }
 
-    @Test
-    fun `S3 recursive purge - a fault purging a descendant purges nothing, then purges the whole subtree once healthy`(): Unit =
-        runBlocking {
-            val root = repo.create(WorkItem(title = "S3 purge root", depth = 0))
-            val child = repo.create(WorkItem(title = "S3 purge child", parentId = root.id, depth = 1, rootId = root.id))
-            rawExec(
-                "CREATE TRIGGER s3_purge BEFORE DELETE ON work_items WHEN OLD.title = 'S3 purge child' BEGIN SELECT RAISE(ABORT, 'inj'); END"
-            )
-            val params =
-                obj(
-                    "operation" to JsonPrimitive("delete"),
-                    "itemIds" to buildJsonArray { add(JsonPrimitive(root.id.toString())) },
-                    "recursive" to JsonPrimitive(true)
-                )
-
-            val faulted = db.assertNoOutsideUnitWrites { ManageItemsTool().execute(params, contextOver().first) }
-
-            assertEquals(0, data(faulted)["deleted"]?.jsonPrimitive?.int ?: 0, "nothing may be reported purged: $faulted")
-            assertNotNull(repo.getById(root.id), "root must survive the faulted subtree purge")
-            assertNotNull(repo.getById(child.id), "child must survive")
-
-            rawExec("DROP TRIGGER s3_purge")
-            val healthy = ManageItemsTool().execute(params, contextOver().first)
-            assertEquals(2, data(healthy)["deleted"]!!.jsonPrimitive.int, "control: root + descendant purged: $healthy")
-            assertNull(repo.getById(root.id))
-            assertNull(repo.getById(child.id))
-        }
-
-    @Test
-    fun `S3 reparent - a fault cascading depth to a descendant changes nothing, then reparents once healthy`(): Unit =
-        runBlocking {
-            val r = repo.create(WorkItem(title = "S3 R", depth = 0))
-            val x = repo.create(WorkItem(title = "S3 X", parentId = r.id, depth = 1, rootId = r.id))
-            val d = repo.create(WorkItem(title = "S3 D", parentId = x.id, depth = 2, rootId = r.id))
-            val q = repo.create(WorkItem(title = "S3 Q", depth = 0))
-            rawExec("CREATE TRIGGER s3_depth BEFORE UPDATE ON work_items WHEN OLD.title = 'S3 D' BEGIN SELECT RAISE(ABORT, 'inj'); END")
-            val params =
-                obj(
-                    "operation" to JsonPrimitive("update"),
-                    "items" to
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", x.id.toString())
-                                    put("parentId", q.id.toString())
-                                }
-                            )
-                        }
-                )
-
-            val faulted = db.assertNoOutsideUnitWrites { ManageItemsTool().execute(params, contextOver().first) }
-
-            assertEquals(0, data(faulted)["updated"]!!.jsonPrimitive.int, "$faulted")
-            val xAfter = assertNotNull(repo.getById(x.id))
-            assertEquals(r.id, xAfter.parentId, "X must still sit under R")
-            assertEquals(1, xAfter.depth)
-            assertEquals(2, assertNotNull(repo.getById(d.id)).depth, "D must keep its depth")
-
-            rawExec("DROP TRIGGER s3_depth")
-            val healthy = ManageItemsTool().execute(params, contextOver().first)
-            assertEquals(1, data(healthy)["updated"]!!.jsonPrimitive.int, "control: $healthy")
-            assertEquals(q.id, assertNotNull(repo.getById(x.id)).parentId)
-            assertEquals(2, assertNotNull(repo.getById(d.id)).depth, "D stays one level below X, which is now at depth 1 under Q")
-        }
-
     // ---------------------------------------------------------------- S4 (MCP text)
     private class ConflictOnUpdateRepository(
         private val delegate: WorkItemRepository
@@ -279,53 +195,7 @@ class P5bWriteUnitToolsTest {
         override fun workItemRepository(): WorkItemRepository = conflicting
     }
 
-    @Test
-    fun `S4 manage_items update reports the 3x version-mismatch text when the store throws VersionConflictException`(): Unit =
-        runBlocking {
-            val item = repo.create(WorkItem(title = "S4 mcp original", depth = 0))
-            val provider = ConflictProvider(db.repositoryProvider())
-            val ctx = ToolExecutionContext(provider, unitOfWork = SqliteUnitOfWork(db.databaseManager, provider) { Instant.now() })
-            val params =
-                obj(
-                    "operation" to JsonPrimitive("update"),
-                    "items" to
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", item.id.toString())
-                                    put("title", "S4 mcp changed")
-                                }
-                            )
-                        }
-                )
-
-            val result = ManageItemsTool().execute(params, ctx)
-
-            assertTrue(
-                "WorkItem was modified by another transaction (version mismatch)" in result.toString(),
-                "the 3.x MCP optimistic-lock text must be preserved: $result"
-            )
-            assertFalse("\"updated\":1" in result.toString())
-            assertEquals("S4 mcp original", assertNotNull(repo.getById(item.id)).title)
-        }
-
     // ---------------------------------------------------------------- S5
-    @Test
-    fun `S5 manage_items create fault reports DATABASE_ERROR with the innermost SQL text and writes no row`(): Unit =
-        runBlocking {
-            rawExec("CREATE TRIGGER s5_items BEFORE INSERT ON work_items WHEN NEW.title = 'S5 boom' BEGIN SELECT RAISE(ABORT, 'inj'); END")
-
-            val result = db.assertNoOutsideUnitWrites { ManageItemsTool().execute(itemsCreate("S5 boom"), contextOver().first) }
-
-            assertDatabaseFault(result)
-            assertEquals(0, titleCount("S5 boom"))
-
-            rawExec("DROP TRIGGER s5_items")
-            val healthy = ManageItemsTool().execute(itemsCreate("S5 boom"), contextOver().first)
-            assertEquals(1, data(healthy)["created"]!!.jsonPrimitive.int, "control: $healthy")
-            assertEquals(1, titleCount("S5 boom"))
-        }
-
     @Test
     fun `S5 notes_write upsert fault fails the element, redacts the SQL text and writes no note`(): Unit =
         runBlocking {
@@ -429,25 +299,6 @@ class P5bWriteUnitToolsTest {
         }
 
     // ---------------------------------------------------------------- S14
-    @Test
-    fun `S14 manage_items create of three with the second faulting is three units, creating items 1 and 3 only`(): Unit =
-        runBlocking {
-            rawExec(
-                "CREATE TRIGGER s14_items BEFORE INSERT ON work_items WHEN NEW.title = 'S14 boom' BEGIN SELECT RAISE(ABORT, 'inj'); END"
-            )
-            val (ctx, counting) = contextOver()
-
-            val result = db.assertNoOutsideUnitWrites { ManageItemsTool().execute(itemsCreate("S14 one", "S14 boom", "S14 three"), ctx) }
-
-            val d = data(result)
-            assertEquals(2, d["created"]!!.jsonPrimitive.int, "$result")
-            assertEquals(1, d["failed"]!!.jsonPrimitive.int, "$result")
-            assertEquals(1, titleCount("S14 one"))
-            assertEquals(0, titleCount("S14 boom"))
-            assertEquals(1, titleCount("S14 three"))
-            assertEquals(3, counting.writes, "one write unit per element: ${counting.ops}")
-        }
-
     @Test
     fun `S14 notes_write upsert of three with the second faulting is three units, keeping notes 1 and 3`(): Unit =
         runBlocking {

@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.application.service.ParentChange
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -18,6 +17,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
+import io.github.jpicklyk.mcptask.current.test.createOp
+import io.github.jpicklyk.mcptask.current.test.itemsWrite
+import io.github.jpicklyk.mcptask.current.test.okId
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.testClaimService
 import io.ktor.client.plugins.sse.sse
@@ -38,14 +40,6 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
@@ -352,7 +346,7 @@ class EventRoutesTest {
         }
 
     /**
-     * PRODUCTION-WIRING PROOF TEST: an actual MCP tool (`ManageItemsTool.create`) executed
+     * PRODUCTION-WIRING PROOF TEST: an actual MCP tool (`items_write` create) executed
      * through a [ToolExecutionContext] built on the DECORATED provider — exactly the way
      * `CurrentMcpServer.run()` wires the tool context when the API is enabled — produces an
      * event on a bus subscriber.
@@ -362,14 +356,13 @@ class EventRoutesTest {
      * (the bug fixed in this revision), this test would fail because no event would be published.
      */
     @Test
-    fun `production MCP tool path - ManageItemsTool create through decorated tool context emits event`(): Unit =
+    fun `production MCP tool path - items_write create through decorated tool context emits event`(): Unit =
         runBlocking {
             // Mirror CurrentMcpServer.run() wiring when API is enabled:
             // raw provider -> EventPublishingRepositoryProvider -> ToolExecutionContext.
             val baseRepo = db.repositoryProvider()
             val bus = ApiEventBus(source = db.repositoryProvider().eventStore())
             val toolContext = eventWiredContext(db.databaseManager, baseRepo, bus)
-            val tool = ManageItemsTool()
 
             // Subscribe BEFORE executing the tool (simulates a connected dashboard). The create
             // produces exactly one event, so a bounded take(1) completes deterministically.
@@ -380,28 +373,8 @@ class EventRoutesTest {
 
             // Execute the REAL MCP tool against the decorated tool context. No repository call,
             // no REST route — this goes through the exact production tool path.
-            val result =
-                tool.execute(
-                    JsonObject(
-                        mapOf(
-                            "operation" to JsonPrimitive("create"),
-                            "items" to
-                                JsonArray(
-                                    listOf(
-                                        buildJsonObject {
-                                            put("type", JsonPrimitive("test-item"))
-                                            put("title", JsonPrimitive("Production wiring item"))
-                                        },
-                                    ),
-                                ),
-                        ),
-                    ),
-                    toolContext,
-                ) as JsonObject
-
-            assertTrue(result["success"]!!.jsonPrimitive.boolean, "Tool create should succeed: $result")
-            val createdItemId =
-                ((result["data"] as JsonObject)["items"]!!.jsonArray[0] as JsonObject)["id"]!!.jsonPrimitive.content
+            val result = toolContext.itemsWrite(createOp("Production wiring item"))
+            val createdItemId = result.okId(0).toString()
 
             val collectedEvents = collectorDeferred.await()
             bus.unsubscribe("prod-wiring-sub")
@@ -411,7 +384,7 @@ class EventRoutesTest {
             assertEquals(
                 ApiEventType.ITEM_CREATED,
                 collectedEvents[0].event,
-                "Expected item.created event from ManageItemsTool create",
+                "Expected item.created event from items_write create",
             )
             assertEquals(
                 createdItemId,
