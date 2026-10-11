@@ -1711,7 +1711,7 @@ All require `READ`.
 FTS5 full-text search over item titles, summaries and descriptions.
 
 **Query parameters:**
-- `q` (required) — search query; special characters are auto-sanitized
+- `q` (required) — search query; special characters are auto-sanitized. A control character other than ASCII whitespace (for example `%00`) -> `400`
 - `ancestorId` — scope results to a subtree (invalid UUID -> `400 validation_error`)
 - `role` — filter by item role (invalid value -> `400 validation_error`)
 - `tag` — comma-separated tag filter
@@ -1729,7 +1729,7 @@ page is taken.
 FTS5 full-text search over note bodies.
 
 **Query parameters:**
-- `q` (required) — search query
+- `q` (required) — search query; a control character other than ASCII whitespace (for example `%00`) -> `400`
 - `ancestorId` — scope results to a subtree (invalid UUID -> `400 validation_error`)
 
 Returns up to 50 hits. `noteKey` is populated on every hit (note-body search always has a key), and

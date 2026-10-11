@@ -230,7 +230,7 @@ snippets, filtered list search, or hierarchical overview.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `operation` | string | Yes | `"search"` |
-| `query` | string | Yes | FTS5 search terms — multiple words produce implicit AND. Special characters are auto-escaped; pass plain terms. |
+| `query` | string | Yes | FTS5 search terms — multiple words produce implicit AND. Special characters are auto-escaped; pass plain terms. Control characters (other than ASCII whitespace) are rejected with `VALIDATION_ERROR`. |
 | `scope` | object | No | Structural scope: `ancestorId` (UUID — subtree), `itemId` (UUID — single item), `tags` (string[] — OR-match), `role` (string — exact work-item role: queue/work/review/terminal/blocked) |
 | `matchMode` | string | No | `"auto"` (default — trigram+text tables fused via RRF), `"substring"` (trigram only, requires ≥3-char tokens), `"text"` (porter+unicode61, stemming) |
 | `snippet` | boolean | No | Include ~32-token snippet with `<mark>…</mark>` highlights (default: true) |
@@ -940,7 +940,7 @@ WorkItem, or FTS5 full-text search across note bodies.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `operation` | string | Yes | `"search"` |
-| `query` | string | Yes | FTS5 search terms — multiple words produce implicit AND. Pass plain terms; special characters are auto-escaped. |
+| `query` | string | Yes | FTS5 search terms — multiple words produce implicit AND. Pass plain terms; special characters are auto-escaped. Control characters (other than ASCII whitespace) are rejected with `VALIDATION_ERROR`. |
 | `scope` | object | No | `itemId` (UUID — single item's notes), `ancestorId` (UUID — subtree of items). `role` and `tags` are not supported: a non-null value is rejected with `VALIDATION_ERROR` (an explicit `null` counts as absent). To filter by note role use `list` instead. |
 | `matchMode` | string | No | `"auto"` (default), `"substring"`, `"text"` — same semantics as `query_items.search` |
 | `snippet` | boolean | No | Include ~32-token snippet with highlights (default: true). Markdown preserved. |

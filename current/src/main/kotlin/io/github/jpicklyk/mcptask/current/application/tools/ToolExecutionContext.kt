@@ -142,7 +142,7 @@ class ToolExecutionContext(
      * Full-text search over items and notes, built from [RepositoryProvider.searchIndex] on first use (a provider
      * without a search index fails only when a search actually runs).
      */
-    val searchService: SearchService by lazy { SearchService(repositoryProvider.searchIndex()) }
+    val searchService: SearchService by lazy { SearchService(repositoryProvider.searchIndex(), unitOfWork) }
 
     /** Access to WorkItem CRUD and query operations. */
     fun workItemRepository(): WorkItemRepository = repositoryProvider.workItemRepository()

@@ -193,7 +193,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                                 "description",
                                 JsonPrimitive(
                                     "Search terms (triggers FTS mode: ranked hits with snippets). Multiple words = " +
-                                        "implicit AND; special characters are auto-escaped — pass plain terms."
+                                        "implicit AND; special characters are auto-escaped — pass plain terms. Control characters are rejected."
                                 )
                             )
                         }

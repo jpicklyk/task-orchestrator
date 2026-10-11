@@ -196,4 +196,17 @@ class SearchFieldAndTitleTest {
             assertNull(textOnlyExplain["trigramRank"]?.takeIf { it !is JsonNull }, "a stem-only document has no trigram rank")
             assertNotNull(textOnlyExplain["textRank"]?.takeIf { it !is JsonNull })
         }
+
+    @Test
+    fun `a NUL in the query is a validation error on both search tools instead of an FTS5 failure`() =
+        runBlocking {
+            val args = params("operation" to JsonPrimitive("search"), "query" to JsonPrimitive("abc\u0000def"))
+            listOf(QueryItemsTool().execute(args, context), QueryNotesTool().execute(args, context)).forEach { raw ->
+                val result = raw as JsonObject
+                assertFalse(result["success"]!!.jsonPrimitive.boolean, "$result")
+                val error = result["error"]!!.jsonObject
+                assertEquals("VALIDATION_ERROR", error["code"]?.jsonPrimitive?.content)
+                assertTrue(error["message"]!!.jsonPrimitive.content.contains("U+0000"), "$result")
+            }
+        }
 }
