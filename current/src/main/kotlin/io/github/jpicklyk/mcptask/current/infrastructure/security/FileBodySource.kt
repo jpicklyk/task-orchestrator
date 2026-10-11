@@ -36,7 +36,7 @@ class FileBodySource(
             }
         val real =
             when (resolved) {
-                is PathContainment.Result.Rejected -> return Outcome.Err(BodySource.invalid(rejection(resolved.reason), path))
+                is PathContainment.Result.Rejected -> return Outcome.Err(BodySource.invalid(rejection(resolved.kind), path))
                 is PathContainment.Result.Allowed -> resolved.realPath
             }
         return try {
@@ -67,14 +67,16 @@ class FileBodySource(
             null
         }
 
-    /** A fixed phrase per [PathContainment] rejection, so no resolved path or exception text can leak. */
-    private fun rejection(reason: String): String =
-        when {
-            reason.contains("absolute") -> "must be relative to the server's file root"
-            reason.contains("symlink") -> "resolves outside the server's file root"
-            reason.contains("escapes") -> "resolves outside the server's file root"
-            reason.contains("directory") -> "is a directory, not a file"
-            reason.contains("not found") -> "was not found"
-            else -> "is not readable"
+    /**
+     * A fixed phrase per [PathContainment.Kind], so no resolved path or exception text can leak. Classified on the
+     * structured kind, never on the reason text, which embeds the caller's path.
+     */
+    private fun rejection(kind: PathContainment.Kind): String =
+        when (kind) {
+            PathContainment.Kind.ABSOLUTE -> "must be relative to the server's file root"
+            PathContainment.Kind.ESCAPE, PathContainment.Kind.SYMLINK_ESCAPE -> "resolves outside the server's file root"
+            PathContainment.Kind.DIRECTORY -> "is a directory, not a file"
+            PathContainment.Kind.NOT_FOUND -> "was not found"
+            PathContainment.Kind.ROOT_INACCESSIBLE, PathContainment.Kind.NOT_ACCESSIBLE -> "is not readable"
         }
 }

@@ -851,7 +851,9 @@ with `ok`, and `207 partial_failure` over REST when some elements failed). Both 
   `manage_plan_documents`: a relative path strictly inside the root (no absolute path, no `..`, no
   symlink out of it), a regular UTF-8 file of at most 65536 bytes, CRLF normalized to LF. Failures use
   fixed reasons that never echo filesystem text. An idempotency replay does not re-read the file. Giving
-  both or neither of `body` and `bodyFromFile` is `invalid_request`.
+  both or neither of `body` and `bodyFromFile` is `invalid_request`. `bodyFromFile` is MCP-only: on
+  `POST /api/v1/ops/notes_write` an element that sets it fails `invalid_request` (`/bodyFromFile`) and no
+  file is read; REST callers send the text inline in `body`.
 - **Note write policy.** One service (`NoteCommandService`) applies the same policy to `notes_write`
   and `create_work_tree` notes, in this order: (1) `role` is lowercased and must be `queue`, `work` or
   `review`; (2) the body is capped at 65536 UTF-8 bytes in every `note_limits` mode

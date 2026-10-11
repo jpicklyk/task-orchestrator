@@ -35,10 +35,25 @@ object PathContainment {
             val realPath: Path
         ) : Result()
 
-        /** The requested path was rejected; [reason] names why (used directly in tool errors). */
+        /**
+         * The requested path was rejected; [kind] classifies why and [reason] is the human-readable text (which may embed
+         * the caller's path, so callers that must not echo it map on [kind]).
+         */
         data class Rejected(
-            val reason: String
+            val reason: String,
+            val kind: Kind
         ) : Result()
+    }
+
+    /** Why a path was rejected. */
+    enum class Kind {
+        ABSOLUTE,
+        ESCAPE,
+        NOT_FOUND,
+        DIRECTORY,
+        ROOT_INACCESSIBLE,
+        NOT_ACCESSIBLE,
+        SYMLINK_ESCAPE
     }
 
     private val DRIVE_LETTER_PATTERN = Regex("^[A-Za-z]:.*")
@@ -55,37 +70,37 @@ object PathContainment {
         requestedPath: String
     ): Result {
         if (isAbsolute(requestedPath)) {
-            return Result.Rejected("path must be relative to the agent config root, got absolute path: $requestedPath")
+            return Result.Rejected("path must be relative to the agent config root, got absolute path: $requestedPath", Kind.ABSOLUTE)
         }
 
         val baseNormalized = baseDir.normalize()
         val lexicalCandidate = baseNormalized.resolve(requestedPath).normalize()
         if (!lexicalCandidate.startsWith(baseNormalized)) {
-            return Result.Rejected("path escapes the agent config root: $requestedPath")
+            return Result.Rejected("path escapes the agent config root: $requestedPath", Kind.ESCAPE)
         }
 
         if (!Files.exists(lexicalCandidate)) {
-            return Result.Rejected("file not found: $requestedPath")
+            return Result.Rejected("file not found: $requestedPath", Kind.NOT_FOUND)
         }
         if (Files.isDirectory(lexicalCandidate)) {
-            return Result.Rejected("path is a directory, not a file: $requestedPath")
+            return Result.Rejected("path is a directory, not a file: $requestedPath", Kind.DIRECTORY)
         }
 
         val baseReal =
             try {
                 baseDir.toRealPath()
             } catch (_: IOException) {
-                return Result.Rejected("agent config root is not accessible")
+                return Result.Rejected("agent config root is not accessible", Kind.ROOT_INACCESSIBLE)
             }
         val candidateReal =
             try {
                 lexicalCandidate.toRealPath()
             } catch (_: IOException) {
-                return Result.Rejected("file not accessible: $requestedPath")
+                return Result.Rejected("file not accessible: $requestedPath", Kind.NOT_ACCESSIBLE)
             }
 
         if (!candidateReal.startsWith(baseReal)) {
-            return Result.Rejected("path escapes the agent config root via symlink: $requestedPath")
+            return Result.Rejected("path escapes the agent config root via symlink: $requestedPath", Kind.SYMLINK_ESCAPE)
         }
 
         return Result.Allowed(candidateReal)

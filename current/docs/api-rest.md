@@ -1535,8 +1535,14 @@ served. Notes are written through
 `expectedVersion` guard (`0` = must not exist, `n` = current version must be `n`; otherwise
 `409 version_conflict`, nothing written) and an optional per-element `idempotencyKey` (an
 `Idempotency-Key` header is rejected on `/ops`). Requires `WRITE_NOTES`. The write policy (role
-normalization, 65536-byte body cap, CRLF to LF, schema role, `maxLength` under `note_limits`) and
-`bodyFromFile` rules are described in `api-reference.md` -> `notes_write`.
+normalization, 65536-byte body cap, CRLF to LF, schema role, `maxLength` under `note_limits`) is
+described in `api-reference.md` -> `notes_write`.
+
+**`bodyFromFile` is MCP-only.** It reads a file on the server's host, so REST takes the note text inline in
+`body` only (as the 3.x REST note writes did). An `upsert` element that sets `bodyFromFile` on
+`POST /api/v1/ops/notes_write` fails alone with `invalid_request` on field `/bodyFromFile` (reason: use the
+inline `body`); no file is opened and nothing is stored for it, and the other elements of a non-atomic batch
+still run.
 
 ---
 
@@ -2251,7 +2257,8 @@ like any other REST row. A fault answered before dispatch (the table above) keep
 `POST /api/v1/ops/{tool}` as `tool` and no `operation`.
 
 **Parity with MCP.** MCP and this route share one tool registry and one dispatcher, so a tool behaves the same
-on both surfaces. A test-side parity harness runs every registered tool over both transports with identically
+on both surfaces, with one deliberate exception: `notes_write` `bodyFromFile` is MCP-only and answers
+`invalid_request` (`/bodyFromFile`) here (section 12). A test-side parity harness runs every registered tool over both transports with identically
 seeded databases and compares the envelope bytes (minus `meta.reqId`), the HTTP status against the error
 code, and the resulting database state; a coverage guard requires every registered select and op to carry a
 happy-path and a scope-forbidden scenario.
@@ -2350,7 +2357,7 @@ Both `sync.lost` and `auth.expired` are **control events** — they always bypas
 
 **Redaction.** Applied per connection, on egress only, identically for live delivery and `Last-Event-ID` replay: `actor` is omitted when `API_REDACT_NOTE_ATTRIBUTION=true` and the caller lacks `ADMIN`; otherwise it is delivered (`API_AUTH_MODE=none` callers are ADMIN).
 
-**Stored `events` row data:** each domain event's `events`-table row carries a type-specific `data` object that the SSE `ApiEvent` does not expose. For `note.upserted` it is `{itemId, key, role, bodyLength, bodyFromFile}` (plus `actorParent` when the writing actor names a parent): `bodyFromFile` is the server-side path a `manage_notes` caller supplied (since 4.0), or null for an inline body; the file contents are never recorded.
+**Stored `events` row data:** each domain event's `events`-table row carries a type-specific `data` object that the SSE `ApiEvent` does not expose. For `note.upserted` it is `{itemId, key, role, bodyLength, bodyFromFile}` (plus `actorParent` when the writing actor names a parent): `bodyFromFile` is the server-side path a `notes_write` MCP caller supplied (since 4.0), or null for an inline body; the file contents are never recorded.
 
 **`item.updated` note:** since 4.0 an update that changes no field emits nothing, and a role change that also edits other fields emits only `item.advanced`.
 

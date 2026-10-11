@@ -33,7 +33,7 @@ import java.util.UUID
  *
  * Given a root item spec and optional child specs, creates all items plus optional
  * dependencies and notes in one atomic call. Eliminates the round-trips required
- * by calling manage_items + manage_dependencies + manage_notes separately.
+ * by calling manage_items + manage_dependencies + notes_write separately.
  *
  * No application-layer depth cap is enforced. Cycle protection is delegated to the
  * DB BEFORE-UPDATE trigger on work_items.parent_id introduced in V7.
@@ -57,7 +57,7 @@ class CreateWorkTreeTool :
     override val description =
         """
 Atomically create a hierarchical work tree: root item, child items, dependencies, and optional notes.
-Eliminates the round-trips of calling manage_items + manage_dependencies + manage_notes separately.
+Eliminates the round-trips of calling manage_items + manage_dependencies + notes_write separately.
 
 **Attach mode:** pass `root.id` to attach children/deps/notes to an existing item instead of creating
 a new root; `root.title` is then optional. `root.id` and `parentId` cannot both be given (contradictory
@@ -219,8 +219,8 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                                 "description",
                                 JsonPrimitive(
                                     "Top-level actor for (1) idempotency and (2) note attribution across the whole " +
-                                        "tree (explicit and createNotes=true blanks alike) — unlike manage_notes, no " +
-                                        "per-note actor. If malformed, idempotency is disabled and attribution drops " +
+                                        "tree (explicit and createNotes=true blanks alike); there is no per-note " +
+                                        "actor. If malformed, idempotency is disabled and attribution drops " +
                                         "to null; the call still succeeds. Shape: { id (required), " +
                                         "kind (required: orchestrator|subagent|user|external), parent?, proof? }"
                                 )
@@ -557,7 +557,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         // Must be done BEFORE the cache lookup so the cache is keyed on the verified identity,
         // not the self-reported actor.id (bug 3a fix).
         // Capture the parsed claim and verification so they can be propagated as
-        // attribution metadata on every persisted Note (matches ManageNotesTool semantics).
+        // attribution metadata on every persisted Note (matches notes_write semantics).
         val actorObj = paramsObj["actor"] as? JsonObject
         val parsedActor: ActorParseResult =
             if (actorObj != null) parseActorClaim(actorObj, context) else ActorParseResult.Absent

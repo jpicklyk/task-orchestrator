@@ -6,6 +6,8 @@ import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.api.toOutcome
+import io.github.jpicklyk.mcptask.current.application.port.BodySource
+import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.NoteSummary
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
@@ -39,6 +41,9 @@ object NoteHandlers {
     /** `retryAfterMs` of an `unavailable` caused by an unreadable per-root config. */
     private const val CONFIG_RETRY_MS = 1000L
 
+    /** The fixed reason of an `upsert` that sets `bodyFromFile` on a surface other than MCP. */
+    const val BODY_FROM_FILE_MCP_ONLY = "bodyFromFile is available over MCP only; send the note text inline in body"
+
     // ---- reads --------------------------------------------------------------------------------------------
 
     /** `notes_read get`. */
@@ -65,9 +70,9 @@ object NoteHandlers {
     }
 
     /**
-     * `notes_read list`: one page of the item's notes, metadata only, ordered by key then id. A page's `total` counts
-     * the notes from its own offset on (the first page's total is the whole list), so a cursor walk ends with a page that
-     * is not truncated; the cursor of a truncated page encodes `offset + items.size`.
+     * `notes_read list`: one page of the item's notes, metadata only, ordered by key then id. Every page's `total` is the
+     * whole filtered list; `truncated` and the cursor say whether more notes follow this page (envelope U22), the cursor
+     * encoding `offset + items.size` (built by [ListPage.of]).
      */
     suspend fun list(
         env: ToolExecutionContext,
@@ -110,6 +115,11 @@ object NoteHandlers {
         val file = req.bodyFromFile
         if ((body == null) == (file == null)) {
             return Outcome.Err(invalid("/body", "exactly one of body and bodyFromFile is required", null))
+        }
+        if (file != null && ctx.surface != CallLogRecord.SURFACE_MCP) {
+            // bodyFromFile reads a file on the server's host, so it is MCP-only (3.x REST note writes took an inline body
+            // only). Refused before the body source is consulted: no file is ever opened for a REST caller.
+            return Outcome.Err(invalid(BodySource.FIELD, BODY_FROM_FILE_MCP_ONLY, null))
         }
         val expected = req.expectedVersion
         if (expected != null && expected < 0) {
