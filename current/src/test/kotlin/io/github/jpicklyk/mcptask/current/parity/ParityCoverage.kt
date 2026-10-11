@@ -145,10 +145,10 @@ object ParityCoverage {
  * The production parity catalog. Every item that registers a select or op MUST append its HAPPY and SCOPE_FORBIDDEN
  * scenarios (or a reasoned [ScopeExempt]) here, or `ParityCoverageGuardTest` fails. `notes_read` / `notes_write` (Q11) are the
  * first production tools; their scenarios live in `NotesParityCatalog` (they need notes seeded beforehand) and run in
- * `NotesParityTest`. `deps_read` / `deps_write` (Q12) follow in `DepsParityScenarios`, run in `DepsParityTest`.
+ * `NotesParityTest`. `deps_read` / `deps_write` (Q12) follow in `DepsParityScenarios`, run in `DepsParityTest`; `docs_read` / `docs_write` (Q25) are in `DocsParityScenarios`, run in `DocsParityTest`.
  */
 object ProductionParity {
     val scenarios: List<ParityScenario> =
-        NotesParityCatalog.scenarios + DepsParityScenarios.scenarios + AdvanceParityScenarios.all
-    val exemptions: List<ScopeExempt> = NotesParityCatalog.exemptions + DepsParityScenarios.exemptions
+        NotesParityCatalog.scenarios + DepsParityScenarios.scenarios + AdvanceParityScenarios.all + DocsParityScenarios.scenarios
+    val exemptions: List<ScopeExempt> = NotesParityCatalog.exemptions + DepsParityScenarios.exemptions + DocsParityScenarios.exemptions
 }
