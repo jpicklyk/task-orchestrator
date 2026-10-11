@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
-import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerificationScope
@@ -9,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.telemetry.CallLogFields
 import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetry
+import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetryFactory
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
 import io.github.jpicklyk.mcptask.current.application.tools.LegacyMcpCode
 import io.github.jpicklyk.mcptask.current.application.tools.LegacyMcpErrorMapper
@@ -96,7 +96,12 @@ class McpToolAdapter(
             val reqId = ReqId.generate()
             val startedAt = clock.now()
             val started = TimeSource.Monotonic.markNow()
-            val telemetry = CallTelemetry(reqId, CallLogRecord.SURFACE_MCP, clientConnection.sessionId)
+            val telemetry =
+                CallTelemetryFactory.mcp(
+                    reqId,
+                    clientConnection.sessionId,
+                    server.sessions[clientConnection.sessionId]?.clientVersion?.name
+                )
 
             // MDC correlation fields for every log line emitted while this call is in flight
             // (WARN/ERROR below, plus any INFO the tool itself logs). Wrapped in MDCContext

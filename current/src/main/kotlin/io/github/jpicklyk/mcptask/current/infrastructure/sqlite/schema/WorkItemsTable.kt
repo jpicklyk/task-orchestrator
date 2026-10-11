@@ -20,7 +20,7 @@ object WorkItemsTable : IdTable<UUID>("work_items") {
     val title = text("title")
     val description = text("description").nullable()
     val summary = text("summary").default("")
-    val role = varchar("role", 20).default("queue")
+    val role = varchar("role", 20).default("queue").nullable()
     val statusLabel = text("status_label").nullable()
     val previousRole = varchar("previous_role", 20).nullable()
     val priority = varchar("priority", 20).default("medium")
@@ -40,6 +40,14 @@ object WorkItemsTable : IdTable<UUID>("work_items") {
     val claimExpiresAt = utcTimestampText("claim_expires_at").nullable()
     val originalClaimedAt = utcTimestampText("original_claimed_at").nullable()
 
+    // V26: lifecycle and the config/schema pin set (all NULL until Q24/Q31b write them).
+    val lifecycle = text("lifecycle").nullable()
+    val pinnedServerCfg = javaUuidSqlite("pinned_server_cfg").nullable()
+    val pinnedRootCfg = javaUuidSqlite("pinned_root_cfg").nullable()
+    val pinnedSchemaKey = text("pinned_schema_key").nullable()
+    val pinnedSchemaLayer = text("pinned_schema_layer").nullable()
+    val pinnedAt = utcTimestampText("pinned_at").nullable()
+
     init {
         foreignKey(parentId to WorkItemsTable.id)
         index(isUnique = false, parentId)
@@ -51,9 +59,9 @@ object WorkItemsTable : IdTable<UUID>("work_items") {
         index(isUnique = false, claimedBy)
         index(isUnique = false, claimExpiresAt)
 
-        // V7__FTS5_And_Unbounded_Depth.sql:37-38 — role enum CHECK, mirrored verbatim
+        // V26 role enum CHECK (nullable since U13a), mirrored
         check("chk_work_items_role") {
-            role.inList(listOf("queue", "work", "review", "blocked", "terminal"))
+            role.isNull() or role.inList(listOf("queue", "work", "review", "blocked", "terminal"))
         }
         // V7__FTS5_And_Unbounded_Depth.sql:40 — previous_role NULL-or-enum CHECK, mirrored verbatim
         check("chk_work_items_previous_role") {

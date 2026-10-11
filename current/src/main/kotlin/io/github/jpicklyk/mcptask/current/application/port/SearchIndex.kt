@@ -7,7 +7,7 @@ import java.util.UUID
 enum class Corpus(
     val kind: String
 ) {
-    /** Work-item title and summary. */
+    /** Work-item title, summary and description. */
     ITEM("item"),
 
     /** Note bodies; every hit is owned by the note's work item. */

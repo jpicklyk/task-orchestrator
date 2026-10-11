@@ -36,6 +36,9 @@ object BaselineDataset {
     /** [TS] plus two seconds (Exposed shape). */
     const val TS_PLUS_2 = "2026-03-01 10:15:32.123"
 
+    /** [TS] plus three seconds (Exposed shape); the `work_items.pinned_at` value. */
+    const val TS_PLUS_3 = "2026-03-01 10:15:33.123"
+
     /** `datetime('now')` write shape (3.16 claim and lease SQL). */
     const val DB_TS = "2026-03-01 10:15:30"
 
@@ -154,7 +157,8 @@ object BaselineDataset {
             claim: Boolean = false,
             priority: String = "medium",
             requiresVerification: Boolean = false,
-            version: Int = 1
+            version: Int = 1,
+            pinned: Boolean = false
         ) = insert(
             conn,
             "work_items",
@@ -182,7 +186,15 @@ object BaselineDataset {
             "claimed_by" to if (claim) "agent-one" else null,
             "claimed_at" to if (claim) TS else null,
             "claim_expires_at" to if (claim) "2026-03-01 11:15:30" else null,
-            "original_claimed_at" to if (claim) DB_TS else null
+            "original_claimed_at" to if (claim) DB_TS else null,
+            // V26 lifecycle and pin set on ONE row (absent below V26, so insert drops them). A non-'none' lifecycle needs a
+            // non-NULL role (the relation CHECK), so the baseline never seeds a NULL role.
+            "lifecycle" to if (pinned) "auto" else null,
+            "pinned_server_cfg" to if (pinned) id("server-config-version") else null,
+            "pinned_root_cfg" to if (pinned) id("config-version") else null,
+            "pinned_schema_key" to if (pinned) "feature-task" else null,
+            "pinned_schema_layer" to if (pinned) "root" else null,
+            "pinned_at" to if (pinned) TS_PLUS_3 else null
         )
 
         item("root", null, 0, "Baseline root alpha", role = "work", statusLabel = "in-progress", priority = "high", version = 4)
@@ -191,7 +203,7 @@ object BaselineDataset {
         item("task2", "feature", 2, "Task two gamma", role = "terminal", statusLabel = "done", requiresVerification = true, version = 3)
         item("task3", "feature", 2, "Task three delta", role = "terminal", statusLabel = "in-progress")
         item("task4", "feature", 2, "Task four epsilon", role = "work", statusLabel = "in-progress", claim = true)
-        item("task5", "feature", 2, "Task five zeta")
+        item("task5", "feature", 2, "Task five zeta", pinned = true)
         item("task6", "feature", 2, "Task six eta")
         if (typedTraits) {
             for (name in ITEM_NAMES) {
@@ -483,6 +495,24 @@ object BaselineDataset {
             "req_id" to "baseline-req",
             "created_at" to TS,
             "warnings_json" to "[\"baseline warning\"]"
+        )
+        // V26: the server-scope version the pinned item's pinned_server_cfg names (absent below V25).
+        insert(
+            conn,
+            "config_versions",
+            "id" to id("server-config-version"),
+            "scope" to "server",
+            "root_id" to null,
+            "version" to 1,
+            "yaml" to "traits: {}\n",
+            "fingerprint" to "baseline-server-fingerprint-0001",
+            "canonical_json" to "{\"traits\":{}}",
+            "model_version" to 1,
+            "source" to "file-import",
+            "principal_id" to "baseline-server-principal",
+            "req_id" to "baseline-server-req",
+            "created_at" to TS_PLUS_1,
+            "warnings_json" to "[\"baseline server warning\"]"
         )
         insert(
             conn,

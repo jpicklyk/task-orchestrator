@@ -41,7 +41,8 @@ internal object WorkItemRows {
                 title = row[WorkItemsTable.title],
                 description = row[WorkItemsTable.description],
                 summary = row[WorkItemsTable.summary],
-                role = Role.fromString(row[WorkItemsTable.role]) ?: Role.QUEUE,
+                // role is nullable since V26; Q31a replaces this fallback with Role?. No writer produces NULL before Q31b.
+                role = row[WorkItemsTable.role]?.let { Role.fromString(it) } ?: Role.QUEUE,
                 statusLabel = row[WorkItemsTable.statusLabel],
                 previousRole = row[WorkItemsTable.previousRole]?.let { Role.fromString(it) },
                 priority = Priority.fromString(row[WorkItemsTable.priority]) ?: Priority.MEDIUM,
