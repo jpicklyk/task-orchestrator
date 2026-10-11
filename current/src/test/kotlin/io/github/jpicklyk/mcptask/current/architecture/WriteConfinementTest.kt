@@ -16,8 +16,11 @@ import kotlin.test.assertTrue
  * claim and lease stores), so a call, override or callable reference through ANY receiver form fails to compile unless the
  * caller opts in. This guard confines where the marker may be named, opted into or suppressed, so the compiler guarantee
  * cannot be quietly widened:
- *  - the marker names appear only in their allow-lists (service and knowledge dirs, the port dir, the SQLite impl dirs for
- *    StoreWrite; ClaimService.kt, the port dir and three SQLite impl files for ClaimWrite);
+ *  - the marker names (USE as an annotation) appear only in their allow-lists (service and knowledge dirs, the port dir, the
+ *    SQLite impl dirs for StoreWrite; ClaimService.kt, the port dir and three SQLite impl files for ClaimWrite);
+ *  - an OPT-IN of a marker (`@OptIn`, `@file:OptIn`, `@kotlin.OptIn`, any argument layout) is narrower: StoreWrite only in the
+ *    service and knowledge dirs, ClaimWrite only in ClaimService.kt, so a port or SQLite store file can never opt in to its
+ *    own marker and unlock an unmarked default or helper method;
  *  - exactly the listed port methods carry their marker (every overload), and no other port method does;
  *  - every production override of a marked method carries the marker itself, never an `@OptIn`;
  *  - no production source suppresses the opt-in diagnostics;
@@ -99,6 +102,7 @@ internal class WriteConfinementTest {
 
         fun isImplDir(path: String): Boolean = norm(path).let { p -> IMPL_DIRS.any { p.startsWith(it) } }
 
+        /** Marker USE (a bare annotation on a declaration) and mentions: ports, impl dirs and owner dirs. Opt-ins are narrower. */
         fun storeWriteAllowed(path: String): Boolean {
             val p = norm(path)
             return STORE_OWNER_DIRS.any { p.startsWith(it) } || p.startsWith(PORT_DIR) || IMPL_DIRS.any { p.startsWith(it) }
@@ -430,6 +434,37 @@ internal class WriteConfinementTest {
         }
 
         // ---------------------------------------------------------------------------------------------------------
+        // Opt-ins of a marker (S12)
+        // ---------------------------------------------------------------------------------------------------------
+
+        private val OPT_IN = Regex("""@(?:file:)?(?:[\w.]*\.)?OptIn\s*\(([^)]*)\)""")
+
+        /** An OPT-IN of StoreWrite is allowed only in the service and knowledge dirs (marker USE: see [storeWriteAllowed]). */
+        fun storeWriteOptInAllowed(path: String): Boolean = norm(path).let { p -> STORE_OWNER_DIRS.any { p.startsWith(it) } }
+
+        /** An OPT-IN of ClaimWrite is allowed only in ClaimService.kt (marker USE: see [claimWriteAllowed]). */
+        fun claimWriteOptInAllowed(path: String): Boolean = norm(path) == CLAIM_SERVICE
+
+        /**
+         * Marker names inside an `@OptIn(...)`, `@file:OptIn(...)` or `@kotlin.OptIn(...)` argument list (any spelling, any line
+         * layout) in [text] whose file is not a sanctioned owner of that marker. A bare marker annotation on a declaration is
+         * marker USE, judged by [markerViolations] against the wider allow-list, and is not counted here.
+         */
+        fun optInViolations(
+            path: String,
+            text: String
+        ): Int {
+            val code = clean(text, keepStrings = false)
+            var n = 0
+            for (m in OPT_IN.findAll(code)) {
+                val args = m.groupValues[1]
+                if (!storeWriteOptInAllowed(path)) n += mentions(args, STORE_WRITE)
+                if (!claimWriteOptInAllowed(path)) n += mentions(args, CLAIM_WRITE)
+            }
+            return n
+        }
+
+        // ---------------------------------------------------------------------------------------------------------
         // Opt-in diagnostic suppression (S7)
         // ---------------------------------------------------------------------------------------------------------
 
@@ -634,6 +669,11 @@ internal class WriteConfinementTest {
 
     private val implPath = "infrastructure/sqlite/repository/SqliteX.kt"
 
+    private val storePortPath = "application/port/ItemStore.kt"
+    private val storeImplPath = "infrastructure/sqlite/repository/SqliteItemStore.kt"
+    private val claimImplPath = "infrastructure/sqlite/repository/SqliteClaimStore.kt"
+    private val portPackage = "io.github.jpicklyk.mcptask.current.application.port"
+
     // =========================================================================================================
     // Real-tree scans
     // =========================================================================================================
@@ -642,6 +682,12 @@ internal class WriteConfinementTest {
     fun `S1 no production file names a write marker outside the allow-lists`() {
         val actual = GuardSupport.countByFile(GuardSupport.productionSources()) { markerViolations(it.path, it.text) }
         assertEquals(emptyMap(), actual, "write marker named outside its allow-list (file to mentions): $actual")
+    }
+
+    @Test
+    fun `S12 no production file opts in to a write marker outside its owner files`() {
+        val actual = GuardSupport.countByFile(GuardSupport.productionSources()) { optInViolations(it.path, it.text) }
+        assertEquals(emptyMap(), actual, "write marker opted into outside its owner files (file to opt-ins): $actual")
     }
 
     @Test
@@ -796,6 +842,82 @@ internal class WriteConfinementTest {
         assertEquals(1, markerViolations("application/service/AdvanceService.kt", claimOptIn), "ClaimWrite outside ClaimService")
         assertEquals(0, markerViolations(CLAIM_SERVICE, "@OptIn(ClaimWrite::class, StoreWrite::class)\nclass A"), "ClaimService owns both")
         assertEquals(0, markerViolations("application/service/X.kt", "@OptIn(StoreWrite::class)\nclass A"), "services own StoreWrite")
+    }
+
+    @Test
+    fun `S12a a file opt-in of StoreWrite in a port is a violation`() {
+        assertEquals(1, optInViolations(storePortPath, "@file:OptIn(StoreWrite::class)\npackage x"), "(a) file opt-in in a port")
+    }
+
+    @Test
+    fun `S12b a file opt-in of StoreWrite in a SQLite store implementation is a violation`() {
+        assertEquals(1, optInViolations(storeImplPath, "@file:OptIn(StoreWrite::class)\npackage x"), "(b) file opt-in in a store impl")
+    }
+
+    @Test
+    fun `S12c an opt-in of ClaimWrite in the SQLite claim store is a violation`() {
+        assertEquals(1, optInViolations(claimImplPath, "@OptIn(ClaimWrite::class)\nclass A"), "(c) opt-in in the claim store impl")
+    }
+
+    @Test
+    fun `S12d a multi-line opt-in of StoreWrite in a port is a violation`() {
+        assertEquals(1, optInViolations(storePortPath, "@OptIn(\n  StoreWrite::class\n)\ninterface A"), "(d) multi-line opt-in in a port")
+    }
+
+    @Test
+    fun `S12e an owner file opt-in and a bare marker use in ports and impls stay allowed`() {
+        val storePort = storePortPath
+        val storeImpl = storeImplPath
+        val fileOptIn = "@file:OptIn(StoreWrite::class)\npackage x"
+        val portUse = "interface ItemStore {\n    @StoreWrite suspend fun update(x: Int): Int\n}"
+        assertEquals(0, optInViolations("application/service/ItemCommandService.kt", fileOptIn), "(e)")
+        assertEquals(0, markerViolations(storePort, portUse), "(f) marker use in a port")
+        assertEquals(0, optInViolations(storePort, portUse), "(f) marker use is not an opt-in")
+        val implUse = "class A {\n    @StoreWrite override suspend fun update(x: Int): Int = x\n}"
+        assertEquals(0, optInViolations(storeImpl, implUse), "use in impl")
+    }
+
+    @Test
+    fun `S12 every spelling of an opt-in is flagged outside the owner files and allowed inside them`() {
+        val storePort = storePortPath
+
+        // every spelling is flagged outside the owner files
+        listOf(
+            "@OptIn(StoreWrite::class)\nclass A",
+            "@file:OptIn(StoreWrite::class)\npackage x",
+            "@kotlin.OptIn(StoreWrite::class)\nclass A",
+            "@OptIn($portPackage.StoreWrite::class)\nclass A",
+            "@OptIn(\n    StoreWrite::class,\n)\nclass A",
+            "@OptIn(ExperimentalStdlibApi::class, StoreWrite::class)\nclass A",
+            "@OptIn(markerClass = [StoreWrite::class])\nclass A"
+        ).forEach {
+            assertEquals(1, optInViolations("application/tools/X.kt", it), "StoreWrite opt-in not flagged: $it")
+            assertEquals(1, optInViolations(storePort, it), "StoreWrite opt-in not flagged in a port: $it")
+        }
+        val claimOptIn = "@OptIn(ClaimWrite::class)\nclass A"
+        val bothOptIn = "@OptIn(ClaimWrite::class, StoreWrite::class)\nclass A"
+        assertEquals(1, optInViolations("application/service/AdvanceService.kt", claimOptIn), "ClaimWrite in a service")
+        assertEquals(1, optInViolations("application/service/X.kt", bothOptIn), "only ClaimWrite is denied in a service")
+        assertEquals(2, optInViolations("application/tools/X.kt", bothOptIn), "both counted")
+
+        // owner files stay green
+        listOf(
+            "application/service/AdvanceService.kt",
+            "application/service/nested/X.kt",
+            "application/knowledge/document/DocumentService.kt",
+            "application/knowledge/link/LinkService.kt"
+        ).forEach { assertEquals(0, optInViolations(it, "@file:OptIn(StoreWrite::class)\npackage x"), "StoreWrite owner: $it") }
+        assertEquals(0, optInViolations(CLAIM_SERVICE, bothOptIn), "ClaimService owns both")
+        assertEquals(1, optInViolations("application/knowledge/link/LinkService.kt", claimOptIn), "knowledge: no claim")
+
+        // lexer conventions: comments and strings are not opt-ins; unrelated opt-ins are fine
+        listOf(
+            "// @OptIn(StoreWrite::class)",
+            "/**\n * @file:OptIn(StoreWrite::class)\n */\nclass A",
+            "val msg = \"@OptIn(StoreWrite::class)\"",
+            "@OptIn(ExperimentalSerializationApi::class)\nclass A",
+            "@StoreWrite fun f() {}"
+        ).forEach { assertEquals(0, optInViolations(storePort, it), "wrongly flagged: $it") }
     }
 
     @Test
