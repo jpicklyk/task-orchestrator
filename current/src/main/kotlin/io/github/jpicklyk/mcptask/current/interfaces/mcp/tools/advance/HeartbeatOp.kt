@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.ClaimState
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.serializer
@@ -25,6 +26,7 @@ internal val heartbeatOp =
         doc =
             "Extend the active claim the calling actor holds on an item. " +
                 "Never takes an item: not_claim_holder unless the caller holds it.",
+        profile = ToolProfile.ORCHESTRATION,
         capability = ApiCapability.ADVANCE,
         request = serializer<HeartbeatRequest>(),
         errors =
