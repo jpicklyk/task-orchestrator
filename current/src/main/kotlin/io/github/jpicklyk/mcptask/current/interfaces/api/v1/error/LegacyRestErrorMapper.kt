@@ -2,12 +2,10 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.error
 
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.CachedHttpResponse
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
 /** The read-fault text the 3.x REST read routes already use for a `db_error`. */
@@ -61,37 +59,16 @@ enum class LegacyRestCode(
 
 /**
  * The only builder of REST error bodies: an [ErrorDto] (`{error, message, details?}`) at the code's status,
- * either sent to the caller or captured for idempotent replay. Status, body, details and headers are the 3.x
+ * sent to the caller. Status, body, details and headers are the 3.x
  * ones; a REST error carries no `kind` in phase 1.
  */
 object LegacyRestErrorMapper {
-    private val json =
-        Json {
-            explicitNulls = false
-            encodeDefaults = true
-        }
-
     /** The error body of [code]. */
     fun dto(
         code: LegacyRestCode,
         message: String,
         details: JsonObject? = null
     ): ErrorDto = ErrorDto(code.wire, message, details)
-
-    /** The error response of [code] as a [CachedHttpResponse] (the body the idempotency layer stores and replays). */
-    fun captured(
-        code: LegacyRestCode,
-        message: String,
-        details: JsonObject? = null,
-        extraHeaders: Map<String, String> = emptyMap(),
-        etag: String? = null
-    ): CachedHttpResponse =
-        CachedHttpResponse(
-            statusCode = code.status.value,
-            bodyJson = json.encodeToString(ErrorDto.serializer(), dto(code, message, details)),
-            etag = etag,
-            extraHeaders = extraHeaders
-        )
 }
 
 /** Responds with the error of [code] at its status: `{error, message, details?}`, plus [headers] when given. */

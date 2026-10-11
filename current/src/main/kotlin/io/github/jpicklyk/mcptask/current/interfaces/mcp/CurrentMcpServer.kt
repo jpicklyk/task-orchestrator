@@ -13,9 +13,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTre
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.QueryRulesTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.notes.QueryNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetBlockedItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItemTool
@@ -48,13 +45,10 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.effectiveConf
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemGateRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemWriteRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteResourceRoutes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.projectConfigRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.resourceLeaseRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.ruleRoutes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.searchRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.serviceRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.transitionRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.wellKnownRoutes
@@ -595,10 +589,6 @@ internal fun productionServerCapabilities(): ServerCapabilities =
  */
 internal fun buildMcpTools(): List<ToolDefinition> =
     listOf(
-        // Phase 1: CRUD
-        ManageItemsTool(),
-        QueryItemsTool(),
-        QueryNotesTool(),
         // Phase 2: Workflow
         GetNextStatusTool(),
         GetNextItemTool(),
@@ -751,28 +741,17 @@ internal fun Application.installRestApiRoutes(
                 serverVersion = serverVersion,
                 actorAuthEnabled = actorAuthEnabled,
             )
-            // Phase 3: read API — items, notes, dependencies, transitions, search
-            itemRoutes(effectiveProvider)
+            // Phase 3: read API — items (through the items_read select), notes, dependencies, transitions
+            itemRoutes(toolRegistry, toolDispatcher, redactNoteAttribution = appConfig.apiRedactNoteAttribution)
             itemGateRoutes(effectiveProvider, toolContext.configResolver, toolContext.transitionPreview())
-            noteRoutes(effectiveProvider, toolContext.unitOfWork)
             // Note resource reads: thin translations to notes_read over the same dispatcher /ops uses (writes are /ops/notes_write).
             noteResourceRoutes(toolRegistry, toolDispatcher, redactNoteAttribution = appConfig.apiRedactNoteAttribution)
             transitionRoutes(
                 effectiveProvider,
                 redactAttribution = appConfig.apiRedactNoteAttribution,
             )
-            searchRoutes(effectiveProvider, toolContext.unitOfWork)
             // Phase 4: config/schema-discovery + status-graph
             configRoutes(noteSchemaService)
-            // Phase 5: write API — items, notes, dependencies
-            itemWriteRoutes(
-                effectiveProvider,
-                degradedModePolicy,
-                toolContext.idempotency,
-                toolContext.unitOfWork,
-                toolContext.itemCommandService,
-                clock = toolContext.clock,
-            )
             // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete —
             // converges on the same ConfigService the manage_project_config MCP tool uses.
             projectConfigRoutes(

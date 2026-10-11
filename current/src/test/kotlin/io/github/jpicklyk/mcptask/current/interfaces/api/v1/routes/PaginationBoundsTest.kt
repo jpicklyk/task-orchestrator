@@ -422,66 +422,6 @@ class PaginationBoundsTest {
     // ─── S17: cross-route -- the shared helper rejects every consuming route ────
 
     @Test
-    fun `S17a GET items with page 0 returns 400 validation_error`() =
-        testApplication {
-            val repo = db.repositoryProvider()
-            application { configureTestApp { itemRoutes(repo) } }
-            val response =
-                client.get("/api/v1/items?page=0") {
-                    header("Authorization", "Bearer $TEST_TOKEN")
-                }
-            assertEquals(HttpStatusCode.BadRequest, response.status)
-            exactValidationError(response.bodyAsText(), pageMessage)
-        }
-
-    @Test
-    fun `S17b GET items roots with page abc returns 400 validation_error`() =
-        testApplication {
-            val repo = db.repositoryProvider()
-            application { configureTestApp { itemRoutes(repo) } }
-            val response =
-                client.get("/api/v1/items/roots?page=abc") {
-                    header("Authorization", "Bearer $TEST_TOKEN")
-                }
-            assertEquals(HttpStatusCode.BadRequest, response.status)
-            exactValidationError(response.bodyAsText(), pageMessage)
-        }
-
-    @Test
-    fun `S17c GET items id tree with page beyond Int range returns 400 validation_error`() =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val item =
-                runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "S17c tree root", depth = 0))!!
-                }
-            application { configureTestApp { itemRoutes(repo) } }
-            val response =
-                client.get("/api/v1/items/${item.id}/tree?page=99999999999") {
-                    header("Authorization", "Bearer $TEST_TOKEN")
-                }
-            assertEquals(HttpStatusCode.BadRequest, response.status)
-            exactValidationError(response.bodyAsText(), pageMessage)
-        }
-
-    @Test
-    fun `S17d GET items id children with page negative 1 returns 400 validation_error`() =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val item =
-                runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "S17d children root", depth = 0))!!
-                }
-            application { configureTestApp { itemRoutes(repo) } }
-            val response =
-                client.get("/api/v1/items/${item.id}/children?page=-1") {
-                    header("Authorization", "Bearer $TEST_TOKEN")
-                }
-            assertEquals(HttpStatusCode.BadRequest, response.status)
-            exactValidationError(response.bodyAsText(), pageMessage)
-        }
-
-    @Test
     fun `S17e GET items id transitions with page 0 returns 400 validation_error`() =
         testApplication {
             val repo = db.repositoryProvider()

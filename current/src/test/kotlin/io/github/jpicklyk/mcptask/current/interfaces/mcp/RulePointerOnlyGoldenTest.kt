@@ -3,27 +3,15 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentStashResult
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeTestAuthConfig
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.ItemSchemaProbe
 import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.get
-import io.ktor.client.request.header
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.HttpStatusCode
-import io.ktor.serialization.kotlinx.json.json
-import io.ktor.server.application.install
-import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.server.testing.testApplication
-import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -31,7 +19,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
@@ -250,7 +237,7 @@ class RulePointerOnlyGoldenTest {
                     put("operation", JsonPrimitive("schema"))
                     put("itemId", JsonPrimitive(FEATURE_TASK_ID.toString()))
                 }
-            val result = QueryItemsTool().execute(params, fx.toolContext)
+            val result = ItemSchemaProbe().execute(params, fx.toolContext)
             assertMatchesExistingGolden("query_items_schema_item_feature_task", result)
             assertNoRuleMarker(compactJson.encodeToString(JsonElement.serializer(), result))
         }
@@ -266,7 +253,7 @@ class RulePointerOnlyGoldenTest {
                     put("operation", JsonPrimitive("schema"))
                     put("itemId", JsonPrimitive(BUG_FIX_ID.toString()))
                 }
-            val result = QueryItemsTool().execute(params, fx.toolContext)
+            val result = ItemSchemaProbe().execute(params, fx.toolContext)
             assertMatchesExistingGolden("query_items_schema_item_bug_fix", result)
             assertNoRuleMarker(compactJson.encodeToString(JsonElement.serializer(), result))
         }
@@ -283,73 +270,8 @@ class RulePointerOnlyGoldenTest {
                     put("type", JsonPrimitive("bug-fix"))
                     put("rootId", JsonPrimitive(ROOT_ID.toString()))
                 }
-            val result = QueryItemsTool().execute(params, fx.toolContext)
+            val result = ItemSchemaProbe().execute(params, fx.toolContext)
             assertMatchesExistingGolden("query_items_schema_type_bug_fix", result)
             assertNoRuleMarker(compactJson.encodeToString(JsonElement.serializer(), result))
         }
-
-    // -----------------------------------------------------------------------
-    // REST: GET /items/{id}/schema equals query_items(schema).data, no rule-body marker
-    // -----------------------------------------------------------------------
-
-    private fun tokenEntriesFor(
-        authConfig: ApiAuthConfig,
-    ): Map<io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes, BearerTokenStore.TokenEntry> =
-        (authConfig as? ApiAuthConfig.Bearer)?.tokens?.mapValues { (_, principal) ->
-            BearerTokenStore.TokenEntry(principal, expiresAt = null)
-        } ?: emptyMap()
-
-    @Test
-    fun `S5 REST GET items id schema equals query_items schema data and carries no rule-body marker, for feature-task and bug-fix`(
-        @TempDir tempDir: Path,
-    ): Unit =
-        testApplication {
-            val fx = newFixtureWithRulesStashed(tempDir)
-            val authConfig = makeTestAuthConfig()
-            application {
-                install(ContentNegotiation) { json(McpJson) }
-                installRestApiRoutes(
-                    apiConfig = authConfig,
-                    eventBus = null,
-                    effectiveProvider = fx.repositoryProvider,
-                    apiTokenEntries = tokenEntriesFor(authConfig),
-                    allowQueryToken = false,
-                    serverName = "a3-s5-golden",
-                    serverVersion = "test",
-                    actorAuthEnabled = false,
-                    noteSchemaService = fx.noteSchemaService,
-                    toolContext = fx.toolContext,
-                    degradedModePolicy = fx.degradedModePolicy,
-                )
-            }
-
-            val featureResponse = client.get("/api/v1/items/$FEATURE_TASK_ID/schema") { header("Authorization", "Bearer $TEST_TOKEN") }
-            assertEquals(HttpStatusCode.OK, featureResponse.status)
-            val featureBodyText = featureResponse.bodyAsText()
-            assertNoRuleMarker(featureBodyText)
-            val featureRouteBody = Json.parseToJsonElement(featureBodyText).jsonObject
-            val featureExpected = queryItemsSchemaData(fx.toolContext, FEATURE_TASK_ID)
-            assertEquals(featureExpected, featureRouteBody, "REST route body must equal query_items(schema,itemId).data exactly")
-
-            val bugFixResponse = client.get("/api/v1/items/$BUG_FIX_ID/schema") { header("Authorization", "Bearer $TEST_TOKEN") }
-            assertEquals(HttpStatusCode.OK, bugFixResponse.status)
-            val bugFixBodyText = bugFixResponse.bodyAsText()
-            assertNoRuleMarker(bugFixBodyText)
-            val bugFixRouteBody = Json.parseToJsonElement(bugFixBodyText).jsonObject
-            val bugFixExpected = queryItemsSchemaData(fx.toolContext, BUG_FIX_ID)
-            assertEquals(bugFixExpected, bugFixRouteBody, "REST route body must equal query_items(schema,itemId).data exactly")
-        }
-
-    private suspend fun queryItemsSchemaData(
-        toolContext: ToolExecutionContext,
-        itemId: UUID,
-    ): JsonObject {
-        val params =
-            buildJsonObject {
-                put("operation", JsonPrimitive("schema"))
-                put("itemId", JsonPrimitive(itemId.toString()))
-            }
-        val result = QueryItemsTool().execute(params, toolContext) as JsonObject
-        return result["data"] as JsonObject
-    }
 }

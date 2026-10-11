@@ -179,7 +179,7 @@ class McpStreamableHttpTransportTest {
             val expectedNames = buildMcpTools().map { it.name }.toSet()
             assertEquals(expectedNames, servedNames, "tools/list must expose exactly the production tool set")
 
-            // 4) tools/call query_items overview — proves the full stack executes over HTTP
+            // 4) tools/call get_context (health-check) — proves the full stack executes over HTTP
             val callResp =
                 client.post("/mcp") {
                     header(HttpHeaders.Accept, acceptBoth)
@@ -187,14 +187,14 @@ class McpStreamableHttpTransportTest {
                     contentType(ContentType.Application.Json)
                     setBody(
                         """{"jsonrpc":"2.0","id":3,"method":"tools/call",""" +
-                            """"params":{"name":"query_items","arguments":{"operation":"overview"}}}""",
+                            """"params":{"name":"get_context","arguments":{}}}""",
                     )
                 }
             assertEquals(HttpStatusCode.OK, callResp.status)
             val callResult = parseRpc(callResp.bodyAsText())["result"]!!.jsonObject
             assertTrue(
                 callResult["isError"]?.jsonPrimitive?.content != "true",
-                "query_items overview should not be an error over HTTP: $callResult",
+                "get_context should not be an error over HTTP: $callResult",
             )
         }
 }

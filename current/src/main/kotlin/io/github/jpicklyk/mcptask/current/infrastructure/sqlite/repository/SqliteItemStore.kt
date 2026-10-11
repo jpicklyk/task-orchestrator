@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.port.ItemPage
 import io.github.jpicklyk.mcptask.current.application.port.ItemSlice
 import io.github.jpicklyk.mcptask.current.application.port.ItemSort
 import io.github.jpicklyk.mcptask.current.application.port.ItemStore
+import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.domain.error.VersionConflictException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -110,6 +111,7 @@ class SqliteItemStore(
         }
     }
 
+    @StoreWrite
     override suspend fun create(item: WorkItem): WorkItem =
         databaseManager.writeTx("WorkItemRepository.create") {
             insertRow(item)
@@ -120,6 +122,7 @@ class SqliteItemStore(
      * different version, re-reads that version in the SAME transaction (unit) and throws
      * [VersionConflictException] with both versions. Does not touch the four claim columns.
      */
+    @StoreWrite
     override suspend fun update(item: WorkItem): WorkItem? =
         databaseManager.writeTx("WorkItemRepository.update") {
             item.validate()
@@ -168,6 +171,7 @@ class SqliteItemStore(
             }
         }
 
+    @StoreWrite
     override suspend fun delete(id: UUID): Boolean =
         databaseManager.writeTx("WorkItemRepository.delete") {
             WorkItemsTable.deleteWhere { WorkItemsTable.id eq id } > 0
@@ -301,6 +305,7 @@ class SqliteItemStore(
         }
     }
 
+    @StoreWrite
     override suspend fun deleteAll(ids: Set<UUID>): Int {
         if (ids.isEmpty()) return 0
         return databaseManager.writeTx("WorkItemRepository.deleteAll") {
@@ -354,17 +359,22 @@ class SqliteItemStore(
         }
     }
 
-    override suspend fun countByParentAndRole(parentIds: Set<UUID>): Map<UUID, Map<Role, Int>> {
+    override suspend fun countByParentAndRole(
+        parentIds: Set<UUID>,
+        scope: AccessScope,
+    ): Map<UUID, Map<Role, Int>> {
         if (parentIds.isEmpty()) return emptyMap()
         return databaseManager.readTx {
             val result = LinkedHashMap<UUID, MutableMap<Role, Int>>()
             parentIds.forEach { result[it] = mutableMapOf() }
+            val visible = visibilityConditions(scope) ?: return@readTx result
             val total = WorkItemsTable.id.count()
             // One statement for any number of parents (a JSON id set, not a chunked IN list), so the views that
             // batch through this keep a constant statement count.
+            val condition = (listOf(WorkViewSql.inIdSet(WorkItemsTable.parentId, parentIds)) + visible).reduce { acc, op -> acc and op }
             WorkItemsTable
                 .select(WorkItemsTable.parentId, WorkItemsTable.role, total)
-                .where { WorkViewSql.inIdSet(WorkItemsTable.parentId, parentIds) }
+                .where { condition }
                 .groupBy(WorkItemsTable.parentId, WorkItemsTable.role)
                 .forEach { row ->
                     val parent = row[WorkItemsTable.parentId] ?: return@forEach
@@ -376,14 +386,20 @@ class SqliteItemStore(
         }
     }
 
-    override suspend fun rollupByTopChild(topIds: Set<UUID>): Map<UUID, Map<Role, Int>> {
+    override suspend fun rollupByTopChild(
+        topIds: Set<UUID>,
+        scope: AccessScope,
+    ): Map<UUID, Map<Role, Int>> {
         if (topIds.isEmpty()) return emptyMap()
         return databaseManager.readTx {
             val result = LinkedHashMap<UUID, MutableMap<Role, Int>>()
             topIds.forEach { result[it] = mutableMapOf() }
+            val roots = resolveRoots(scope) ?: return@readTx result
+            val visible = WorkViewSql.visibility("y", roots.resolved, scope.tagsInclude)
             // One downward walk carrying the top id, seeded from ONE bound JSON id set (constant statement count
             // for any number of tops); UNION (not UNION ALL) dedups (top, id) pairs, so a descendant is counted
-            // once per top and cyclic parent_id data terminates.
+            // once per top and cyclic parent_id data terminates. The walk passes through every descendant; the
+            // visibility predicate (if any) decides only which ones are counted.
             val sql =
                 """
                 WITH RECURSIVE walk(top, id) AS (
@@ -393,10 +409,11 @@ class SqliteItemStore(
                 )
                 SELECT walk.top AS top, y.role AS role, COUNT(*) AS n
                 FROM walk JOIN work_items y ON y.id = walk.id
-                WHERE walk.id <> walk.top
+                WHERE walk.id <> walk.top${visible?.let { " AND " + it.sql } ?: ""}
                 GROUP BY walk.top, y.role
                 """.trimIndent()
-            selectSql(sql, listOf(WorkViewSql.idSetArgument(topIds))) { rs ->
+            val args = listOf(WorkViewSql.idSetArgument(topIds)) + (visible?.args ?: emptyList())
+            selectSql(sql, args) { rs ->
                 while (rs.next()) {
                     val top = uuidOf(rs.getObject("top")!!)
                     val role = Role.fromString(rs.getString("role")) ?: Role.QUEUE
@@ -408,14 +425,19 @@ class SqliteItemStore(
         }
     }
 
-    override suspend fun findByParents(parentIds: Set<UUID>): Map<UUID, List<WorkItem>> {
+    override suspend fun findByParents(
+        parentIds: Set<UUID>,
+        scope: AccessScope,
+    ): Map<UUID, List<WorkItem>> {
         if (parentIds.isEmpty()) return emptyMap()
         return databaseManager.readTx {
             val result = LinkedHashMap<UUID, MutableList<WorkItem>>()
             parentIds.forEach { result[it] = mutableListOf() }
+            val visible = visibilityConditions(scope) ?: return@readTx result
+            val condition = (listOf(WorkViewSql.inIdSet(WorkItemsTable.parentId, parentIds)) + visible).reduce { acc, op -> acc and op }
             WorkItemsTable
                 .selectAll()
-                .where { WorkViewSql.inIdSet(WorkItemsTable.parentId, parentIds) }
+                .where { condition }
                 .orderBy(WorkItemsTable.createdAt, SortOrder.DESC)
                 .orderBy(WorkItemsTable.id, SortOrder.ASC)
                 .map { WorkItemRows.toWorkItem(it) }
@@ -432,10 +454,18 @@ class SqliteItemStore(
         excludeTerminal: Boolean,
         limit: Int,
         offset: Int,
+        scope: AccessScope,
     ): ItemSlice =
         databaseManager.readTx {
+            val roots = resolveRoots(scope) ?: return@readTx ItemSlice(emptyList(), 0)
             val placement = if (parentId == null) WorkItemsTable.parentId.isNull() else (WorkItemsTable.parentId eq parentId)
-            val condition = if (excludeTerminal) placement and WorkViewSql.notTerminalOrOpenBelow(parentId) else placement
+            val conditions = mutableListOf<Op<Boolean>>(placement)
+            if (excludeTerminal) {
+                // Only a visible open descendant keeps a terminal child (scope D4: visible-only counts).
+                conditions.add(WorkViewSql.notTerminalOrOpenBelow(parentId, WorkViewSql.visibility("y", roots.resolved, scope.tagsInclude)))
+            }
+            conditions.addAll(visibilityConditions(roots, scope))
+            val condition = conditions.reduce { acc, op -> acc and op }
             val items =
                 WorkItemsTable
                     .selectAll()
@@ -635,6 +665,43 @@ class SqliteItemStore(
         }
     }
 }
+
+/**
+ * The root restriction of an [AccessScope] after resolution: [resolved] is the WHERE form of its `rootIds`, or null
+ * when the scope has no root restriction. See [resolveRoots].
+ */
+internal class ResolvedRoots(
+    val resolved: ResolvedScope?,
+)
+
+/**
+ * Resolves the root restriction of [scope] (inside a transaction): null when nothing is visible (an empty or
+ * unresolvable root set), else the [ResolvedRoots]. One probe statement for stamped depth-0 roots; the traversal
+ * fallback of [ScopeResolver] otherwise.
+ */
+internal fun resolveRoots(scope: AccessScope): ResolvedRoots? {
+    val rootIds = scope.rootIds ?: return ResolvedRoots(null)
+    val resolved = ScopeResolver.resolve(rootIds)
+    return if (resolved == ResolvedScope.Empty) null else ResolvedRoots(resolved)
+}
+
+/**
+ * The WHERE conditions over the outer `work_items` row that admit only items visible under [scope], with the same
+ * predicates as `ItemStore.find`: the resolved root restriction and the [TagAllowlistOp] tag allowlist. Empty for an
+ * unrestricted scope.
+ */
+internal fun visibilityConditions(
+    roots: ResolvedRoots,
+    scope: AccessScope,
+): List<Op<Boolean>> {
+    val out = ArrayList<Op<Boolean>>()
+    roots.resolved?.let { out.add(it.toCondition()) }
+    if (scope.tagsInclude.isNotEmpty()) out.add(TagAllowlistOp(WorkItemsTable.tags, scope.tagsInclude))
+    return out
+}
+
+/** [visibilityConditions] after resolving [scope]'s roots; null when nothing is visible. Must run inside a transaction. */
+internal fun visibilityConditions(scope: AccessScope): List<Op<Boolean>>? = resolveRoots(scope)?.let { visibilityConditions(it, scope) }
 
 /** The id range a hex prefix selects: `lower <= id < upper`, [upper] null when unbounded. */
 internal data class IdPrefixRange(

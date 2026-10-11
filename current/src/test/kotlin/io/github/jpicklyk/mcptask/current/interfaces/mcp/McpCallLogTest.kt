@@ -11,7 +11,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
@@ -243,16 +242,16 @@ class McpCallLogTest {
             assertEquals(0, flush().size, "tools/list and initialize write no call_log row")
 
             val capture = LogCapture().attach(McpToolAdapter::class.java.name)
-            val args = arrayOf("operation" to jstr("overview"))
+            val args = arrayOf("operation" to jstr("list"), "rootId" to jstr(rig.seed("S2 read").id.toString()))
             val before = Instant.now()
-            val result = call("query_items", *args)
+            val result = call("query_rules", *args)
             val after = Instant.now()
             capture.detach()
 
             val reqId = assertNotNull(reqIdOf(result), "_meta.reqId must be present: ${result.meta}")
             assertTrue(ReqId.isValid(reqId), "reqId must be 8 Crockford characters: $reqId")
 
-            val mdc = capture.events.lastOrNull { it.mdc["tool"] == "query_items" }
+            val mdc = capture.events.lastOrNull { it.mdc["tool"] == "query_rules" }
             assertNotNull(mdc, "the adapter logs its tool-call line inside the call's MDC scope")
             assertEquals(reqId, mdc.mdc["reqId"], "MDC reqId equals _meta.reqId (A1)")
             assertTrue(
@@ -265,8 +264,8 @@ class McpCallLogTest {
             val row = all.single()
             assertEquals(reqId, row["req_id"])
             assertEquals("mcp", row["surface"])
-            assertEquals("query_items", row["tool"])
-            assertEquals("overview", row["operation"])
+            assertEquals("query_rules", row["tool"])
+            assertEquals("list", row["operation"])
             assertEquals("ok", row["outcome"])
             assertNull(row["error_code"])
             assertEquals(1L, row["attempts"])
@@ -291,7 +290,8 @@ class McpCallLogTest {
     @Test
     fun `S2 concurrent calls get distinct reqIds and one row each`() =
         runBlocking {
-            val results = (1..80).map { async { call("query_items", "operation" to jstr("overview")) } }.awaitAll()
+            val seeded = jstr(rig.seed("S2 concurrent").id.toString())
+            val results = (1..80).map { async { call("query_rules", "operation" to jstr("list"), "rootId" to seeded) } }.awaitAll()
             val ids = results.map { assertNotNull(reqIdOf(it)) }
             assertEquals(80, ids.toSet().size, "every call has its own reqId")
             assertTrue(ids.all { ReqId.isValid(it) })
@@ -302,84 +302,9 @@ class McpCallLogTest {
 
     // ------------------------------------------------------------------ S3
 
-    @Test
-    fun `S3 every events row a call wrote shares the call's reqId and session, and a second call differs`() =
-        runBlocking {
-            val first = call("manage_items", *itemsCreateArgs("S3 one", "S3 two"))
-            val second = call("manage_items", *itemsCreateArgs("S3 three"))
-            val id1 = assertNotNull(reqIdOf(first))
-            val id2 = assertNotNull(reqIdOf(second))
-            assertNotEquals(id1, id2)
-
-            val rows = flush()
-            val session = rowOf(id1)["session_id"] as String?
-            assertNotNull(session)
-            val stamps = CallLogRows.eventStamps(db.jdbcUrl)
-            assertEquals(
-                setOf<String?>(id1, id2),
-                stamps.map { it.first }.toSet(),
-                "every events row carries one of the two calls' reqIds: $stamps"
-            )
-            assertEquals(2, stamps.count { it.first == id1 }, "two items created by call 1: $stamps")
-            assertEquals(1, stamps.count { it.first == id2 }, "one item created by call 2: $stamps")
-            assertTrue(stamps.all { it.second == session }, "events carry the connection's session id: $stamps vs $session")
-            assertEquals(2, rows.size, "reads and writes alike: one call_log row per call")
-        }
-
     // ------------------------------------------------------------------ S5
 
-    @Test
-    fun `S5 byte counts are UTF-8 bytes of non-ASCII payloads and tokens are their ceil over 4`() =
-        runBlocking {
-            val title = "é ✓ 😀"
-            val args = itemsCreateArgs(title)
-            val result = call("manage_items", *args)
-            assertTrue(result.isError != true, "fixture: the create must succeed: ${result.content}")
-            val row = flush().single { it["tool"] == "manage_items" }
-
-            val argsJson = JsonObject(mapOf(*args)).toString()
-            assertNotEquals(argsJson.length.toLong(), utf8(argsJson), "fixture: the title must make bytes differ from characters")
-            assertEquals(utf8(argsJson), row["request_bytes"], "request_bytes counts UTF-8 bytes of the compact arguments")
-            val expectedResponse = responseBytes(result)
-            assertEquals(expectedResponse, row["response_bytes"])
-            assertEquals(ceilQuarter(expectedResponse), row["response_tokens_est"])
-        }
-
     // ------------------------------------------------------------------ S6
-
-    @Test
-    fun `S6 query_items get records its shape, its target id and the item version`() =
-        runBlocking {
-            val item = rig.seed("S6 get")
-            val version =
-                rig.raw
-                    .workItemRepository()
-                    .getById(item.id)!!
-                    .version
-            val result =
-                call(
-                    "query_items",
-                    "operation" to jstr("get"),
-                    "itemId" to jstr(item.id.toString()),
-                    "includeAncestors" to JsonPrimitive(true)
-                )
-            assertTrue(result.isError != true, "${result.content}")
-            val row = flush().single()
-            val shape = Json.parseToJsonElement(row["request_shape"] as String).jsonObject
-            assertEquals(setOf("includeAncestors"), shape.keys)
-            assertEquals("true", shape["includeAncestors"]!!.jsonPrimitive.content)
-            assertEquals(
-                listOf(item.id.toString()),
-                Json.parseToJsonElement(row["target_ids"] as String).jsonArray.map { it.jsonPrimitive.content }
-            )
-            val versions = Json.parseToJsonElement(row["target_versions"] as String).jsonObject
-            assertEquals(setOf(item.id.toString()), versions.keys)
-            assertEquals(
-                version.toLong(),
-                versions[item.id.toString()]!!.jsonPrimitive.content.toLong(),
-                "WorkItem.version is the target version"
-            )
-        }
 
     @Test
     fun `S6 get_context in item mode records the item version`() =
@@ -397,7 +322,7 @@ class McpCallLogTest {
         }
 
     @Test
-    fun `S6 a batch of three item updates with one failing records batch_size 3 and failed_count 1`() =
+    fun `S6 a batch of three transitions with one failing records batch_size 3 and failed_count 1`() =
         runBlocking {
             val first = rig.seed("S6 batch a")
             val second = rig.seed("S6 batch b")
@@ -407,23 +332,24 @@ class McpCallLogTest {
                     add(
                         buildJsonObject {
                             put("itemId", first.id.toString())
-                            put("title", "S6 batch a renamed")
+                            put("trigger", "cancel")
                         }
                     )
                     add(
                         buildJsonObject {
                             put("itemId", second.id.toString())
-                            put("title", "S6 batch b renamed")
+                            put("trigger", "cancel")
                         }
                     )
                     add(
                         buildJsonObject {
                             put("itemId", UUID.randomUUID().toString())
-                            put("title", "S6 batch unknown")
+                            put("trigger", "cancel")
                         }
                     )
                 }
-            val result = call("manage_items", "operation" to jstr("update"), "items" to notes)
+            // manage_items is removed (Q18); advance_item is the remaining 3.x batch tool with a summary.failed count.
+            val result = call("advance_item", "transitions" to notes)
             // The MCP structuredContent is the tool's data payload itself (summary.failed, else failed).
             val payload = result.structuredContent
             val failed =
@@ -437,13 +363,13 @@ class McpCallLogTest {
             assertEquals(
                 1,
                 failed,
-                "fixture: exactly one of the three updates fails per the tool's own summary: ${result.structuredContent}"
+                "fixture: exactly one of the three transitions fails per the tool's own summary: ${result.structuredContent}"
             )
             val row = flush().single()
             assertEquals(3L, row["batch_size"])
             assertEquals(1L, row["failed_count"])
             val ids = Json.parseToJsonElement(row["target_ids"] as String).jsonArray.map { it.jsonPrimitive.content }
-            assertTrue(item.id.toString() in ids, "elements of the top-level items array contribute their itemId: $ids")
+            assertTrue(item.id.toString() in ids, "elements of the top-level transitions array contribute their itemId: $ids")
         }
 
     @Test
@@ -495,27 +421,6 @@ class McpCallLogTest {
         }
 
     // ------------------------------------------------------------------ S7
-
-    @Test
-    fun `S7 a validation error still gets a reqId and one error row with the structured code`() =
-        runBlocking {
-            val result = call("manage_items") // required operation is missing
-            assertEquals(true, result.isError)
-            val reqId = assertNotNull(reqIdOf(result), "error results carry _meta.reqId too")
-            val row = flush().single()
-            assertEquals(reqId, row["req_id"])
-            assertEquals("error", row["outcome"])
-            val code =
-                result.structuredContent
-                    ?.get("error")
-                    ?.jsonObject
-                    ?.get("code")
-                    ?.jsonPrimitive
-                    ?.content
-            assertEquals("VALIDATION_ERROR", code, "fixture: ${result.structuredContent}")
-            assertEquals(code, row["error_code"])
-            assertEquals(responseBytes(result), row["response_bytes"])
-        }
 
     @Test
     fun `S7 a thrown exception yields INTERNAL_ERROR with a reqId and exactly one row`() =
@@ -653,71 +558,16 @@ class McpCallLogTest {
 
     // ------------------------------------------------------------------ S14
 
-    @Test
-    fun `S14 the same requestId and actor create three times replays after the first`() =
-        runBlocking {
-            val requestId = UUID.randomUUID().toString()
-            val args = itemsCreateArgs("S14 once", actorId = "idem-agent", requestId = requestId)
-            val ids = (1..3).map { assertNotNull(reqIdOf(call("manage_items", *args))) }
-            assertEquals(3, ids.toSet().size, "each call has its own reqId even when it replays")
-            flush()
-            val replayed = ids.map { rowOf(it)["replayed"] }
-            assertEquals(listOf<Any?>(0L, 1L, 1L), replayed, "first execution is not a replay, the next two are")
-            assertEquals(1, rig.rows().count { it.type == "item.created" }, "the replays wrote no second item")
-        }
-
-    @Test
-    fun `S14 different requestIds are never replays`() =
-        runBlocking {
-            val a =
-                assertNotNull(
-                    reqIdOf(
-                        call("manage_items", *itemsCreateArgs("S14 a", actorId = "idem-agent", requestId = UUID.randomUUID().toString()))
-                    )
-                )
-            val b =
-                assertNotNull(
-                    reqIdOf(
-                        call("manage_items", *itemsCreateArgs("S14 b", actorId = "idem-agent", requestId = UUID.randomUUID().toString()))
-                    )
-                )
-            flush()
-            assertEquals(0L, rowOf(a)["replayed"])
-            assertEquals(0L, rowOf(b)["replayed"])
-        }
-
     // ------------------------------------------------------------------ S17
-
-    @Test
-    fun `S17 an actor without proof is recorded as principal id kind and status`() =
-        runBlocking {
-            call("manage_items", *itemsCreateArgs("S17 actor", actorId = "a1"))
-            val row = flush().single()
-            assertEquals("a1", row["principal_id"])
-            assertEquals("subagent", row["principal_kind"])
-            val status = row["proof_status"] as String?
-            val known = VerificationStatus.entries.map { it.toJsonString() }
-            assertTrue(status in known, "proof_status is a VerificationStatus.toJsonString() value, got $status of $known")
-        }
-
-    @Test
-    fun `S17 a call without an actor has three null principal columns`() =
-        runBlocking {
-            call("manage_items", *itemsCreateArgs("S17 anonymous"))
-            val row = flush().single()
-            assertNull(row["principal_id"])
-            assertNull(row["principal_kind"])
-            assertNull(row["proof_status"])
-        }
 
     @Test
     fun `A2 every call records one row whose outcome matches its result, errors included`() =
         runBlocking {
             val results =
                 listOf(
-                    call("query_items", "operation" to jstr("overview")),
-                    call("query_items", "operation" to jstr("not-an-operation")),
-                    call("query_items")
+                    call("query_rules", "operation" to jstr("list"), "rootId" to jstr(rig.seed("A2 read").id.toString())),
+                    call("query_rules", "operation" to jstr("not-an-operation")),
+                    call("query_rules")
                 )
             assertTrue(results.any { it.isError == true }, "fixture: at least one of the calls must fail")
             assertTrue(results.any { it.isError != true }, "fixture: at least one of the calls must succeed")
@@ -741,40 +591,6 @@ class McpCallLogTest {
                     },
                     row["error_code"]
                 )
-            }
-        }
-
-    // ------------------------------------------------------------------ F1
-
-    @Test
-    fun `F1 client-supplied operation and flag names are bounded in the stored row`() =
-        runBlocking {
-            val long = "z".repeat(5000)
-            val junkOp = call("manage_items", "operation" to jstr(long))
-            val badOp = call("manage_items", "operation" to jstr("Not Valid!"))
-            val noOp = call("p10_echo", "m" to jstr("x"))
-            val goodOp = call("query_items", "operation" to jstr("overview"))
-            val flags =
-                call(
-                    "p10_echo",
-                    *(0 until 30).map { "flag" + it.toString().padStart(2, '0') to (JsonPrimitive(true) as JsonElement) }.toTypedArray(),
-                    "bad key" to JsonPrimitive(true),
-                    long to JsonPrimitive(true)
-                )
-            flush()
-            assertEquals("invalid", rowOf(reqIdOf(junkOp))["operation"], "5000-char operation")
-            assertEquals("invalid", rowOf(reqIdOf(badOp))["operation"], "non-conforming operation")
-            assertNull(rowOf(reqIdOf(noOp))["operation"], "absent stays null")
-            assertEquals("overview", rowOf(reqIdOf(goodOp))["operation"])
-            val shape = Json.parseToJsonElement(rowOf(reqIdOf(flags))["request_shape"] as String).jsonObject
-            assertEquals(16, shape.size, "30 conforming flags are capped at 16: ${shape.keys}")
-            assertEquals(shape.keys.sorted(), shape.keys.toList())
-            assertTrue(shape.keys.all { Regex("^[A-Za-z0-9_.-]{1,64}$").matches(it) }, "${shape.keys}")
-            for (row in CallLogRows.read(db.jdbcUrl)) {
-                for (column in listOf("tool", "operation", "error_code", "principal_id", "principal_kind", "session_id")) {
-                    val value = row[column] as String?
-                    assertTrue(value == null || value.length <= 64, "$column is ${value?.length} chars")
-                }
             }
         }
 

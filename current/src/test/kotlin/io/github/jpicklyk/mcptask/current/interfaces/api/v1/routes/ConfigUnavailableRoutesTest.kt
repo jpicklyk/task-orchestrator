@@ -3,17 +3,11 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
-import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.getFingerprint
@@ -23,15 +17,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
-import io.ktor.serialization.kotlinx.json.json
-import io.ktor.server.application.Application
-import io.ktor.server.application.install
-import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.server.routing.route
-import io.ktor.server.routing.routing
-import io.ktor.server.sse.SSE
 import io.ktor.server.testing.testApplication
-import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -135,37 +121,3 @@ private class FailableRepositoryProvider(
 
 /** No global schema for any type — mirrors the test-plan harness's "Global: no T, no default". */
 private val NoSchemaWorkItemSchemaService: ConfigDocument = ConfigDocument.EMPTY
-
-/** Registers only [itemWriteRoutes], mirroring [AdvanceRouteResourceLeaseTest]'s `configureLeaseTestApp`. */
-private fun Application.configureAdvanceApp(
-    provider: RepositoryProvider,
-    schemaService: ConfigDocument,
-    unitOfWork: UnitOfWork
-) {
-    install(ContentNegotiation) { json(McpJson) }
-    install(SSE)
-    val authConfig = makeWriteAuthConfig()
-    routing {
-        route("/api/v1") {
-            install(ApiBearerAuth) {
-                this.authConfig = authConfig
-                tokenEntries = authConfig.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) }
-            }
-            itemWriteRoutes(
-                provider,
-                DegradedModePolicy.ACCEPT_CACHED,
-                IdempotencyService(unitOfWork),
-                PerRootConfigService(provider.configStore()).let { perRoot ->
-                    ToolExecutionContext(
-                        provider,
-                        statusLabelService = NoOpStatusLabelService,
-                        perRootConfigService = perRoot,
-                        configResolver = TestConfigResolver.resolver(schemaService, perRoot),
-                        unitOfWork = unitOfWork
-                    ).advanceServiceFactory()
-                },
-                unitOfWork,
-            )
-        }
-    }
-}

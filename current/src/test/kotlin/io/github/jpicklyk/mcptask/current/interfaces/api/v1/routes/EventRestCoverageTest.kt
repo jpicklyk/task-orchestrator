@@ -1,8 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
-import io.github.jpicklyk.mcptask.current.domain.model.Dependency
-import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
@@ -23,7 +21,6 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
@@ -32,13 +29,11 @@ import io.ktor.server.application.install
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
-import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -105,81 +100,7 @@ class EventRestCoverageTest {
         }
     }
 
-    private fun idOf(body: String): String = Regex(""""id":"([0-9a-fA-F-]{36})"""").find(body)!!.groupValues[1]
-
     private fun apiActor() = "api:$WRITE_TOKEN_ID"
-
-    // ---------------------------------------------------------------------------------------------
-    // Items
-    // ---------------------------------------------------------------------------------------------
-
-    @Test
-    fun `REST item create patch and delete record created updated and deleted rows attributed to the api principal`(
-        @TempDir dir: Path,
-    ): Unit =
-        testApplication {
-            val rig = EventLogRig.build(db.db, dir)
-            application { configureProductionApp(rig.composition) }
-
-            val created = client.send("POST", "/items", """{"type":"test-item","title":"rest root"}""")
-            assertEquals(HttpStatusCode.Created, created.status, created.bodyAsText())
-            val id = UUID.fromString(idOf(created.bodyAsText()))
-            val createdRows = rig.rows()
-            assertEquals(listOf("item.created"), createdRows.types())
-            assertEquals(id, createdRows.single().entityId)
-            assertEquals(id, createdRows.single().rootId)
-            assertEquals(apiActor(), createdRows.single().principalId, "an API write is attributed to the calling token")
-            assertEquals("external", createdRows.single().principalKind)
-
-            val item = rig.raw.workItemRepository().getById(id)!!
-            val mark = rig.maxSeq()
-            val patched =
-                client.send(
-                    "PATCH",
-                    "/items/$id",
-                    """{"title":"rest renamed"}""",
-                    extra = listOf(HttpHeaders.IfMatch to "\"v1-${item.modifiedAt.toEpochMilli()}\""),
-                )
-            assertEquals(HttpStatusCode.OK, patched.status, patched.bodyAsText())
-            val patchRows = rig.rowsAfter(mark)
-            assertEquals(listOf("item.updated"), patchRows.types())
-            assertEquals(
-                listOf("title"),
-                patchRows
-                    .single()
-                    .payload()["changedFields"]!!
-                    .jsonArray
-                    .map { it.jsonPrimitive.content }
-            )
-            assertEquals(apiActor(), patchRows.single().principalId)
-
-            val markDelete = rig.maxSeq()
-            val deleted = client.send("DELETE", "/items/$id")
-            assertEquals(HttpStatusCode.NoContent, deleted.status)
-            assertEquals(listOf("item.deleted"), rig.rowsAfter(markDelete).types())
-        }
-
-    @Test
-    fun `REST item delete records the FK cascade rows of the item's notes and dependency edges`(
-        @TempDir dir: Path,
-    ): Unit =
-        testApplication {
-            val rig = EventLogRig.build(db.db, dir)
-            application { configureProductionApp(rig.composition) }
-            val victim = rig.seed("rest victim")
-            val peer = rig.seed("rest peer")
-            rig.raw.noteRepository().upsert(Note(itemId = victim.id, key = "doomed", role = "work", body = "x"))
-            rig.raw.dependencyRepository().create(Dependency(fromItemId = victim.id, toItemId = peer.id, type = DependencyType.BLOCKS))
-
-            val response = client.send("DELETE", "/items/${victim.id}")
-
-            assertEquals(HttpStatusCode.NoContent, response.status)
-            val rows = rig.rows()
-            assertEquals(setOf("item.deleted", "note.deleted", "dependency.removed"), rows.types().toSet(), "$rows")
-            assertEquals(3, rows.size, "$rows")
-            assertEquals("cascade", rows.single { it.type == "note.deleted" }.str("cause"))
-            assertTrue(rows.all { it.rootId == victim.id })
-        }
 
     // ---------------------------------------------------------------------------------------------
     // Notes -- the carry-in gap
@@ -329,20 +250,4 @@ class EventRestCoverageTest {
     // ---------------------------------------------------------------------------------------------
     // Absence control
     // ---------------------------------------------------------------------------------------------
-
-    @Test
-    fun `a write refused with 403 records nothing while the same write with a write token records a row`(
-        @TempDir dir: Path,
-    ): Unit =
-        testApplication {
-            val rig = EventLogRig.build(db.db, dir)
-            application { configureProductionApp(rig.composition) }
-
-            val denied = client.send("POST", "/items", """{"type":"test-item","title":"denied"}""", token = TEST_TOKEN)
-
-            assertEquals(HttpStatusCode.Forbidden, denied.status)
-            assertEquals(emptyList(), rig.rows())
-            assertEquals(HttpStatusCode.Created, client.send("POST", "/items", """{"type":"test-item","title":"allowed"}""").status)
-            assertEquals(listOf("item.created"), rig.rows().types())
-        }
 }

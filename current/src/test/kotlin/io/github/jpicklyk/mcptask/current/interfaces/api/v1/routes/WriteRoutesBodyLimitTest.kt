@@ -1,43 +1,29 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
-import io.ktor.client.request.patch
-import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.OutgoingContent
-import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import io.ktor.utils.io.ByteReadChannel
-import io.ktor.utils.io.ByteWriteChannel
-import io.ktor.utils.io.writeFully
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Route-level wiring tests for item `e941c2c7`: proves [receiveBounded] is actually threaded
- * through every one of the 7 write-route call sites (not just the synthetic route exercised by
- * [BoundedReceiveTest]), that the 5 previously-uncapped routes now enforce
- * [MAX_JSON_WRITE_BODY_BYTES] (1 MiB), that the 2 already-capped routes keep their own unchanged
- * numeric caps, and that all 7 share the one `payload_too_large` ErrorDto shape.
- *
- * The bytes-consumed proof itself (stage 1 vs. stage 2, exact-margin assertions) lives in
- * [BoundedReceiveTest] against a small synthetic cap — repeating that at megabyte scale on all 7
- * routes would multiply cost without adding assurance. Here each route gets one lying-Content-
- * Length test (cheap: the real body is a single byte) proving wiring + the correct per-route cap
- * value in the rejection message, plus one representative chunked/counting test and one real
- * exactly-at-cap body (constructed once, reused nowhere else) on the most central route.
+ * Route-level wiring tests for item `e941c2c7`: the already-capped config route (`PUT /roots/{rootId}/config`) goes
+ * through [receiveBounded], keeps its own unchanged numeric cap, and shares the one `payload_too_large` ErrorDto shape.
+ * The JSON item write routes these tests also covered are gone (Q13 moved advance to the `advance` tool, Q18 moved item
+ * create/update/delete to `items_write`), as is the plan document route (Q25 removed `/plans` for `docs_write`); the
+ * bytes-consumed proof (stage 1 vs. stage 2) lives in [BoundedReceiveTest] against a small synthetic cap.
  */
 private const val MAX_CONFIG_YAML_BYTES = 131_072 // ConfigService.MAX_CONFIG_YAML_BYTES — unchanged by this item
 
@@ -50,34 +36,6 @@ private class RouteMismatchedLengthContent(
     override fun readFrom(): ByteReadChannel = ByteReadChannel(actualBytes)
 }
 
-/** A chunked (no Content-Length) body that counts how much of itself it got to write. */
-private class CountingChunkedJsonContent(
-    private val totalBytes: Int,
-    private val chunkSize: Int = 8192,
-) : OutgoingContent.WriteChannelContent() {
-    override val contentType: ContentType = ContentType.Application.Json
-    override val contentLength: Long? = null
-
-    @Volatile
-    var bytesWritten: Int = 0
-        private set
-
-    override suspend fun writeTo(channel: ByteWriteChannel) {
-        val chunk = ByteArray(chunkSize) { '"'.code.toByte() }
-        var remaining = totalBytes
-        try {
-            while (remaining > 0) {
-                val n = minOf(chunkSize, remaining)
-                channel.writeFully(chunk, 0, n)
-                bytesWritten += n
-                remaining -= n
-            }
-        } catch (expectedOnceServerRejects: Throwable) {
-            // Expected once the server responds 413 and the connection is torn down mid-stream.
-        }
-    }
-}
-
 private fun createRoot(repo: io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider): WorkItem =
     runBlocking {
         (repo.workItemRepository().create(WorkItem(title = "Root", type = "project", depth = 0))!!)
@@ -86,62 +44,6 @@ private fun createRoot(repo: io.github.jpicklyk.mcptask.current.infrastructure.s
 class WriteRoutesBodyLimitTest {
     @RegisterExtension
     val db = SqliteTestDatabase.perMethod()
-
-    // ── S2 / S5 / S7 (NEW-SURFACE except where noted): an overstated Content-Length is rejected
-    // 413 before the (single-byte) real body is inspected, one test per call site. ──
-
-    @Test
-    fun `POST items with an overstated Content-Length is rejected 413`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            val response =
-                client.post("/api/v1/items") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    setBody(
-                        RouteMismatchedLengthContent(
-                            contentLength = MAX_JSON_WRITE_BODY_BYTES + 1L,
-                            contentType = ContentType.Application.Json,
-                            actualBytes = byteArrayOf('{'.code.toByte()),
-                        ),
-                    )
-                }
-
-            assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
-            val body = response.bodyAsText()
-            assertTrue(body.contains("payload_too_large"), "shared ErrorDto shape: $body")
-            assertTrue(body.contains("declares"), "stage 1 must fire on the header alone: $body")
-
-            val items = runBlocking { repo.workItemRepository().findByFilters() }
-            assertTrue(items.items.isEmpty(), "no item should be created on 413")
-        }
-
-    @Test
-    fun `PATCH items id with an overstated Content-Length is rejected 413`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Patch Target", depth = 0))!! }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            val response =
-                client.patch("/api/v1/items/${item.id}") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    setBody(
-                        RouteMismatchedLengthContent(
-                            contentLength = MAX_JSON_WRITE_BODY_BYTES + 1L,
-                            contentType = ContentType.Application.Json,
-                            actualBytes = byteArrayOf('{'.code.toByte()),
-                        ),
-                    )
-                }
-
-            assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
-            assertTrue(response.bodyAsText().contains("payload_too_large"))
-
-            val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
-            assertEquals("Patch Target", persisted!!.title, "PATCH body must never have been applied")
-        }
 
     // S6 regression, folded into the same wiring proof: the ALREADY-capped config route keeps its
     // own unchanged numeric cap and now also goes through receiveBounded (same shared shape).
@@ -172,79 +74,5 @@ class WriteRoutesBodyLimitTest {
             assertTrue(response.bodyAsText().contains("payload_too_large"))
             val persisted = runBlocking { repo.configStore().get(root.id) }
             assertTrue(persisted == null, "oversized payload must never be stored")
-        }
-
-    // S4 (edge, NEW-SURFACE): the exact-at-cap acceptance boundary, proven ONCE at real
-    // production scale (1 MiB) on the most central route, rather than reallocating a megabyte
-    // string per route. The size gate must not be the reason a same-size body fails — whatever a
-    // downstream domain check later does with an oversized title is a separate concern.
-    @Test
-    fun `POST items with a body of exactly MAX_JSON_WRITE_BODY_BYTES is not rejected as too large`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            val prefix = "{\"title\":\""
-            val suffix = "\"}"
-            val padLen = MAX_JSON_WRITE_BODY_BYTES - prefix.length - suffix.length
-            val body = prefix + "x".repeat(padLen) + suffix
-            assertEquals(MAX_JSON_WRITE_BODY_BYTES, body.toByteArray(Charsets.UTF_8).size, "fixture must be exactly at the cap")
-
-            val response =
-                client.post("/api/v1/items") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody(body)
-                }
-
-            assertTrue(
-                response.status != HttpStatusCode.PayloadTooLarge,
-                "a body of exactly the cap must pass the size gate regardless of downstream validation: ${response.status}",
-            )
-        }
-
-    // S3 (failure, NEW-SURFACE), representative wiring proof: a real route (not the synthetic
-    // one in BoundedReceiveTest) rejects a chunked body once it exceeds the real 1 MiB cap.
-    //
-    // Arbitration (orchestrator, full-suite run at HEAD): the original version of this test also
-    // asserted `content.bytesWritten < totalBytes` as a client-side short-circuit proof. That
-    // assertion is TEST WRONG, not implementation wrong — DECLARATIONS for e941c2c7 stage 2
-    // ("reads at most maxBytes + 1 bytes ... having consumed at most maxBytes + 1 bytes")
-    // describes receiveBounded's own server-side channel read, but the Ktor test engine feeds
-    // the request body from a WriteChannelContent independently of when/whether the server reads
-    // it, and may let the client finish writing (or discard the remainder) regardless of the
-    // server's early response — so a client-side write counter cannot observe the server's
-    // bound (observed: wrote totalBytes of totalBytes even though the server answered 413 well
-    // before that). The byte-bound itself is proven at the helper level in BoundedReceiveTest,
-    // where the minimal test route's own handler is what's being measured. Here the substitute
-    // verification (per the test-plan's own fallback for scenarios that can't get a clean proof)
-    // is: 413 fired, and the message is stage 2's shape (no declared-length citation), which is
-    // only reachable by the bounded-channel-read path, not the declared-Content-Length pre-check
-    // — proving the real route's chunked body went through receiveBounded's stage 2.
-    @Test
-    fun `POST items rejects a chunked body exceeding the 1 MiB cap via the bounded-read path`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            val totalBytes = MAX_JSON_WRITE_BODY_BYTES + (256 * 1024) // ~256 KiB over cap, not gigabytes
-            val content = CountingChunkedJsonContent(totalBytes = totalBytes)
-
-            val response =
-                client.post("/api/v1/items") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    setBody(content)
-                }
-
-            assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
-            val body = response.bodyAsText()
-            assertFalse(body.contains("declares"), "no Content-Length was sent — must be stage 2's message, not stage 1's: $body")
-            assertTrue(
-                body.contains("Request body exceeds the $MAX_JSON_WRITE_BODY_BYTES byte limit"),
-                "must be exactly stage 2's message shape, reachable only via the bounded-channel-read path: $body",
-            )
-
-            val items = runBlocking { repo.workItemRepository().findByFilters() }
-            assertTrue(items.items.isEmpty(), "no item should be created on 413")
         }
 }

@@ -1,7 +1,10 @@
+@file:OptIn(StoreWrite::class)
+
 package io.github.jpicklyk.mcptask.current.application.knowledge.link
 
 import io.github.jpicklyk.mcptask.current.application.api.IdRef
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.service.eventRootOf
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError

@@ -2,8 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
@@ -11,19 +9,12 @@ import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureTestApp
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
-import io.ktor.client.request.header
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.HttpStatusCode
-import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -45,7 +36,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -113,8 +103,6 @@ class ErrorKindCoverageTest {
                 )
             val adapter = McpToolAdapter()
             listOf(
-                QueryItemsTool(),
-                ManageItemsTool(),
                 CompleteTreeTool(),
                 ClaimItemTool(),
                 AdvanceItemTool()
@@ -233,48 +221,6 @@ class ErrorKindCoverageTest {
     }
 
     // ----------------------------------------------
-    // S3 - top-level errors carry kind
-    // ----------------------------------------------
-
-    @Test
-    fun `S3 query_items get with a too-short id is VALIDATION_ERROR with kind permanent and its message unchanged`(): Unit =
-        runBlocking {
-            val result = call("query_items", mapOf("operation" to "get", "itemId" to "zz"))
-
-            assertEquals(true, result.isError)
-            val error = result.error()
-            assertEquals(ErrorCodes.VALIDATION_ERROR, error.str("code"))
-            assertEquals("permanent", error.str("kind"))
-            assertTrue(
-                error.str("message")!!.contains("itemId must be a UUID or hex prefix") && error.str("message")!!.endsWith("got: zz"),
-                "message unchanged: $error"
-            )
-        }
-
-    @Test
-    fun `S3 query_items get of an unknown full UUID is RESOURCE_NOT_FOUND with kind permanent`(): Unit =
-        runBlocking {
-            val result = call("query_items", mapOf("operation" to "get", "itemId" to UUID.randomUUID().toString()))
-
-            assertEquals(true, result.isError)
-            val error = result.error()
-            assertEquals(ErrorCodes.RESOURCE_NOT_FOUND, error.str("code"))
-            assertEquals("permanent", error.str("kind"))
-        }
-
-    @Test
-    fun `S3 probe a successful query_items get carries no error object`(): Unit =
-        runBlocking {
-            val existing = item("present")
-
-            val result = call("query_items", mapOf("operation" to "get", "itemId" to existing.id.toString()))
-
-            assertTrue(result.isError != true, "control: a present item reads fine: ${result.content}")
-            assertNull(result.structuredContent?.get("error"))
-            assertNull(result.structuredContent?.get("kind"))
-        }
-
-    // ----------------------------------------------
     // S4 - complete_tree per-item failures
     // ----------------------------------------------
 
@@ -353,106 +299,6 @@ class ErrorKindCoverageTest {
             assertEquals("true", entry["applied"]!!.jsonPrimitive.content, "control: it completes: $entry")
             assertNull(entry["errorCode"])
             assertNull(entry["errorKind"])
-        }
-
-    // ----------------------------------------------
-    // S5 - manage_items per-element failures
-    // ----------------------------------------------
-
-    @Test
-    fun `S5 manage_items update of an unknown id keeps its error and gains errorCode not_found with errorKind permanent`(): Unit =
-        runBlocking {
-            val result =
-                call(
-                    "manage_items",
-                    mapOf("operation" to "update", "items" to listOf(mapOf("itemId" to UUID.randomUUID().toString(), "title" to "x")))
-                )
-
-            val failure = result.data().entries("failures").single()
-            assertTrue(failure.str("error")!!.contains("not found", ignoreCase = true), "error text kept: $failure")
-            assertEquals("not_found", failure.str("errorCode"))
-            assertEquals("permanent", failure.str("errorKind"))
-        }
-
-    @Test
-    fun `S5 manage_items update that changes the role is an invalid_request failure with errorKind permanent`(): Unit =
-        runBlocking {
-            val existing = item("role change")
-
-            val result =
-                call(
-                    "manage_items",
-                    mapOf("operation" to "update", "items" to listOf(mapOf("itemId" to existing.id.toString(), "role" to "work")))
-                )
-
-            val failure = result.data().entries("failures").single()
-            assertTrue(failure.str("error")!!.contains("role changes are not allowed"), "error text kept: $failure")
-            assertEquals("invalid_request", failure.str("errorCode"))
-            assertEquals("permanent", failure.str("errorKind"))
-        }
-
-    @Test
-    fun `S5 manage_items create under a missing parent keeps its error and gains errorCode not_found with errorKind permanent`(): Unit =
-        runBlocking {
-            val result =
-                call(
-                    "manage_items",
-                    mapOf(
-                        "operation" to "create",
-                        "items" to listOf(mapOf("title" to "orphan", "type" to "test-item", "parentId" to UUID.randomUUID().toString()))
-                    )
-                )
-
-            val failure = result.data().entries("failures").single()
-            assertTrue(failure.str("error")!!.contains("not found"), "error text kept: $failure")
-            assertEquals("not_found", failure.str("errorCode"))
-            assertEquals("permanent", failure.str("errorKind"))
-        }
-
-    @Test
-    fun `S5 manage_items delete of an unknown id gains errorCode not_found with errorKind permanent`(): Unit =
-        runBlocking {
-            val result = call("manage_items", mapOf("operation" to "delete", "itemIds" to listOf(UUID.randomUUID().toString())))
-
-            val failure = result.data().entries("failures").single()
-            assertEquals("not_found", failure.str("errorCode"))
-            assertEquals("permanent", failure.str("errorKind"))
-        }
-
-    @Test
-    fun `S5 probe a keyed replay of a failing manage_items update returns the identical failure entry`(): Unit =
-        runBlocking {
-            val args =
-                mapOf(
-                    "operation" to "update",
-                    "items" to listOf(mapOf("itemId" to UUID.randomUUID().toString(), "title" to "x")),
-                    "requestId" to UUID.randomUUID().toString(),
-                    "actor" to actor
-                )
-
-            val first = call("manage_items", args).data().entries("failures").single()
-            val second = call("manage_items", args).data().entries("failures").single()
-
-            assertEquals(first, second)
-            assertEquals("permanent", second.str("errorKind"))
-        }
-
-    @Test
-    fun `S5 probe successful create and update responses carry no failure entries and no error fields`(): Unit =
-        runBlocking {
-            val created =
-                call(
-                    "manage_items",
-                    mapOf(
-                        "operation" to "create",
-                        "items" to listOf(mapOf("title" to "fine", "type" to "test-item"))
-                    )
-                )
-
-            assertTrue(created.isError != true, "control: create succeeds: ${created.content}")
-            assertNull(created.data()["failures"], "no failures key on a clean batch: ${created.data()}")
-            assertFalse(created.data().toString().contains("errorKind"), "no errorKind anywhere on a clean batch: ${created.data()}")
-            assertFalse(created.data().toString().contains("errorCode"), "no errorCode anywhere on a clean batch: ${created.data()}")
         }
 
     // ----------------------------------------------
@@ -649,49 +495,5 @@ class ErrorKindCoverageTest {
 
             assertEquals("invalid_transition", entry.str("errorCode"))
             assertEquals("permanent", entry.str("errorKind"))
-        }
-
-    // ----------------------------------------------
-    // S12 - REST regression guard: status, code and message of the read-route errors are unchanged
-    // ----------------------------------------------
-
-    private fun restError(
-        status: HttpStatusCode?,
-        body: String
-    ): Pair<HttpStatusCode?, JsonObject> =
-        status to
-            kotlinx.serialization.json.Json
-                .parseToJsonElement(body)
-                .jsonObject
-
-    @Test
-    fun `S12 REST GET items with a malformed id keeps 400 bad_request and its message`() =
-        testApplication {
-            val provider = db.repositoryProvider()
-            application { configureTestApp { itemRoutes(provider) } }
-
-            val response = client.get("/api/v1/items/not-a-uuid") { header("Authorization", "Bearer $TEST_TOKEN") }
-            val (status, body) = restError(response.status, response.bodyAsText())
-
-            assertEquals(HttpStatusCode.BadRequest, status)
-            assertEquals("bad_request", body["error"]?.jsonPrimitive?.content)
-            assertEquals("Invalid UUID: not-a-uuid", body["message"]?.jsonPrimitive?.content)
-            assertEquals(setOf("error", "message"), body.keys, "no kind and no details on the REST wire in phase 1: $body")
-        }
-
-    @Test
-    fun `S12 REST GET items with an unknown id keeps 404 not_found and its message`() =
-        testApplication {
-            val provider = db.repositoryProvider()
-            application { configureTestApp { itemRoutes(provider) } }
-
-            val unknownId = UUID.randomUUID()
-            val response = client.get("/api/v1/items/$unknownId") { header("Authorization", "Bearer $TEST_TOKEN") }
-            val (status, body) = restError(response.status, response.bodyAsText())
-
-            assertEquals(HttpStatusCode.NotFound, status)
-            assertEquals("not_found", body["error"]?.jsonPrimitive?.content)
-            assertEquals("Item $unknownId not found", body["message"]?.jsonPrimitive?.content)
-            assertEquals(setOf("error", "message"), body.keys, "no kind and no details on the REST wire in phase 1: $body")
         }
 }

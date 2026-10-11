@@ -684,7 +684,7 @@ class NotesReadToolTest {
     // ------------------------------------------------------------------ S20 surface
 
     @Test
-    fun `S20 the registry holds notes_read and notes_write, manage_notes is gone and query_notes keeps only search`() {
+    fun `S20 the registry holds notes_read and notes_write, manage_notes and query_notes are gone`() {
         val registry = ToolRegistry(buildToolSpecs())
         assertEquals(
             listOf("notes_read", "notes_write"),
@@ -701,12 +701,6 @@ class NotesReadToolTest {
         val legacy = buildMcpTools()
         assertTrue(legacy.isNotEmpty(), "control: the 3.x tool list is not empty")
         assertFalse(legacy.any { it.name == "manage_notes" }, "manage_notes is deleted")
-        val queryNotes = legacy.single { it.name == "query_notes" }
-        val operations =
-            queryNotes.parameterSchema.properties!!["operation"]!!
-                .jsonObject["enum"]!!
-                .jsonArray
-                .map { it.jsonPrimitive.content }
-        assertEquals(listOf("search"), operations)
+        assertFalse(legacy.any { it.name == "query_notes" }, "query_notes is deleted (its search moved to items_read in Q19)")
     }
 }

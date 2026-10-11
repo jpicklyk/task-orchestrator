@@ -124,7 +124,7 @@ class McpRestAuthBypassTest {
             // /api/v1 routes MUST be gated — no token → 401.
             assertEquals(
                 HttpStatusCode.Unauthorized,
-                client.get("/api/v1/items").status,
+                client.get("/api/v1/transitions").status,
                 "/api/v1/* must require a bearer token",
             )
 
@@ -138,8 +138,8 @@ class McpRestAuthBypassTest {
             // With a valid token, /api/v1 routes are reachable.
             assertEquals(
                 HttpStatusCode.OK,
-                client.get("/api/v1/items") { header(HttpHeaders.Authorization, "Bearer $token") }.status,
-                "/api/v1/items must succeed with a valid bearer token",
+                client.get("/api/v1/transitions") { header(HttpHeaders.Authorization, "Bearer $token") }.status,
+                "/api/v1/transitions must succeed with a valid bearer token",
             )
         }
 }

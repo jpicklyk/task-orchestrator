@@ -1,3 +1,5 @@
+@file:OptIn(StoreWrite::class)
+
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.Clock
@@ -7,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.application.port.LeaseStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.ReadScope
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.application.port.TransitionStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
@@ -993,7 +996,9 @@ class AdvanceService(
                 toStatusLabel = transition.toStatusLabel,
                 origin = if (trigger is Trigger.Cascade) TransitionOrigin.CASCADE else TransitionOrigin.USER,
                 actor = actorClaim,
-                verification = verification
+                verification = verification,
+                summary = transition.summary,
+                consumedCredentials = transition.consumedCredentials
             )
         )
 
