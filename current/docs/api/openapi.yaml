@@ -2780,7 +2780,7 @@ paths:
 
   /search:
     get:
-      summary: FTS5 full-text search over item titles and summaries
+      summary: FTS5 full-text search over item titles, summaries and descriptions
       operationId: searchItems
       tags: [search]
       description: >-

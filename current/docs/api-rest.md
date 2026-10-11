@@ -1708,7 +1708,7 @@ All require `READ`.
 
 ### GET /search
 
-FTS5 full-text search over item titles and summaries.
+FTS5 full-text search over item titles, summaries and descriptions.
 
 **Query parameters:**
 - `q` (required) — search query; special characters are auto-sanitized
