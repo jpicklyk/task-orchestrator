@@ -45,8 +45,19 @@ internal val configHistoryOp =
                     is Outcome.Ok -> r.value
                 }
             val service = ConfigSupport.service(env)
-            val versions = service.history(rootId, req.limit ?: ConfigService.DEFAULT_HISTORY_LIMIT, req.before)
-            val head = service.headVersion(rootId)
+            val (versions, head) =
+                when (
+                    val read =
+                        ConfigSupport.guarded {
+                            Outcome.Ok(
+                                service.history(rootId, req.limit ?: ConfigService.DEFAULT_HISTORY_LIMIT, req.before) to
+                                    service.headVersion(rootId)
+                            )
+                        }
+                ) {
+                    is Outcome.Err -> return@OpSpec read
+                    is Outcome.Ok -> read.value
+                }
             Outcome.Ok(
                 buildJsonObject {
                     put("rootId", rootId.toString())

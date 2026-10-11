@@ -24,6 +24,7 @@ import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.application.telemetry.currentCallTelemetry
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.event.DomainEvent
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigAppendOutcome
@@ -143,6 +144,11 @@ class ConfigService(
             "ConfigService.push",
             onFault = { ConfigPushResult.RepositoryError(it) }
         ) {
+            try {
+                rootConfigRead(rootItemId) { store.head(ConfigScope.ROOT, rootItemId) }
+            } catch (e: PerRootConfigUnavailableException) {
+                return@writeUnit UnitResult.Rollback(ConfigPushResult.RepositoryError(headReadFault(e)))
+            }
             val outcome =
                 store.append(
                     scope = ConfigScope.ROOT,
@@ -225,10 +231,8 @@ class ConfigService(
             return ConfigValidateResult.Checked(validation.errors, validation.warnings, diff = null)
         }
 
-        val headRoot =
-            legacyReadFault({ return ConfigValidateResult.RepositoryError(it) }) {
-                get(rootItemId)?.let { headRoot(it) }
-            }
+        // A head read fault propagates as PerRootConfigUnavailableException (unavailable), never internal.
+        val headRoot = get(rootItemId)?.let { headRoot(it) }
         return ConfigValidateResult.Checked(
             errors = emptyList(),
             warnings = validation.warnings,
@@ -259,23 +263,49 @@ class ConfigService(
     suspend fun get(
         rootItemId: UUID,
         version: Int? = null,
-    ): ConfigVersion? {
-        val store = repositoryProvider.configStore()
-        if (version != null) return store.versionAt(ConfigScope.ROOT, rootItemId, version)
-        val head = store.head(ConfigScope.ROOT, rootItemId) ?: return null
-        if (head.source == ConfigVersionSource.RESET) return null
-        return store.version(head.versionId)
-    }
+    ): ConfigVersion? =
+        rootConfigRead(rootItemId) {
+            val store = repositoryProvider.configStore()
+            if (version != null) return@rootConfigRead store.versionAt(ConfigScope.ROOT, rootItemId, version)
+            val head = store.head(ConfigScope.ROOT, rootItemId) ?: return@rootConfigRead null
+            if (head.source == ConfigVersionSource.RESET) null else store.version(head.versionId)
+        }
 
     /** Versions of [rootItemId]'s config, newest first; [before] is an exclusive upper bound on the version. */
     suspend fun history(
         rootItemId: UUID,
         limit: Int = DEFAULT_HISTORY_LIMIT,
         before: Int? = null,
-    ): List<ConfigVersion> = repositoryProvider.configStore().history(ConfigScope.ROOT, rootItemId, limit, before)
+    ): List<ConfigVersion> =
+        rootConfigRead(rootItemId) {
+            repositoryProvider.configStore().history(ConfigScope.ROOT, rootItemId, limit, before)
+        }
 
     /** The head version number of [rootItemId]'s config, or null when it has none. */
-    suspend fun headVersion(rootItemId: UUID): Int? = repositoryProvider.configStore().head(ConfigScope.ROOT, rootItemId)?.version
+    suspend fun headVersion(rootItemId: UUID): Int? =
+        rootConfigRead(rootItemId) { repositoryProvider.configStore().head(ConfigScope.ROOT, rootItemId)?.version }
+
+    /**
+     * Runs [block], a store read of [rootItemId]'s config. A thrown store fault becomes the typed transient
+     * [PerRootConfigUnavailableException] (`unavailable`), the same split as [serverHead]: a config read fault is
+     * never an untyped `internal` (Q17).
+     */
+    private inline fun <T> rootConfigRead(
+        rootItemId: UUID,
+        block: () -> T,
+    ): T =
+        try {
+            block()
+        } catch (e: PerRootConfigUnavailableException) {
+            throw e
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            throw PerRootConfigUnavailableException(rootItemId, "Config of root $rootItemId is temporarily unavailable (read failed)", e)
+        }
+
+    /** The `unavailable` a write unit returns for a config head it could not read (rolled back, never `internal`). */
+    private fun headReadFault(e: PerRootConfigUnavailableException): DomainError =
+        DomainError(ErrorCode.UNAVAILABLE, e.message, ErrorDetail.Unavailable(HEAD_READ_RETRY_MS))
 
     /**
      * Appends a copy of version [toVersion] as the new head with source `rollback`. A target equal to the head
@@ -295,8 +325,14 @@ class ConfigService(
             "ConfigService.rollback",
             onFault = { ConfigRollbackResult.RepositoryError(it) }
         ) {
-            val head = store.head(ConfigScope.ROOT, rootItemId)
-            val target = store.versionAt(ConfigScope.ROOT, rootItemId, toVersion)
+            val (head, target) =
+                try {
+                    rootConfigRead(rootItemId) {
+                        store.head(ConfigScope.ROOT, rootItemId) to store.versionAt(ConfigScope.ROOT, rootItemId, toVersion)
+                    }
+                } catch (e: PerRootConfigUnavailableException) {
+                    return@writeUnit UnitResult.Rollback(ConfigRollbackResult.RepositoryError(headReadFault(e)))
+                }
             if (head == null || target == null) {
                 return@writeUnit UnitResult.Commit(ConfigRollbackResult.NotFound(rootItemId, toVersion))
             }
@@ -361,7 +397,12 @@ class ConfigService(
         val principalId = currentEventActor()?.id
         val reqId = currentCallTelemetry()?.reqId
         return unitOfWork.write("ConfigService.reset") {
-            val head = store.head(ConfigScope.ROOT, rootItemId)
+            val head =
+                try {
+                    rootConfigRead(rootItemId) { store.head(ConfigScope.ROOT, rootItemId) }
+                } catch (e: PerRootConfigUnavailableException) {
+                    return@write Outcome.Err(headReadFault(e))
+                }
             if (head == null || head.source == ConfigVersionSource.RESET) {
                 return@write Outcome.Ok(false)
             }
@@ -573,6 +614,9 @@ class ConfigService(
     }
 
     companion object {
+        /** Retry hint (ms) of the `unavailable` a config head read fault answers with. */
+        private const val HEAD_READ_RETRY_MS = 1000L
+
         /** `configYaml` size limit for `push`, in KiB — see [MAX_CONFIG_YAML_BYTES]. */
         private const val MAX_CONFIG_YAML_KIB = 128
 
