@@ -15,7 +15,7 @@ import io.ktor.server.sse.SSE
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 
 /**
- * Configures a test Ktor application with the shared bearer auth and the item/note READ routes.
+ * Configures a test Ktor application with the shared bearer auth and the item READ routes.
  *
  * The REST write routes this helper used to mount are gone: Q13 removed `POST /items/{id}/advance` (now
  * the `advance` tool) and Q18 removed `POST /items`, `PATCH /items/{id}` and `DELETE /items/{id}` (now
@@ -39,7 +39,6 @@ fun Application.configureWriteTestApp(
                     }
             }
             itemRoutes(repo)
-            noteRoutes(repo)
         }
     }
 }

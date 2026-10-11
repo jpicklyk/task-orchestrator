@@ -14,7 +14,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
-import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
@@ -54,21 +53,6 @@ data class ItemWriteResult(
     val deleted: Int? = null,
     val cascade: List<CascadeSummary> = emptyList()
 )
-
-/** Priority on the 4.0 wire: lowercase. */
-@Serializable
-enum class PriorityWire(
-    val priority: Priority
-) {
-    @SerialName("high")
-    HIGH(Priority.HIGH),
-
-    @SerialName("medium")
-    MEDIUM(Priority.MEDIUM),
-
-    @SerialName("low")
-    LOW(Priority.LOW)
-}
 
 /** Optional fields an `update` can set to null. */
 @Serializable
@@ -229,16 +213,6 @@ internal suspend fun resolveItemId(
         return Outcome.Err(scopeDenied(scope))
     }
     return resolution.toOutcome(field)
-}
-
-/** The `forbidden` error naming the restriction [scope] imposes (roots first, else tags). */
-internal fun scopeDenied(scope: AccessScope): DomainError {
-    val roots = scope.rootIds
-    return if (roots != null) {
-        ScopeGuard.forbidden(ForbiddenScope.ROOT, roots.map { it.toString() })
-    } else {
-        ScopeGuard.forbidden(ForbiddenScope.TAG, scope.tagsInclude)
-    }
 }
 
 /** Checks the caller's scope admits item [id] (an unrestricted scope reads nothing). */

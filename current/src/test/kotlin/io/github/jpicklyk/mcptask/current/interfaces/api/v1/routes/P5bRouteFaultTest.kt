@@ -8,9 +8,6 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -18,22 +15,18 @@ import java.sql.DriverManager
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /**
- * Independent P5b REST tests (item c01d2e90): S4 (409 version_conflict), S5 (write fault -> 500 db_error with the
- * route's text, nothing written) and S9 (read fault -> 500 db_error, GET by id is NOT a 404).
+ * Independent P5b REST tests (item c01d2e90): S9 (read fault -> 500, GET by id is NOT a 404). The S4/S5 write-route
+ * cases left with `POST /items` and `PATCH /items/{id}` (Q18; `items_write` covers the write path).
  *
  * Oracles (PART A "legacy wire shapes at BASE", carry-in F4/F5):
- *  - GET /items fault: 500, `{"error":"db_error","message":"Database query failed"}`.
- *  - POST /items fault: 500, error `db_error`, message `Failed to create item`.
- *  - PATCH fault: 500, error `db_error`, message `Failed to update item`.
- *  - PATCH lost optimistic lock: 409, error `version_conflict`, message
- *    `Item was modified by another request; retry with a fresh If-Match ETag`.
- *  - F4: not-found only for a null row, so a GET /items/{id} fault is 500 (the route's text is not declared, so only
- *    status and the `db_error` code are asserted).
- * The REST runtime call order is NOT DECLARED; nothing here depends on it. Faults are real SQL (BEFORE-trigger
- * RAISE(ABORT, 'inj') for writes, a renamed table for reads) and each negative has a same-fixture control.
+ *  - GET /items/{id} fault (the items_read envelope since Q19): 500, never not_found.
+ *  - F4: not-found only for a null row, so a GET /items/{id} fault is 500.
+ * The REST runtime call order is NOT DECLARED; nothing here depends on it. The fault is real SQL (a renamed table)
+ * and each negative has a same-fixture control.
  */
 @Timeout(value = 120, unit = TimeUnit.SECONDS)
 class P5bRouteFaultTest {
@@ -47,38 +40,9 @@ class P5bRouteFaultTest {
         DriverManager.getConnection(db.jdbcUrl).use { c -> c.createStatement().use { it.execute(sql) } }
     }
 
-    private fun rawInt(sql: String): Int =
-        DriverManager.getConnection(db.jdbcUrl).use { c ->
-            c.createStatement().use { st ->
-                st.executeQuery(sql).use { rs ->
-                    rs.next()
-                    rs.getInt(1)
-                }
-            }
-        }
-
-    private fun errorOf(body: String) = Json.parseToJsonElement(body).jsonObject
-
     // ---------------------------------------------------------------- S9
     @Test
-    fun `S9 GET items on a read fault returns 500 db_error Database query failed`(): Unit =
-        testApplication {
-            runBlocking { db.repositoryProvider().workItemRepository().create(WorkItem(title = "REST read", depth = 0)) }
-            application { configureWriteTestApp(db.repositoryProvider(), unitOfWork = db.unitOfWork()) }
-            val healthy = client.get("/api/v1/items") { header("Authorization", "Bearer $TEST_TOKEN") }
-            assertEquals(HttpStatusCode.OK, healthy.status, "control: the list works before the fault")
-
-            rawExec("ALTER TABLE work_items RENAME TO work_items_gone")
-            val response = client.get("/api/v1/items") { header("Authorization", "Bearer $TEST_TOKEN") }
-
-            val body = response.bodyAsText()
-            assertEquals(HttpStatusCode.InternalServerError, response.status, body)
-            assertEquals("db_error", errorOf(body)["error"]!!.jsonPrimitive.content, body)
-            assertEquals("Database query failed", errorOf(body)["message"]!!.jsonPrimitive.content, body)
-        }
-
-    @Test
-    fun `S9 GET items by id on a read fault returns 500 db_error and never 404`(): Unit =
+    fun `S9 GET items by id on a read fault returns 500 and never 404`(): Unit =
         testApplication {
             val item = runBlocking { db.repositoryProvider().workItemRepository().create(WorkItem(title = "REST read one", depth = 0)) }
             application { configureWriteTestApp(db.repositoryProvider(), unitOfWork = db.unitOfWork()) }
@@ -90,7 +54,7 @@ class P5bRouteFaultTest {
 
             val body = response.bodyAsText()
             assertEquals(HttpStatusCode.InternalServerError, response.status, "F4: not-found only for a null row, never for a fault: $body")
-            assertEquals("db_error", errorOf(body)["error"]!!.jsonPrimitive.content, body)
+            assertFalse("not_found" in body, "a store fault is never answered as not_found: $body") // 4.0 envelope since Q19
         }
 
     @Test
@@ -99,6 +63,6 @@ class P5bRouteFaultTest {
             application { configureWriteTestApp(db.repositoryProvider(), unitOfWork = db.unitOfWork()) }
             val response = client.get("/api/v1/items/${UUID.randomUUID()}") { header("Authorization", "Bearer $TEST_TOKEN") }
             assertEquals(HttpStatusCode.NotFound, response.status, response.bodyAsText())
-            assertNull(errorOf(response.bodyAsText())["error"]?.takeIf { it.jsonPrimitive.content == "db_error" })
+            assertTrue("\"not_found\"" in response.bodyAsText(), "the items_read get envelope names not_found: ${response.bodyAsText()}")
         }
 }

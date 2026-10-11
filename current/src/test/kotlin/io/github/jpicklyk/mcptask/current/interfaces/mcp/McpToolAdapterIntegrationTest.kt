@@ -5,7 +5,7 @@ import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import io.github.jpicklyk.mcptask.current.application.tools.*
-import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
+import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.github.jpicklyk.mcptask.current.test.seedItem
@@ -343,19 +343,19 @@ class McpToolAdapterIntegrationTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `callTool with real QueryItemsTool lists a seeded item`(): Unit =
+    fun `callTool with real GetContextTool reads a seeded item`(): Unit =
         runBlocking {
-            seedItem(dummyContext, buildJsonObject { put("title", JsonPrimitive("Integration test item")) })
-            adapter.registerToolWithServer(server, QueryItemsTool(), dummyContext)
+            val itemId = seedItem(dummyContext, buildJsonObject { put("title", JsonPrimitive("Integration test item")) })
+            adapter.registerToolWithServer(server, GetContextTool(), dummyContext)
 
-            val result = client.callTool(name = "query_items", arguments = mapOf("operation" to "search"))
+            val result = client.callTool(name = "get_context", arguments = mapOf("itemId" to itemId))
 
-            assertTrue(result.isError != true, "Expected a successful search, got: ${result.content}")
+            assertTrue(result.isError != true, "Expected a successful read, got: ${result.content}")
             val textContent = result.content.filterIsInstance<TextContent>()
             assertTrue(textContent.isNotEmpty())
             assertTrue(
-                textContent[0].text.contains("1", ignoreCase = true),
-                "Summary should report the seeded item: ${textContent[0].text}"
+                result.structuredContent.toString().contains("Integration test item"),
+                "The payload should carry the seeded item: ${result.structuredContent}"
             )
         }
 
@@ -440,12 +440,12 @@ class McpToolAdapterIntegrationTest {
         runBlocking {
             // Real tool, real DB: an unresolvable itemId prefix produces a top-level
             // RESOURCE_NOT_FOUND error envelope.
-            adapter.registerToolWithServer(server, QueryItemsTool(), dummyContext)
+            adapter.registerToolWithServer(server, GetContextTool(), dummyContext)
 
             val result =
                 client.callTool(
-                    name = "query_items",
-                    arguments = mapOf("operation" to "get", "itemId" to "deadbeef") // valid hex prefix, matches nothing
+                    name = "get_context",
+                    arguments = mapOf("itemId" to "deadbeef") // valid hex prefix, matches nothing
                 )
 
             assertEquals(true, result.isError)

@@ -165,7 +165,7 @@ fun List<WorkItem>.filterByTagScope(principal: ApiPrincipal?): List<WorkItem> =
  *
  * For surfaces that carry only an item id and not its tags -- event and transition rows -- so the
  * tags have to be looked up before the rows can be filtered. (Search applies the same rule inside
- * the query instead, via [resolveSearchAccess].)
+ * the query instead, via [toAccessScope].)
  *
  * Returns [itemIds] unchanged, with no DB round-trip, when the principal has no tag scope.
  * Fails CLOSED on a lookup failure: an id whose tags could not be read is not returned, since

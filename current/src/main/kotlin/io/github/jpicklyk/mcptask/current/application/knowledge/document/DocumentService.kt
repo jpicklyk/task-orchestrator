@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.knowledge.document
 
+import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
@@ -40,6 +41,8 @@ class DocumentService(
     /** The transaction boundary; each write operation is one unit (joining an ambient unit when there is one). */
     private val unitOfWork: UnitOfWork,
 ) {
+    private val links = LinkService(repositoryProvider, unitOfWork)
+
     /**
      * Creates or rewrites the document at `(rootId, kind, slug)`. Returns the stored document (its new current
      * version). Errors: `payload_too_large`, `invalid_request` (negative `expectedVersion`, root not depth 0, archived
@@ -93,6 +96,8 @@ class DocumentService(
                     )
                 documents.appendVersion(versionRow(created.id, 1, normalized, hash, actorId))
                 events.record(DomainEvent.DocumentCreated(created.id, rootId, kind, slug, created.version))
+                links.syncDocument(created, now)
+                links.onDocumentCreated(created)
                 return@write Outcome.Ok(created)
             }
 
@@ -110,6 +115,7 @@ class DocumentService(
             documents.appendVersion(versionRow(existing.id, next, normalized, hash, actorId))
             events.record(DomainEvent.DocumentUpdated(existing.id, rootId, kind, slug, next))
             val stored = documents.getById(existing.id) ?: existing.copy(body = normalized, contentHash = hash, version = next)
+            links.syncDocument(stored, now)
             Outcome.Ok(stored)
         }
     }
@@ -161,8 +167,9 @@ class DocumentService(
     ): Outcome<Document> = setArchived(rootId, kind, slug, expectedVersion, archive = false)
 
     /**
-     * Deletes the document at `(rootId, kind, slug)`: its versions (by FK cascade) and every link touching it, then
-     * records `document.deleted`. An adopted document is refused with `invalid_request` (its adoption is provenance).
+     * Deletes the document at `(rootId, kind, slug)`: its versions (by FK cascade) and its outbound links; inbound
+     * links that kept their text become dangling (and resolve again if the document is re-created), the others are
+     * deleted. Then records `document.deleted`. An adopted document is refused with `invalid_request` (its adoption is provenance).
      * Returns the deleted document. Errors: `not_found`, `invalid_request`.
      */
     suspend fun delete(
@@ -176,7 +183,7 @@ class DocumentService(
             if (adoptionOf(existing) != null) {
                 return@write Outcome.Err(invalidRequest(FIELD_SLUG, REASON_ADOPTED, slug))
             }
-            repositoryProvider.linkStore().deleteTouching(EntityRef(RefKind.DOCUMENT, existing.id))
+            links.onDocumentDeleted(existing)
             documents.delete(existing.id)
             events.record(DomainEvent.DocumentDeleted(existing.id, rootId, kind, slug, existing.version))
             Outcome.Ok(existing)

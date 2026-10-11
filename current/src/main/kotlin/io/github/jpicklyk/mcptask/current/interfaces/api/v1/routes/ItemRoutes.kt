@@ -2,523 +2,168 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
-import io.github.jpicklyk.mcptask.current.application.port.ItemFilter
-import io.github.jpicklyk.mcptask.current.application.port.ItemPage
-import io.github.jpicklyk.mcptask.current.application.port.ItemSort
-import io.github.jpicklyk.mcptask.current.application.port.ItemSortField
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.port.SortDirection
-import io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView
 import io.github.jpicklyk.mcptask.current.application.service.TransitionPreview
 import io.github.jpicklyk.mcptask.current.application.service.blockedByWire
 import io.github.jpicklyk.mcptask.current.application.service.computeMissingBySeat
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
-import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
+import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
 import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
+import io.github.jpicklyk.mcptask.current.domain.error.DomainError
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
-import io.github.jpicklyk.mcptask.current.domain.model.ClaimStatus
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.filterByTagScope
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.hasTagScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.toAccessScope
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependenciesDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.GateStatusDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemGateDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.PageDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.DB_QUERY_FAILED
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.respondWithEtagCheck
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.buildDependenciesDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.etagForVersion
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.REQ_ID_HEADER
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.PageParams
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.buildPageDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.pageParamsOrRespond
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.SURFACE_REST
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
+import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EncodedEnvelope
+import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadTool
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.unknownParameters
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
-import org.slf4j.LoggerFactory
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.put
 import java.util.UUID
 
-private val logger = LoggerFactory.getLogger("ItemRoutes")
+/** Query parameters `GET /items/{id}/children` accepts; any other is `unknown_parameter`. */
+private val CHILDREN_PARAMS = setOf("limit", "cursor")
+
+/** The most characters of a rejected value echoed back as `received`. */
+private const val MAX_RECEIVED = 100
 
 /**
- * Candidate-row cap for the list endpoints that still post-filter by `tags_include` in memory
- * (`GET /items/{id}/children`; `GET /items` applies the tag scope in SQL instead).
+ * The item resource GETs (plan section 4.4, Q19): each is one `items_read` select dispatched through the SAME
+ * [ToolDispatcher] and the SAME `CallAccess` builder as `POST /api/v1/ops/{tool}` ([toCallAccess]), so the body
+ * equals the `/ops` envelope for the same principal and arguments (only `meta.reqId` differs).
  *
- * A tag-scoped request on such an endpoint fetches a wider candidate window, drops the
- * out-of-scope rows in memory and paginates the survivors — the same shape
- * `GET /items/{id}/tree` already uses. Paginating in SQL first would hand the caller short (or
- * empty) pages whose `totalItems` counted rows they may not see. Only tag-scoped principals take
- * this path; every other caller keeps SQL-level pagination.
+ * - `GET /items/{id}` == `{select: get, itemId: id}`. It takes no query parameter (any is `unknown_parameter`). On
+ *   success it sets `ETag: "v<version>"` and answers `304 Not Modified` (no body) when `If-None-Match` names it (the
+ *   note GET convention, [matchesIfNoneMatch]: a tag list, a weak validator or `*`); an error never carries an ETag and
+ *   is never a 304, so scope is decided before any conditional answer.
+ * - `GET /items/{id}/children` == `{select: list, parentId: id, limit?, cursor?}`. Other query parameters are
+ *   `unknown_parameter`; a non-integer `limit` is `invalid_request`. No ETag. [redactNoteAttribution] is the `/ops`
+ *   flag, handed to the same builder so the access is identical.
+ *
+ * Capability (READ) and scope are enforced by the dispatcher and the select, exactly as on `/ops`. A request with no
+ * authenticated principal is `unauthenticated` (fail closed). The 3.x list, roots, tree, breadcrumbs and schema
+ * routes are gone: `POST /api/v1/ops/items_read` serves them.
  */
-private const val TAG_SCOPE_SCAN_LIMIT = 1000
-
-/** Recognized `?include=` tokens on `GET /items/{id}`; any of them disables the ETag/304 shortcut. */
-private val INCLUDE_TOKENS = setOf("notes", "deps", "children")
-
-/**
- * One page of an already scope-filtered, in-memory [visible] set: the page is sliced from the
- * survivors and totalItems is their count, so paging never counts an item the caller may not read.
- */
-private fun pageOfVisible(
-    visible: List<WorkItem>,
-    pp: PageParams,
-    skipped: Int? = null,
-): PageDto<ItemDto> = buildPageDto(visible.drop(pp.offset).take(pp.pageSize).map { it.toDto() }, pp, visible.size.toLong(), skipped)
-
-/**
- * Registers item-read routes under the `/api/v1` route prefix.
- *
- * Endpoints:
- * - `GET /items`                    — paginated list with query-param filters
- * - `GET /items/roots`              — root-level items in caller's scope
- * - `GET /items/{id}`               — single item; `?include=notes,deps,children` to inline
- *                                     (conditional GET / 304 only when no include is requested)
- * - `GET /items/{id}/tree`          — descendant tree
- * - `GET /items/{id}/breadcrumbs`   — ancestor chain root→item
- * - `GET /items/{id}/children`      — direct children only (paginated)
- *
- * All endpoints require [ApiCapability.READ]. On `GET /items` the whole token scope (`root_ids`
- * and `tags_include`) is applied in SQL by the item store, before paging.
- *
- * Elsewhere `tags_include` is applied in memory by the shared [filterByTagScope] predicate to
- * EVERY item a response carries — root rows, breadcrumb ancestors, tree descendants, direct
- * children and `?include=children` inlines — not just the one item [enforceScopeForItem]
- * authorizes at the entry point. Where the filter runs on a list, the list is filtered before it
- * is paginated, so `totalItems` counts only items the caller may read (see [TAG_SCOPE_SCAN_LIMIT]).
- */
-fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
-    val workItemRepo = repositoryProvider.workItemRepository()
-    val noteRepo = repositoryProvider.noteRepository()
-    val depRepo = repositoryProvider.dependencyRepository()
-    val redactor = AttributionRedactor.fromEnv()
-
-    requireCapability(ApiCapability.READ) {
-        // ─── GET /items ─────────────────────────────────────────────────────
-        get("/items") {
-            val principal = call.attributes.getOrNull(ApiPrincipalKey)
-            val pp = call.pageParamsOrRespond() ?: return@get
-            val params = call.request.queryParameters
-
-            // Validate every filter up front: a supplied-but-unparsable value is a 400, never a
-            // silently dropped (widened) filter.
-            val role = (call.roleParamOrRespond("role") ?: return@get).value
-            val priority = (call.priorityParamOrRespond("priority") ?: return@get).value
-            val parentId = (call.uuidParamOrRespond("parentId") ?: return@get).value
-            val rootIdFilter = (call.uuidParamOrRespond("rootId") ?: return@get).value
-            val modifiedAfter = (call.instantParamOrRespond("modifiedAfter") ?: return@get).value
-            val modifiedBefore = (call.instantParamOrRespond("modifiedBefore") ?: return@get).value
-            val createdAfter = (call.instantParamOrRespond("createdAfter") ?: return@get).value
-            val createdBefore = (call.instantParamOrRespond("createdBefore") ?: return@get).value
-            val claimStatus = ClaimStatus.fromWire((call.claimStatusParamOrRespond("claimStatus") ?: return@get).value)
-            val tags = params["tag"]?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
-            val tagAny = params["tagAny"]?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
-            val effectiveTags = tagAny ?: tags
-            val type = params["type"]?.takeIf { it.isNotBlank() }
-            val orderBy = params["orderBy"]?.takeIf { it.isNotBlank() }
-            val orderDir = params["orderDir"]?.takeIf { it.isNotBlank() }
-
-            // Validate against the same vocabulary the store maps (ItemSort) so an unsupported value
-            // fails fast with a structured 400 instead of silently falling back to createdAt/desc (AR-46).
-            if (orderBy != null && ItemSortField.parse(orderBy) == null) {
-                call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid orderBy: $orderBy")
-                return@get
-            }
-            if (orderDir != null && SortDirection.parse(orderDir) == null) {
-                call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid orderDir: $orderDir")
-                return@get
-            }
-            val sort = ItemSort.parse(orderBy, orderDir) ?: ItemSort.DEFAULT
-
-            // rootId narrows to that subtree; it is AND-ed with the token's own scope (root_ids and
-            // tags_include), which the store applies in SQL before paging, so totalItems counts only
-            // rows the caller may read and every page is full.
-            val filter =
-                ItemFilter(
-                    parentId = parentId,
-                    ancestorId = rootIdFilter,
-                    role = role,
-                    priority = priority,
-                    tagsAny = effectiveTags,
-                    type = type,
-                    createdAfter = createdAfter,
-                    createdBefore = createdBefore,
-                    modifiedAfter = modifiedAfter,
-                    modifiedBefore = modifiedBefore,
-                    claimStatus = claimStatus,
-                )
-            filter.validate().firstOrNull()?.let { violation ->
-                call.respondError(LegacyRestCode.VALIDATION_ERROR, "${violation.field} ${violation.reason}")
-                return@get
-            }
-            val scope = principal.toAccessScope()
-
-            val items: List<WorkItem> =
-                legacyRead({
-                    logger.warn("GET /items DB error: {}", it)
-                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
-                    return@get
-                }) {
-                    workItemRepo.find(filter, scope, ItemPage(pp.pageSize, pp.offset), sort)
-                }
-            val total = legacyReadOrNull { workItemRepo.count(filter, scope).toLong() }
-            call.respond(HttpStatusCode.OK, buildPageDto(items.map { it.toDto() }, pp, total))
+fun Route.itemRoutes(
+    registry: ToolRegistry,
+    dispatcher: ToolDispatcher,
+    profile: ToolProfile = ToolProfile.ORCHESTRATION,
+    redactNoteAttribution: Boolean = true,
+) {
+    get("/items/{id}") {
+        val reqId = call.response.headers[REQ_ID_HEADER] ?: ReqId.generate()
+        val unknown =
+            call.request.queryParameters
+                .names()
+                .map { "/$it" }
+        if (unknown.isNotEmpty()) {
+            call.respondEnvelope(EnvelopeEncoder.error(unknownParameters(unknown), reqId))
+            return@get
         }
-
-        // ─── GET /items/roots ────────────────────────────────────────────────
-        get("/items/roots") {
-            val principal = call.attributes.getOrNull(ApiPrincipalKey)
-            val pp = call.pageParamsOrRespond() ?: return@get
-            val scopeRootIds = principal?.scope?.rootIds
-
-            if (scopeRootIds != null) {
-                // Scoped token: fetch only the specific root items the principal can see. The
-                // token's scope set is the authoritative bound on visible roots, so `roots.size`
-                // here is already the TRUE total for this principal — no separate count call or
-                // 200-style cap applies to this branch.
-                val roots =
-                    scopeRootIds
-                        .mapNotNull { rid ->
-                            val r =
-                                legacyRead({
-                                    logger.warn("GET /items/roots DB error: {}", it)
-                                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
-                                    return@get
-                                }) { workItemRepo.getById(rid) }
-                            if (r != null && r.parentId == null) r else null
-                        }.filterByTagScope(principal)
-                call.respond(HttpStatusCode.OK, pageOfVisible(roots, pp))
-            } else if (principal.hasTagScope()) {
-                // Unrestricted rootIds but a tag allowlist: read a bounded candidate window,
-                // drop out-of-scope roots, then paginate the survivors (see TAG_SCOPE_SCAN_LIMIT).
-                val result =
-                    legacyRead({
-                        logger.warn("GET /items/roots DB error: {}", it)
-                        call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
-                        return@get
-                    }) { workItemRepo.findRootItems(limit = TAG_SCOPE_SCAN_LIMIT, offset = 0) }
-                call.respond(
-                    HttpStatusCode.OK,
-                    pageOfVisible(result.items.filterByTagScope(principal), pp, result.skipped),
-                )
-            } else {
-                // Unscoped/admin: true total from countRootItems() (unaffected by limit/offset or
-                // validation drops) and real limit/offset pagination — replaces the old silent
-                // 200-row cap so callers can page through every root.
-                val totalResult =
-                    legacyRead({
-                        logger.warn("GET /items/roots DB error (count): {}", it)
-                        call.respondError(LegacyRestCode.DB_ERROR, "Database query failed")
-                        return@get
-                    }) {
-                        workItemRepo.countRootItems()
-                    }
-                val total =
-                    totalResult
-
-                val result =
-                    legacyRead({
-                        logger.warn("GET /items/roots DB error: {}", it)
-                        call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
-                        return@get
-                    }) { workItemRepo.findRootItems(limit = pp.pageSize, offset = pp.offset) }
-                val dtos = result.items.map { it.toDto() }
-                call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, total, result.skipped))
+        val arguments =
+            buildJsonObject {
+                put("select", "get")
+                put("itemId", call.parameters["id"].orEmpty())
+            }
+        val envelope = call.dispatchItemsRead(registry, dispatcher, profile, redactNoteAttribution, arguments, reqId)
+        val version = if (envelope.httpStatus == HttpStatusCode.OK.value) versionOf(envelope) else null
+        if (version != null) {
+            val etag = etagForVersion(version)
+            call.response.header(HttpHeaders.ETag, etag)
+            if (matchesIfNoneMatch(call.request.headers[HttpHeaders.IfNoneMatch], etag)) {
+                call.respond(HttpStatusCode.NotModified)
+                return@get
             }
         }
+        call.respondEnvelope(envelope)
+    }
 
-        // ─── GET /items/{id} ─────────────────────────────────────────────────
-        get("/items/{id}") {
-            val rawId =
-                call.parameters["id"] ?: run {
-                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
-                    return@get
-                }
-            val id =
-                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
-                    return@get
-                }
-
-            val itemResult =
-                legacyRead({
-                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
-                    return@get
-                }) { workItemRepo.getById(id) }
-            if (itemResult == null) {
-                call.respondError(LegacyRestCode.NOT_FOUND, "Item $id not found")
-                return@get
-            }
-            val item = itemResult
-
-            if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
-                return@get
-            }
-
-            val includes =
-                call.request.queryParameters["include"]
-                    ?.split(",")
-                    ?.map { it.trim() } ?: emptyList()
-
-            // The validator is modifiedAt only; notes, dependencies and (per-principal filtered)
-            // children do not touch the parent's modifiedAt, so a conditional read that inlines
-            // them could serve a stale 304. Like /gate and /schema, skip the check (no ETag
-            // header, If-None-Match ignored) when a recognized include is requested.
-            if (includes.none { it in INCLUDE_TOKENS } && call.respondWithEtagCheck(item.modifiedAt)) return@get
-
-            val noteDtos =
-                if ("notes" in includes) {
-                    legacyReadOrNull { noteRepo.findByItemId(id) }?.map { n -> redactor.redact(n.toDto(), call) }
-                } else {
-                    null
-                }
-
-            val depDtos: DependenciesDto? =
-                if ("deps" in includes) {
-                    val deps = depRepo.findByItemId(id)
-                    buildDependenciesDto(id.toString(), deps)
-                } else {
-                    null
-                }
-
-            // Inlined children get the same tag filter as GET /items/{id}/children — the
-            // entry-point check above only authorized the parent.
-            val principal = call.attributes.getOrNull(ApiPrincipalKey)
-            val childrenDtos: List<ItemDto>? =
-                if ("children" in includes) {
-                    legacyReadOrNull { workItemRepo.findChildren(id) }?.filterByTagScope(principal)?.map { it.toDto() }
-                } else {
-                    null
-                }
-
-            call.respond(
-                HttpStatusCode.OK,
-                item.toDto(
-                    includeNotes = noteDtos,
-                    includeChildren = childrenDtos,
-                    includeDependencies = depDtos,
-                )
-            )
+    get("/items/{id}/children") {
+        val reqId = call.response.headers[REQ_ID_HEADER] ?: ReqId.generate()
+        val params = call.request.queryParameters
+        val unknown = params.names().filter { it !in CHILDREN_PARAMS }.map { "/$it" }
+        if (unknown.isNotEmpty()) {
+            call.respondEnvelope(EnvelopeEncoder.error(unknownParameters(unknown), reqId))
+            return@get
         }
-
-        // ─── GET /items/{id}/tree ─────────────────────────────────────────────
-        get("/items/{id}/tree") {
-            val rawId =
-                call.parameters["id"] ?: run {
-                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
-                    return@get
-                }
-            val id =
-                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
-                    return@get
-                }
-            val maxDepth = (call.nonNegativeIntParamOrRespond("depth") ?: return@get).value
-
-            val itemResult =
-                legacyRead({
-                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
-                    return@get
-                }) { workItemRepo.getById(id) }
-            if (itemResult == null) {
-                call.respondError(LegacyRestCode.NOT_FOUND, "Item $id not found")
-                return@get
-            }
-            val root = itemResult
-
-            if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
-                return@get
-            }
-
-            val pp = call.pageParamsOrRespond() ?: return@get
-
-            val descendantsResult =
-                legacyRead({
-                    logger.warn("GET /items/{}/tree DB error: {}", id, it)
-                    call.respondError(LegacyRestCode.DB_ERROR, "Database query failed")
-                    return@get
-                }) {
-                    workItemRepo.findDescendants(id)
-                }
-            val descendants =
-                descendantsResult
-
-            // Apply depth filter if requested
-            val relativeMaxDepth = if (maxDepth != null) root.depth + maxDepth else null
-            val depthFiltered =
-                if (relativeMaxDepth != null) {
-                    descendants.filter { it.depth <= relativeMaxDepth }
-                } else {
-                    descendants
-                }
-
-            // Post-filter by tagsInclude when the principal's scope carries a tag allowlist.
-            // The entry-point check (enforceScopeForItem above) verified the ROOT item matches
-            // the tag constraint. Descendants are NOT checked by enforceScopeForItem, so without
-            // this filter a tag-scoped token would see ALL descendants regardless of tags.
-            val principal = call.attributes.getOrNull(ApiPrincipalKey)
-            val filtered = depthFiltered.filterByTagScope(principal)
-
-            // Paginate the flat list
-            val page = filtered.drop(pp.offset).take(pp.pageSize)
-            val dtos = (listOf(root) + page).map { it.toDto() }
-            call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, (filtered.size + 1).toLong()))
+        val rawLimit = params["limit"]
+        val limit = rawLimit?.toIntOrNull()
+        if (rawLimit != null && limit == null) {
+            call.respondEnvelope(EnvelopeEncoder.error(invalidField("/limit", "must be an integer", rawLimit.take(MAX_RECEIVED)), reqId))
+            return@get
         }
-
-        // ─── GET /items/{id}/breadcrumbs ────────────────────────────────────
-        get("/items/{id}/breadcrumbs") {
-            val principal = call.attributes.getOrNull(ApiPrincipalKey)
-            val rawId =
-                call.parameters["id"] ?: run {
-                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
-                    return@get
-                }
-            val id =
-                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
-                    return@get
-                }
-
-            val itemResult =
-                legacyRead({
-                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
-                    return@get
-                }) { workItemRepo.getById(id) }
-            if (itemResult == null) {
-                call.respondError(LegacyRestCode.NOT_FOUND, "Item $id not found")
-                return@get
+        val arguments =
+            buildJsonObject {
+                put("select", "list")
+                put("parentId", call.parameters["id"].orEmpty())
+                limit?.let { put("limit", it) }
+                params["cursor"]?.let { put("cursor", it) }
             }
-            val item = itemResult
-
-            if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
-                return@get
-            }
-
-            val chainResult =
-                legacyRead({
-                    logger.warn("GET /items/{}/breadcrumbs DB error: {}", id, it)
-                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
-                    return@get
-                }) { workItemRepo.findAncestorChains(setOf(id)) }
-            val ancestors = chainResult[id] ?: emptyList()
-
-            // ancestors is root-first (excludes item itself), so append item at end
-            val chain = ancestors + item
-
-            // Scope truncation: if the principal has rootIds, trim the chain to start at
-            // the first ancestor that is within the scope. This prevents exposing ancestors
-            // that are above the caller's scope root.
-            // If the scope root does not appear in the chain (e.g., scoped to a non-root mid-
-            // tree item that isn't a direct ancestor), fall back to showing only the target item.
-            val scopeRootIds = principal?.scope?.rootIds
-            val visible =
-                if (scopeRootIds != null) {
-                    val idx = chain.indexOfFirst { it.id in scopeRootIds }
-                    if (idx >= 0) chain.drop(idx) else listOf(item)
-                } else {
-                    chain
-                }
-
-            // Tag scope also applies to the ancestors: enforceScopeForItem only authorized the
-            // target item, so without this an out-of-scope ancestor's title/type/role would be
-            // handed to a tag-scoped caller. The target itself always survives — it passed the
-            // same predicate at the entry-point check above.
-            call.respond(HttpStatusCode.OK, visible.filterByTagScope(principal).map { it.toDto() })
-        }
-
-        // ─── GET /items/{id}/children ────────────────────────────────────────
-        get("/items/{id}/children") {
-            val rawId =
-                call.parameters["id"] ?: run {
-                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
-                    return@get
-                }
-            val id =
-                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
-                    return@get
-                }
-
-            val itemResult =
-                legacyRead({
-                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
-                    return@get
-                }) { workItemRepo.getById(id) }
-            if (itemResult == null) {
-                call.respondError(LegacyRestCode.NOT_FOUND, "Item $id not found")
-                return@get
-            }
-
-            if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
-                return@get
-            }
-
-            val pp = call.pageParamsOrRespond() ?: return@get
-            val principalForChildren = call.attributes.getOrNull(ApiPrincipalKey)
-
-            // tags_include has no SQL representation, so a tag-scoped caller reads a wider
-            // candidate window (TAG_SCOPE_SCAN_LIMIT, same bound GET /items uses), filters it in
-            // memory, and is paginated from the SURVIVING set — filter before paging, matching the
-            // file KDoc above. An unscoped count would count children the token cannot see, so it is
-            // not used on this branch; totalItems is the filtered count instead. Callers without a
-            // tag scope keep the original SQL LIMIT/OFFSET + count path unchanged.
-            val tagScoped = principalForChildren.hasTagScope()
-            val fetchLimit = if (tagScoped) TAG_SCOPE_SCAN_LIMIT else pp.pageSize
-            val fetchOffset = if (tagScoped) 0 else pp.offset
-
-            val childrenResult =
-                legacyRead({
-                    logger.warn("GET /items/{}/children DB error: {}", id, it)
-                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
-                    return@get
-                }) {
-                    workItemRepo.find(ItemFilter(parentId = id), page = ItemPage(fetchLimit, fetchOffset))
-                }
-            run {
-                run {
-                    if (tagScoped) {
-                        // Post-filter by tagsInclude when the principal's scope carries a tag
-                        // allowlist. The entry-point check (enforceScopeForItem above) verified the
-                        // parent item matches the tag constraint; children are not checked there.
-                        // Filter first, paginate second, so totalItems/hasMore never count a child
-                        // this token may not read.
-                        call.respond(
-                            HttpStatusCode.OK,
-                            pageOfVisible(childrenResult.filterByTagScope(principalForChildren), pp),
-                        )
-                        return@get
-                    }
-
-                    val total = legacyReadOrNull { workItemRepo.count(ItemFilter(parentId = id)) }?.toLong()
-                    val dtos = childrenResult.map { it.toDto() }
-                    call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, total))
-                }
-            }
-        }
+        call.respondEnvelope(call.dispatchItemsRead(registry, dispatcher, profile, redactNoteAttribution, arguments, reqId))
     }
 }
 
 /**
- * Registers the read-only gate-status and schema-view sub-resources for a single item, under
- * `/api/v1`.
+ * Dispatches [arguments] to `items_read` as the authenticated principal (the `/ops` access builder). The call log keeps
+ * the route template as the REST tool name (not `items_read`); `unauthenticated` when there is no principal.
+ */
+private suspend fun ApplicationCall.dispatchItemsRead(
+    registry: ToolRegistry,
+    dispatcher: ToolDispatcher,
+    profile: ToolProfile,
+    redactNoteAttribution: Boolean,
+    arguments: JsonObject,
+    reqId: String,
+): EncodedEnvelope {
+    val principal =
+        attributes.getOrNull(ApiPrincipalKey)
+            ?: return EnvelopeEncoder.error(DomainError(ErrorCode.UNAUTHENTICATED, "No authenticated principal."), reqId)
+    val spec = registry[ItemsReadTool.NAME] ?: error("the tool registry has no ${ItemsReadTool.NAME}")
+    val dispatched = dispatcher.dispatch(spec, profile, arguments, reqId, SURFACE_REST, principal.toCallAccess(redactNoteAttribution))
+    return dispatched.envelope
+}
+
+/** `data.version` of a successful `get` envelope; null for any other body. */
+private fun versionOf(envelope: EncodedEnvelope): Long? =
+    ((envelope.body["data"] as? JsonObject)?.get("version") as? JsonPrimitive)?.takeIf { !it.isString }?.longOrNull
+
+/**
+ * Registers the read-only gate-status sub-resource for a single item, under `/api/v1` (the
+ * schema view is `items_read` `select: schema`).
  *
  * - `GET /items/{id}/gate` — the item's title, current role, and canonical gate status for that
  *   role: field-for-field identical to `get_context` item mode's `gateStatus` /
@@ -526,24 +171,19 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
  *   [computePhaseNoteContext] path get_context uses — no gate logic is reimplemented here.
  *   `gateStatus.missingBySeat` (A1c) is present only for a seat-aware, non-terminal item — see
  *   [io.github.jpicklyk.mcptask.current.application.service.computeMissingBySeat].
- * - `GET /items/{id}/schema` (A1c, NEW) — the item's resolved schema view, body EXACTLY equal to
- *   `query_items(schema, itemId)`'s `data` object: both routes call the SAME
- *   [io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView.buildItemSchemaJson]
- *   builder (A1 task-scope §6 AC3 — never a second builder). 404 `no_schema` when the item is
- *   schema-free (builder returns `null`).
  *
- * Id handling mirrors `GET /items/{id}`: full UUID only (a hex prefix is rejected), malformed →
- * 400 `bad_request`, unknown → 404 `not_found`, out-of-scope → 403 `scope_forbidden`, checked in
- * that order, for BOTH routes. No dependency/blocker info and no dispatch field on `/gate` (out of
- * scope for this route — see task-scope). No ETag / `If-None-Match` handling on either route: both
- * depend on notes and config, neither of which `item.modifiedAt` versions, so a
- * `respondWithEtagCheck` here could serve a stale 304 after a note fill or config push.
+ * Id handling: full UUID only (a hex prefix is rejected), malformed → 400 `bad_request`, unknown →
+ * 404 `not_found`, out-of-scope → 403 `scope_forbidden`, checked in that order. No
+ * dependency/blocker info and no dispatch field on `/gate` (out of scope for this route — see
+ * task-scope). No ETag / `If-None-Match` handling: the gate depends on notes and config, neither of
+ * which the item's version covers, so a conditional answer could be stale after a note fill or
+ * config push.
  *
  * [configResolver] is the SAME [EffectiveConfigResolver] instance the MCP tool context and the
  * REST advance route share (via [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext.configResolver]),
- * so these routes share MCP's last-known-good per-root config cache instead of maintaining their own.
+ * so this route shares MCP's last-known-good per-root config cache instead of maintaining its own.
  * A [PerRootConfigUnavailableException] raised resolving that cache responds 503
- * `config_unavailable` on both routes, same envelope as the advance route's D6 handling.
+ * `config_unavailable`, same envelope as the advance route's D6 handling.
  *
  * [transitionPreview] is the SAME preview `get_context` uses: `gateStatus.canAdvance` is
  * `inspect(item, start).decision is Allow` and `gateStatus.blockedBy` the rejecting gate; `missing`,
@@ -636,52 +276,6 @@ fun Route.itemGateRoutes(
                     skillPointer = phaseContext?.skillPointer,
                 ),
             )
-        }
-
-        // ─── GET /items/{id}/schema ────────────────────────────────────────────
-        get("/items/{id}/schema") {
-            val rawId =
-                call.parameters["id"] ?: run {
-                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
-                    return@get
-                }
-            val id =
-                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
-                    return@get
-                }
-
-            val itemResult =
-                legacyRead({
-                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
-                    return@get
-                }) { workItemRepo.getById(id) }
-            if (itemResult == null) {
-                call.respondError(LegacyRestCode.NOT_FOUND, "Item $id not found")
-                return@get
-            }
-            val item = itemResult
-
-            if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
-                return@get
-            }
-
-            // Same 503 envelope as GET /items/{id}/gate on a per-root config read failure.
-            val schemaJson =
-                try {
-                    withConfigSession { ItemSchemaView.buildItemSchemaJson(item, configResolver) }
-                } catch (e: PerRootConfigUnavailableException) {
-                    call.respondError(LegacyRestCode.CONFIG_UNAVAILABLE, e.message)
-                    return@get
-                }
-
-            if (schemaJson == null) {
-                call.respondError(LegacyRestCode.NO_SCHEMA, "Item $id has no matching schema")
-                return@get
-            }
-
-            call.respond(HttpStatusCode.OK, schemaJson)
         }
     }
 }

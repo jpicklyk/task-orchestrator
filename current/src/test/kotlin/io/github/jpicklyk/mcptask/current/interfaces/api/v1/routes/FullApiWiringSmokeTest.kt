@@ -89,9 +89,7 @@ abstract class FullApiWiringSmokeScenarios(
                 )
                 // Phase 3 read
                 itemRoutes(decorated)
-                noteRoutes(decorated)
                 transitionRoutes(decorated)
-                searchRoutes(decorated)
                 // Phase 4 config
                 configRoutes(NoOpNoteSchemaService)
                 // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete
@@ -125,11 +123,11 @@ abstract class FullApiWiringSmokeScenarios(
             )
 
             // Read route: 401 without auth, 200 with a READ token — capability gate active
-            assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/items").status, "read requires auth")
+            assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/transitions").status, "read requires auth")
             assertEquals(
                 HttpStatusCode.OK,
-                client.get("/api/v1/items") { header("Authorization", "Bearer $TEST_TOKEN") }.status,
-                "READ token reads items",
+                client.get("/api/v1/transitions") { header("Authorization", "Bearer $TEST_TOKEN") }.status,
+                "READ token reads transitions",
             )
 
             // Phase 4 config route reachable on the combined surface

@@ -202,30 +202,23 @@ membership. An empty `tags_include` means no tag constraint. Both scope halves a
 same `allowsItemTags`/`enforceScopeForItem` predicates, so single-item and collection checks cannot
 drift apart.
 
-- `GET /items` — scope applied at SQL level via `findInScope` for `root_ids`; a `tags_include`
-  filter is then applied on top (see the pagination caveat below)
-- `GET /items/{id}` — `403 scope_forbidden` if item is outside scope (either `root_ids` or
+- `GET /items/{id}` and `GET /items/{id}/children` (section 9) - the `items_read` rules: a target item
+  outside the scope is `403 forbidden` (envelope, `detail.scope` `root` or `tag`), and under a restricted
+  scope an id that matches nothing the caller may see is `403 forbidden` too, never `404`, so scope is no
+  existence oracle; children outside the scope are left out of the page and not counted
+- `GET /items/{id}/gate` - `403 scope_forbidden` if the item is outside scope (either `root_ids` or
   `tags_include`)
-- `GET /items/{id}/gate` — same `enforceScopeForItem` check as `GET /items/{id}`: `403
-  scope_forbidden` if the item is outside scope (either `root_ids` or `tags_include`)
-- Write endpoints — `403 scope_forbidden` if the target item is outside scope
-- `GET /items/{id}/breadcrumbs` — chain is truncated at the caller's scope root (ancestors above the
-  scope root are hidden); ancestors that fail `tags_include` are dropped from the returned chain
-- `GET /items/{id}/tree` — paginated flat list; scope check applies on the root item only
-- `GET /notes/search` and `GET /search` — `?ancestorId` is validated against the principal's scope;
-  `root_ids` and `tags_include` are applied inside the search query itself, before ranking and the
-  50-hit page, so a restricted token gets a full page of in-scope hits (for `/notes/search`, the
-  tag is checked on each note's owning item)
-- `GET /transitions` and `GET /items/{id}/breadcrumbs` — a `tags_include` token sees only rows for
-  items it is allowed to see; `GET /items/{id}?include=children` is filtered the same way
+- Write endpoints - `403 scope_forbidden` if the target item is outside scope
+- `POST /ops/items_read` (section 20a) - every select applies the same rules; `list`, `search` and
+  `overview` apply the scope before paging, ranking and capping, so `page.total` counts only visible items
+  and a restricted token gets a full page of in-scope hits (a note hit is checked on its owning item);
+  `ancestors` stop at the caller's scope root and drop ancestors that fail `tags_include`
+- `GET /transitions` - a `tags_include` token sees only rows for items it is allowed to see
 - `POST /ops/deps_read` and `POST /ops/deps_write` (section 13) - the subject item of a read is
   checked (`403 forbidden`); an edge whose counterparty is out of scope is dropped from a read page
   and not counted; a write needs every named item (both stored ends for a delete) in scope
-- `GET /api/v1/events` (SSE) — a `tags_include` token is enforced per-event, identically for the
-  live stream and Last-Event-ID replay (see §21)
-- `GET /items/{id}/children` — the parent gets the same `enforceScopeForItem` check as any other
-  single item; a `tags_include` token additionally has the returned children filtered to items
-  carrying an allowed tag (see the pagination caveat below — filtering happens before paging)
+- `GET /api/v1/events` (SSE) - a `tags_include` token is enforced per-event, identically for the
+  live stream and Last-Event-ID replay (see section 21)
 
 **Item writes are scope-checked too.** Item creates, updates and deletes are the `items_write` ops of
 `POST /ops/items_write` (§20a); each element is checked against the token's scope before anything is written
@@ -235,20 +228,14 @@ drift apart.
 that root *with* carry a listed tag. A reparent is checked against the new parent, and `clear: ["parentId"]` (move
 to root) under `root_ids` is allowed only when the item itself is a listed root.
 
-**A collection endpoint never turns a tag-scope mismatch into `403`.** Unlike the single-item case,
-a tag-scoped caller whose scope matches nothing on a collection response (`GET /items`,
-`GET /items/roots`, breadcrumb ancestors, search hits, `GET /transitions`, inline `children`) gets
-`200 OK` with an empty (or partially filtered) result — `403 scope_forbidden` is reserved for the
-single-item case where an out-of-scope item is named directly.
+**A collection never turns a tag-scope mismatch into `403`.** A tag-scoped caller whose scope matches
+nothing on a collection (an `items_read` `list`, `search` or `overview` page, `GET /items/{id}/children`,
+`ancestors`, `GET /transitions`) gets `200 OK` with an empty or partially filtered result; `403` is
+reserved for a single item named directly.
 
-**Pagination under `tags_include`.** The filter has no SQL form, so `GET /items`,
-`GET /items/roots` and `GET /items/{id}/children` read a bounded candidate window (1000 rows, offset
-0) for a tag-scoped caller, filter it by `tags_include`, and paginate the *filtered* result in
-memory. `totalItems` in that case counts only the visible (post-filter) items, not the raw candidate
-window or an unfiltered DB count — a tag-scoped caller with more than 1000 matching candidates will
-see a short/incomplete page. This mirrors the existing `GET /items/{id}/tree` shape and only applies
-to tag-scoped principals; unscoped and `root_ids`-only callers keep SQL-level `LIMIT`/`OFFSET` and a
-DB `COUNT` and are unaffected.
+**Pagination under a scope.** `items_read` applies root and tag scope in the store before paging, so every
+caller gets full pages and an exact `page.total` of visible items; the 3.x bounded candidate window for
+tag-scoped callers is gone.
 
 ---
 
@@ -256,22 +243,24 @@ DB `COUNT` and are unaffected.
 
 ### Item and Note ETags
 
-- Format: `"v1-<modifiedAtMillis>"` (quoted string per HTTP spec)
-- Items: ETag is derived from `item.modifiedAt`
+- Item reads: `GET /items/{id}` answers `ETag: "v{version}"` from the item version on a successful read.
+  `GET /items/{id}/children` carries no `ETag`.
+- Item writes: no REST item write route remains. `items_write` (`POST /api/v1/ops/items_write`) guards an
+  update or delete with `expectedVersion` (`version_conflict`); no route takes an item `If-Match`, and the 3.x
+  `"v1-<modifiedAtMillis>"` tag is no longer served.
 - Notes: `GET /items/{id}/notes/{key}` answers `ETag: "v{version}"` from the note version (V28) and honors `If-None-Match` (`304`); there is no note `If-Match`: guard a write with `notes_write` `expectedVersion` (section 12)
-- Returned in `ETag` response header on all successful reads and writes
 
-**Conditional reads:** `If-None-Match: <etag>` → `304 Not Modified` when the resource has not changed.
+**Conditional reads:** an `If-None-Match` naming the current tag (one tag or a comma-separated list; a
+`W/` weak tag and `*` also match) answers `304 Not Modified` with no body. An error never carries an
+`ETag` and is never a `304`, so the scope check comes first.
 
 **Conditional writes:**
 - None on item or note resources: `items_write` and `notes_write` guard a write with `expectedVersion` (`version_conflict`) instead of `If-Match`.
 
-**`GET /items/{id}/gate` carries no `ETag` and ignores `If-None-Match`.** This is deliberate, not an
-omission: gate status depends on the item's notes and its resolved schema/config, and neither is
-versioned by `item.modifiedAt` — an `ETag` derived from the item alone would go stale the moment a
-note is upserted or the config changes, without the item itself being touched.
-
-**`GET /items/{id}` with a recognized `include` (`notes`, `deps`, `children`) carries no `ETag` and ignores `If-None-Match`.** Same rationale as `/gate`: inlined notes, dependencies and (per-principal tag-filtered) children are not versioned by `item.modifiedAt`, so an item-only validator would serve a stale `304` after a note upsert or child creation. An absent, empty or unrecognized-only `include` keeps the normal `ETag`/`304` behavior. The `etag` field inside the body is still `etagFor(item.modifiedAt)`; it is not a conditional-read validator. Item writes no longer take `If-Match`: `items_write` uses `expectedVersion` (`version_conflict`).
+**`GET /items/{id}/gate` carries no `ETag` and ignores `If-None-Match`.** This is deliberate: gate status
+depends on the item's notes and its resolved schema/config, and neither is covered by the item's version,
+so an item-derived `ETag` would go stale the moment a note is upserted or the config changes, without the
+item itself being touched.
 
 ### Config ETags
 
@@ -386,7 +375,7 @@ alike (including `401`), is the `req_id` of every `events` row the request wrote
 request's row in the `call_log` table. Only `/api/v1` and paths under `/api/v1/` are covered (not
 `/api/v10`). A `401` from the auth layer records its body's `error` code (`invalid_request`,
 `invalid_token`, ...) as the row's `error_code`; `http_<status>` is the fallback. The row's `tool` is
-the matched route template as declared (`GET /api/v1/items/{id}/schema`); a call that matched no route is
+the matched route template as declared (`GET /api/v1/items/{id}/gate`); a call that matched no route is
 `<METHOD> /api/v1/<first segment>` for a served top-level resource, else `<METHOD> unmatched`. `principal_id`
 on REST rows is the authenticated API principal (`api:<tokenId>`); only MCP rows can carry a self-reported actor id (up to 500 characters, with `proof_status` distinguishing verified ids). `X-Req-Id` is in the default
 `CORS_EXPOSE_HEADERS`. See
@@ -461,9 +450,9 @@ Query parameters: `?page=<int>` (default 1, must be an integer in `1..100000`) a
   "etag": "\"v1-<millis>\"",
   "depth": 0,
   "isClaimed": false,
-  "notes": null,       // populated when ?include=notes
-  "children": null,    // populated when ?include=children
-  "dependencies": null // populated when ?include=deps
+  "notes": null,       // always null since the include parameter was removed
+  "children": null,    // always null since the include parameter was removed
+  "dependencies": null // always null since the include parameter was removed
 }
 ```
 
@@ -669,18 +658,6 @@ See §7.
 
 See §6.
 
-### SearchHitDto
-
-```json
-{
-  "itemId": "<uuid>",
-  "field": "title|summary|body",
-  "snippet": "<marked snippet>",
-  "score": 0.032,
-  "noteKey": "implementation-notes"  // null for item hits, set for note hits
-}
-```
-
 ### Config DTOs
 
 **NoteSchemaEntryDto:**
@@ -751,7 +728,7 @@ returns. Declared per trait per phase under `traits.<name>.dispatch.<phase>:`; s
 the trait declares neither. **Global config only:** every `/config*` route resolves against the
 server-wide schema service, not any per-root pushed config, so a per-root `dispatch`/`resources`
 override on a trait of the same name is not reflected here — resolve the per-root-aware value via
-`query_items(operation="schema", itemId=...)` (MCP) instead; that path applies the item's own
+`items_read(select="schema", itemId=...)` (MCP, or `POST /api/v1/ops/items_read`) instead; that path applies the item's own
 `rootId` automatically, so no `rootId` parameter is needed (or honored) there.
 
 **ConfigSnapshotDto:**
@@ -807,7 +784,7 @@ Note: `"<previousRole>"` is a literal sentinel string — dashboards must resolv
 ```
 `type` is the queried type key; `matchedType` is the schema that actually answered it (`"default"`
 when a default schema resolved the miss). `configSource` is `"per-root"` or `"global"` — the same
-literal MCP `query_items(operation="schema", ...)` uses. `configFingerprint` is the supplying
+literal MCP `items_read(select="schema", ...)` uses. `configFingerprint` is the supplying
 layer's fingerprint, omitted when that layer has none.
 
 **EffectiveConfigDto** (see §18, `GET /roots/{rootId}/config/effective`):
@@ -825,7 +802,7 @@ layer's fingerprint, omitted when that layer has none.
 ```
 Every registered type (the union of this root's per-root `work_item_schemas` keys and the global
 schema service's keys) resolved against `{rootId}`'s LAYERED config in one response — the same
-per-root/global view `EffectiveConfigResolver` and MCP `query_items(schema, type=K, rootId=R)`
+per-root/global view `EffectiveConfigResolver` and MCP `items_read(select="schema", type=K, rootId=R)`
 already compute, surfaced as one REST resource instead of requiring a dashboard to probe per type.
 `types` lists every schema key (per-root and global, ascending natural `String` order) that
 resolves to a schema for this root, and `schemas` follows that same order — `types` always equals
@@ -952,86 +929,58 @@ plain JSON object described in section 14 (ISO-8601 instants).
 
 All require `READ` capability.
 
-### GET /items
+The two item GETs below are thin translations to the 4.0 `items_read` tool through the shared dispatcher
+and the same access builder as `POST /api/v1/ops/{tool}` (section 20a). They answer the 4.0 response
+envelope, byte-equal to `POST /api/v1/ops/items_read` for the same principal and arguments apart from
+`meta.reqId`, with the HTTP status taken from the envelope's error code (not the `ErrorDto` body of
+section 6). `{id}` is a full UUID or 8 to 32 hex characters of one. Capability and scope are enforced by
+the dispatcher and the select exactly as on `/ops`: an out-of-scope item, or under a restricted scope an
+id that matches nothing the caller may see, is `403 forbidden`. A request without an authenticated
+principal is `401 unauthenticated`. Fields, views and error codes are described in `api-reference.md` ->
+`items_read`.
 
-Paginated list of work items with optional filters.
+The 3.x `GET /items`, `GET /items/roots`, `GET /items/{id}/tree`, `GET /items/{id}/breadcrumbs` and
+`GET /items/{id}/schema` routes are removed, together with the `include` parameter of `GET /items/{id}`.
+`GET /items/{id}/tree`, `/breadcrumbs` and `/schema` are no longer routed (`404`). `GET /items` is a method
+the path no longer serves and `GET /items/roots` is read as `GET /items/{id}` with the id `roots`; both
+answer a `4xx` client error, never a list. Use `POST /api/v1/ops/items_read`:
 
-Any supplied but unparsable filter value is rejected with `400 validation_error` (`{"error":"validation_error","message":"Invalid parentId 'xyz': must be a UUID"}`), never silently ignored, so a malformed filter cannot widen the result set. A present but blank value (`?parentId=`) is treated as absent. The same rule applies to `GET /items/{id}/tree` `depth`, `GET /transitions` `since`, and `ancestorId`/`role` on `GET /search` and `GET /notes/search`. Validation runs before any scope check, so an invalid `ancestorId` yields `400` rather than `403 scope_forbidden`. (`orderBy`/`orderDir` keep their `400 bad_request` code.)
-
-**Query parameters:**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `page` | int | Page number (default 1, `1..100000`) |
-| `pageSize` | int | Items per page (default 50, max 200) |
-| `role` | string | Filter by role: `queue`, `work`, `review`, `terminal`, `blocked` (case-insensitive). Invalid value -> `400 validation_error`. |
-| `priority` | string | Filter by priority: `high`, `medium`, `low` (case-insensitive; output is lower-case). Invalid value -> `400 validation_error`. |
-| `tag` | string | Comma-separated tags; all listed tags must be present (AND match) |
-| `tagAny` | string | Comma-separated tags; any listed tag must be present (OR match). Overrides `tag` when both present. |
-| `type` | string | Filter by item type |
-| `parentId` | UUID | Filter to direct children of this parent. Invalid value -> `400 validation_error`. |
-| `rootId` | UUID | Filter to items within this root's subtree (intersected with principal scope). Invalid value -> `400 validation_error`. |
-| `modifiedAfter` | ISO-8601 | Modified after this timestamp. Invalid value -> `400 validation_error`. |
-| `modifiedBefore` | ISO-8601 | Modified before this timestamp. Invalid value -> `400 validation_error`. |
-| `createdAfter` | ISO-8601 | Created after this timestamp. Invalid value -> `400 validation_error`. |
-| `createdBefore` | ISO-8601 | Created before this timestamp. Invalid value -> `400 validation_error`. |
-| `claimStatus` | string | Filter by claim state: `claimed`, `unclaimed`, `expired` (case-insensitive). Invalid value -> `400 validation_error`. |
-| `orderBy` | string | Sort field: `title`, `priority`, `complexity`, `createdAt`, `modifiedAt` (also accepts legacy `created`/`modified` aliases). Unknown value → `400 bad_request`. |
-| `orderDir` | string | Sort direction: `asc`, `desc` (default: `desc`). Unknown value → `400 bad_request`. |
-
-**Response:** `200 OK` → `PageDto<ItemDto>` (see §7: `skipped` is always omitted)
-
-### GET /items/roots
-
-Root-level items (depth=0) accessible to the caller.
-
-- Scoped tokens: returns only the specific root items within scope (efficient, not capped); `totalItems` is the exact scoped root count.
-- Unscoped/admin: fully paginated via standard `page`/`pageSize` params — `totalItems` comes from an exact `COUNT` query, unaffected by `pageSize` or by rows dropped for failing domain validation. There is no cap; page through all roots with repeated requests.
-
-**Query parameters:** Standard pagination params (`page`, `pageSize`).
-
-**Response:** `200 OK` → `PageDto<ItemDto>` (see §7: `skipped` is always omitted)
+| Removed route | `items_read` request |
+|---|---|
+| `GET /items` | `{select: "list", ...filters}` |
+| `GET /items/roots` | `{select: "list", depth: 0}`, or `{select: "overview"}` for counts |
+| `GET /items/{id}/tree` | `{select: "list", ancestorId: id}` |
+| `GET /items/{id}/breadcrumbs` | `{select: "get", itemId: id, fields: ["ancestors"]}` |
+| `GET /items/{id}/schema` | `{select: "schema", itemId: id}` (add `fields: ["guidance"]` for guidance text) |
+| `GET /items/{id}?include=notes` | `notes_read` `{select: "list", itemId: id}` |
+| `GET /items/{id}?include=deps` | `deps_read` `{select: "list", item: id}` |
+| `GET /items/{id}?include=children` | `GET /items/{id}/children` |
 
 ### GET /items/{id}
 
-Single item by UUID.
+`items_read select=get` with `itemId` = `{id}`. Takes no query parameter: any is `400 unknown_parameter`.
 
-**Query parameters:**
-- `include` — comma-separated list: `notes`, `deps`, `children` — inline related data
-
-**Responses:**
-- `200 OK` → `ItemDto`
-- `304 Not Modified` -- when `If-None-Match` matches the current ETag; only possible when no recognized `include` (`notes`, `deps`, `children`) is requested. With a recognized `include` the response is always `200 OK` (no `ETag` header, `If-None-Match` ignored)
-- `400 bad_request` — invalid UUID
-- `403 scope_forbidden`
-- `404 not_found`
-
-### GET /items/{id}/tree
-
-Descendant tree, paginated as a flat list (root item always included as first element).
-
-**Query parameters:**
-- `depth` — maximum relative depth from the root item (optional; non-negative integer, otherwise `400 validation_error`)
-- Standard pagination params
-
-**Response:** `200 OK` → `PageDto<ItemDto>`
-
-### GET /items/{id}/breadcrumbs
-
-Ancestor chain from root to the target item (inclusive). Chain is truncated at the caller's scope root for scoped tokens.
-
-**Response:** `200 OK` → `List<ItemDto>` (root-first, target last)
+**Response:** `200 OK`, `data` = the full item view (full UUIDs, lean: empty members omitted, `tags` an
+array, `version` always present), with `ETag: "v{version}"` (the item version). An `If-None-Match` naming
+that tag (a comma-separated list, a `W/` weak tag or `*` also match) answers `304 Not Modified` with no
+body. An error never carries an `ETag` and is never a `304`, so the scope check comes first. Errors:
+`400 invalid_request`, `403 forbidden`, `404 not_found` / `ambiguous_id`.
 
 ### GET /items/{id}/children
 
-Direct children of an item, paginated.
+`items_read select=list` with `parentId` = `{id}`: one page of the item's direct children as compact views
+(8-hex short ids), newest first.
 
-For a `tags_include`-scoped caller, children are filtered by tag before being paginated (bounded
-candidate window; see §3's pagination caveat) — `totalItems` is the filtered count, not a raw DB
-`COUNT`. Unscoped and `root_ids`-only callers keep SQL-level `LIMIT`/`OFFSET` and an exact `COUNT`.
+**Query parameters:** `limit` (1-200, default 50; a non-integer is `400 invalid_request`), `cursor` (from
+`data.page.next`). Any other parameter is `400 unknown_parameter`.
 
-**Response:** `200 OK` → `PageDto<ItemDto>`
-- `403 scope_forbidden` — parent item outside scope
+**Response:** `200 OK`, `data: {items: [compact view], page: {total, truncated, next?}}`. Paging follows the
+envelope rules as amended by U22: `total` is the exact count of visible children on every page,
+`truncated` is true exactly when children exist after this page, and `next` is present exactly when
+`truncated`. No `ETag`. A parent outside the scope selects nothing (the filter id is not scope-checked, see
+`api-reference.md` -> `items_read` "Ids"); under a restricted scope a parent id that matches nothing visible
+is `403 forbidden`. Errors: `400 invalid_request` / `invalid_cursor`, `403 forbidden`, `404 not_found` /
+`ambiguous_id`.
 
 ### GET /items/{id}/gate
 
@@ -1061,36 +1010,12 @@ decide whether a `reject`-mode violation should block a subagent's stop.
 - `503 config_unavailable` — the item's per-root config could not be read inside the preview's read
   unit, where the last-known-good fallback is disabled (see §6); transient, no `Retry-After` header
 
-### GET /items/{id}/schema
-
-The item's resolved schema view — body **exactly equal** to MCP's
-`query_items(operation="schema", itemId=...)` `data` object (see
-[api-reference.md](api-reference.md) → "Key Parameters — schema"): both this route and that MCP
-operation call the SAME `ItemSchemaView.buildItemSchemaJson` builder, so the two response bodies
-stay identical by construction, never by separately-maintained convention. `{ type,
-configFingerprint, configSource, notes: [...], dispatch?, resources?, seats?, dispatchBySeat?,
-features }` — `seats`/`dispatchBySeat` present only for a seat-aware schema, `features` always
-present. Id handling mirrors `GET /items/{id}` and `GET /items/{id}/gate`: full UUID only (a hex
-prefix is rejected), checked in the order below. Same `configResolver` and per-root config cache as
-`GET /items/{id}/gate` (§6), read outside any unit so the last-known-good fallback applies here — no
-separate cache, no `ETag`/`If-None-Match` handling
-(§4's rationale applies here too: neither notes nor config version `item.modifiedAt`).
-
-**Responses:**
-- `200 OK` → the resolved schema view JSON (unwrapped — no envelope DTO)
-- `400 bad_request` — invalid UUID (including a hex prefix; this route, unlike list/search
-  endpoints, requires a full UUID)
-- `403 scope_forbidden`
-- `404 not_found` — item does not exist
-- `404 no_schema` — the item is schema-free (no type/tag match, and no `default` schema resolves)
-- `503 config_unavailable` — same meaning and no-`Retry-After` shape as `GET /items/{id}/gate` above
-
 ---
 
 ## 10. Endpoints — Items (Write)
 
 Item creates, updates and deletes are no longer separate routes: `POST /items`, `PATCH /items/{id}` and
-`DELETE /items/{id}` never succeed or write: they answer `404`, or `405` for `POST /items` because `GET /items` still serves that path. Use the `items_write` tool, `POST /api/v1/ops/items_write` (§20a), with
+`DELETE /items/{id}` never succeed or write: they answer a client error (`404` or `405`). Use the `items_write` tool, `POST /api/v1/ops/items_write` (§20a), with
 `ops[]` elements `create`, `update` and `delete`; the fields, the optimistic lock (`expectedVersion`, replacing
 `If-Match`), the soft delete rules (`recursive`), the scope checks and the errors are in
 [`api-reference.md`](./api-reference.md#items_write). Write elements take an `idempotencyKey` in place of the
@@ -1179,7 +1104,7 @@ through the 4.0 tools over `POST /api/v1/ops/{tool}` (section 20a):
   header.
 
 Fields, answers and error codes are described in `api-reference.md` -> `deps_read` and `deps_write`.
-`GET /items/{id}?include=deps` still returns the `DependenciesDto` view (section 8).
+`GET /items/{id}` no longer takes `include`: `deps_read` `select: list` replaces `include=deps`.
 
 ---
 
@@ -1286,37 +1211,10 @@ keeps the match count under the cap instead of walking a truncated scan.
 
 All require `READ`.
 
-### GET /search
-
-FTS5 full-text search over item titles, summaries and descriptions.
-
-**Query parameters:**
-- `q` (required) — search query; special characters are auto-sanitized. A control character other than ASCII whitespace (for example `%00`) -> `400`
-- `ancestorId` — scope results to a subtree (invalid UUID -> `400 validation_error`)
-- `role` — filter by item role (invalid value -> `400 validation_error`)
-- `tag` — comma-separated tag filter
-
-Results are ranked by RRF-fused relevance (trigram + porter tokenizer). Returns up to 50 hits.
-Each hit carries `title` (the item's title; omitted if the item could not be read); `field` names
-the field that actually contains a match (`title` or `summary`, `title` when both do) and `snippet`
-comes from that field. The principal's `root_ids`/`tags_include` scope is applied before the 50-hit
-page is taken.
-
-**Response:** `200 OK` → `List<SearchHitDto>`
-
-### GET /notes/search
-
-FTS5 full-text search over note bodies.
-
-**Query parameters:**
-- `q` (required) — search query; a control character other than ASCII whitespace (for example `%00`) -> `400`
-- `ancestorId` — scope results to a subtree (invalid UUID -> `400 validation_error`)
-
-Returns up to 50 hits. `noteKey` is populated on every hit (note-body search always has a key), and
-`title` is the owning item's title. The principal's scope (`tags_include` checked on the owning
-item) is applied before the 50-hit page is taken.
-
-**Response:** `200 OK` → `List<SearchHitDto>`
+The 3.x `GET /search` and `GET /notes/search` routes are removed (`404`). Search items and notes with
+`items_read` `select: search` over `POST /api/v1/ops/items_read` (section 20a): `kinds` picks item content
+and/or note bodies, ranked in one list, and the token's root and tag scope applies before ranking and
+capping. Fields and the hit shape are in `api-reference.md` -> `items_read`.
 
 ---
 
@@ -1549,7 +1447,7 @@ target whose canonical form is still missing (a migrated version) is canonicaliz
 
 Additive route (AR-39/C5): every registered type resolved against `{rootId}`'s LAYERED
 (per-root-over-global) config in one response — the same view `EffectiveConfigResolver` and MCP
-`query_items(operation="schema", type=K, rootId=R)` already compute. Distinct from `GET /config`
+`items_read(select="schema", type=K, rootId=R)` already compute. Distinct from `GET /config`
 (§17, GLOBAL-only) and `GET /roots/{rootId}/config` above (the RAW stored YAML): this route reports
 the RESOLVED base schema per type, with no trait merging — same as `SchemaDto`/the MCP type-path.
 Purely additive: no existing `/config*` or `/roots/{rootId}/config` route, body, or ETag changes.
@@ -2030,4 +1928,4 @@ connection unless it already resolved the item's tags from an earlier event on t
 
 **SSE honors bearer, JWKS, and unauthenticated modes.** The pre-flight auth plugin for the SSE route resolves `Authorization: Bearer` (and, when enabled, `?token=`) using the same shared Bearer-scheme parser as `ApiBearerAuth`, and explicitly short-circuits for `API_AUTH_MODE=none` (§1/§21) exactly like the bearer route. JWKS-mode JWT authentication for SSE is exercised by the automated expiry-watchdog test suite, which sends JWKS-signed tokens through this plugin.
 
-**FTS5 requires SQLite.** Search endpoints (`GET /search`, `GET /notes/search`) run on the SQLite FTS5 virtual tables created by the Flyway migrations.
+**FTS5 requires SQLite.** `items_read` `search` runs on the SQLite FTS5 virtual tables created by the Flyway migrations.

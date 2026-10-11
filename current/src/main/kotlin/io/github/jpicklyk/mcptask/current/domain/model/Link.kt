@@ -28,8 +28,9 @@ data class EntityRef(
 )
 
 /**
- * The relation a [Link] records. Only [ADOPTED_BY] is written today (document -> adopting item); the other names are
- * reserved for the knowledge links surface so their stored spelling is fixed now.
+ * The relation a [Link] records: [ADOPTED_BY] (document -> adopting item), [DERIVED_FROM] (note -> the plan document
+ * it was cut from), [REFERENCES] (a `[[...]]` reference parsed from a body) and [ATTACHED] (an explicit document ->
+ * item attachment).
  */
 enum class LinkRelation(
     private val dbValue: String
@@ -59,7 +60,8 @@ enum class LinkRelation(
  * an entity, [toRef] (the unresolved target text) while it is dangling.
  *
  * @property rootItemId The project root the link belongs to; deleting the root deletes the link.
- * @property anchor Optional location inside the source (for example a heading), or null.
+ * @property anchor Optional fragment of the TARGET (the text after `#` in `[[slug#anchor]]`, or the plan section a
+ *   `derived_from` note was cut from), or null.
  */
 data class Link(
     val id: UUID,

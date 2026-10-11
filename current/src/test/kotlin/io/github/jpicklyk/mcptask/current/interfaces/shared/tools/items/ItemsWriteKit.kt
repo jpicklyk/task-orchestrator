@@ -104,8 +104,6 @@ internal class IwKit(
         }
 }
 
-internal fun JsonObject.str(name: String): String = getValue(name).jsonPrimitive.content
-
 internal fun JsonObject.detail(): JsonObject = getValue("detail").jsonObject
 
 /** The whole-call error object of a failed envelope body. */

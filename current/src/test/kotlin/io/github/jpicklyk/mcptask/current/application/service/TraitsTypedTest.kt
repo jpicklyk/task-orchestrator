@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
@@ -16,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.orFail
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.patchOf
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.str
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemView
 import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
 import io.github.jpicklyk.mcptask.current.test.createCommand
 import io.github.jpicklyk.mcptask.current.test.createOp
@@ -579,7 +579,7 @@ class TraitsTypedTest {
         )
 
     private suspend fun EventLogRig.getData(id: UUID): JsonObject =
-        callOk(QueryItemsTool(), "operation" to str("get"), "itemId" to str(id.toString())).data()
+        ItemView.full(raw.workItemRepository().getById(id)!!) // the items_read get view (query_items was removed in Q19)
 
     private suspend fun EventLogRig.wireTraits(id: UUID): List<String> =
         getData(id)["traits"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()

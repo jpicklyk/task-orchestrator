@@ -392,8 +392,8 @@ components:
             Count of rows in this page's query window dropped for failing domain validation
             (e.g. a corrupt/legacy row). Omitted when nothing was skipped. The row is still
             counted in totalItems. Invariant: items.size == min(pageSize, totalItems - offset)
-            - skipped (clamped to the actual window). Currently populated on GET /items and
-            GET /items/roots.
+            - skipped (clamped to the actual window). No route currently populates it (the item
+            list routes moved to items_read in 4.0).
 
     IndependenceViolationDto:
       type: object
@@ -839,7 +839,7 @@ components:
       type: object
       required: [key, role, required, description]
       description: >-
-        Full note-schema entry as served by GET /items/{id}/schema — same base shape as
+        Full note-schema entry of the item schema view (items_read select schema) — same base shape as
         NoteSchemaEntryDto, plus the A1 seat fields. A distinct schema from NoteSchemaEntryDto
         because /config* and /config/effective (which use NoteSchemaEntryDto) do not serve seats
         in A1.
@@ -882,9 +882,9 @@ components:
       type: object
       required: [type, configSource, notes, features]
       description: >-
-        Response body for GET /items/{id}/schema (A1c) — identical to MCP
-        query_items(operation="schema", itemId=...)'s data object; both are built by the same
-        ItemSchemaView.buildItemSchemaJson server-side function, never a second, separately
+        The item schema view (A1c), now served as the data of items_read select schema (4.0; the
+        GET /items/{id}/schema route and query_items were removed), built by the
+        ItemSchemaView server-side builder, never a second, separately
         maintained builder.
       properties:
         type:
@@ -1247,286 +1247,145 @@ components:
             $ref: "#/components/schemas/ErrorDto"
 
 paths:
-  /items:
-    get:
-      summary: List work items
-      operationId: listItems
-      tags: [items]
-      description: >-
-        A token with scope.tags_include is additionally filtered to items carrying at least one
-        allowed tag (item-level exact match, no ancestor walk). A tag-scoped caller reads a bounded
-        1000-row candidate window before filtering, then paginates the filtered result — totalItems
-        reflects only the visible (post-filter) count. A tag scope matching nothing returns 200
-        with an empty page, never 403.
-      parameters:
-        - $ref: "#/components/parameters/page"
-        - $ref: "#/components/parameters/pageSize"
-        - name: role
-          in: query
-          description: Matching is case-insensitive (the enum lists the canonical lower-case values). An unrecognized value returns 400 validation_error.
-          schema:
-            type: string
-            enum: [queue, work, review, blocked, terminal]
-        - name: priority
-          in: query
-          description: Matching is case-insensitive (the enum lists the canonical lower-case values). An unrecognized value returns 400 validation_error.
-          schema:
-            type: string
-            enum: [high, medium, low]
-        - name: tag
-          in: query
-          schema:
-            type: string
-          description: Comma-separated tags; all must be present (AND)
-        - name: tagAny
-          in: query
-          schema:
-            type: string
-          description: Comma-separated tags; any must be present (OR); overrides tag
-        - name: type
-          in: query
-          schema:
-            type: string
-        - name: parentId
-          in: query
-          schema:
-            type: string
-            format: uuid
-        - name: rootId
-          in: query
-          schema:
-            type: string
-            format: uuid
-        - name: modifiedAfter
-          in: query
-          schema:
-            type: string
-            format: date-time
-        - name: modifiedBefore
-          in: query
-          schema:
-            type: string
-            format: date-time
-        - name: createdAfter
-          in: query
-          schema:
-            type: string
-            format: date-time
-        - name: createdBefore
-          in: query
-          schema:
-            type: string
-            format: date-time
-        - name: claimStatus
-          in: query
-          description: Matching is case-insensitive (the enum lists the canonical lower-case values). An unrecognized value returns 400 validation_error.
-          schema:
-            type: string
-            enum: [claimed, unclaimed, expired]
-        - name: orderBy
-          in: query
-          schema:
-            type: string
-            enum: [title, priority, complexity, createdAt, modifiedAt, created, modified]
-        - name: orderDir
-          in: query
-          schema:
-            type: string
-            enum: [asc, desc]
-      responses:
-        "200":
-          description: Paginated item list
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/PageDto"
-                  - properties:
-                      items:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/ItemDto"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
-
-  /items/roots:
-    get:
-      summary: List root items (depth=0)
-      description: >
-        Scoped tokens return only the specific root items within scope (totalItems is the exact
-        scoped root count). Unscoped/admin callers get standard page/pageSize pagination with
-        totalItems from an exact COUNT query — no cap; page through all roots with repeated
-        requests. A scope.tags_include token is additionally filtered to items carrying at least
-        one allowed tag, applied in-memory over a bounded 1000-row candidate window (same caveat
-        as GET /items) — totalItems then reflects only the visible count. A tag scope matching
-        nothing returns 200 with an empty page, never 403.
-      operationId: listRootItems
-      tags: [items]
-      parameters:
-        - $ref: "#/components/parameters/page"
-        - $ref: "#/components/parameters/pageSize"
-      responses:
-        "200":
-          description: Root items
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: "#/components/schemas/PageDto"
-                  - properties:
-                      items:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/ItemDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
   /items/{id}:
     get:
-      summary: Get a single work item
+      summary: Get a single work item (items_read select get)
       operationId: getItem
       tags: [items]
+      description: |
+        Equivalent to `POST /api/v1/ops/items_read` with `{"select":"get","itemId":"<id>"}`: the same
+        dispatcher, the same access (the bearer principal, its root/tag scope and capabilities) and the
+        same envelope body, apart from `meta.reqId`. `id` is a UUID or an 8 to 32 hex-character prefix.
+
+        The route takes no query parameter: any is `unknown_parameter` (`/<name>`); timestamps,
+        ancestors and `ifVersion` are served by the select over `/ops`. A successful answer carries
+        `ETag: "v<version>"`; a request whose `If-None-Match` names it (a tag list, a weak validator
+        or `*`, as for the note GET) is answered `304 Not Modified` with no body. An error is never a 304 and carries no ETag: an item outside the
+        caller's scope is `403 forbidden` (a missing id under a restricted scope too), whatever
+        `If-None-Match` says.
       parameters:
-        - $ref: "#/components/parameters/itemId"
-        - name: include
-          in: query
+        - name: id
+          in: path
+          required: true
+          description: Item id, a UUID or an 8 to 32 hex-character prefix.
           schema:
             type: string
-          description: >-
-            Comma-separated inclusions - notes, deps, children. When any recognized token is
-            present the response carries no ETag header and If-None-Match is ignored (never 304).
         - name: If-None-Match
           in: header
-          description: >-
-            Honored only when no recognized include is requested; ignored otherwise.
+          required: false
+          description: ETags from previous reads (a list, weak validators or `*`); naming the current one answers 304.
           schema:
             type: string
       responses:
         "200":
-          description: Item
+          description: Envelope with `data` = the full item view (lean: empty members omitted, tags as an array)
           headers:
             ETag:
-              description: Absent when a recognized include is requested.
+              description: '"v<version>" of the item read.'
+              schema:
+                type: string
+            X-Req-Id:
+              description: The call's correlation id, equal to meta.reqId.
               schema:
                 type: string
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ItemDto"
+                $ref: "#/components/schemas/OpsEnvelope"
         "304":
-          description: Not modified (If-None-Match matched; never returned when include is requested)
+          description: Not Modified - If-None-Match names the current ETag (no body)
         "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /items/{id}/tree:
-    get:
-      summary: Descendant tree (flat paginated list)
-      operationId: getItemTree
-      tags: [items]
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-        - $ref: "#/components/parameters/page"
-        - $ref: "#/components/parameters/pageSize"
-        - name: depth
-          in: query
-          schema:
-            type: integer
-            minimum: 0
-          description: Max relative depth from root item. A non-integer or negative value returns 400 validation_error.
-      responses:
-        "200":
-          description: Tree nodes (root item always first)
+          description: invalid_request (malformed id) or unknown_parameter (any query parameter) envelope
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/PageDto"
-                  - properties:
-                      items:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/ItemDto"
-        "400":
-          $ref: "#/components/responses/BadRequest"
+                $ref: "#/components/schemas/OpsEnvelope"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  /items/{id}/breadcrumbs:
-    get:
-      summary: Ancestor chain (root to item)
-      operationId: getItemBreadcrumbs
-      tags: [items]
-      description: >-
-        A scope.tags_include token additionally drops any ancestor in the chain that fails the tag
-        allowlist (item-level exact match) — this can return a non-empty, non-403 list even when
-        one or more ancestors are hidden.
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-      responses:
-        "200":
-          description: List ordered root-first, target item last; truncated at scope root for scoped tokens
+          description: forbidden envelope (capability, root or tag scope)
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/ItemDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
+                $ref: "#/components/schemas/OpsEnvelope"
         "404":
-          $ref: "#/components/responses/NotFound"
+          description: not_found envelope (unrestricted caller only)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "409":
+          description: ambiguous_id envelope (the prefix matches several items the caller may see)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "500":
+          description: internal envelope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
 
   /items/{id}/children:
     get:
-      summary: Direct children of an item
+      summary: List an item's direct children (items_read select list)
       operationId: getItemChildren
       tags: [items]
-      description: >-
-        For a tags_include-scoped caller, children are filtered by tag before pagination, over a
-        bounded 1000-row candidate window (same caveat as GET /items) — totalItems is the filtered
-        count, not a raw DB COUNT. Unscoped and root_ids-only callers keep SQL-level
-        LIMIT/OFFSET and an exact COUNT, unaffected.
+      description: |
+        Equivalent to `POST /api/v1/ops/items_read` with `{"select":"list","parentId":"<id>","limit"?,"cursor"?}`:
+        the same dispatcher, access and envelope body, apart from `meta.reqId`. The page is the
+        compact item view (`id`/`parentId` as 8-hex short ids) with `data.page {total, truncated,
+        capped?, next?}`; the caller's root/tag scope is applied before paging, so `total` counts only
+        visible children. A parent the caller may not see, or one that matches nothing, is an empty
+        page. Only `limit` and `cursor` are accepted (anything else is `unknown_parameter`); a
+        non-integer `limit` is `invalid_request`. No ETag.
       parameters:
-        - $ref: "#/components/parameters/itemId"
-        - $ref: "#/components/parameters/page"
-        - $ref: "#/components/parameters/pageSize"
+        - name: id
+          in: path
+          required: true
+          description: Parent item id, a UUID or an 8 to 32 hex-character prefix.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Page size, 1 to 200 (default 50).
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          required: false
+          description: The page.next of the previous page.
+          schema:
+            type: string
       responses:
         "200":
-          description: Paginated children
+          description: Envelope with `data` = {items, page}
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/PageDto"
-                  - properties:
-                      items:
-                        type: array
-                        items:
-                          $ref: "#/components/schemas/ItemDto"
+                $ref: "#/components/schemas/OpsEnvelope"
+        "400":
+          description: invalid_request, invalid_cursor or unknown_parameter envelope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
+          description: forbidden envelope (capability; or a prefix that matches no item the caller may see)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "409":
+          description: ambiguous_id envelope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
 
   /items/{id}/gate:
     get:
@@ -1557,45 +1416,6 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
-        "503":
-          $ref: "#/components/responses/ConfigUnavailable"
-
-  /items/{id}/schema:
-    get:
-      summary: Resolved schema view for a single item (A1c)
-      operationId: getItemSchema
-      tags: [items]
-      description: >-
-        Body is EXACTLY equal to MCP query_items(operation="schema", itemId=...)'s data object —
-        both this route and that MCP operation call the same ItemSchemaView.buildItemSchemaJson
-        builder, so the two responses stay identical by construction. Id handling mirrors
-        GET /items/{id} and GET /items/{id}/gate: full UUID only (a hex prefix is rejected),
-        checked in order bad_request -> not_found -> scope_forbidden. Shares the same
-        configResolver and last-known-good per-root config cache as GET /items/{id}/gate — no
-        separate cache. No ETag / If-None-Match handling, same rationale as GET /items/{id}/gate.
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-      responses:
-        "200":
-          description: Resolved schema view
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ItemSchemaViewDto"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          description: >-
-            error="not_found" — the item does not exist. error="no_schema" — the item is
-            schema-free (no type/tag match, and no "default" schema resolves).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
         "503":
           $ref: "#/components/responses/ConfigUnavailable"
 
@@ -1792,88 +1612,6 @@ paths:
                         type: array
                         items:
                           $ref: "#/components/schemas/RoleTransitionDto"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-  /search:
-    get:
-      summary: FTS5 full-text search over item titles, summaries and descriptions
-      operationId: searchItems
-      tags: [search]
-      description: >-
-        A token's scope.root_ids and scope.tags_include are applied inside the FTS5 query, before
-        ranking and the 50-hit page (tags_include: item-level exact, case-sensitive match), so a
-        restricted token gets a full page of in-scope hits; a scope matching nothing returns 200
-        with an empty list, never 403. Each hit's field names the field that contains a match.
-      parameters:
-        - name: q
-          in: query
-          required: true
-          schema:
-            type: string
-        - name: ancestorId
-          in: query
-          schema:
-            type: string
-            format: uuid
-        - name: role
-          in: query
-          description: Matching is case-insensitive (the enum lists the canonical lower-case values). An unrecognized value returns 400 validation_error.
-          schema:
-            type: string
-            enum: [queue, work, review, blocked, terminal]
-        - name: tag
-          in: query
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Ranked search hits (up to 50)
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/SearchHitDto"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-
-  /notes/search:
-    get:
-      summary: FTS5 full-text search over note bodies
-      operationId: searchNotes
-      tags: [search]
-      description: >-
-        A token's scope.root_ids and scope.tags_include are applied inside the FTS5 query, before
-        ranking and the 50-hit page (tags_include: exact, case-sensitive match on each note's owning
-        item), so a restricted token gets a full page of in-scope hits; a scope matching nothing
-        returns 200 with an empty list, never 403.
-      parameters:
-        - name: q
-          in: query
-          required: true
-          schema:
-            type: string
-        - name: ancestorId
-          in: query
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "200":
-          description: Ranked note-body hits (up to 50)
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/SearchHitDto"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":

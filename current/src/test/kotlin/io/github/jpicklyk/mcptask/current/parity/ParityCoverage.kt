@@ -142,13 +142,212 @@ object ParityCoverage {
 }
 
 /**
+ * The `items_read` scenarios [ProductionParity] registers (split out unchanged at the Q11/Q12 merge).
+ * `items_read` (item 450aa813) contributes
+ * one HAPPY and one SCOPE_FORBIDDEN scenario per select plus strictness / capability scenarios; the oracles are literals from
+ * the task-scope (D2: a root-scoped TARGET id outside the scope is `forbidden{scope: root, required: <listed roots>}` before
+ * anything else; list-like selects drop out-of-scope rows instead of failing) and the envelope statuses.
+ */
+object ItemsReadParityScenarios {
+    private val r1: UUID = UUID.fromString("11111111-1111-4111-8111-111111111111")
+    private val c1: UUID = UUID.fromString("22222222-2222-4222-8222-222222222222")
+    private val r2: UUID = UUID.fromString("33333333-3333-4333-8333-333333333333")
+    private val missing: UUID = UUID.fromString("44444444-4444-4444-8444-444444444444")
+
+    private val reader = ParityToken("ir-reader", setOf(ApiCapability.READ))
+    private val rootScoped = ParityToken("ir-root-scoped", setOf(ApiCapability.READ), rootIds = setOf(r1))
+    private val noRead = ParityToken("ir-no-read", setOf(ApiCapability.WRITE_ITEMS))
+
+    /** R1 "Alpha root zephyrquux" > C1 "Alpha child"; R2 "Beta root zephyrquux". */
+    private val seedTree: suspend ParitySeeder.() -> Unit = {
+        item(r1, "Alpha root zephyrquux", tags = "alpha")
+        item(c1, "Alpha child", parent = r1, tags = "alpha")
+        item(r2, "Beta root zephyrquux", tags = "beta")
+    }
+
+    private fun scenario(
+        name: String,
+        member: String,
+        kind: ParityKind,
+        token: ParityToken,
+        arguments: String,
+        expectStatus: Int,
+        expectCode: String? = null,
+        expectContains: List<String> = emptyList(),
+        expectAbsent: List<String> = emptyList()
+    ) = ParityScenario(
+        name = "items_read $name",
+        tool = "items_read",
+        member = member,
+        kind = kind,
+        token = token,
+        arguments = arguments,
+        expectStatus = expectStatus,
+        expectCode = expectCode,
+        expectContains = expectContains,
+        expectAbsent = expectAbsent,
+        expectDbChanged = false,
+        seed = seedTree
+    )
+
+    private val rootForbidden = listOf("\"scope\":\"root\"", "\"required\":\"$r1\"")
+
+    val scenarios: List<ParityScenario> =
+        listOf(
+            scenario(
+                "get happy",
+                "get",
+                ParityKind.HAPPY,
+                reader,
+                """{"select":"get","itemId":"$c1"}""",
+                200,
+                expectContains = listOf("\"title\":\"Alpha child\"")
+            ),
+            scenario(
+                "get scope root",
+                "get",
+                ParityKind.SCOPE_FORBIDDEN,
+                rootScoped,
+                """{"select":"get","itemId":"$r2"}""",
+                403,
+                expectCode = "forbidden",
+                expectContains = rootForbidden,
+                expectAbsent = listOf("Beta root")
+            ),
+            scenario(
+                "list happy",
+                "list",
+                ParityKind.HAPPY,
+                reader,
+                """{"select":"list","parentId":"$r1"}""",
+                200,
+                expectContains = listOf("\"title\":\"Alpha child\"")
+            ),
+            scenario(
+                "list filtered by root scope",
+                "list",
+                ParityKind.SCOPE_FORBIDDEN,
+                rootScoped,
+                """{"select":"list"}""",
+                200,
+                expectContains = listOf("Alpha root zephyrquux", "Alpha child"),
+                expectAbsent = listOf("Beta root")
+            ),
+            scenario(
+                "schema happy",
+                "schema",
+                ParityKind.HAPPY,
+                reader,
+                """{"select":"schema","type":"no-such-type"}""",
+                200,
+                expectContains = listOf("\"schemaFree\":true")
+            ),
+            scenario(
+                "schema scope root",
+                "schema",
+                ParityKind.SCOPE_FORBIDDEN,
+                rootScoped,
+                """{"select":"schema","itemId":"$r2"}""",
+                403,
+                expectCode = "forbidden",
+                expectContains = rootForbidden,
+                expectAbsent = listOf("Beta root")
+            ),
+            scenario(
+                "search happy",
+                "search",
+                ParityKind.HAPPY,
+                reader,
+                """{"select":"search","query":"zephyrquux"}""",
+                200,
+                expectContains = listOf("Alpha root zephyrquux", "Beta root zephyrquux")
+            ),
+            scenario(
+                "search filtered by root scope",
+                "search",
+                ParityKind.SCOPE_FORBIDDEN,
+                rootScoped,
+                """{"select":"search","query":"zephyrquux"}""",
+                200,
+                expectContains = listOf("Alpha root zephyrquux"),
+                expectAbsent = listOf("Beta root")
+            ),
+            scenario(
+                "overview happy",
+                "overview",
+                ParityKind.HAPPY,
+                reader,
+                """{"select":"overview"}""",
+                200,
+                expectContains = listOf("Alpha root zephyrquux", "Beta root zephyrquux")
+            ),
+            scenario(
+                "overview scope root",
+                "overview",
+                ParityKind.SCOPE_FORBIDDEN,
+                rootScoped,
+                """{"select":"overview","itemId":"$r2"}""",
+                403,
+                expectCode = "forbidden",
+                expectContains = rootForbidden,
+                expectAbsent = listOf("Beta root")
+            ),
+            scenario(
+                "get not found",
+                "get",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"get","itemId":"$missing"}""",
+                404,
+                expectCode = "not_found"
+            ),
+            scenario(
+                "list limit above the maximum",
+                "list",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"list","limit":201}""",
+                400,
+                expectCode = "invalid_request",
+                expectContains = listOf("/limit")
+            ),
+            scenario(
+                "get unknown member",
+                "get",
+                ParityKind.OTHER,
+                reader,
+                """{"select":"get","itemId":"$c1","bogus":1}""",
+                400,
+                expectCode = "unknown_parameter",
+                expectContains = listOf("/bogus")
+            ),
+            scenario(
+                "search without the read capability",
+                "search",
+                ParityKind.OTHER,
+                noRead,
+                """{"select":"search","query":"zephyrquux"}""",
+                403,
+                expectCode = "forbidden",
+                expectContains = listOf("\"scope\":\"capability\"", "\"required\":\"read\""),
+                expectAbsent = listOf("Alpha")
+            )
+        )
+
+    val exemptions: List<ScopeExempt> = emptyList()
+}
+
+/**
  * The production parity catalog. Every item that registers a select or op MUST append its HAPPY and SCOPE_FORBIDDEN
  * scenarios (or a reasoned [ScopeExempt]) here, or `ParityCoverageGuardTest` fails. `notes_read` / `notes_write` (Q11) are the
  * first production tools; their scenarios live in `NotesParityCatalog` (they need notes seeded beforehand) and run in
- * `NotesParityTest`. `deps_read` / `deps_write` (Q12) follow in `DepsParityScenarios`, run in `DepsParityTest`.
+ * `NotesParityTest`. `deps_read` / `deps_write` (Q12) follow in `DepsParityScenarios`, run in `DepsParityTest`; `items_read`
+ * (Q19) in [ItemsReadParityScenarios], run in `ItemsReadParityTest`.
  */
 object ProductionParity {
     val scenarios: List<ParityScenario> =
-        ItemsWriteParity.scenarios + NotesParityCatalog.scenarios + DepsParityScenarios.scenarios + AdvanceParityScenarios.all
-    val exemptions: List<ScopeExempt> = NotesParityCatalog.exemptions + DepsParityScenarios.exemptions
+        ItemsWriteParity.scenarios + NotesParityCatalog.scenarios + DepsParityScenarios.scenarios + AdvanceParityScenarios.all +
+            ItemsReadParityScenarios.scenarios
+    val exemptions: List<ScopeExempt> =
+        NotesParityCatalog.exemptions + DepsParityScenarios.exemptions + ItemsReadParityScenarios.exemptions
 }
