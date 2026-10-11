@@ -14,7 +14,7 @@ import kotlin.coroutines.coroutineContext
 /**
  * Per-call telemetry carried in the coroutine context for the life of one MCP tool call or one REST request.
  *
- * The transport adapter installs one fresh instance per call ([reqId], [surface], [sessionId]); code deeper in the
+ * The transport adapter installs one fresh instance per call ([reqId], [surface], [sessionId], [host]); code deeper in the
  * call fills the accumulators (principal, BUSY retries, replay, target versions, result counts), and the adapter
  * reads them once when it builds the `call_log` row. Every accumulator is thread-safe: a call may fan out.
  *
@@ -24,7 +24,8 @@ import kotlin.coroutines.coroutineContext
 class CallTelemetry(
     val reqId: String,
     val surface: String,
-    val sessionId: String?
+    val sessionId: String?,
+    val host: String? = null
 ) : AbstractCoroutineContextElement(Key) {
     private val principalRef = AtomicReference<Principal?>(null)
     private val retryCount = AtomicInteger(0)

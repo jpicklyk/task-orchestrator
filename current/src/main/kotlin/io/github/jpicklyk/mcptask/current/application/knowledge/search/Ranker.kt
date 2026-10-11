@@ -10,7 +10,8 @@ import java.util.UUID
  *
  * @property corpus The corpus the document came from; its [Corpus.kind] is the hit kind.
  * @property primary The candidate whose field and snippet represent the document: when both analyzers matched it,
- *   the one with the better (lower) raw rank, the substring analyzer on a tie.
+ *   the one with the lower raw rank, the substring analyzer on a tie. This compares ranks across two indexes, so it
+ *   is a presentation heuristic only (inherited from 3.x); it never affects [score] or order.
  * @property score The RRF fused score.
  * @property trigramRank Raw rank from the substring analyzer, null when it did not match.
  * @property textRank Raw rank from the stemmed analyzer, null when it did not match.

@@ -113,6 +113,22 @@ class SearchRoutesIntegrationTest {
         }
 
     @Test
+    fun `GET search and notes search return 400 for a query containing a control character`() =
+        testApplication {
+            application {
+                configureTestApp {
+                    searchRoutes(repositoryProvider)
+                    noteRoutes(repositoryProvider)
+                }
+            }
+            listOf("/api/v1/search?q=%00abc", "/api/v1/notes/search?q=%00abc").forEach { path ->
+                val response = client.get(path) { header("Authorization", "Bearer $TEST_TOKEN") }
+                assertEquals(HttpStatusCode.BadRequest, response.status, path)
+                assertTrue(response.bodyAsText().contains("control character"), path)
+            }
+        }
+
+    @Test
     fun `GET search returns 401 without auth`() =
         testApplication {
             application {

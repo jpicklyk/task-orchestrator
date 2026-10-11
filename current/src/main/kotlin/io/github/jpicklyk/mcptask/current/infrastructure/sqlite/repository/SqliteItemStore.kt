@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.ItemFetchResult
 import io.github.jpicklyk.mcptask.current.application.port.ItemFilter
 import io.github.jpicklyk.mcptask.current.application.port.ItemPage
+import io.github.jpicklyk.mcptask.current.application.port.ItemSlice
 import io.github.jpicklyk.mcptask.current.application.port.ItemSort
 import io.github.jpicklyk.mcptask.current.application.port.ItemStore
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
@@ -296,6 +297,205 @@ class SqliteItemStore(
         }
     }
 
+    override suspend fun rolesOf(ids: Set<UUID>): Map<UUID, Role> {
+        if (ids.isEmpty()) return emptyMap()
+        return databaseManager.readTx {
+            val roles = HashMap<UUID, Role>()
+            ids.chunked(SQL_IN_CHUNK_SIZE).forEach { chunk ->
+                WorkItemsTable
+                    .select(WorkItemsTable.id, WorkItemsTable.role)
+                    .where { WorkItemsTable.id inList chunk.map { EntityID(it, WorkItemsTable) } }
+                    .forEach { row ->
+                        roles[row[WorkItemsTable.id].value] =
+                            row[WorkItemsTable.role]?.let { Role.fromString(it) } ?: Role.QUEUE
+                    }
+            }
+            roles
+        }
+    }
+
+    override suspend fun findByIdSet(ids: Set<UUID>): List<WorkItem> {
+        if (ids.isEmpty()) return emptyList()
+        return databaseManager.readTx {
+            // One statement for any number of ids (a JSON id set, not a chunked IN list).
+            WorkItemsTable
+                .selectAll()
+                .where { WorkViewSql.inIdSet(WorkItemsTable.id, ids) }
+                .map { WorkItemRows.toWorkItem(it) }
+        }
+    }
+
+    override suspend fun countByParentAndRole(parentIds: Set<UUID>): Map<UUID, Map<Role, Int>> {
+        if (parentIds.isEmpty()) return emptyMap()
+        return databaseManager.readTx {
+            val result = LinkedHashMap<UUID, MutableMap<Role, Int>>()
+            parentIds.forEach { result[it] = mutableMapOf() }
+            val total = WorkItemsTable.id.count()
+            // One statement for any number of parents (a JSON id set, not a chunked IN list), so the views that
+            // batch through this keep a constant statement count.
+            WorkItemsTable
+                .select(WorkItemsTable.parentId, WorkItemsTable.role, total)
+                .where { WorkViewSql.inIdSet(WorkItemsTable.parentId, parentIds) }
+                .groupBy(WorkItemsTable.parentId, WorkItemsTable.role)
+                .forEach { row ->
+                    val parent = row[WorkItemsTable.parentId] ?: return@forEach
+                    val role = row[WorkItemsTable.role]?.let { Role.fromString(it) } ?: Role.QUEUE
+                    val counts = result.getOrPut(parent) { mutableMapOf() }
+                    counts[role] = (counts[role] ?: 0) + row[total].toInt()
+                }
+            result
+        }
+    }
+
+    override suspend fun rollupByTopChild(topIds: Set<UUID>): Map<UUID, Map<Role, Int>> {
+        if (topIds.isEmpty()) return emptyMap()
+        return databaseManager.readTx {
+            val result = LinkedHashMap<UUID, MutableMap<Role, Int>>()
+            topIds.forEach { result[it] = mutableMapOf() }
+            // One downward walk carrying the top id, seeded from ONE bound JSON id set (constant statement count
+            // for any number of tops); UNION (not UNION ALL) dedups (top, id) pairs, so a descendant is counted
+            // once per top and cyclic parent_id data terminates.
+            val sql =
+                """
+                WITH RECURSIVE walk(top, id) AS (
+                    SELECT id, id FROM work_items WHERE id IN (${WorkViewSql.ID_SET_SELECT})
+                    UNION
+                    SELECT w.top, x.id FROM work_items x JOIN walk w ON x.parent_id = w.id
+                )
+                SELECT walk.top AS top, y.role AS role, COUNT(*) AS n
+                FROM walk JOIN work_items y ON y.id = walk.id
+                WHERE walk.id <> walk.top
+                GROUP BY walk.top, y.role
+                """.trimIndent()
+            selectSql(sql, listOf(WorkViewSql.idSetArgument(topIds))) { rs ->
+                while (rs.next()) {
+                    val top = uuidOf(rs.getObject("top")!!)
+                    val role = Role.fromString(rs.getString("role")) ?: Role.QUEUE
+                    val counts = result.getOrPut(top) { mutableMapOf() }
+                    counts[role] = (counts[role] ?: 0) + rs.getInt("n")
+                }
+            }
+            result
+        }
+    }
+
+    override suspend fun findByParents(parentIds: Set<UUID>): Map<UUID, List<WorkItem>> {
+        if (parentIds.isEmpty()) return emptyMap()
+        return databaseManager.readTx {
+            val result = LinkedHashMap<UUID, MutableList<WorkItem>>()
+            parentIds.forEach { result[it] = mutableListOf() }
+            WorkItemsTable
+                .selectAll()
+                .where { WorkViewSql.inIdSet(WorkItemsTable.parentId, parentIds) }
+                .orderBy(WorkItemsTable.createdAt, SortOrder.DESC)
+                .orderBy(WorkItemsTable.id, SortOrder.ASC)
+                .forEach { row ->
+                    val item = WorkItemRows.toWorkItem(row)
+                    item.parentId?.let { result.getOrPut(it) { mutableListOf() }.add(item) }
+                }
+            result
+        }
+    }
+
+    override suspend fun findChildrenPage(
+        parentId: UUID?,
+        excludeTerminal: Boolean,
+        limit: Int,
+        offset: Int,
+    ): ItemSlice =
+        databaseManager.readTx {
+            val placement = if (parentId == null) WorkItemsTable.parentId.isNull() else (WorkItemsTable.parentId eq parentId)
+            val condition = if (excludeTerminal) placement and WorkViewSql.notTerminalOrOpenBelow(parentId) else placement
+            val items =
+                WorkItemsTable
+                    .selectAll()
+                    .where { condition }
+                    .orderBy(WorkItemsTable.createdAt, SortOrder.DESC)
+                    .orderBy(WorkItemsTable.id, SortOrder.ASC)
+                    .limit(limit)
+                    .offset(offset.coerceAtLeast(0).toLong())
+                    .map { WorkItemRows.toWorkItem(it) }
+            val total =
+                WorkItemsTable
+                    .selectAll()
+                    .where { condition }
+                    .count()
+                    .toInt()
+            ItemSlice(items, total)
+        }
+
+    override suspend fun findByRoles(
+        roles: Set<Role>,
+        rootIds: Set<UUID>?,
+        limit: Int,
+        offset: Int,
+    ): ItemSlice {
+        if (roles.isEmpty() || rootIds?.isEmpty() == true) return ItemSlice(emptyList(), 0)
+        return databaseManager.readTx {
+            val conditions = mutableListOf<Op<Boolean>>()
+            if (rootIds != null) {
+                val scope = ScopeResolver.resolve(rootIds)
+                if (scope == ResolvedScope.Empty) return@readTx ItemSlice(emptyList(), 0)
+                conditions.add(scope.toCondition())
+            }
+            conditions.add(WorkItemsTable.role inList roles.map { WorkViewSql.stored(it) })
+            val condition = conditions.reduce { acc, op -> acc and op }
+            val items =
+                WorkItemsTable
+                    .selectAll()
+                    .where { condition }
+                    .orderBy(WorkViewSql.roleRank(), SortOrder.ASC)
+                    .orderBy(WorkItemsTable.roleChangedAt, SortOrder.ASC)
+                    .orderBy(WorkItemsTable.id, SortOrder.ASC)
+                    .limit(limit)
+                    .offset(offset.coerceAtLeast(0).toLong())
+                    .map { WorkItemRows.toWorkItem(it) }
+            val total =
+                WorkItemsTable
+                    .selectAll()
+                    .where { condition }
+                    .count()
+                    .toInt()
+            ItemSlice(items, total)
+        }
+    }
+
+    override suspend fun findBlocked(
+        parentId: UUID?,
+        ancestorId: UUID?,
+        limit: Int,
+        offset: Int,
+    ): ItemSlice =
+        databaseManager.readTx {
+            val conditions = mutableListOf<Op<Boolean>>()
+            if (ancestorId != null) {
+                val scope = ScopeResolver.resolve(setOf(ancestorId))
+                if (scope == ResolvedScope.Empty) return@readTx ItemSlice(emptyList(), 0)
+                conditions.add(scope.toCondition())
+            }
+            parentId?.let { conditions.add(WorkItemsTable.parentId eq it) }
+            val explicit = WorkItemsTable.role eq WorkViewSql.stored(Role.BLOCKED)
+            val open = WorkItemsTable.role inList listOf(Role.QUEUE, Role.WORK, Role.REVIEW).map { WorkViewSql.stored(it) }
+            conditions.add(explicit or (open and WorkViewSql.dependencyBlocked()))
+            val condition = conditions.reduce { acc, op -> acc and op }
+            val items =
+                WorkItemsTable
+                    .selectAll()
+                    .where { condition }
+                    .orderBy(WorkViewSql.blockedListRank(), SortOrder.ASC)
+                    .orderBy(WorkItemsTable.id, SortOrder.ASC)
+                    .limit(limit)
+                    .offset(offset.coerceAtLeast(0).toLong())
+                    .map { WorkItemRows.toWorkItem(it) }
+            val total =
+                WorkItemsTable
+                    .selectAll()
+                    .where { condition }
+                    .count()
+                    .toInt()
+            ItemSlice(items, total)
+        }
+
     /** Counts rows matching [condition] grouped by role (unknown stored roles count as QUEUE, as the mapper does). */
     private fun countByRole(condition: Op<Boolean>): Map<Role, Int> {
         val total = WorkItemsTable.id.count()
@@ -305,7 +505,8 @@ class SqliteItemStore(
             .where { condition }
             .groupBy(WorkItemsTable.role)
             .forEach { row ->
-                val role = Role.fromString(row[WorkItemsTable.role]) ?: Role.QUEUE
+                // role is nullable since V26; Q31a replaces this fallback with Role?.
+                val role = row[WorkItemsTable.role]?.let { Role.fromString(it) } ?: Role.QUEUE
                 counts[role] = (counts[role] ?: 0) + row[total].toInt()
             }
         return counts

@@ -7,6 +7,8 @@ import io.github.jpicklyk.mcptask.current.application.port.Corpus
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.application.port.SearchResult
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.support.UnscopedUnitOfWork
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.resolveSearchAccess
@@ -40,9 +42,12 @@ internal const val REST_SEARCH_LIMIT = 50
  * gets a full page of in-scope hits. An optional `?ancestorId=` further narrows to a single subtree; if the
  * requested ancestorId is outside the principal's scope, 403 is returned.
  */
-fun Route.searchRoutes(repositoryProvider: RepositoryProvider) {
+fun Route.searchRoutes(
+    repositoryProvider: RepositoryProvider,
+    unitOfWork: UnitOfWork = UnscopedUnitOfWork(repositoryProvider),
+) {
     val workItemRepo = repositoryProvider.workItemRepository()
-    val searchService by lazy { SearchService(repositoryProvider.searchIndex()) }
+    val searchService by lazy { SearchService(repositoryProvider.searchIndex(), unitOfWork) }
 
     requireCapability(ApiCapability.READ) {
         get("/search") {
