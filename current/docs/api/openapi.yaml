@@ -1712,8 +1712,8 @@ paths:
 
         The route takes no query parameter: any is `unknown_parameter` (`/<name>`); timestamps,
         ancestors and `ifVersion` are served by the select over `/ops`. A successful answer carries
-        `ETag: "v<version>"`; a request whose `If-None-Match` equals it is answered `304 Not
-        Modified` with no body. An error is never a 304 and carries no ETag: an item outside the
+        `ETag: "v<version>"`; a request whose `If-None-Match` names it (a tag list, a weak validator
+        or `*`, as for the note GET) is answered `304 Not Modified` with no body. An error is never a 304 and carries no ETag: an item outside the
         caller's scope is `403 forbidden` (a missing id under a restricted scope too), whatever
         `If-None-Match` says.
       parameters:
@@ -1726,7 +1726,7 @@ paths:
         - name: If-None-Match
           in: header
           required: false
-          description: An ETag from a previous read; equal to the current one answers 304.
+          description: ETags from previous reads (a list, weak validators or `*`); naming the current one answers 304.
           schema:
             type: string
       responses:
@@ -1746,7 +1746,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/OpsEnvelope"
         "304":
-          description: Not Modified - If-None-Match equals the current ETag (no body)
+          description: Not Modified - If-None-Match names the current ETag (no body)
         "400":
           description: invalid_request (malformed id) or unknown_parameter (any query parameter) envelope
           content:

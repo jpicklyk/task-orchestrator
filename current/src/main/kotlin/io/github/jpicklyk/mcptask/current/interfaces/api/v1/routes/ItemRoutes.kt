@@ -67,8 +67,9 @@ private const val MAX_RECEIVED = 100
  * equals the `/ops` envelope for the same principal and arguments (only `meta.reqId` differs).
  *
  * - `GET /items/{id}` == `{select: get, itemId: id}`. It takes no query parameter (any is `unknown_parameter`). On
- *   success it sets `ETag: "v<version>"` and answers `304 Not Modified` (no body) when `If-None-Match` equals it; an
- *   error never carries an ETag and is never a 304, so scope is decided before any conditional answer.
+ *   success it sets `ETag: "v<version>"` and answers `304 Not Modified` (no body) when `If-None-Match` names it (the
+ *   note GET convention, [matchesIfNoneMatch]: a tag list, a weak validator or `*`); an error never carries an ETag and
+ *   is never a 304, so scope is decided before any conditional answer.
  * - `GET /items/{id}/children` == `{select: list, parentId: id, limit?, cursor?}`. Other query parameters are
  *   `unknown_parameter`; a non-integer `limit` is `invalid_request`. No ETag. [redactNoteAttribution] is the `/ops`
  *   flag, handed to the same builder so the access is identical.
@@ -103,7 +104,7 @@ fun Route.itemRoutes(
         if (version != null) {
             val etag = etagForVersion(version)
             call.response.header(HttpHeaders.ETag, etag)
-            if (call.request.headers[HttpHeaders.IfNoneMatch]?.trim() == etag) {
+            if (matchesIfNoneMatch(call.request.headers[HttpHeaders.IfNoneMatch], etag)) {
                 call.respond(HttpStatusCode.NotModified)
                 return@get
             }

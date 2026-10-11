@@ -190,7 +190,7 @@ class RestCallLogTest {
             application { configureApp(rig.composition, writer) }
 
             val missing = UUID.randomUUID()
-            val typed = client.getWith("/items/$missing/notes")
+            val typed = client.getWith("/items/$missing/gate") // a legacy ErrorDto route (item and note GETs answer envelopes)
             assertEquals(HttpStatusCode.NotFound, typed.status)
             val typedCode =
                 Json
@@ -204,7 +204,7 @@ class RestCallLogTest {
 
             writer.flushNow()
             val byTool = callLogRows().associateBy { it["tool"] }
-            val typedRow = byTool.getValue("GET /api/v1/items/{id}/notes")
+            val typedRow = byTool.getValue("GET /api/v1/items/{id}/gate")
             assertEquals("error", typedRow["outcome"])
             assertEquals("not_found", typedRow["error_code"], "the typed ErrorDto.error, not http_404")
             assertEquals(typed.headers["X-Req-Id"], typedRow["req_id"])

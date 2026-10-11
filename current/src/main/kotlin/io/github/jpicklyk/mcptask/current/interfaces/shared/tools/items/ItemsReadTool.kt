@@ -293,23 +293,17 @@ internal fun unknownFields(
     return invalidField(pointer("fields"), "must contain only: ${allowed.joinToString(", ")}", bad)
 }
 
-/** A [ListPage] of [items] read at [page] out of [total], following the [ListPage] invariant. */
+/**
+ * A [ListPage] of [items] read at [page] out of [total], built by [ListPage.of] (envelope amendment U22: `truncated` and
+ * `next` mean "items exist after this page", so the last page carries no cursor). Page and count share one read unit, so
+ * `total >= items.size`; the max only guards the [ListPage] invariant.
+ */
 internal fun <T> pageOf(
     items: List<T>,
     total: Int,
     page: PageRequest,
     capped: Boolean = false
-): ListPage<T> {
-    val exact = maxOf(total, items.size)
-    val truncated = items.size < exact
-    return ListPage(
-        items = items,
-        total = exact,
-        truncated = truncated,
-        capped = capped,
-        next = if (truncated) CursorCodec.encode(page.offset + items.size) else null
-    )
-}
+): ListPage<T> = ListPage.of(items, total = maxOf(total, items.size), page = page, capped = capped)
 
 /** `{items, page}` members of [page] (the encoder's list data shape), for a select whose data carries more. */
 internal fun <T> JsonObjectBuilder.putPage(
