@@ -199,6 +199,13 @@ On MCP rows the `principal_id` column holds the caller's self-reported actor id,
 `ActorClaim` cap (the same bound as actor ids already stored in notes and `role_transitions`); `proof_status` says
 whether the id was verified. On REST rows it holds the authenticated API principal (`api:<tokenId>`), never client text.
 
+The `host` column of a row, and of every `events` row the call writes, names the client application. On MCP rows it is
+the client's `initialize` `clientInfo.name`, read per session, so clients sharing one server keep separate hosts (null when
+the client sent no name). On REST rows it is the `X-Client-Host` request header, else the first `User-Agent` product token,
+else `rest`. The value is normalized (control characters dropped, trimmed, lowercased, capped at 64 code points). See
+[api-rest.md](api-rest.md) section 6a. `X-Client-Host` is in the default `CORS_ALLOWED_HEADERS`; a deployment that
+overrides that variable must add the header itself for browser clients to send it.
+
 `call_log` has **no retention yet**: it grows by about 250-450 bytes per call (about 8 MB per day at
 20 000 calls a day), like `events`. Pruning arrives with W6.
 
@@ -272,7 +279,7 @@ API_ALLOW_UNAUTHENTICATED=true
 | `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS` | jwks mode | `86400` | Maximum accepted token lifetime in seconds (24h default). A token is rejected once `exp - now` exceeds this value plus the 60s clock-skew allowance, regardless of `iat`; when `iat` is present, a future-dated `iat` or an `exp - iat` spread beyond the same cap is also rejected. Non-numeric or `<= 0` fails startup. |
 | `CORS_ALLOWED_ORIGINS` | browser clients | _(none)_ | Comma-separated allowed origins. Empty = no cross-origin access. |
 | `CORS_ALLOWED_METHODS` | CORS enabled | `GET,POST,PATCH,PUT,DELETE,OPTIONS` | Comma-separated methods. |
-| `CORS_ALLOWED_HEADERS` | CORS enabled | `Authorization,Content-Type,If-Match` | Comma-separated request headers. |
+| `CORS_ALLOWED_HEADERS` | CORS enabled | `Authorization,Content-Type,If-Match,X-Client-Host` | Comma-separated request headers. |
 | `CORS_EXPOSE_HEADERS` | CORS enabled | `ETag,Last-Event-ID,Retry-After` | Response headers JS may read. `Retry-After` is exposed by default so browser dashboards can read the resource-lease contention backoff hint directly off `POST /items/{id}/advance`'s `409` response (see Resource Leasing below) without falling back to the `details.retryAfterMs` body field. |
 | `CORS_MAX_AGE_SECONDS` | CORS enabled | `3600` | Preflight cache duration. |
 | `API_SSE_BUFFER_SIZE` | SSE in use | `1000` | Last-Event-ID replay window, in event ids (seqs of the durable `events` table): a resume further behind the newest event gets `sync.lost` `buffer_evicted`. `0` = no replay. |
