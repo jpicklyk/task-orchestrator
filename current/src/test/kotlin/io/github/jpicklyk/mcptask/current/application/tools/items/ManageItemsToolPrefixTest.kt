@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.ItemGetProbe
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.BeforeEach
@@ -267,7 +268,7 @@ class ManageItemsToolPrefixTest {
             assertEquals(1, data["updated"]!!.jsonPrimitive.int)
 
             // Verify the item was actually moved
-            val queryTool = QueryItemsTool()
+            val queryTool = ItemGetProbe()
             val getResult =
                 queryTool.execute(
                     params(
@@ -616,7 +617,7 @@ class ManageItemsToolPrefixTest {
                     .jsonArray[1]
                     .jsonObject["id"]!!
                     .jsonPrimitive.content
-            val queryTool = QueryItemsTool()
+            val queryTool = ItemGetProbe()
             val getResult =
                 queryTool.execute(
                     params(

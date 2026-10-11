@@ -996,7 +996,9 @@ class AdvanceService(
                 toStatusLabel = transition.toStatusLabel,
                 origin = if (trigger is Trigger.Cascade) TransitionOrigin.CASCADE else TransitionOrigin.USER,
                 actor = actorClaim,
-                verification = verification
+                verification = verification,
+                summary = transition.summary,
+                consumedCredentials = transition.consumedCredentials
             )
         )
 

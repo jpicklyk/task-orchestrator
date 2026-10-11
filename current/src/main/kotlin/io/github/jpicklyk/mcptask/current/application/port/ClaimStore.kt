@@ -345,8 +345,13 @@ interface ClaimStore {
      * Claim-status counts over the DIRECT children of each parent in [parentIds], in ONE grouped
      * `SUM(CASE ...)` statement for any number of parents. Every requested id is a key (all zeros when
      * it has no children). An empty [parentIds] returns an empty map without touching the database.
+     * Only children visible under [scope] are counted (the predicates of `ItemStore.find`; unrestricted by
+     * default).
      */
-    suspend fun claimSummaryByParent(parentIds: Set<UUID>): Map<UUID, ClaimStatusCounts>
+    suspend fun claimSummaryByParent(
+        parentIds: Set<UUID>,
+        scope: AccessScope = AccessScope.unrestricted(),
+    ): Map<UUID, ClaimStatusCounts>
 }
 
 /**

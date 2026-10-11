@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -15,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeTestAuthConfig
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.ItemSchemaProbe
 import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -61,7 +61,7 @@ import kotlin.test.fail
  * - MCP captures run through the REAL [ServerComposition.build] over SQLite (LayerBackedGlobalLookup +
  *   PerRootConfigService, exactly as production wires it — pattern:
  *   [ServerCompositionResolverWiringTest]) and execute the REAL tool classes
- *   ([GetContextTool], [QueryItemsTool], [AdvanceItemTool]) against the resulting
+ *   ([GetContextTool], [ItemSchemaProbe], [AdvanceItemTool]) against the resulting
  *   `composition.toolContext`.
  * - REST captures run through the REAL [installRestApiRoutes] with `ContentNegotiation` installed
  *   first (pattern: `ItemGateRouteTest`'s S15 production-topology wiring), reusing the SAME
@@ -472,7 +472,7 @@ class SeatlessResponseGoldenTest {
                     put("operation", JsonPrimitive("schema"))
                     put("itemId", JsonPrimitive(FEATURE_TASK_ID.toString()))
                 }
-            val result = QueryItemsTool().execute(params, fx.toolContext)
+            val result = ItemSchemaProbe().execute(params, fx.toolContext)
             compareOrRecord("query_items_schema_item_feature_task", result)
         }
 
@@ -487,7 +487,7 @@ class SeatlessResponseGoldenTest {
                     put("operation", JsonPrimitive("schema"))
                     put("itemId", JsonPrimitive(BUG_FIX_ID.toString()))
                 }
-            val result = QueryItemsTool().execute(params, fx.toolContext)
+            val result = ItemSchemaProbe().execute(params, fx.toolContext)
             compareOrRecord("query_items_schema_item_bug_fix", result)
         }
 
@@ -503,7 +503,7 @@ class SeatlessResponseGoldenTest {
                     put("type", JsonPrimitive("bug-fix"))
                     put("rootId", JsonPrimitive(ROOT_ID.toString()))
                 }
-            val result = QueryItemsTool().execute(params, fx.toolContext)
+            val result = ItemSchemaProbe().execute(params, fx.toolContext)
             compareOrRecord("query_items_schema_type_bug_fix", result)
         }
 

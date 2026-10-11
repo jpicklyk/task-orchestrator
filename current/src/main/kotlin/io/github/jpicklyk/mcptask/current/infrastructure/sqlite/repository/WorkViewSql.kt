@@ -73,9 +73,14 @@ internal object WorkViewSql {
     /**
      * The `excludeTerminal` visibility rule for the children of [parentId] (the parentless roots when null): the
      * outer item is kept when it is not TERMINAL, or when it is a TERMINAL child of that parent with at least one
-     * non-terminal descendant at any depth (bug 18fd99a7). The walk starts only from the terminal children.
+     * non-terminal descendant at any depth (bug 18fd99a7). The walk starts only from the terminal children. With
+     * [visible] (a [visibility] predicate over the alias `y`), only a VISIBLE non-terminal descendant counts; the walk
+     * itself passes through every descendant.
      */
-    fun notTerminalOrOpenBelow(parentId: UUID?): Op<Boolean> =
+    fun notTerminalOrOpenBelow(
+        parentId: UUID?,
+        visible: VisibilitySql? = null,
+    ): Op<Boolean> =
         SqlOp {
             append("(")
             append(WorkItemsTable.role)
@@ -89,8 +94,68 @@ internal object WorkViewSql {
                 registerArgument(WorkItemsTable.parentId, parentId)
             }
             append(" UNION SELECT w.top, x.id FROM work_items x JOIN walk w ON x.parent_id = w.id)")
-            append(" SELECT walk.top FROM walk JOIN work_items y ON y.id = walk.id WHERE y.role <> 'terminal'))")
+            append(" SELECT walk.top FROM walk JOIN work_items y ON y.id = walk.id WHERE y.role <> 'terminal'")
+            if (visible != null) {
+                append(" AND ")
+                appendWithArgs(visible)
+            }
+            append("))")
         }
+
+    /**
+     * A raw-SQL predicate with its positional arguments, in placeholder order. [sql] holds no literal `?` other than
+     * the placeholders.
+     */
+    class VisibilitySql(
+        val sql: String,
+        val args: List<Pair<IColumnType<*>, Any?>>,
+    )
+
+    /**
+     * The access-scope visibility of the `work_items` row aliased [alias], as raw SQL for the recursive queries that
+     * cannot take an Exposed condition: the resolved root restriction [roots] (`root_id` in the stamped roots, or `id`
+     * in the expanded subtree, each one bound JSON id set) AND the `tags_include` allowlist [tags] ([TagAllowlistSql],
+     * the predicate `ItemStore.find` applies). Null when neither restricts anything. [roots] must not be
+     * [ResolvedScope.Empty]: the caller short-circuits an empty scope before querying.
+     */
+    fun visibility(
+        alias: String,
+        roots: ResolvedScope?,
+        tags: Set<String>,
+    ): VisibilitySql? {
+        val parts = ArrayList<String>()
+        val args = ArrayList<Pair<IColumnType<*>, Any?>>()
+        when (roots) {
+            null -> Unit
+            is ResolvedScope.ByRoot -> {
+                parts.add("$alias.root_id IN ($ID_SET_SELECT)")
+                args.add(idSetArgument(roots.rootIds))
+            }
+            is ResolvedScope.ByIds -> {
+                parts.add("$alias.id IN ($ID_SET_SELECT)")
+                args.add(idSetArgument(roots.ids))
+            }
+            ResolvedScope.Empty -> throw IllegalArgumentException("an empty scope must be short-circuited before querying")
+        }
+        if (tags.isNotEmpty()) {
+            parts.add(TagAllowlistSql.render("$alias.tags", tags.size))
+            TagAllowlistSql.args(tags).forEach { args.add(TextColumnType() to it) }
+        }
+        return if (parts.isEmpty()) null else VisibilitySql(parts.joinToString(" AND ") { "($it)" }, args)
+    }
+
+    /** Appends [predicate]'s SQL, registering each argument at its `?`. */
+    private fun QueryBuilder.appendWithArgs(predicate: VisibilitySql) {
+        val pieces = predicate.sql.split('?')
+        check(pieces.size == predicate.args.size + 1) { "placeholder count does not match the argument count" }
+        pieces.forEachIndexed { index, piece ->
+            if (index > 0) {
+                val (type, value) = predicate.args[index - 1]
+                registerArgument(type, value)
+            }
+            append(piece)
+        }
+    }
 
     /** Role rank for list ordering: queue 0, work 1, review 2, blocked 3, terminal 4 (anything else 99). */
     fun roleRank(): Expression<Int> =

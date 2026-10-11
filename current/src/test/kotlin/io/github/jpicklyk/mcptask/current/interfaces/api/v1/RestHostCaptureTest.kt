@@ -36,6 +36,9 @@ import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -188,7 +191,7 @@ class RestHostCaptureTest {
             val writer = newWriter(rig.composition)
             application { configureApp(rig.composition, writer) }
 
-            val response = client.send("/items", extra = host("Pi") + ua("curl/8.4.0"))
+            val response = client.send("/transitions", extra = host("Pi") + ua("curl/8.4.0"))
             assertEquals(HttpStatusCode.OK, response.status)
             writer.flushNow()
             val row = rowOf(response)
@@ -204,7 +207,7 @@ class RestHostCaptureTest {
             application { configureApp(rig.composition, writer) }
 
             assertEquals("UA=[curl/8.4.0];XCH=[<none>]", client.echo(ua("curl/8.4.0")), "harness proof for this request shape")
-            val response = client.send("/items", extra = ua("curl/8.4.0"))
+            val response = client.send("/transitions", extra = ua("curl/8.4.0"))
             assertEquals(HttpStatusCode.OK, response.status)
             writer.flushNow()
             assertEquals("curl", rowOf(response)["host"])
@@ -219,7 +222,7 @@ class RestHostCaptureTest {
 
             val response =
                 client.send(
-                    "/items",
+                    "/transitions",
                     extra = ua("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36")
                 )
             writer.flushNow()
@@ -238,7 +241,7 @@ class RestHostCaptureTest {
                 client.echo(ua("")),
                 "harness proof: the server sees an empty User-Agent and no X-Client-Host"
             )
-            val response = client.send("/items", extra = ua(""))
+            val response = client.send("/transitions", extra = ua(""))
             assertEquals(HttpStatusCode.OK, response.status)
             writer.flushNow()
             assertEquals("rest", rowOf(response)["host"])
@@ -512,8 +515,11 @@ class RestHostCaptureTest {
             assertTrue(bodyA.contains("S13 rest read"), "fixture: the body is the real item: $bodyA")
             assertEquals(b.status, a.status)
             assertEquals(c.status, a.status)
-            assertEquals(bodyA, b.bodyAsText(), "host is data only: the body does not change with it")
-            assertEquals(bodyA, c.bodyAsText())
+
+            // The items_read envelope carries the call's own meta.reqId; everything else must be identical.
+            fun withoutMeta(text: String) = JsonObject(Json.parseToJsonElement(text).jsonObject - "meta")
+            assertEquals(withoutMeta(bodyA), withoutMeta(b.bodyAsText()), "host is data only: the body does not change with it")
+            assertEquals(withoutMeta(bodyA), withoutMeta(c.bodyAsText()))
             assertNotNull(a.headers["X-Req-Id"])
             writer.flushNow()
             assertEquals("alpha", rowOf(a)["host"])

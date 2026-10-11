@@ -301,7 +301,7 @@ class DnsRebindingHostAllowlistTest {
     fun `S4 loopback Host with same-origin Origin reaches the REST API`() =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
-            val response = client.apiCall(HttpMethod.Get, "/api/v1/items", host = "localhost:3001", origin = "http://localhost:3001")
+            val response = client.apiCall(HttpMethod.Get, "/api/v1/transitions", host = "localhost:3001", origin = "http://localhost:3001")
             assertEquals(HttpStatusCode.OK, response.status, "S4: loopback Host + same-origin Origin must reach /api/v1")
         }
 
@@ -313,7 +313,7 @@ class DnsRebindingHostAllowlistTest {
             val response =
                 client.apiCall(
                     HttpMethod.Get,
-                    "/api/v1/items",
+                    "/api/v1/transitions",
                     host = "localhost:3001",
                     origin = "https://dash.example.com",
                 )
@@ -389,7 +389,14 @@ class DnsRebindingHostAllowlistTest {
 
             // The rejected POST must never have reached the item store: a loopback read afterward
             // must not see anything carrying the marker the rejected request's body would have set.
-            val followUp = client.apiCall(HttpMethod.Get, "/api/v1/items", host = "localhost:3001", origin = "http://localhost:3001")
+            // The item list is items_read (select list) since Q19.
+            val followUp =
+                client.post("/api/v1/ops/items_read") {
+                    header(HttpHeaders.Host, "localhost:3001")
+                    header(HttpHeaders.Origin, "http://localhost:3001")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"select":"list"}""")
+                }
             assertEquals(HttpStatusCode.OK, followUp.status, "S7: loopback follow-up GET must succeed")
             assertTrue(
                 !followUp.bodyAsText().contains(marker),

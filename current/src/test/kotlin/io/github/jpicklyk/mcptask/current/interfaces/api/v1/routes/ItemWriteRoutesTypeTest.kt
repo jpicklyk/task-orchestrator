@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.etagFor
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.HttpClient
@@ -245,9 +246,10 @@ class ItemWriteRoutesTypeTest {
                             type = residueType
                         ),
                     )
+                // PATCH If-Match still validates the 3.x modifiedAt tag; GET /items/{id} serves the 4.0 version ETag since Q19.
                 val fetched = client.get("/api/v1/items/${seeded.id}") { header("Authorization", "Bearer $WRITE_TOKEN") }
-                val etag = fetched.headers[HttpHeaders.ETag]
-                assertNotNull(etag, "GET must supply an ETag: ${fetched.bodyAsText()}")
+                assertNotNull(fetched.headers[HttpHeaders.ETag], "GET must supply an ETag: ${fetched.bodyAsText()}")
+                val etag = etagFor(seeded.modifiedAt)
 
                 val response =
                     client.send(

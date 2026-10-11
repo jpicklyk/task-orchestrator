@@ -119,7 +119,9 @@ fun Route.opsRoutes(
     }
 }
 
-private const val SURFACE_REST = "rest"
+/** The `surface` of every call a REST route dispatches. */
+internal const val SURFACE_REST = "rest"
+
 private const val IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
 private const val MAX_RECEIVED = 100
 

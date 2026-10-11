@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -37,7 +36,7 @@ import kotlin.test.assertTrue
  * The lifecycle: create_work_tree (root + 2 children + a blocking dep) -> get_context
  * health-check -> get_context item -> advance start (gated FAILURE — queue note unfilled) ->
  * fill the queue note -> advance start (-> work) -> fill both work notes -> advance start (-> review) ->
- * fill the review note -> advance start (-> terminal) -> get_next_item -> query_items overview -> query_items get.
+ * fill the review note -> advance start (-> terminal) -> get_next_item.
  * The note fills are fixture writes (`putNote`): the note tools are budgeted by their own tests.
  * The note schema (1 queue + 2 work + 1 review notes, each with guidance text) mirrors a
  * realistic feature-task schema, per the "Reference for the flow (Python original, for shapes
@@ -60,7 +59,6 @@ class LifecycleResponseBudgetTest {
     private val getContextTool = GetContextTool()
     private val advanceItemTool = AdvanceItemTool()
     private val getNextItemTool = GetNextItemTool()
-    private val queryItemsTool = QueryItemsTool()
 
     /** Insertion-ordered label -> measured response char count, populated by [measureCall]. */
     private val measured = linkedMapOf<String, Int>()
@@ -184,8 +182,6 @@ class LifecycleResponseBudgetTest {
             "advance_item(start -> review)" to 550,
             "advance_item(start -> terminal)" to 500,
             "get_next_item" to 350,
-            "query_items(overview)" to 400,
-            "query_items(get t1)" to 350,
         )
 
     @Test
@@ -322,23 +318,6 @@ class LifecycleResponseBudgetTest {
                 "get_next_item",
                 getNextItemTool,
                 buildJsonObject { put("includeDetails", JsonPrimitive(true)) }
-            )
-
-            // ── 12. query_items overview ──
-            measureCall(
-                "query_items(overview)",
-                queryItemsTool,
-                buildJsonObject { put("operation", JsonPrimitive("overview")) }
-            )
-
-            // ── 13. query_items get t1 ──
-            measureCall(
-                "query_items(get t1)",
-                queryItemsTool,
-                buildJsonObject {
-                    put("operation", JsonPrimitive("get"))
-                    put("itemId", JsonPrimitive(t1Id))
-                }
             )
 
             // ── Print the measured-size table ──
