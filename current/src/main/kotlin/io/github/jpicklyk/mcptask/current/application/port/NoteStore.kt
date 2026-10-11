@@ -38,10 +38,13 @@ interface NoteStore {
      * The store owns [Note.version]: a new row is stored with version 1 and an update goes up by one, whatever
      * version [note] carries. Returns the stored row, version included.
      */
+    @StoreWrite
     suspend fun upsert(note: Note): Note
 
+    @StoreWrite
     suspend fun delete(id: UUID): Boolean
 
+    @StoreWrite
     suspend fun deleteByItemId(itemId: UUID): Int
 
     suspend fun findByItemId(

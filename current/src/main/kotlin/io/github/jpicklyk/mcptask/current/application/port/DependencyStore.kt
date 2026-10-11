@@ -24,6 +24,7 @@ interface DependencyStore {
      * Stores [dependency] in its normalized form (see [Dependency.normalized]) and returns the stored row. The
      * store enforces the unique key only; cycle detection lives in `DependencyCommandService`.
      */
+    @StoreWrite
     suspend fun create(dependency: Dependency): Dependency
 
     suspend fun findById(id: UUID): Dependency?
@@ -34,11 +35,14 @@ interface DependencyStore {
 
     fun findByToItemId(toItemId: UUID): List<Dependency>
 
+    @StoreWrite
     suspend fun delete(id: UUID): Boolean
 
+    @StoreWrite
     suspend fun deleteByItemId(itemId: UUID): Int
 
     /** Stores every dependency of [dependencies] in normalized form, returning the stored rows in request order. */
+    @StoreWrite
     suspend fun createBatch(dependencies: List<Dependency>): List<Dependency>
 
     /**

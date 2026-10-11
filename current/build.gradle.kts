@@ -250,6 +250,17 @@ kotlin {
     jvmToolchain(21)
 }
 
+// Store/claim writes are confined by compiler opt-in markers (WriteConfinement.kt, WriteConfinementTest).
+// ~185 tests call store writes directly, so TEST compilation opts in; main compilation never does.
+tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileTestKotlin") {
+    compilerOptions {
+        optIn.addAll(
+            "io.github.jpicklyk.mcptask.current.application.port.StoreWrite",
+            "io.github.jpicklyk.mcptask.current.application.port.ClaimWrite",
+        )
+    }
+}
+
 tasks.jar {
     manifest {
         attributes["Main-Class"] = "io.github.jpicklyk.mcptask.current.CurrentMainKt"

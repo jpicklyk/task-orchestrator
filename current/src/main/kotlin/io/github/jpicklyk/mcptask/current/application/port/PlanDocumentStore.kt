@@ -57,6 +57,7 @@ interface PlanDocumentStore {
      * storing a SHA-256 fingerprint (via [computeContentHash]). A slug already in ADOPTED status is
      * left untouched and reported as [PlanDocumentStashOutcome.AdoptedConflict] instead.
      */
+    @StoreWrite
     suspend fun stash(
         rootItemId: UUID,
         slug: String,
@@ -84,6 +85,7 @@ interface PlanDocumentStore {
      * [PlanDocumentAdoptOutcome.AlreadyAdopted] rather than silently re-adopting under a different
      * item.
      */
+    @StoreWrite
     suspend fun markAdopted(
         rootItemId: UUID,
         slug: String,
