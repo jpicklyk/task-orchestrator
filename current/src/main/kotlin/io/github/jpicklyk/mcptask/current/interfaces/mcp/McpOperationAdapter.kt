@@ -113,13 +113,14 @@ class McpOperationAdapter(
                 structuredContent = body,
                 meta = buildJsonObject { put("reqId", reqId) }
             )
-        submitCallLog(spec, arguments, result, dispatched, telemetry, startedAt, started.elapsedNow().inWholeMilliseconds)
+        submitCallLog(spec, profile, arguments, result, dispatched, telemetry, startedAt, started.elapsedNow().inWholeMilliseconds)
         return result
     }
 
     /** Builds and submits the `call_log` record; any failure is logged at DEBUG and swallowed. */
     private fun submitCallLog(
         spec: ToolSpec,
+        profile: ToolProfile,
         arguments: JsonObject,
         result: CallToolResult,
         dispatched: Dispatched,
@@ -140,7 +141,7 @@ class McpOperationAdapter(
                     tool = spec.name,
                     operation = dispatched.operation,
                     targetIds = CallLogFields.targetIdsJson(arguments),
-                    requestShape = CallLogFields.requestShapeJson(arguments, telemetry.searchShape, telemetry.relatedSignals),
+                    requestShape = CallLogFields.requestShapeJson(arguments, telemetry.searchShape, telemetry.relatedSignals, profile.wire),
                     isError = !ok(body),
                     errorCode = CallLogFields.errorCode(body),
                     latencyMs = latencyMs,
