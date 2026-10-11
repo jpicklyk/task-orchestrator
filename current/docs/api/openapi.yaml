@@ -3763,7 +3763,7 @@ paths:
               additionalProperties: true
       responses:
         "200":
-          description: Envelope with ok=true (or a batch envelope whose elements may carry their own errors)
+          description: Envelope with ok=true; every batch element succeeded (any failed element makes the call 207)
           headers:
             X-Req-Id:
               description: The call's correlation id, equal to meta.reqId.

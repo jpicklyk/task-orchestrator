@@ -2192,8 +2192,9 @@ machine-readable form is in [`api/openapi.yaml`](api/openapi.yaml) (path `/ops/{
 **Request body:** the tool's envelope request, i.e. the same JSON object an MCP `tools/call` carries as
 `arguments` (`select` for a read tool, `ops[]` for a write tool, `describe: true` for the tool's schema). The
 body must be a JSON object, at most 1 MiB. The `Content-Type` header may be absent or `application/json` with
-any parameters (`application/json; charset=utf-8`); anything else is rejected, which is the CSRF guard for
-unauthenticated mode (a cross-site form post cannot set a JSON `Content-Type` without a preflight).
+any parameters (`application/json; charset=utf-8`); anything else is rejected. This check is not the CSRF
+protection on its own (an absent `Content-Type` is accepted); cross-site calls are stopped by the CORS plugin
+and the host allowlist, as on every other route.
 
 **Response:** the response envelope, byte-equal to what MCP returns for the same arguments and access, apart
 from `meta.reqId`. The HTTP status comes from the envelope's error code (`200` for ok, `207` for a partial
@@ -2227,7 +2228,9 @@ listed root ids or tags joined by `,`. The check is the transport-neutral `Scope
 root restriction the item or one of its ancestors must be a listed root; with a tag restriction the item must
 carry one of the listed tags (exact, case-sensitive match on the trimmed comma-separated tags). A missing item
 and a lookup failure under a restricted scope are `forbidden` too (fail closed), so scope is never an
-existence oracle. List reads filter out-of-scope entities instead of failing.
+existence oracle; the one exception is an id that is itself one of the token's listed roots, which is admitted
+under a root restriction (as in 3.x) and then answers the tool's own `not_found`, revealing nothing beyond
+the token's own scope. List reads filter out-of-scope entities instead of failing.
 
 **Faults.** Every fault answers an envelope and is checked in this order:
 
