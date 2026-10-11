@@ -374,9 +374,13 @@ class FailClosedConfigTest {
         itemId: UUID,
         what: String
     ) {
-        val body = opsContext(itemId).bodyAsText()
-        assertTrue("\"config_invalid\"" in body, "$what: $body")
-        assertTrue("\"ok\":false" in body, "$what: $body")
+        val response = opsContext(itemId)
+        val body = response.bodyAsText()
+        // The ops route takes its HTTP status from the envelope error code (ErrorCode.CONFIG_INVALID = 422), as /gate did.
+        assertEquals(HttpStatusCode.UnprocessableEntity, response.status, "$what: $body")
+        val parsed = McpJson.parseToJsonElement(body).jsonObject
+        assertEquals("false", parsed["ok"]?.jsonPrimitive?.content, "$what: $body")
+        assertEnvelopeConfigInvalid(parsed, what)
     }
 
     private suspend fun ApplicationTestBuilder.assertRestConfigInvalid(

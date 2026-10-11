@@ -280,7 +280,8 @@ omitted from `blockers` while its item stays listed.
   (an expiry at or before now, or a claim without usable timestamps). Timestamps are UTC ISO-8601.
 - `resourceLeases` (`[{key, mode, held, holderItemId?, acquiredByActorId?, expiresAt?}]`) is present only when the item
   declares or holds a resource lease: one entry per key it declares or holds; `held` is true only for the own active
-  lease of the item; the holder members appear when some lease on the key is active
+  lease of the item; the holder members appear when some lease on the key is active and its holder item is visible to the
+  caller (a holder outside a restricted scope is omitted, like an out-of-scope blocker)
   (see [Workflow Guide](workflow-guide.md#11-resource-leasing), section 11).
 - `ancestorId`, `limit` and `cursor` with `itemId` are `invalid_request`. A per-root config read fault answers the
   transient `unavailable` error, never a fallback.

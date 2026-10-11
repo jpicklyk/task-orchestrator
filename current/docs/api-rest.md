@@ -895,10 +895,11 @@ is `403 forbidden`. Errors: `400 invalid_request` / `invalid_cursor`, `403 forbi
 
 ### Gate status
 
-`GET /items/{id}/gate` is removed. The gate state of an item (`canAdvance`, `blockedBy`, `blockers`, `contended`, `missing`,
-`missingBySeat`, `violations`, `guidanceKey`, `skillPointer`) is `data.gateStatus` of
+`GET /items/{id}/gate` is removed. The gate state of an item (`canAdvance`, `phase`, `blockedBy`, `blockers`, `contended`,
+`missing`, `missingBySeat`, `violations`) is `data.gateStatus` of
 `POST /api/v1/ops/items_read` with `{"select": "context", "itemId": "<id>"}` (section 20a), the same answer as MCP
-`items_read(select="context")`; see [api-reference.md](api-reference.md#items_read). A removed route answers `404`.
+`items_read(select="context")`; `guidanceKey` and `skillPointer` are siblings of `gateStatus` in `data`, not inside it; see
+[api-reference.md](api-reference.md#items_read). A removed route answers `404`.
 
 ---
 

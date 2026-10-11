@@ -186,7 +186,7 @@ object ItemsReadContext {
                 buildSeatsJson(seats)?.let { put("seats", it) }
                 buildDispatchBySeatFlatJson(dispatchBySeat)?.let { put("dispatchBySeat", it) }
                 claimDetail(env, item)?.let { put("claimDetail", it) }
-                resourceLeases(env, item)?.let { put("resourceLeases", it) }
+                resourceLeases(env, ctx, item)?.let { put("resourceLeases", it) }
             }
         )
     }
@@ -252,6 +252,7 @@ object ItemsReadContext {
      */
     private suspend fun resourceLeases(
         env: ToolExecutionContext,
+        ctx: io.github.jpicklyk.mcptask.current.application.api.CallContext,
         item: WorkItem
     ): JsonArray? {
         val declared = env.resolveResourceRequirements(item)
@@ -262,6 +263,14 @@ object ItemsReadContext {
         val anyHolder = leases.findActiveByKeys(declaredKeys).associateBy { it.resourceKey }
         val requirementByKey = declared.associateBy { it.key }
         val keys = (declaredKeys + own.keys).distinct()
+        // Decision D-e: a holder outside the caller's scope is no topology oracle - its identity fields are omitted (the entry
+        // itself, a key the target declares, stays; `held` is about the target's own lease).
+        val visibleHolders =
+            if (ctx.scope.isUnrestricted) {
+                null
+            } else {
+                env.workItemRepository().filterVisible(anyHolder.values.map { it.holderItemId }.toSet(), ctx.scope)
+            }
         return JsonArray(
             keys.map { key ->
                 val ownLease = own[key]
@@ -270,7 +279,7 @@ object ItemsReadContext {
                     put("key", key)
                     put("mode", (requirementByKey[key]?.mode ?: ResourceMode.ADVISORY).name.lowercase())
                     put("held", ownLease != null)
-                    lease?.let {
+                    lease?.takeIf { visibleHolders == null || it.holderItemId in visibleHolders }?.let {
                         put("holderItemId", it.holderItemId.toString())
                         it.acquiredByActorId?.let { actor -> put("acquiredByActorId", actor) }
                         put("expiresAt", it.expiresAt.toString())
