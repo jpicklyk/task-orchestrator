@@ -42,8 +42,7 @@ interface LinkStore {
 
     /**
      * Deletes every link (all relations) whose SOURCE is one of [refs], in batched statements matched on (kind, id)
-     * only, never on
-oot_item_id. Empty [refs] runs no query. Returns the number deleted.
+     * only, never on `root_item_id`. Empty [refs] runs no query. Returns the number deleted.
      */
     @StoreWrite
     suspend fun deleteFromAny(refs: Collection<EntityRef>): Int
