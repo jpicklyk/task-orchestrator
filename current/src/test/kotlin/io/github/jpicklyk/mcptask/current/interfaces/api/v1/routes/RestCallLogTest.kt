@@ -7,10 +7,15 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.HttpClient
@@ -364,6 +369,9 @@ class RestCallLogTest {
                     options = ServerOptions(capabilities = ServerCapabilities(tools = ServerCapabilities.Tools(listChanged = true)))
                 )
             McpToolAdapter(callLog = writer).registerToolsWithServer(server, buildMcpTools(), rig.ctx)
+            // The 4.0 tools beside them, as CurrentMcpServer serves them (every 3.x tool is gone since Q21/Q23).
+            McpOperationAdapter(buildToolDispatcher(rig.ctx), callLog = writer)
+                .register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
             application {
                 installMcpStreamableHttp(server)
                 val authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig()
@@ -405,7 +413,7 @@ class RestCallLogTest {
                 contentType(ContentType.Application.Json)
                 setBody("""{"jsonrpc":"2.0","id":2,"method":"tools/list"}""")
             }
-            // Q21 retired create_work_tree; the root is seeded directly and a remaining MCP-registered tool is called.
+            // Q21 retired create_work_tree and Q23 query_rules; the root is seeded directly and the 4.0 config tool is called.
             val root = rig.seed("s16")
             val call =
                 client.post("/mcp") {
@@ -413,7 +421,7 @@ class RestCallLogTest {
                     header("mcp-session-id", sessionId)
                     contentType(ContentType.Application.Json)
                     setBody(
-                        """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"query_rules","arguments":{"operation":"list","rootId":"${root.id}"}}}"""
+                        """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"config","arguments":{"ops":[{"op":"rules","rootId":"${root.id}"}]}}}"""
                     )
                 }
             val payload =
@@ -441,7 +449,7 @@ class RestCallLogTest {
             val mcp = rows.filter { it["surface"] == "mcp" }
             assertEquals(1, mcp.size, "only the tools/call is an MCP call_log row: $rows")
             assertEquals(reqId, mcp.single()["req_id"])
-            assertEquals("query_rules", mcp.single()["tool"])
+            assertEquals("config", mcp.single()["tool"])
             assertEquals(
                 0,
                 rows.count { it["surface"] == "rest" },

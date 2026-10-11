@@ -2,6 +2,9 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -60,7 +63,10 @@ class McpStreamableHttpTransportTest {
                             ServerCapabilities(tools = ServerCapabilities.Tools(listChanged = true)),
                     ),
             )
-        McpToolAdapter().registerToolsWithServer(server, buildMcpTools(), ToolExecutionContext(provider, unitOfWork = db.unitOfWork()))
+        val context = ToolExecutionContext(provider, unitOfWork = db.unitOfWork())
+        McpToolAdapter().registerToolsWithServer(server, buildMcpTools(), context)
+        // The 4.0 tools beside them, as CurrentMcpServer serves them (every 3.x tool is gone since Q21/Q23).
+        McpOperationAdapter(buildToolDispatcher(context)).register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
         return server
     }
 
@@ -177,11 +183,13 @@ class McpStreamableHttpTransportTest {
                     .jsonArray
                     .map { it.jsonObject["name"]!!.jsonPrimitive.content }
                     .toSet()
-            val expectedNames = buildMcpTools().map { it.name }.toSet()
+            val expectedNames =
+                buildMcpTools().map { it.name }.toSet() +
+                    ToolRegistry(buildToolSpecs()).visible(ToolProfile.ORCHESTRATION).map { it.name }
             assertEquals(expectedNames, servedNames, "tools/list must expose exactly the production tool set")
 
-            // 4) tools/call query_rules list over a directly seeded root -- proves the full stack executes over HTTP
-            // (Q21 retired create_work_tree, which this call used before)
+            // 4) tools/call config rules over a directly seeded root -- proves the full stack executes over HTTP
+            // (Q21 retired create_work_tree and Q23 query_rules, which this call used before)
             val root = db.repositoryProvider().workItemRepository().create(WorkItem(title = "http"))
             val callResp =
                 client.post("/mcp") {
@@ -190,14 +198,14 @@ class McpStreamableHttpTransportTest {
                     contentType(ContentType.Application.Json)
                     setBody(
                         """{"jsonrpc":"2.0","id":3,"method":"tools/call",""" +
-                            """"params":{"name":"query_rules","arguments":{"operation":"list","rootId":"${root.id}"}}}""",
+                            """"params":{"name":"config","arguments":{"ops":[{"op":"rules","rootId":"${root.id}"}]}}}""",
                     )
                 }
             assertEquals(HttpStatusCode.OK, callResp.status)
             val callResult = parseRpc(callResp.bodyAsText())["result"]!!.jsonObject
             assertTrue(
                 callResult["isError"]?.jsonPrimitive?.content != "true",
-                "query_rules should not be an error over HTTP: $callResult",
+                "config should not be an error over HTTP: $callResult",
             )
         }
 }

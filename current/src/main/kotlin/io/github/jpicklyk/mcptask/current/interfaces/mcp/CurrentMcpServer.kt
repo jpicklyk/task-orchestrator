@@ -571,9 +571,7 @@ internal fun productionServerCapabilities(): ServerCapabilities =
  * production server exposes (see McpStreamableHttpTransportTest), avoiding a hard-coded tool
  * count or a drifting parallel list.
  */
-internal fun buildMcpTools(): List<ToolDefinition> =
-    listOf(
-    )
+internal fun buildMcpTools(): List<ToolDefinition> = listOf()
 
 /** The one [ToolDispatcher] over [toolContext], shared by the MCP adapter and `POST /api/v1/ops/{tool}`. */
 internal fun buildToolDispatcher(toolContext: ToolExecutionContext): ToolDispatcher =

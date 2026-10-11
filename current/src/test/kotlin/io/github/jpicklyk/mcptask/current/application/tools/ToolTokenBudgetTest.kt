@@ -66,8 +66,7 @@ class ToolTokenBudgetTest {
      * the test permanently red on day one.
      */
     private val perToolCeilings: Map<String, Int> =
-        mapOf(
-        )
+        mapOf()
 
     /**
      * Sum of the (unrounded) measured-per-tool-values * 1.15; see BUDGET PHILOSOPHY point 2.
