@@ -1,7 +1,11 @@
+@file:OptIn(StoreWrite::class)
+
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.support.UnitResult
 import io.github.jpicklyk.mcptask.current.application.support.writeUnit
@@ -86,6 +90,8 @@ class NoteCommandService(
     private val configResolver: EffectiveConfigResolver,
     private val unitOfWork: UnitOfWork
 ) {
+    private val links = LinkService(repositoryProvider, unitOfWork)
+
     /** Validate-only: runs the write policy for [item] and stores nothing. */
     suspend fun prepare(
         item: WorkItem,
@@ -196,7 +202,9 @@ class NoteCommandService(
                         )
                     }
                 val stored = noteRepo.upsert(note)
-                events.record(noteUpsertedEvent(stored, eventRootOf(item, repositoryProvider.workItemRepository()), cmd.bodyFromFile))
+                val rootId = eventRootOf(item, repositoryProvider.workItemRepository())
+                events.record(noteUpsertedEvent(stored, rootId, cmd.bodyFromFile))
+                links.syncNote(stored.id, rootId, stored.body, existing?.body, now)
                 UnitResult.Commit(Outcome.Ok(NoteWriteResult(stored, existing == null, prepared.warning)))
             }
         val unavailable = configUnavailable
@@ -232,6 +240,7 @@ class NoteCommandService(
             }
             noteRepo.delete(existing.id)
             events.record(noteDeletedEvent(existing, eventRootOf(item, workItems), DeleteCause.EXPLICIT))
+            links.onNoteDeleted(existing.id)
             UnitResult.Commit(Outcome.Ok(existing))
         }
 

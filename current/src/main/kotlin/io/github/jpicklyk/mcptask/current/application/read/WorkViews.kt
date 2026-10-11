@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.read
 
 import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.api.PageRequest
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -67,6 +68,9 @@ data class BlockedEntry(
  * @property excludeTerminal Drop TERMINAL items from the listed items (and from the global `children`) unless they
  *   still have a non-terminal descendant; applied identically in all three modes. Counts are never filtered.
  * @property includeChildren Global mode only: attach each root's direct children.
+ * @property scope What the caller may see. The view is visible-only: listed items, `childCounts`, roll-ups, claim
+ *   summaries and the `excludeTerminal` "open below" test count visible items only, in SQL. The requested
+ *   [itemId]/[anchorId] itself is NOT checked here: the caller authorizes it first (`ScopeGuard`).
  */
 data class OverviewRequest(
     val itemId: UUID? = null,
@@ -74,6 +78,7 @@ data class OverviewRequest(
     val page: PageRequest = PageRequest(),
     val excludeTerminal: Boolean = false,
     val includeChildren: Boolean = false,
+    val scope: AccessScope = AccessScope.unrestricted(),
 ) {
     init {
         require(itemId == null || anchorId == null) { "itemId and anchorId are mutually exclusive" }

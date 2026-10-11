@@ -1,9 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.notes.QueryNotesTool
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildToolDispatcher
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadTool
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -25,7 +27,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * S1 (AC1) and S2 (AC4) through the real `query_items` and `query_notes` search operations on a real migrated
+ * S1 (AC1) and S2 (AC4) through the real `items_read` search select (kinds item and note) on a real migrated
  * database: `field` names the column that actually contains the match and `snippet` comes from that column; every hit
  * carries `title` (an item hit its own title, a note hit its owning item's title).
  *
@@ -57,29 +59,38 @@ class SearchFieldAndTitleTest {
         body: String,
     ): Note = assertNotNull(context.noteRepository().upsert(Note(itemId = item.id, key = key, role = "work", body = body)))
 
+    /** One `items_read` call through the production dispatcher (query_items/query_notes search were removed in Q19). */
+    private suspend fun itemsRead(args: JsonObject): JsonObject =
+        buildToolDispatcher(context)
+            .dispatch(ItemsReadTool.spec, ToolProfile.ORCHESTRATION, args, "search-field-test", "mcp")
+            .envelope
+            .body
+
+    private suspend fun search(
+        kind: String,
+        query: String,
+        matchMode: String?,
+        explain: Boolean,
+    ): JsonArray {
+        val args = mutableListOf<Pair<String, JsonElement>>("select" to JsonPrimitive("search"), "query" to JsonPrimitive(query))
+        args += "kinds" to JsonArray(listOf(JsonPrimitive(kind)))
+        if (matchMode != null) args += "matchMode" to JsonPrimitive(matchMode)
+        if (explain) args += "explain" to JsonPrimitive(true)
+        val result = itemsRead(JsonObject(args.toMap()))
+        assertTrue(result["ok"]!!.jsonPrimitive.boolean, "items_read search must succeed: $result")
+        return (result["data"] as JsonObject)["items"]!!.jsonArray
+    }
+
     private suspend fun searchItems(
         query: String,
         matchMode: String? = null,
         explain: Boolean = false,
-    ): JsonArray {
-        val args = mutableListOf<Pair<String, JsonElement>>("operation" to JsonPrimitive("search"), "query" to JsonPrimitive(query))
-        if (matchMode != null) args += "matchMode" to JsonPrimitive(matchMode)
-        if (explain) args += "explain" to JsonPrimitive(true)
-        val result = QueryItemsTool().execute(JsonObject(args.toMap()), context) as JsonObject
-        assertTrue(result["success"]!!.jsonPrimitive.boolean, "query_items search must succeed: $result")
-        return (result["data"] as JsonObject)["hits"]!!.jsonArray
-    }
+    ): JsonArray = search("item", query, matchMode, explain)
 
     private suspend fun searchNotes(
         query: String,
         matchMode: String? = null,
-    ): JsonArray {
-        val args = mutableListOf<Pair<String, JsonElement>>("operation" to JsonPrimitive("search"), "query" to JsonPrimitive(query))
-        if (matchMode != null) args += "matchMode" to JsonPrimitive(matchMode)
-        val result = QueryNotesTool().execute(JsonObject(args.toMap()), context) as JsonObject
-        assertTrue(result["success"]!!.jsonPrimitive.boolean, "query_notes search must succeed: $result")
-        return (result["data"] as JsonObject)["hits"]!!.jsonArray
-    }
+    ): JsonArray = search("note", query, matchMode, explain = false)
 
     private fun JsonArray.byItem(): Map<String, JsonObject> = map { it.jsonObject }.associateBy { it["itemId"]!!.jsonPrimitive.content }
 
@@ -94,7 +105,7 @@ class SearchFieldAndTitleTest {
             createItem("unrelated heading", summary = "nothing to see")
 
             listOf(null, "auto", "substring", "text").forEach { mode ->
-                val hit = searchItems("quokka", mode).byItem().getValue(target.id.toString())
+                val hit = searchItems("quokka", mode).byItem().getValue(target.id.toString().take(8))
                 assertEquals("summary", hit.str("field"), "matchMode=$mode")
                 val snippet = hit.str("snippet")
                 assertTrue("<mark>quokka</mark>" in snippet.lowercase(), "matchMode=$mode snippet should mark the term: $snippet")
@@ -111,11 +122,11 @@ class SearchFieldAndTitleTest {
 
             listOf(null, "substring", "text").forEach { mode ->
                 val byItem = searchItems("quokka", mode).byItem()
-                val t = byItem.getValue(titleOnly.id.toString())
+                val t = byItem.getValue(titleOnly.id.toString().take(8))
                 assertEquals("title", t.str("field"), "matchMode=$mode")
                 assertTrue("<mark>quokka</mark>" in t.str("snippet").lowercase(), "matchMode=$mode: ${t.str("snippet")}")
 
-                val b = byItem.getValue(both.id.toString())
+                val b = byItem.getValue(both.id.toString().take(8))
                 assertEquals("title", b.str("field"), "matchMode=$mode: both columns match, title wins")
                 assertTrue("tale" in b.str("snippet"), "matchMode=$mode: the snippet comes from the title: ${b.str("snippet")}")
                 assertFalse(
@@ -132,7 +143,7 @@ class SearchFieldAndTitleTest {
             createNote(host, "design", "the quokka is described in this body")
 
             listOf(null, "substring", "text").forEach { mode ->
-                val hit = searchNotes("quokka", mode).byItem().getValue(host.id.toString())
+                val hit = searchNotes("quokka", mode).byItem().getValue(host.id.toString().take(8))
                 assertEquals("body", hit.str("field"), "matchMode=$mode")
                 assertEquals("design", hit.str("noteKey"), "matchMode=$mode")
                 assertEquals("note", hit.str("kind"), "matchMode=$mode")
@@ -150,10 +161,10 @@ class SearchFieldAndTitleTest {
 
             val byItem = searchItems("quokka").byItem()
 
-            assertEquals("Quokka reading list", byItem.getValue(item.id.toString()).str("title"))
+            assertEquals("Quokka reading list", byItem.getValue(item.id.toString().take(8)).str("title"))
             assertEquals(
                 "Another heading entirely",
-                byItem.getValue(summaryHit.id.toString()).str("title"),
+                byItem.getValue(summaryHit.id.toString().take(8)).str("title"),
                 "the title is reported even when the match is in the summary"
             )
         }
@@ -164,7 +175,7 @@ class SearchFieldAndTitleTest {
             val host = createItem("Owning item title")
             createNote(host, "spec", "quokka facts live in the note body")
 
-            val hit = searchNotes("quokka").byItem().getValue(host.id.toString())
+            val hit = searchNotes("quokka").byItem().getValue(host.id.toString().take(8))
 
             assertEquals("Owning item title", hit.str("title"))
             assertEquals("spec", hit.str("noteKey"))
@@ -182,7 +193,7 @@ class SearchFieldAndTitleTest {
 
             val byItem = searchItems("authentication", explain = true).byItem()
 
-            val bothExplain = byItem.getValue(both.id.toString())["explain"]!!.jsonObject
+            val bothExplain = byItem.getValue(both.id.toString().take(8))["explain"]!!.jsonObject
             assertEquals(60.0, bothExplain["rrfK"]!!.jsonPrimitive.double, 0.0)
             assertNotNull(
                 bothExplain["trigramRank"]?.takeIf { it !is JsonNull },
@@ -190,7 +201,7 @@ class SearchFieldAndTitleTest {
             )
             assertNotNull(bothExplain["textRank"]?.takeIf { it !is JsonNull }, "a document matched by the text analyzer exposes its rank")
 
-            val textOnlyExplain = byItem.getValue(textOnly.id.toString())["explain"]!!.jsonObject
+            val textOnlyExplain = byItem.getValue(textOnly.id.toString().take(8))["explain"]!!.jsonObject
             assertEquals(60.0, textOnlyExplain["rrfK"]!!.jsonPrimitive.double, 0.0)
             // Absent and JSON null both mean "no rank"; the declarations do not fix which one is serialized.
             assertNull(textOnlyExplain["trigramRank"]?.takeIf { it !is JsonNull }, "a stem-only document has no trigram rank")
@@ -198,15 +209,20 @@ class SearchFieldAndTitleTest {
         }
 
     @Test
-    fun `a NUL in the query is a validation error on both search tools instead of an FTS5 failure`() =
+    fun `a NUL in the query is a validation error for both kinds instead of an FTS5 failure`() =
         runBlocking {
-            val args = params("operation" to JsonPrimitive("search"), "query" to JsonPrimitive("abc\u0000def"))
-            listOf(QueryItemsTool().execute(args, context), QueryNotesTool().execute(args, context)).forEach { raw ->
-                val result = raw as JsonObject
-                assertFalse(result["success"]!!.jsonPrimitive.boolean, "$result")
+            for (kind in listOf("item", "note")) {
+                val args =
+                    params(
+                        "select" to JsonPrimitive("search"),
+                        "query" to JsonPrimitive("abc\u0000def"),
+                        "kinds" to JsonArray(listOf(JsonPrimitive(kind))),
+                    )
+                val result = itemsRead(args)
+                assertFalse(result["ok"]!!.jsonPrimitive.boolean, "$result")
                 val error = result["error"]!!.jsonObject
-                assertEquals("VALIDATION_ERROR", error["code"]?.jsonPrimitive?.content)
-                assertTrue(error["message"]!!.jsonPrimitive.content.contains("U+0000"), "$result")
+                assertEquals("invalid_request", error["code"]?.jsonPrimitive?.content)
+                assertTrue(error.toString().contains("U+0000"), "$result")
             }
         }
 }

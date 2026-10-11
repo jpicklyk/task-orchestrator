@@ -3,7 +3,7 @@
 This document describes the HTTP REST API layer (v1) added alongside the MCP transport. The REST API runs on the same Ktor server when `API_ENABLED=true`.
 
 **Base URL:** `/api/v1`
-**Content-Type:** `application/json` (responses); see PATCH for request-body negotiation.
+**Content-Type:** `application/json`.
 **OpenAPI spec:** [`api/openapi.yaml`](api/openapi.yaml) — covers all routes for machine consumption. Note: the YAML is hand-maintained and may lag behind edge-case behavior; this document and the source are authoritative.
 
 **HTTP-first policy.** New plugin-side infrastructure features — `config-sync.mjs`, SSE event
@@ -47,9 +47,8 @@ for missing notes, and fails open the same way when `TASK_ORCHESTRATOR_API_URL` 
 20a. [Endpoints - Ops (RPC)](#20a-endpoints---ops-rpc)
 21. [Server-Sent Events (SSE)](#21-server-sent-events-sse)
 22. [Audit Model](#22-audit-model)
-23. [Merge Patch Semantics](#23-merge-patch-semantics)
-24. [Status-Graph Caveat](#24-status-graph-caveat)
-25. [Known Limitations](#25-known-limitations)
+23. [Status-Graph Caveat](#23-status-graph-caveat)
+24. [Known Limitations](#24-known-limitations)
 
 ---
 
@@ -181,7 +180,7 @@ Each token grants a set of additive capabilities:
 | Capability | Config string | Grants access to |
 |------------|--------------|-----------------|
 | `READ` | `read` | All GET endpoints under `/api/v1/` |
-| `WRITE_ITEMS` | `write-items` | `POST /items`, `PATCH /items/{id}`, `DELETE /items/{id}` |
+| `WRITE_ITEMS` | `write-items` | `items_write` ops through `POST /ops/items_write` (create, update, delete) |
 | `WRITE_NOTES` | `write-notes` | `POST /ops/notes_write` ops `upsert` and `delete` (checked per op by the dispatcher, section 20a) |
 | `ADVANCE` | `advance` | The `advance` tool's ops (`transition`, `claim`, `release`, `heartbeat`) through `POST /ops/advance` (section 20a) |
 | `MANAGE_DEPENDENCIES` | `manage-dependencies` | `POST /ops/deps_write` ops `create`, `delete`, `linear`, `fan_out` and `fan_in` (checked per op by the dispatcher, section 20a) |
@@ -203,58 +202,40 @@ membership. An empty `tags_include` means no tag constraint. Both scope halves a
 same `allowsItemTags`/`enforceScopeForItem` predicates, so single-item and collection checks cannot
 drift apart.
 
-- `GET /items` — scope applied at SQL level via `findInScope` for `root_ids`; a `tags_include`
-  filter is then applied on top (see the pagination caveat below)
-- `GET /items/{id}` — `403 scope_forbidden` if item is outside scope (either `root_ids` or
+- `GET /items/{id}` and `GET /items/{id}/children` (section 9) - the `items_read` rules: a target item
+  outside the scope is `403 forbidden` (envelope, `detail.scope` `root` or `tag`), and under a restricted
+  scope an id that matches nothing the caller may see is `403 forbidden` too, never `404`, so scope is no
+  existence oracle; children outside the scope are left out of the page and not counted
+- `GET /items/{id}/gate` - `403 scope_forbidden` if the item is outside scope (either `root_ids` or
   `tags_include`)
-- `GET /items/{id}/gate` — same `enforceScopeForItem` check as `GET /items/{id}`: `403
-  scope_forbidden` if the item is outside scope (either `root_ids` or `tags_include`)
-- Write endpoints — `403 scope_forbidden` if the target item is outside scope
-- `GET /items/{id}/breadcrumbs` — chain is truncated at the caller's scope root (ancestors above the
-  scope root are hidden); ancestors that fail `tags_include` are dropped from the returned chain
-- `GET /items/{id}/tree` — paginated flat list; scope check applies on the root item only
-- `GET /notes/search` and `GET /search` — `?ancestorId` is validated against the principal's scope;
-  `root_ids` and `tags_include` are applied inside the search query itself, before ranking and the
-  50-hit page, so a restricted token gets a full page of in-scope hits (for `/notes/search`, the
-  tag is checked on each note's owning item)
-- `GET /transitions` and `GET /items/{id}/breadcrumbs` — a `tags_include` token sees only rows for
-  items it is allowed to see; `GET /items/{id}?include=children` is filtered the same way
+- Write endpoints - `403 scope_forbidden` if the target item is outside scope
+- `POST /ops/items_read` (section 20a) - every select applies the same rules; `list`, `search` and
+  `overview` apply the scope before paging, ranking and capping, so `page.total` counts only visible items
+  and a restricted token gets a full page of in-scope hits (a note hit is checked on its owning item);
+  `ancestors` stop at the caller's scope root and drop ancestors that fail `tags_include`
+- `GET /transitions` - a `tags_include` token sees only rows for items it is allowed to see
 - `POST /ops/deps_read` and `POST /ops/deps_write` (section 13) - the subject item of a read is
   checked (`403 forbidden`); an edge whose counterparty is out of scope is dropped from a read page
   and not counted; a write needs every named item (both stored ends for a delete) in scope
-- `GET /api/v1/events` (SSE) — a `tags_include` token is enforced per-event, identically for the
-  live stream and Last-Event-ID replay (see §21)
-- `GET /items/{id}/children` — the parent gets the same `enforceScopeForItem` check as any other
-  single item; a `tags_include` token additionally has the returned children filtered to items
-  carrying an allowed tag (see the pagination caveat below — filtering happens before paging)
+- `GET /api/v1/events` (SSE) - a `tags_include` token is enforced per-event, identically for the
+  live stream and Last-Event-ID replay (see section 21)
 
-**Creating or moving an item to root level is scope-checked too.** A newly created item's ancestor
-chain is only its own (server-generated) id, so it can never already be listed in a `root_ids`
-allowlist — `POST /items` with `parentId` absent or `null` returns `403 scope_forbidden` for any
-token with a non-null `scope.root_ids`. A `tags_include`-only token may create a root item only if
-the tags it is creating that root *with* satisfy its own `tags_include` allowlist (the new root is
-its own anchor, the same way an existing parent's tags anchor a non-root create) — otherwise `403
-scope_forbidden`, and nothing is persisted. Symmetrically, `PATCH /items/{id}` that changes
-`parentId` from non-null to `null` (move to root) returns `403 scope_forbidden` when the caller has
-a non-null `scope.root_ids` and `id` itself is not in that set — after the move the item's chain is
-just itself. (When `id` is itself a listed root the move is allowed; such a caller may already
-`DELETE` that item, so this grants nothing new.) The tag half of a move-to-root is the existing
-entry-point check against the item's tags as they are before the patch.
+**Item writes are scope-checked too.** Item creates, updates and deletes are the `items_write` ops of
+`POST /ops/items_write` (§20a); each element is checked against the token's scope before anything is written
+(`forbidden`, `detail.scope` `root` or `tag`). A newly created item's ancestor chain is only its own
+(server-generated) id, so it can never already be listed in a `root_ids` allowlist: a root create with a non-null
+`scope.root_ids` is `forbidden`. A `tags_include`-only token may create a root item only if the tags it is creating
+that root *with* carry a listed tag. A reparent is checked against the new parent, and `clear: ["parentId"]` (move
+to root) under `root_ids` is allowed only when the item itself is a listed root.
 
-**A collection endpoint never turns a tag-scope mismatch into `403`.** Unlike the single-item case,
-a tag-scoped caller whose scope matches nothing on a collection response (`GET /items`,
-`GET /items/roots`, breadcrumb ancestors, search hits, `GET /transitions`, inline `children`) gets
-`200 OK` with an empty (or partially filtered) result — `403 scope_forbidden` is reserved for the
-single-item case where an out-of-scope item is named directly.
+**A collection never turns a tag-scope mismatch into `403`.** A tag-scoped caller whose scope matches
+nothing on a collection (an `items_read` `list`, `search` or `overview` page, `GET /items/{id}/children`,
+`ancestors`, `GET /transitions`) gets `200 OK` with an empty or partially filtered result; `403` is
+reserved for a single item named directly.
 
-**Pagination under `tags_include`.** The filter has no SQL form, so `GET /items`,
-`GET /items/roots` and `GET /items/{id}/children` read a bounded candidate window (1000 rows, offset
-0) for a tag-scoped caller, filter it by `tags_include`, and paginate the *filtered* result in
-memory. `totalItems` in that case counts only the visible (post-filter) items, not the raw candidate
-window or an unfiltered DB count — a tag-scoped caller with more than 1000 matching candidates will
-see a short/incomplete page. This mirrors the existing `GET /items/{id}/tree` shape and only applies
-to tag-scoped principals; unscoped and `root_ids`-only callers keep SQL-level `LIMIT`/`OFFSET` and a
-DB `COUNT` and are unaffected.
+**Pagination under a scope.** `items_read` applies root and tag scope in the store before paging, so every
+caller gets full pages and an exact `page.total` of visible items; the 3.x bounded candidate window for
+tag-scoped callers is gone.
 
 ---
 
@@ -262,23 +243,24 @@ DB `COUNT` and are unaffected.
 
 ### Item and Note ETags
 
-- Format: `"v1-<modifiedAtMillis>"` (quoted string per HTTP spec)
-- Items: ETag is derived from `item.modifiedAt`
+- Item reads: `GET /items/{id}` answers `ETag: "v{version}"` from the item version on a successful read.
+  `GET /items/{id}/children` carries no `ETag`.
+- Item writes: no REST item write route remains. `items_write` (`POST /api/v1/ops/items_write`) guards an
+  update or delete with `expectedVersion` (`version_conflict`); no route takes an item `If-Match`, and the 3.x
+  `"v1-<modifiedAtMillis>"` tag is no longer served.
 - Notes: `GET /items/{id}/notes/{key}` answers `ETag: "v{version}"` from the note version (V28) and honors `If-None-Match` (`304`); there is no note `If-Match`: guard a write with `notes_write` `expectedVersion` (section 12)
-- Returned in `ETag` response header on all successful reads and writes
 
-**Conditional reads:** `If-None-Match: <etag>` → `304 Not Modified` when the resource has not changed.
+**Conditional reads:** an `If-None-Match` naming the current tag (one tag or a comma-separated list; a
+`W/` weak tag and `*` also match) answers `304 Not Modified` with no body. An error never carries an
+`ETag` and is never a `304`, so the scope check comes first.
 
 **Conditional writes:**
-- `PATCH /items/{id}` — **requires** `If-Match` header. Missing header → `400 precondition_required`. Mismatch → `412` with error `etag_mismatch`.
-- `DELETE /items/{id}` — **optional** `If-Match`. When supplied and mismatched → `412 etag_mismatch`.
+- None on item or note resources: `items_write` and `notes_write` guard a write with `expectedVersion` (`version_conflict`) instead of `If-Match`.
 
-**`GET /items/{id}/gate` carries no `ETag` and ignores `If-None-Match`.** This is deliberate, not an
-omission: gate status depends on the item's notes and its resolved schema/config, and neither is
-versioned by `item.modifiedAt` — an `ETag` derived from the item alone would go stale the moment a
-note is upserted or the config changes, without the item itself being touched.
-
-**`GET /items/{id}` with a recognized `include` (`notes`, `deps`, `children`) carries no `ETag` and ignores `If-None-Match`.** Same rationale as `/gate`: inlined notes, dependencies and (per-principal tag-filtered) children are not versioned by `item.modifiedAt`, so an item-only validator would serve a stale `304` after a note upsert or child creation. An absent, empty or unrecognized-only `include` keeps the normal `ETag`/`304` behavior. The `etag` field inside the body is still `etagFor(item.modifiedAt)` and remains the `If-Match` validator for `PATCH`/`DELETE`; it is not a conditional-read validator.
+**`GET /items/{id}/gate` carries no `ETag` and ignores `If-None-Match`.** This is deliberate: gate status
+depends on the item's notes and its resolved schema/config, and neither is covered by the item's version,
+so an item-derived `ETag` would go stale the moment a note is upserted or the config changes, without the
+item itself being touched.
 
 ### Config ETags
 
@@ -314,22 +296,13 @@ byte-identical content produces the same fingerprint/ETag as an LF, BOM-less che
 
 ## 5. Idempotency
 
-`POST /items` and `PATCH /items/{id}` support idempotency via the `Idempotency-Key` header:
+No REST route takes the 3.x `Idempotency-Key` header any more: `POST /items/{id}/advance` (moved to the `advance` tool) and
+`POST /items`, `PATCH /items/{id}` and `DELETE /items/{id}` (moved to `items_write`) were its last users. The 4.0 write
+tools served at `POST /api/v1/ops/{tool}` (`items_write`, `notes_write`, `deps_write`, `advance`) take a per-element
+`idempotencyKey` instead, recorded per `(principal, tool, key)` for 24 hours (section 20a); an `Idempotency-Key` header on
+`/ops` is `400 invalid_request`.
 
-```
-Idempotency-Key: <UUID>
-```
-
-- Must be a valid UUID
-- Malformed key → `400 validation_error`
-- The write and its record commit in the same transaction, so a record exists only if the effects committed. Records are durable (they survive a restart and are shared by every process on the database) and live for 24 hours, scoped to the caller and the route (`rest.<METHOD> <route template>`).
-- **Replay.** A retry with the same key and the same request (method, path, `If-Match`, canonical body) returns the stored response (status, body and `ETag`) verbatim with the header `Idempotent-Replayed: true`, without re-executing. ETag pre-conditions were evaluated on the first call and are not re-evaluated against the now-mutated resource.
-- **Mismatch.** The same key with a different request is `409 idempotency_mismatch`; nothing is executed. The body is compared canonically (key order and whitespace do not matter), so a retry must send the same content.
-- **What is recorded.** Only a 2xx response and a pure payload rejection (a `400 validation_error` for a malformed body or value) are recorded. A response that depends on state or is transient (`404`, `403`, `409`, `412`, `500`, `503`) rolls the write back and is **not** recorded, so a retry with the same key runs again.
-- Concurrent requests with the same key serialize on the database writer: the first executes, the others replay its result.
-- The same record store backs the MCP tools (`requestId`, keyed per element — see `api-reference.md`); a REST key is `"<uuid>:0"` under the REST route, so the two surfaces never collide.
-- `POST /items` additionally requires `Content-Type: application/json` (an absent header is treated as `*/*` and accepted); any other value → `415 unsupported_media_type` before the idempotency key or body is read.
-- Every write route now bounds its body read to a fixed byte limit BEFORE buffering it: a `Content-Length` over the limit is rejected with `413 payload_too_large` before any bytes are touched, and a chunked/understated-`Content-Length` body is caught by a channel read capped at `limit + 1` bytes, so an oversized body is never buffered in full either way. `POST /items` and `PATCH /items/{id}` share a 1 MiB limit (previously unbounded); `PUT /roots/{rootId}/config` (128 KiB) and `PUT /roots/{rootId}/plans/{slug}` (64 KiB) keep their existing numeric limits, now enforced at the same pre-buffer point instead of after a full read. See §6 for the `payload_too_large` error shape.
+- Every write route bounds its body read to a fixed byte limit BEFORE buffering it: a `Content-Length` over the limit is rejected with `413 payload_too_large` before any bytes are touched, and a chunked/understated-`Content-Length` body is caught by a channel read capped at `limit + 1` bytes, so an oversized body is never buffered in full either way. `POST /api/v1/ops/{tool}` has a 1 MiB limit (its `payload_too_large` is an envelope error, section 20a); `PUT /roots/{rootId}/config` (128 KiB) and `PUT /roots/{rootId}/plans/{slug}` (64 KiB) keep their existing numeric limits, enforced at the same pre-buffer point. See §6 for the legacy `payload_too_large` error shape.
 
 ---
 
@@ -365,18 +338,11 @@ other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability
 | `host_not_allowed` | 403 | The request's `Host` header isn't `localhost`/`127.0.0.1`/`[::1]` (any port) or listed in `MCP_ALLOWED_HOSTS` — DNS-rebinding protection, checked ahead of authentication on every route. Never discloses the rejected `Host` value; see §1. |
 | `bad_request` | 400 | Missing or malformed path/query parameter |
 | `validation_error` | 400 | Invalid field value or deserialization failure (`ErrorDto` body); or (SSE-specific, `error_description` body) `GET /api/v1/events` was called with a `?root=` query parameter that yields no valid UUID (see §21) |
-| `precondition_required` | 400 | `PATCH` missing required `If-Match` header |
 | `not_found` | 404 | Item, note, or dependency not found |
 | `rule_not_found` | 404 | `GET /roots/{rootId}/rules/{key}` (§19a): the root resolves and is depth-0, but no `rule/<key>` plan document exists there — distinct from `not_found`, which covers an unknown `{rootId}` itself |
-| `scope_forbidden` | 403 | Item exists but is outside the caller's scope; also returned for `POST /items` creating a root item, or `PATCH /items/{id}` moving an item to root, when the resulting root-level item would be outside the caller's scope (see §3) |
-| `field_not_patchable` | 400 | PATCH attempted on a server-owned field |
-| `has_children` | 409 | `DELETE /items/{id}` refused: item has one or more direct children and `?recursive=true` was not given; `details.childCount` is the direct child count |
-| `idempotency_mismatch` | 409 | An `Idempotency-Key` was reused with a different request (see §5) |
-| `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §23), or a non-JSON `Content-Type` on `POST /items` (see §5) |
+| `scope_forbidden` | 403 | Item exists but is outside the caller's scope (see §3) |
 | `etag_mismatch` | 412 | `If-Match` header does not match current ETag |
-| `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /items` and `PATCH /items/{id}` share a 1 MiB limit; `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB, except a `{slug}` starting with `rule/` (e.g. `rule%2Fcommit-discipline`), which is capped tighter at 16384 bytes (16 KiB) — the single enforcement point `query_rules`/§19a rely on, so those read surfaces never re-check size themselves (see §18, §19, §19a). |
-| `version_conflict` | 409 | `PATCH /items/{id}`: `If-Match` matched at read time, but a concurrent writer's update won the version race before this write committed — optimistic-lock loss, distinct from `etag_mismatch`. Retry with a fresh `If-Match` ETag. |
-| `invalid_transition` | 409 | `POST /items` or `PATCH /items/{id}` (4.0): the new parent is `terminal` and its effective lifecycle is `auto`, so it takes no new children; `details.parentId` names it. Reopen the parent (the `advance` tool's `transition` op with `reopen`) and retry. A `manual` or `permanent` parent accepts children. |
+| `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB, except a `{slug}` starting with `rule/` (e.g. `rule%2Fcommit-discipline`), which is capped tighter at 16384 bytes (16 KiB) — the single enforcement point `query_rules`/§19a rely on, so those read surfaces never re-check size themselves (see §18, §19, §19a). |
 | `invalid_request` | 401 | `error_description` body. Missing `Authorization` header, a non-Bearer scheme, or an empty Bearer credential (also the SSE pre-flight when no header or allowed `?token=` is presented). Carries `WWW-Authenticate: Bearer error="invalid_request"`. |
 | `invalid_token` | 401 | `error_description` body. Unknown, expired, or otherwise invalid token (bearer or JWKS). Carries `WWW-Authenticate: Bearer error="invalid_token"`. |
 | `verification_failed` | 401 | Not currently reachable via REST — a JWT passing `ApiBearerAuth` is always `VERIFIED`, which every `degradedModePolicy` trusts. Reserved for the same audit-policy check used by MCP tool calls, where a self-reported actor under a degraded JWKS result can still be rejected. |
@@ -410,7 +376,7 @@ alike (including `401`), is the `req_id` of every `events` row the request wrote
 request's row in the `call_log` table. Only `/api/v1` and paths under `/api/v1/` are covered (not
 `/api/v10`). A `401` from the auth layer records its body's `error` code (`invalid_request`,
 `invalid_token`, ...) as the row's `error_code`; `http_<status>` is the fallback. The row's `tool` is
-the matched route template as declared (`GET /api/v1/items/{id}/schema`); a call that matched no route is
+the matched route template as declared (`GET /api/v1/items/{id}/gate`); a call that matched no route is
 `<METHOD> /api/v1/<first segment>` for a served top-level resource, else `<METHOD> unmatched`. `principal_id`
 on REST rows is the authenticated API principal (`api:<tokenId>`); only MCP rows can carry a self-reported actor id (up to 500 characters, with `proof_status` distinguishing verified ids). `X-Req-Id` is in the default
 `CORS_EXPOSE_HEADERS`. See
@@ -485,13 +451,13 @@ Query parameters: `?page=<int>` (default 1, must be an integer in `1..100000`) a
   "etag": "\"v1-<millis>\"",
   "depth": 0,
   "isClaimed": false,
-  "notes": null,       // populated when ?include=notes
-  "children": null,    // populated when ?include=children
-  "dependencies": null // populated when ?include=deps
+  "notes": null,       // always null since the include parameter was removed
+  "children": null,    // always null since the include parameter was removed
+  "dependencies": null // always null since the include parameter was removed
 }
 ```
 
-**Notes on `tags`:** The domain stores tags as a comma-separated string. The REST API expands this to a `List<String>` in `ItemDto` (GET responses). However, `POST /items` accepts `tags` as a JSON array (`List<String>`), while `PATCH /items/{id}` requires `tags` as a **comma-separated string** (e.g., `"feature,auth"`) — this mirrors the domain storage format. Sending a JSON array in a PATCH body will result in a `400 validation_error`.
+**Notes on `tags`:** The domain stores tags as a comma-separated string. The REST API expands this to a `List<String>` in `ItemDto` (GET responses); the `items_write` tool takes `tags` as a JSON array.
 
 ### NoteDto
 
@@ -693,18 +659,6 @@ See §7.
 
 See §6.
 
-### SearchHitDto
-
-```json
-{
-  "itemId": "<uuid>",
-  "field": "title|summary|body",
-  "snippet": "<marked snippet>",
-  "score": 0.032,
-  "noteKey": "implementation-notes"  // null for item hits, set for note hits
-}
-```
-
 ### Config DTOs
 
 **NoteSchemaEntryDto:**
@@ -775,7 +729,7 @@ returns. Declared per trait per phase under `traits.<name>.dispatch.<phase>:`; s
 the trait declares neither. **Global config only:** every `/config*` route resolves against the
 server-wide schema service, not any per-root pushed config, so a per-root `dispatch`/`resources`
 override on a trait of the same name is not reflected here — resolve the per-root-aware value via
-`query_items(operation="schema", itemId=...)` (MCP) instead; that path applies the item's own
+`items_read(select="schema", itemId=...)` (MCP, or `POST /api/v1/ops/items_read`) instead; that path applies the item's own
 `rootId` automatically, so no `rootId` parameter is needed (or honored) there.
 
 **ConfigSnapshotDto:**
@@ -831,7 +785,7 @@ Note: `"<previousRole>"` is a literal sentinel string — dashboards must resolv
 ```
 `type` is the queried type key; `matchedType` is the schema that actually answered it (`"default"`
 when a default schema resolved the miss). `configSource` is `"per-root"` or `"global"` — the same
-literal MCP `query_items(operation="schema", ...)` uses. `configFingerprint` is the supplying
+literal MCP `items_read(select="schema", ...)` uses. `configFingerprint` is the supplying
 layer's fingerprint, omitted when that layer has none.
 
 **EffectiveConfigDto** (see §18, `GET /roots/{rootId}/config/effective`):
@@ -849,7 +803,7 @@ layer's fingerprint, omitted when that layer has none.
 ```
 Every registered type (the union of this root's per-root `work_item_schemas` keys and the global
 schema service's keys) resolved against `{rootId}`'s LAYERED config in one response — the same
-per-root/global view `EffectiveConfigResolver` and MCP `query_items(schema, type=K, rootId=R)`
+per-root/global view `EffectiveConfigResolver` and MCP `items_read(select="schema", type=K, rootId=R)`
 already compute, surfaced as one REST resource instead of requiring a dashboard to probe per type.
 `types` lists every schema key (per-root and global, ascending natural `String` order) that
 resolves to a schema for this root, and `schemas` follows that same order — `types` always equals
@@ -976,86 +930,58 @@ plain JSON object described in section 14 (ISO-8601 instants).
 
 All require `READ` capability.
 
-### GET /items
+The two item GETs below are thin translations to the 4.0 `items_read` tool through the shared dispatcher
+and the same access builder as `POST /api/v1/ops/{tool}` (section 20a). They answer the 4.0 response
+envelope, byte-equal to `POST /api/v1/ops/items_read` for the same principal and arguments apart from
+`meta.reqId`, with the HTTP status taken from the envelope's error code (not the `ErrorDto` body of
+section 6). `{id}` is a full UUID or 8 to 32 hex characters of one. Capability and scope are enforced by
+the dispatcher and the select exactly as on `/ops`: an out-of-scope item, or under a restricted scope an
+id that matches nothing the caller may see, is `403 forbidden`. A request without an authenticated
+principal is `401 unauthenticated`. Fields, views and error codes are described in `api-reference.md` ->
+`items_read`.
 
-Paginated list of work items with optional filters.
+The 3.x `GET /items`, `GET /items/roots`, `GET /items/{id}/tree`, `GET /items/{id}/breadcrumbs` and
+`GET /items/{id}/schema` routes are removed, together with the `include` parameter of `GET /items/{id}`.
+`GET /items/{id}/tree`, `/breadcrumbs` and `/schema` are no longer routed (`404`). `GET /items` is a method
+the path no longer serves and `GET /items/roots` is read as `GET /items/{id}` with the id `roots`; both
+answer a `4xx` client error, never a list. Use `POST /api/v1/ops/items_read`:
 
-Any supplied but unparsable filter value is rejected with `400 validation_error` (`{"error":"validation_error","message":"Invalid parentId 'xyz': must be a UUID"}`), never silently ignored, so a malformed filter cannot widen the result set. A present but blank value (`?parentId=`) is treated as absent. The same rule applies to `GET /items/{id}/tree` `depth`, `GET /transitions` `since`, and `ancestorId`/`role` on `GET /search` and `GET /notes/search`. Validation runs before any scope check, so an invalid `ancestorId` yields `400` rather than `403 scope_forbidden`. (`orderBy`/`orderDir` keep their `400 bad_request` code.)
-
-**Query parameters:**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `page` | int | Page number (default 1, `1..100000`) |
-| `pageSize` | int | Items per page (default 50, max 200) |
-| `role` | string | Filter by role: `queue`, `work`, `review`, `terminal`, `blocked` (case-insensitive). Invalid value -> `400 validation_error`. |
-| `priority` | string | Filter by priority: `high`, `medium`, `low` (case-insensitive; output is lower-case). Invalid value -> `400 validation_error`. |
-| `tag` | string | Comma-separated tags; all listed tags must be present (AND match) |
-| `tagAny` | string | Comma-separated tags; any listed tag must be present (OR match). Overrides `tag` when both present. |
-| `type` | string | Filter by item type |
-| `parentId` | UUID | Filter to direct children of this parent. Invalid value -> `400 validation_error`. |
-| `rootId` | UUID | Filter to items within this root's subtree (intersected with principal scope). Invalid value -> `400 validation_error`. |
-| `modifiedAfter` | ISO-8601 | Modified after this timestamp. Invalid value -> `400 validation_error`. |
-| `modifiedBefore` | ISO-8601 | Modified before this timestamp. Invalid value -> `400 validation_error`. |
-| `createdAfter` | ISO-8601 | Created after this timestamp. Invalid value -> `400 validation_error`. |
-| `createdBefore` | ISO-8601 | Created before this timestamp. Invalid value -> `400 validation_error`. |
-| `claimStatus` | string | Filter by claim state: `claimed`, `unclaimed`, `expired` (case-insensitive). Invalid value -> `400 validation_error`. |
-| `orderBy` | string | Sort field: `title`, `priority`, `complexity`, `createdAt`, `modifiedAt` (also accepts legacy `created`/`modified` aliases). Unknown value → `400 bad_request`. |
-| `orderDir` | string | Sort direction: `asc`, `desc` (default: `desc`). Unknown value → `400 bad_request`. |
-
-**Response:** `200 OK` → `PageDto<ItemDto>` (see §7: `skipped` is always omitted)
-
-### GET /items/roots
-
-Root-level items (depth=0) accessible to the caller.
-
-- Scoped tokens: returns only the specific root items within scope (efficient, not capped); `totalItems` is the exact scoped root count.
-- Unscoped/admin: fully paginated via standard `page`/`pageSize` params — `totalItems` comes from an exact `COUNT` query, unaffected by `pageSize` or by rows dropped for failing domain validation. There is no cap; page through all roots with repeated requests.
-
-**Query parameters:** Standard pagination params (`page`, `pageSize`).
-
-**Response:** `200 OK` → `PageDto<ItemDto>` (see §7: `skipped` is always omitted)
+| Removed route | `items_read` request |
+|---|---|
+| `GET /items` | `{select: "list", ...filters}` |
+| `GET /items/roots` | `{select: "list", depth: 0}`, or `{select: "overview"}` for counts |
+| `GET /items/{id}/tree` | `{select: "list", ancestorId: id}` |
+| `GET /items/{id}/breadcrumbs` | `{select: "get", itemId: id, fields: ["ancestors"]}` |
+| `GET /items/{id}/schema` | `{select: "schema", itemId: id}` (add `fields: ["guidance"]` for guidance text) |
+| `GET /items/{id}?include=notes` | `notes_read` `{select: "list", itemId: id}` |
+| `GET /items/{id}?include=deps` | `deps_read` `{select: "list", item: id}` |
+| `GET /items/{id}?include=children` | `GET /items/{id}/children` |
 
 ### GET /items/{id}
 
-Single item by UUID.
+`items_read select=get` with `itemId` = `{id}`. Takes no query parameter: any is `400 unknown_parameter`.
 
-**Query parameters:**
-- `include` — comma-separated list: `notes`, `deps`, `children` — inline related data
-
-**Responses:**
-- `200 OK` → `ItemDto`
-- `304 Not Modified` -- when `If-None-Match` matches the current ETag; only possible when no recognized `include` (`notes`, `deps`, `children`) is requested. With a recognized `include` the response is always `200 OK` (no `ETag` header, `If-None-Match` ignored)
-- `400 bad_request` — invalid UUID
-- `403 scope_forbidden`
-- `404 not_found`
-
-### GET /items/{id}/tree
-
-Descendant tree, paginated as a flat list (root item always included as first element).
-
-**Query parameters:**
-- `depth` — maximum relative depth from the root item (optional; non-negative integer, otherwise `400 validation_error`)
-- Standard pagination params
-
-**Response:** `200 OK` → `PageDto<ItemDto>`
-
-### GET /items/{id}/breadcrumbs
-
-Ancestor chain from root to the target item (inclusive). Chain is truncated at the caller's scope root for scoped tokens.
-
-**Response:** `200 OK` → `List<ItemDto>` (root-first, target last)
+**Response:** `200 OK`, `data` = the full item view (full UUIDs, lean: empty members omitted, `tags` an
+array, `version` always present), with `ETag: "v{version}"` (the item version). An `If-None-Match` naming
+that tag (a comma-separated list, a `W/` weak tag or `*` also match) answers `304 Not Modified` with no
+body. An error never carries an `ETag` and is never a `304`, so the scope check comes first. Errors:
+`400 invalid_request`, `403 forbidden`, `404 not_found` / `ambiguous_id`.
 
 ### GET /items/{id}/children
 
-Direct children of an item, paginated.
+`items_read select=list` with `parentId` = `{id}`: one page of the item's direct children as compact views
+(8-hex short ids), newest first.
 
-For a `tags_include`-scoped caller, children are filtered by tag before being paginated (bounded
-candidate window; see §3's pagination caveat) — `totalItems` is the filtered count, not a raw DB
-`COUNT`. Unscoped and `root_ids`-only callers keep SQL-level `LIMIT`/`OFFSET` and an exact `COUNT`.
+**Query parameters:** `limit` (1-200, default 50; a non-integer is `400 invalid_request`), `cursor` (from
+`data.page.next`). Any other parameter is `400 unknown_parameter`.
 
-**Response:** `200 OK` → `PageDto<ItemDto>`
-- `403 scope_forbidden` — parent item outside scope
+**Response:** `200 OK`, `data: {items: [compact view], page: {total, truncated, next?}}`. Paging follows the
+envelope rules as amended by U22: `total` is the exact count of visible children on every page,
+`truncated` is true exactly when children exist after this page, and `next` is present exactly when
+`truncated`. No `ETag`. A parent outside the scope selects nothing (the filter id is not scope-checked, see
+`api-reference.md` -> `items_read` "Ids"); under a restricted scope a parent id that matches nothing visible
+is `403 forbidden`. Errors: `400 invalid_request` / `invalid_cursor`, `403 forbidden`, `404 not_found` /
+`ambiguous_id`.
 
 ### GET /items/{id}/gate
 
@@ -1085,164 +1011,16 @@ decide whether a `reject`-mode violation should block a subagent's stop.
 - `503 config_unavailable` — the item's per-root config could not be read inside the preview's read
   unit, where the last-known-good fallback is disabled (see §6); transient, no `Retry-After` header
 
-### GET /items/{id}/schema
-
-The item's resolved schema view — body **exactly equal** to MCP's
-`query_items(operation="schema", itemId=...)` `data` object (see
-[api-reference.md](api-reference.md) → "Key Parameters — schema"): both this route and that MCP
-operation call the SAME `ItemSchemaView.buildItemSchemaJson` builder, so the two response bodies
-stay identical by construction, never by separately-maintained convention. `{ type,
-configFingerprint, configSource, notes: [...], dispatch?, resources?, seats?, dispatchBySeat?,
-features }` — `seats`/`dispatchBySeat` present only for a seat-aware schema, `features` always
-present. Id handling mirrors `GET /items/{id}` and `GET /items/{id}/gate`: full UUID only (a hex
-prefix is rejected), checked in the order below. Same `configResolver` and per-root config cache as
-`GET /items/{id}/gate` (§6), read outside any unit so the last-known-good fallback applies here — no
-separate cache, no `ETag`/`If-None-Match` handling
-(§4's rationale applies here too: neither notes nor config version `item.modifiedAt`).
-
-**Responses:**
-- `200 OK` → the resolved schema view JSON (unwrapped — no envelope DTO)
-- `400 bad_request` — invalid UUID (including a hex prefix; this route, unlike list/search
-  endpoints, requires a full UUID)
-- `403 scope_forbidden`
-- `404 not_found` — item does not exist
-- `404 no_schema` — the item is schema-free (no type/tag match, and no `default` schema resolves)
-- `503 config_unavailable` — same meaning and no-`Retry-After` shape as `GET /items/{id}/gate` above
-
 ---
 
 ## 10. Endpoints — Items (Write)
 
-### POST /items
-
-Create a work item. Requires `WRITE_ITEMS`.
-
-**Request body:**
-
-```json
-{
-  "title": "string",           // required
-  "description": "string",     // optional
-  "summary": "string",         // optional (default empty)
-  "parentId": "<uuid>",        // optional; null = root item
-  "type": "string",            // required; must be a declared type when any schema is configured
-  "priority": "HIGH",          // optional (default MEDIUM)
-  "complexity": 5,             // optional
-  "requiresVerification": false, // optional (default false)
-  "tags": ["feature", "auth"], // optional — JSON array
-  "statusLabel": "string",     // optional
-  "traits": ["needs-review"],  // optional — JSON array of trait names, in order
-  "properties": {},            // optional — JSON object; a "traits" key inside it is rejected (400 validation_error)
-  "metadata": "string"         // optional
-}
-```
-
-**Responses:**
-- `201 Created` → `ItemDto` + `ETag` header
-- `400 validation_error` — invalid field values; also a missing/blank `type`, or a `type` that is not declared (any schema configured): `details = { reason, type, availableTypes }` (`type` is `null` when missing; `availableTypes` is the sorted declared keys of the root's per-root and global config, omitted when none are declared)
-- `400 not_found` — parentId not found
-- `403 scope_forbidden` — parent outside scope; or, when `parentId` is absent/`null` (a root-level
-  create), a `root_ids`-scoped token is always denied (a new item's chain can never already be in
-  `root_ids`), and a `tags_include`-only token is denied unless the tags it creates the root
-  *with* satisfy its own `tags_include` (see §3)
-- `409 invalid_transition` — the parent is `terminal` under `auto` lifecycle (4.0); `details.parentId`
-  names it and nothing is written. Reopen the parent first.
-- `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
-- `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the `Idempotency-Key` header or body is read
-- `503 config_unavailable` — resolving a `terminal` parent's lifecycle read the per-root config and it
-  was unavailable (transient); nothing is written
-
-The item is always created in `queue` (the body has no `role` field). Its `depth` and `rootId` come
-from the parent row read inside the write's own transaction.
-
-Supports `Idempotency-Key` header.
-
-**Audit:** actor is synthesized as `api:<tokenId>` / kind `external`; client-supplied `actor.*` is dropped.
-
-### PATCH /items/{id}
-
-JSON Merge Patch update. Requires `WRITE_ITEMS`, `If-Match`, and `Content-Type: application/merge-patch+json` (or `application/json`).
-
-**Request body:** A partial JSON object following RFC 7396 merge-patch semantics (see §23).
-
-**Tags deviation:** In PATCH, `tags` must be a comma-separated **string** (not a JSON array). Example: `"tags": "feature,auth"`. Sending a JSON array in PATCH → `400 validation_error`.
-
-**Server-owned fields that cannot be patched** (→ `400 field_not_patchable`):
-`id`, `role`, `previousRole`, `roleChangedAt`, `depth`, `createdAt`, `modifiedAt`, `version`, `claimedBy`, `claimedAt`, `claimExpiresAt`, `originalClaimedAt`
-
-**Responses:**
-- `200 OK` → `ItemDto` + `ETag` header
-- `400 precondition_required` — `If-Match` missing
-- `400 field_not_patchable` — attempted to patch server-owned field
-- `400 validation_error` with `details = { reason, type, availableTypes }` — the patch clears `type` (`{"type": null}` is the RFC 7396 delete; `""` is the same) or changes it to an undeclared one. A patch that leaves `type` unchanged is never re-checked, so an `untyped` item stays patchable.
-- `403 scope_forbidden` — new parent outside scope. When the patch re-parents the item (`parentId`
-  changed to a non-null value), the target parent is scope-checked the same way `POST /items`
-  checks a create-time `parentId` — an existence check alone is not authorization. A `parentId`
-  patch to a non-existent parent still returns `400 not_found` first; scope is checked only after
-  the parent is confirmed to exist, so it never becomes an existence oracle. When the patch instead
-  moves the item TO root (`parentId` changed from non-null to `null`), a `root_ids`-scoped token
-  gets `403 scope_forbidden` unless the item's own id is itself in `root_ids` (see §3). The tag
-  half is the entry-point `enforceScopeForItem` check, made against the item's tags as they are
-  before the patch.
-- `400 validation_error` — re-parent would create a cycle: `parentId` equals the item's own id
-  (message: `"An item cannot be its own parent"`) or names one of the item's own descendants
-  (message: `"Cannot re-parent an item under its own descendant"`). Checked with an identity
-  comparison plus a full walk of the proposed parent's real ancestor chain via a single batched
-  `findAncestorChains` lookup — not bounded by the parent row's denormalized `depth`, so a stale or
-  incorrect `depth` value can no longer let a cycle through. **Ordering:** `404 not_found` (unknown
-  parent) → `403 scope_forbidden` (parent outside scope) → this `400 validation_error`
-  (self/descendant cycle) → `409 invalid_transition` (closed parent) — each check runs only after
-  the previous one passes, and nothing is written until all clear. Since 4.0 the cycle and
-  closed-parent checks run inside the write's own transaction.
-- `409 invalid_transition` — the new parent is `terminal` under `auto` lifecycle (4.0);
-  `details.parentId` names it and nothing is written. Reopen the parent first.
-- `500 db_error` — the ancestor-chain lookup for the cycle check failed (repository error); the
-  patch fails closed with no write, rather than silently treating the failure as "no cycle found."
-- `503 config_unavailable` — resolving a `terminal` new parent's lifecycle read the per-root config
-  and it was unavailable (transient); nothing is written
-
-**Reparent effects (4.0).** A reparent restamps every descendant's `depth` and `rootId` in one
-statement inside the same transaction; each restamped descendant's version and `modifiedAt` change,
-so its ETag changes too. Moving an item away from its parent (to another parent or to root) then
-re-evaluates the OLD parent exactly like a child completion: under `auto` lifecycle it completes when
-every remaining child is terminal and its gate passes (a missing required note suppresses it), in the
-same transaction. The response body is unchanged (no cascade report); the parent's new role is
-visible on the next read and as an `item.advanced` event.
-- `409 version_conflict` — a concurrent writer's update won the version race between the `If-Match`
-  check and this request's own write. Distinct from `412 etag_mismatch` below: the ETag matched at
-  read time, but the underlying row changed before this write committed. Retry with a fresh
-  `If-Match` ETag.
-- `412 etag_mismatch` — `If-Match` does not match
-- `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
-- `415 unsupported_media_type` — wrong Content-Type + `Accept-Patch: application/merge-patch+json, application/json` response header
-
-Supports `Idempotency-Key` header.
-
-### DELETE /items/{id}
-
-Deletes the item. Requires `WRITE_ITEMS`. A parent item (one with direct children) is refused
-with `409 has_children` unless `?recursive=true` is given, in which case it and every descendant
-(notes and dependencies cascade with each row) are deleted, leaves-first, inside one
-transaction — all-or-nothing, matching the MCP `manage_items` delete operation's semantics (the
-item command service, shared by both surfaces). Since 4.0 the delete then re-evaluates the deleted
-item's parent like a child completion, in the same transaction (deleting a parent's last child
-never completes it); the response body is unchanged.
-
-**Query parameter:** `recursive` — case-insensitive `"true"`/`"false"`; absent means `"false"`.
-Any other value → `400 validation_error`.
-
-**Optional:** `If-Match` header — when supplied, mismatched ETag → `412 etag_mismatch`.
-
-**Responses:**
-- `200 OK` — recursive delete succeeded: `{"id", "deleted", "descendantsDeleted"}` (`deleted` is the
-  total row count including the target item; `descendantsDeleted` is descendant-only)
-- `204 No Content` — non-recursive delete of a leaf item succeeded
-- `400 validation_error` — invalid `recursive` value
-- `404 not_found`
-- `409 has_children` — item has direct children and `?recursive=true` was not given;
-  `details.childCount` is the direct child count
-- `412 etag_mismatch`
-- `500 db_error`
+Item creates, updates and deletes are no longer separate routes: `POST /items`, `PATCH /items/{id}` and
+`DELETE /items/{id}` never succeed or write: they answer a client error (`404` or `405`). Use the `items_write` tool, `POST /api/v1/ops/items_write` (§20a), with
+`ops[]` elements `create`, `update` and `delete`; the fields, the optimistic lock (`expectedVersion`, replacing
+`If-Match`), the soft delete rules (`recursive`), the scope checks and the errors are in
+[`api-reference.md`](./api-reference.md#items_write). Write elements take an `idempotencyKey` in place of the
+`Idempotency-Key` header.
 
 ### Advancing items (moved)
 
@@ -1327,7 +1105,7 @@ through the 4.0 tools over `POST /api/v1/ops/{tool}` (section 20a):
   header.
 
 Fields, answers and error codes are described in `api-reference.md` -> `deps_read` and `deps_write`.
-`GET /items/{id}?include=deps` still returns the `DependenciesDto` view (section 8).
+`GET /items/{id}` no longer takes `include`: `deps_read` `select: list` replaces `include=deps`.
 
 ---
 
@@ -1434,37 +1212,10 @@ keeps the match count under the cap instead of walking a truncated scan.
 
 All require `READ`.
 
-### GET /search
-
-FTS5 full-text search over item titles, summaries and descriptions.
-
-**Query parameters:**
-- `q` (required) — search query; special characters are auto-sanitized. A control character other than ASCII whitespace (for example `%00`) -> `400`
-- `ancestorId` — scope results to a subtree (invalid UUID -> `400 validation_error`)
-- `role` — filter by item role (invalid value -> `400 validation_error`)
-- `tag` — comma-separated tag filter
-
-Results are ranked by RRF-fused relevance (trigram + porter tokenizer). Returns up to 50 hits.
-Each hit carries `title` (the item's title; omitted if the item could not be read); `field` names
-the field that actually contains a match (`title` or `summary`, `title` when both do) and `snippet`
-comes from that field. The principal's `root_ids`/`tags_include` scope is applied before the 50-hit
-page is taken.
-
-**Response:** `200 OK` → `List<SearchHitDto>`
-
-### GET /notes/search
-
-FTS5 full-text search over note bodies.
-
-**Query parameters:**
-- `q` (required) — search query; a control character other than ASCII whitespace (for example `%00`) -> `400`
-- `ancestorId` — scope results to a subtree (invalid UUID -> `400 validation_error`)
-
-Returns up to 50 hits. `noteKey` is populated on every hit (note-body search always has a key), and
-`title` is the owning item's title. The principal's scope (`tags_include` checked on the owning
-item) is applied before the 50-hit page is taken.
-
-**Response:** `200 OK` → `List<SearchHitDto>`
+The 3.x `GET /search` and `GET /notes/search` routes are removed (`404`). Search items and notes with
+`items_read` `select: search` over `POST /api/v1/ops/items_read` (section 20a): `kinds` picks item content
+and/or note bodies, ranked in one list, and the token's root and tag scope applies before ranking and
+capping. Fields and the hit shape are in `api-reference.md` -> `items_read`.
 
 ---
 
@@ -1697,7 +1448,7 @@ target whose canonical form is still missing (a migrated version) is canonicaliz
 
 Additive route (AR-39/C5): every registered type resolved against `{rootId}`'s LAYERED
 (per-root-over-global) config in one response — the same view `EffectiveConfigResolver` and MCP
-`query_items(operation="schema", type=K, rootId=R)` already compute. Distinct from `GET /config`
+`items_read(select="schema", type=K, rootId=R)` already compute. Distinct from `GET /config`
 (§17, GLOBAL-only) and `GET /roots/{rootId}/config` above (the RAW stored YAML): this route reports
 the RESOLVED base schema per type, with no trait merging — same as `SchemaDto`/the MCP type-path.
 Purely additive: no existing `/config*` or `/roots/{rootId}/config` route, body, or ETag changes.
@@ -2058,7 +1809,7 @@ principal has no `tags_include` (or an event with no `itemId`, i.e. a bus-level 
 Otherwise each event's `itemId` is resolved to its current tags and checked against the allowlist;
 the result is cached per connection for `item.*`/`scope.*` events (which also refresh the cache, so a
 mid-stream tag change on an item takes effect immediately) and reused for `note.*`/`dependency.*`
-events on the same item. See §25 for the `item.deleted` fail-closed gap this scheme has.
+events on the same item. See §24 for the `item.deleted` fail-closed gap this scheme has.
 
 **Event ID namespace:** The ids of `/api/v1/events` (the `events` table's `seq`) are **independent** from the `/mcp` SSE channel's `EventStore`. Do NOT reuse `Last-Event-ID` values across the two channels.
 
@@ -2144,27 +1895,7 @@ caller capability tier, or admin status, because there is no attribution-bearing
 
 ---
 
-## 23. Merge Patch Semantics
-
-`PATCH /items/{id}` implements [RFC 7396 JSON Merge Patch](https://datatracker.ietf.org/doc/html/rfc7396).
-
-**Rules:**
-- Fields present in the patch object with a non-null value → replace that field
-- Fields absent from the patch object → unchanged
-- `null` value in the patch → delete that field (clears to null/empty)
-- Nested objects merge recursively; arrays replace wholesale
-
-**Content-Type:** Must be `application/merge-patch+json` or `application/json`. Wrong type → `415` with `Accept-Patch` response header.
-
-**Patchable fields:** `title`, `description`, `summary`, `statusLabel`, `priority`, `complexity`, `requiresVerification`, `tags` (CSV string), `type`, `traits` (array; `null` clears it), `properties`, `metadata`, `parentId`
-
-**`properties` null-delete/nested-merge:** The `properties` field in the patch is merged recursively when both the base and the patch value are JSON objects. Setting a key to `null` removes it from `properties`. Setting `properties` itself to `null` clears the entire properties object. A patch that leaves `properties` holding a `traits` key is rejected with `400 validation_error` (field `properties`); traits are patched through the typed `traits` field.
-
-**`tags` deviation — see §8 ItemDto section.** POST accepts a JSON array; PATCH requires a CSV string.
-
----
-
-## 24. Status-Graph Caveat
+## 23. Status-Graph Caveat
 
 `GET /config/status-graph` returns the **structural** (schema-defined) transition graph — which triggers are valid for each role per type.
 
@@ -2185,7 +1916,7 @@ ownership, or per-item lifecycle exceptions for `{rootId}`'s items either.
 
 ---
 
-## 25. Known Limitations
+## 24. Known Limitations
 
 **SSE root scoping is per row.** Since 4.0 every event row is stored with its root (the item's
 depth-0 ancestor; a reparent stores one row under the old root and one under the new), so live
@@ -2204,4 +1935,4 @@ connection unless it already resolved the item's tags from an earlier event on t
 
 **SSE honors bearer, JWKS, and unauthenticated modes.** The pre-flight auth plugin for the SSE route resolves `Authorization: Bearer` (and, when enabled, `?token=`) using the same shared Bearer-scheme parser as `ApiBearerAuth`, and explicitly short-circuits for `API_AUTH_MODE=none` (§1/§21) exactly like the bearer route. JWKS-mode JWT authentication for SSE is exercised by the automated expiry-watchdog test suite, which sends JWKS-signed tokens through this plugin.
 
-**FTS5 requires SQLite.** Search endpoints (`GET /search`, `GET /notes/search`) run on the SQLite FTS5 virtual tables created by the Flyway migrations.
+**FTS5 requires SQLite.** `items_read` `search` runs on the SQLite FTS5 virtual tables created by the Flyway migrations.

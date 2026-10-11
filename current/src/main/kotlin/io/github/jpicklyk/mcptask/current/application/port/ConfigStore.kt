@@ -59,6 +59,7 @@ interface ConfigStore {
      * known-fingerprint epoch ([classifyFingerprint] and `config_known_fingerprints` are root-only); [expectedVersion]
      * and [expectedFingerprint] still work.
      */
+    @StoreWrite
     suspend fun append(
         scope: ConfigScope,
         rootId: UUID?,
@@ -75,6 +76,7 @@ interface ConfigStore {
     ): FingerprintRelation
 
     /** The only in-place write: NULL -> value. Returns false when the row is missing or already filled. */
+    @StoreWrite
     suspend fun fillCanonical(
         id: UUID,
         canonicalJson: String,

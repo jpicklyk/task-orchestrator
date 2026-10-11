@@ -9,8 +9,8 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
+import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
+import io.github.jpicklyk.mcptask.current.test.seedItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
@@ -22,9 +22,11 @@ import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -316,31 +318,17 @@ class McpToolAdapterValidationEnvelopeTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S8 - real query_items with a non-boolean includeAncestors maps to VALIDATION_ERROR naming the parameter`(): Unit =
+    fun `S8 - real get_context with a non-boolean includeAncestors maps to VALIDATION_ERROR naming the parameter`(): Unit =
         runBlocking {
-            adapter.registerToolWithServer(server, ManageItemsTool(), dummyContext)
-            adapter.registerToolWithServer(server, QueryItemsTool(), dummyContext)
+            adapter.registerToolWithServer(server, GetContextTool(), dummyContext)
 
-            val createResult =
-                client.callTool(
-                    name = "manage_items",
-                    arguments =
-                        mapOf(
-                            "operation" to "create",
-                            "items" to listOf(mapOf("title" to "S8 item", "type" to "test-item"))
-                        )
-                )
-            assertTrue(createResult.isError != true, "Setup precondition: item creation must succeed, got: ${createResult.content}")
-            val createdItems =
-                assertNotNull(createResult.structuredContent, "Success response must carry structuredContent")["items"]!!.jsonArray
-            val itemId = createdItems[0].jsonObject["id"]!!.jsonPrimitive.content
+            val itemId = seedItem(dummyContext, buildJsonObject { put("title", JsonPrimitive("S8 item")) })
 
             val queryResult =
                 client.callTool(
-                    name = "query_items",
+                    name = "get_context",
                     arguments =
                         mapOf(
-                            "operation" to "get",
                             "itemId" to itemId,
                             "includeAncestors" to 42
                         )
@@ -363,7 +351,7 @@ class McpToolAdapterValidationEnvelopeTest {
             val textContent = queryResult.content.filterIsInstance<TextContent>()
             assertTrue(textContent.isNotEmpty())
             assertTrue(
-                textContent[0].text.startsWith("Validation error in 'query_items':"),
+                textContent[0].text.startsWith("Validation error in 'get_context':"),
                 "Expected a validation-error prefix, not an Internal error, got: ${textContent[0].text}"
             )
         }

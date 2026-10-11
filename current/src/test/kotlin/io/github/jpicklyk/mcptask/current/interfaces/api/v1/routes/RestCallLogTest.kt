@@ -135,7 +135,8 @@ class RestCallLogTest {
             assertEquals("rest", row["surface"])
             assertEquals("GET /api/v1/items/{id}", row["tool"])
             assertEquals(listOf(item.id.toString()), ids(row["target_ids"]))
-            assertNull(row["target_versions"], "REST records no target versions")
+            // GET /items/{id} is the items_read get since Q19, which records the version it read.
+            assertEquals(setOf(item.id.toString()), Json.parseToJsonElement(row["target_versions"] as String).jsonObject.keys)
             assertNull(row["operation"])
             assertEquals("api:$TEST_TOKEN_ID", row["principal_id"])
             assertEquals("external", row["principal_kind"])
@@ -150,35 +151,6 @@ class RestCallLogTest {
             assertNull(row["session_id"], "REST has no MCP session")
         }
 
-    @Test
-    fun `S4 a REST write stamps its events with the X-Req-Id and records the request body size`() =
-        testApplication {
-            val rig = EventLogRig.build(db.db, dir)
-            val writer = newWriter(rig.composition)
-            application { configureApp(rig.composition, writer) }
-
-            val body = """{"title":"S4 café write","type":"test-item"}"""
-            val response =
-                client.post("/api/v1/items") {
-                    header(HttpHeaders.Authorization, "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody(body)
-                }
-            assertEquals(HttpStatusCode.Created, response.status, response.bodyAsText())
-            val reqId = assertNotNull(response.headers["X-Req-Id"])
-
-            val stamps = CallLogRows.eventStamps(db.jdbcUrl)
-            assertTrue(stamps.isNotEmpty(), "fixture: the write recorded at least one event")
-            assertTrue(stamps.all { it.first == reqId }, "every event of the write carries X-Req-Id $reqId: $stamps")
-
-            writer.flushNow()
-            val row = callLogRows().single()
-            assertEquals(reqId, row["req_id"])
-            assertEquals("POST /api/v1/items", row["tool"])
-            assertEquals("api:$WRITE_TOKEN_ID", row["principal_id"])
-            assertEquals(body.toByteArray(Charsets.UTF_8).size.toLong(), row["request_bytes"], "Content-Length of the JSON body")
-        }
-
     // ------------------------------------------------------------------ S10
 
     @Test
@@ -189,7 +161,7 @@ class RestCallLogTest {
             application { configureApp(rig.composition, writer) }
 
             val missing = UUID.randomUUID()
-            val typed = client.getWith("/items/$missing")
+            val typed = client.getWith("/items/$missing/gate") // a legacy ErrorDto route (item and note GETs answer envelopes)
             assertEquals(HttpStatusCode.NotFound, typed.status)
             val typedCode =
                 Json
@@ -203,7 +175,7 @@ class RestCallLogTest {
 
             writer.flushNow()
             val byTool = callLogRows().associateBy { it["tool"] }
-            val typedRow = byTool.getValue("GET /api/v1/items/{id}")
+            val typedRow = byTool.getValue("GET /api/v1/items/{id}/gate")
             assertEquals("error", typedRow["outcome"])
             assertEquals("not_found", typedRow["error_code"], "the typed ErrorDto.error, not http_404")
             assertEquals(typed.headers["X-Req-Id"], typedRow["req_id"])
@@ -230,7 +202,7 @@ class RestCallLogTest {
             val deep = client.getWith("/items/$a/zzz/$b")
             val keyed = client.getWith("/items/$a/notes/my-key")
             val listingResponse = client.getWith("/items?limit=5&includeChildren=true&title=x")
-            val schema = client.getWith("/items/$a/schema")
+            val schema = client.getWith("/items/$a/gate")
 
             writer.flushNow()
             val byReq = callLogRows().associateBy { it["req_id"] }
@@ -248,7 +220,7 @@ class RestCallLogTest {
             assertEquals(listOf("includeChildren", "limit"), shape.keys.toList())
             assertNull(listing["target_ids"])
             // G1: a matched multi-literal route keeps its declared template.
-            assertEquals("GET /api/v1/items/{id}/schema", byReq.getValue(schema.headers["X-Req-Id"])["tool"])
+            assertEquals("GET /api/v1/items/{id}/gate", byReq.getValue(schema.headers["X-Req-Id"])["tool"])
         }
 
     @Test
@@ -258,11 +230,11 @@ class RestCallLogTest {
             val writer = newWriter(rig.composition)
             application { configureApp(rig.composition, writer) }
             val id = UUID.randomUUID()
-            val matched = client.getWith("/items/$id/schema")
+            val matched = client.getWith("/items/$id/gate")
             val plain = client.getWith("/items/$id")
             writer.flushNow()
             val byReq = callLogRows().associateBy { it["req_id"] }
-            assertEquals("GET /api/v1/items/{id}/schema", byReq.getValue(matched.headers["X-Req-Id"])["tool"])
+            assertEquals("GET /api/v1/items/{id}/gate", byReq.getValue(matched.headers["X-Req-Id"])["tool"])
             assertEquals("GET /api/v1/items/{id}", byReq.getValue(plain.headers["X-Req-Id"])["tool"])
         }
 
@@ -439,7 +411,7 @@ class RestCallLogTest {
                     header("mcp-session-id", sessionId)
                     contentType(ContentType.Application.Json)
                     setBody(
-                        """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"query_items","arguments":{"operation":"overview"}}}"""
+                        """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_context","arguments":{}}}"""
                     )
                 }
             val payload =
@@ -467,7 +439,7 @@ class RestCallLogTest {
             val mcp = rows.filter { it["surface"] == "mcp" }
             assertEquals(1, mcp.size, "only the tools/call is an MCP call_log row: $rows")
             assertEquals(reqId, mcp.single()["req_id"])
-            assertEquals("query_items", mcp.single()["tool"])
+            assertEquals("get_context", mcp.single()["tool"])
             assertEquals(
                 0,
                 rows.count { it["surface"] == "rest" },

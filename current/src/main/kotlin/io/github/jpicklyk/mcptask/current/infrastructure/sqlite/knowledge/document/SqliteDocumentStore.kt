@@ -1,11 +1,13 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.knowledge.document
 
 import io.github.jpicklyk.mcptask.current.application.port.DocumentStore
+import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.domain.model.Document
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentSummary
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentVersion
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQL_IN_CHUNK_SIZE
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.readTx
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.writeTx
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.DocumentVersionsTable
@@ -15,6 +17,7 @@ import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
@@ -85,6 +88,32 @@ class SqliteDocumentStore(
                 .map(::toSummary)
         }
 
+    override suspend fun findBySlugs(
+        rootItemId: UUID,
+        slugs: Collection<String>
+    ): List<DocumentSummary> {
+        if (slugs.isEmpty()) return emptyList()
+        return databaseManager.readTx {
+            slugs.distinct().chunked(SQL_IN_CHUNK_SIZE).flatMap { chunk ->
+                DocumentsTable
+                    .select(
+                        DocumentsTable.id,
+                        DocumentsTable.rootItemId,
+                        DocumentsTable.kind,
+                        DocumentsTable.slug,
+                        DocumentsTable.title,
+                        DocumentsTable.contentHash,
+                        DocumentsTable.version,
+                        DocumentsTable.archivedAt,
+                        DocumentsTable.createdAt,
+                        DocumentsTable.modifiedAt
+                    ).where { (DocumentsTable.rootItemId eq rootItemId) and (DocumentsTable.slug inList chunk) }
+                    .map(::toSummary)
+            }
+        }
+    }
+
+    @StoreWrite
     override suspend fun insert(document: Document): Document =
         databaseManager.writeTx("DocumentStore.insert") {
             DocumentsTable.insert {
@@ -107,6 +136,7 @@ class SqliteDocumentStore(
                 .let(::toDocument)
         }
 
+    @StoreWrite
     override suspend fun updateCurrent(
         id: UUID,
         expectedVersion: Int,
@@ -127,6 +157,7 @@ class SqliteDocumentStore(
             updated == 1
         }
 
+    @StoreWrite
     override suspend fun appendVersion(version: DocumentVersion) {
         databaseManager.writeTx("DocumentStore.appendVersion") {
             DocumentVersionsTable.insert {
@@ -162,6 +193,7 @@ class SqliteDocumentStore(
                 ?.let(::toVersion)
         }
 
+    @StoreWrite
     override suspend fun setArchived(
         id: UUID,
         at: Instant?
@@ -172,6 +204,7 @@ class SqliteDocumentStore(
             } == 1
         }
 
+    @StoreWrite
     override suspend fun delete(id: UUID): Boolean =
         databaseManager.writeTx("DocumentStore.delete") {
             // History first and explicitly: the FK cascade only runs on a connection with foreign_keys=ON.

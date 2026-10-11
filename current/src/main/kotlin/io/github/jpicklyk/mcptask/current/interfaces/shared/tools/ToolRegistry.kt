@@ -5,6 +5,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes.notesReadTo
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.notes.notesWriteTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps.depsReadTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.deps.depsWriteTool
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadTool
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.itemsWriteTool
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.StructureKind
 import kotlinx.serialization.json.JsonObject
@@ -117,6 +119,15 @@ class ToolRegistry(
 /**
  * The production 4.0 tools. Each tool item appends its spec here (and deletes the 3.x tools it replaces from
  * `buildMcpTools()`). Q11 registered `notes_read` and `notes_write`, the first two; Q12 added
- * `deps_read` and `deps_write`.
+ * `deps_read` and `deps_write`; Q13 added `advance`; Q18 added `items_write`; Q19 added `items_read`.
  */
-fun buildToolSpecs(): List<ToolSpec> = listOf(notesReadTool, notesWriteTool, depsReadTool(), depsWriteTool(), advanceTool())
+fun buildToolSpecs(): List<ToolSpec> =
+    listOf(
+        itemsWriteTool(),
+        notesReadTool,
+        notesWriteTool,
+        depsReadTool(),
+        depsWriteTool(),
+        advanceTool(),
+        ItemsReadTool.spec,
+    )

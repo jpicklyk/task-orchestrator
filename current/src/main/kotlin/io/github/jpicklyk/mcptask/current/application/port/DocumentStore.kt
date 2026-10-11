@@ -35,7 +35,17 @@ interface DocumentStore {
         includeArchived: Boolean
     ): List<DocumentSummary>
 
+    /**
+     * Metadata-only summaries (no body, archived included) of the documents under [rootItemId] whose slug is one of
+     * [slugs], of any kind, in one batched query. Empty [slugs] returns an empty list without a query.
+     */
+    suspend fun findBySlugs(
+        rootItemId: UUID,
+        slugs: Collection<String>
+    ): List<DocumentSummary>
+
     /** Inserts [document] as given (its id, version and timestamps included) and returns the stored row. */
+    @StoreWrite
     suspend fun insert(document: Document): Document
 
     /**
@@ -43,6 +53,7 @@ interface DocumentStore {
      * `modified_at = now` on the row with [id] only when its stored version still equals [expectedVersion]
      * (one `UPDATE ... WHERE id = ? AND version = ?`). Returns true when exactly one row was updated.
      */
+    @StoreWrite
     suspend fun updateCurrent(
         id: UUID,
         expectedVersion: Int,
@@ -53,6 +64,7 @@ interface DocumentStore {
     ): Boolean
 
     /** Appends one history row. `(documentId, version)` is unique. */
+    @StoreWrite
     suspend fun appendVersion(version: DocumentVersion)
 
     /** Every version of document [id], oldest first. */
@@ -65,11 +77,13 @@ interface DocumentStore {
     ): DocumentVersion?
 
     /** Sets (non-null [at]) or clears (null) `archived_at` on document [id]. Returns true when a row was updated. */
+    @StoreWrite
     suspend fun setArchived(
         id: UUID,
         at: Instant?
     ): Boolean
 
     /** Deletes document [id] (its versions cascade by foreign key). Returns true when a row was deleted. */
+    @StoreWrite
     suspend fun delete(id: UUID): Boolean
 }

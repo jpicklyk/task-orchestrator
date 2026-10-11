@@ -1,0 +1,5 @@
+# Knowledge-boundary baseline (task-scope D14, AC6): pre-existing violations of the rule that production files under
+# application/knowledge/ and infrastructure/sqlite/knowledge/ must not reference domain.lifecycle.* or any type whose simple
+# name starts with Claim, Seat, Transition, RoleTransition or Advance.
+# One '<path> -> <referenced FQN>' per line. This file is intentionally EMPTY: there are no pre-existing violations, so a new
+# violation fails KnowledgeBoundaryTest, and a line added here that does not match a real violation fails it too (two-way ratchet).

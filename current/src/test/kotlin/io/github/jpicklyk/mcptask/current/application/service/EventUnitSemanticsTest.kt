@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorFixtures
@@ -12,6 +11,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
 import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
+import io.github.jpicklyk.mcptask.current.test.createOp
+import io.github.jpicklyk.mcptask.current.test.itemsWrite
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -19,7 +20,6 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
@@ -255,31 +255,17 @@ class EventUnitSemanticsTest {
     ): Unit =
         runBlocking {
             val rig = EventLogRig.build(db.db, dir)
-            val requestId = UUID.randomUUID().toString()
-            val params =
-                arrayOf(
-                    "operation" to JsonPrimitive("create"),
-                    "items" to
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("type", "test-item")
-                                    put("title", "idem")
-                                }
-                            )
-                        },
-                    "requestId" to JsonPrimitive(requestId),
-                    "actor" to
-                        buildJsonObject {
-                            put("id", "idem-agent")
-                            put("kind", "subagent")
-                        },
-                )
+            val actor =
+                buildJsonObject {
+                    put("id", "idem-agent")
+                    put("kind", "subagent")
+                }
+            val element = createOp("idem", null, "test-item", "idempotencyKey" to JsonPrimitive("idem-key-1"))
 
-            val (_, first) = rig.written { rig.callOk(ManageItemsTool(), *params) }
+            val (_, first) = rig.written { rig.itemsWrite(element, actor = actor) }
             assertEquals(listOf("item.created"), first.types(), "fixture: the first call executes and records")
 
-            val (_, replay) = rig.written { rig.callOk(ManageItemsTool(), *params) }
+            val (_, replay) = rig.written { rig.itemsWrite(element, actor = actor) }
 
             assertEquals(emptyList(), replay, "a replayed request re-executes nothing and records nothing")
         }

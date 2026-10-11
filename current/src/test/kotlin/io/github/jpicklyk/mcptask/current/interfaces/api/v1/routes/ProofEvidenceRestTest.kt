@@ -399,28 +399,4 @@ class ProofEvidenceRestTest {
             assertFalse(body.contains("raw-sql-secret-proof"), "a raw-SQL-set actor_proof must never reach the REST response: $body")
             assertFalse(body.contains("\"proof\":\""), "actor.proof must never carry a value even with all redaction disabled: $body")
         }
-
-    // ===========================================================================================
-    // S17 (rewritten for b81d5849) -- GET /items/{id} with the deprecated token alongside a valid
-    // one still returns notes populated, with no Warning header: the deprecated token is silently
-    // ignored alongside a still-honored include value.
-    // ===========================================================================================
-
-    @Test
-    fun `GET items id with include=notes,proof returns notes populated and no Warning header`() =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val (item, _) = makeItemAndEvidenceNote(repo, proofSha256 = "44".repeat(32), claims = null)
-            application { configureTestApp { itemRoutes(repo) } }
-
-            val response =
-                client.get("/api/v1/items/${item.id}?include=notes,proof") {
-                    header("Authorization", "Bearer $ADMIN_TOKEN")
-                }
-            assertEquals(HttpStatusCode.OK, response.status)
-            val warnings = response.headers.getAll("Warning") ?: emptyList()
-            assertTrue(warnings.isEmpty(), "?include=proof must no longer add a Warning header; got $warnings")
-            val body = response.bodyAsText()
-            assertTrue(body.contains("\"notes\":"), "expected notes to be populated for include=notes: $body")
-        }
 }

@@ -1,25 +1,12 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.notes.QueryNotesTool
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
-import io.modelcontextprotocol.kotlin.sdk.client.Client
-import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
-import io.modelcontextprotocol.kotlin.sdk.server.Server
-import io.modelcontextprotocol.kotlin.sdk.testing.ChannelTransport
-import io.modelcontextprotocol.kotlin.sdk.types.ClientCapabilities
-import io.modelcontextprotocol.kotlin.sdk.types.Implementation
-import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
-import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.BeforeEach
-import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
@@ -275,71 +262,5 @@ class McpToolAdapterSchemaAwareCoercionTest {
         val twice = preprocess(once, schema)
 
         assertEquals(once, twice)
-    }
-
-    // ──────────────────────────────────────────────
-    // S6 — full MCP stack regression (red-first): a legitimate string query value of "false"
-    // must never surface a validation error through the real protocol path.
-    // ──────────────────────────────────────────────
-
-    @Nested
-    inner class RegressionThroughFullMcpStack {
-        private lateinit var server: Server
-        private lateinit var client: Client
-
-        @BeforeEach
-        fun setUp(): Unit =
-            runBlocking {
-                server =
-                    Server(
-                        serverInfo = Implementation(name = "coercion-test-server", version = "1.0.0"),
-                        options = inMemoryTestServerOptions()
-                    )
-                client =
-                    Client(
-                        clientInfo = Implementation(name = "coercion-test-client", version = "1.0.0"),
-                        options = ClientOptions(capabilities = ClientCapabilities())
-                    )
-                val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
-                server.createSession(serverTransport)
-                client.connect(clientTransport)
-            }
-
-        @AfterEach
-        fun tearDown(): Unit =
-            runBlocking {
-                closeInMemoryPair(client, server)
-            }
-
-        private val dummyContext by lazy {
-            ToolExecutionContext(
-                repositoryProvider = db.repositoryProvider(),
-                unitOfWork = db.unitOfWork()
-            )
-        }
-
-        @Test
-        fun `S6 - query_notes search with query false does not surface a validation error`(): Unit =
-            runBlocking {
-                val adapter = McpToolAdapter()
-                adapter.registerToolWithServer(server, QueryNotesTool(), dummyContext)
-
-                val result =
-                    client.callTool(
-                        name = "query_notes",
-                        arguments = mapOf("operation" to "search", "query" to "false")
-                    )
-
-                assertTrue(
-                    result.isError != true,
-                    "query_notes(search, query=\"false\") must not fail validation: ${result.content}"
-                )
-                val textContent = result.content.filterIsInstance<TextContent>()
-                assertFalse(
-                    textContent.any { it.text.contains("Validation error") },
-                    "no Validation error should surface for a legitimate string query value: " +
-                        textContent.map { it.text }
-                )
-            }
     }
 }

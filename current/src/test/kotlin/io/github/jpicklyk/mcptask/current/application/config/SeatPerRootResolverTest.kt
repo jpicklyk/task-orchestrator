@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
-import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
+import io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -36,7 +36,7 @@ import kotlin.test.assertTrue
  * (the task-scope section 2 YAML pushed as a PER-ROOT config, not just a global file) -- all exercised
  * through a REAL per-root push (`configStore().upsert`) resolved by the REAL
  * [EffectiveConfigResolver] wired inside a REAL [ServerComposition.build], observed through the public
- * MCP tools ([QueryItemsTool] for type-based resolution, [GetContextTool] for item-based resolution) --
+ * MCP tools ([ItemSchemaView] for type-based resolution, [GetContextTool] for item-based resolution) --
  * per the Public-API rule (`LayeredConfigSeatTest`'s existing S8/S9 coverage calls `LayeredConfig`'s
  * `internal` merge functions directly with hand-built [ConfigLayer]s, which the independent review
  * flagged: SF2). `LayeredConfigSeatTest` is left in place per the dispatch's instruction; this file adds
@@ -134,16 +134,10 @@ class SeatPerRootResolverTest {
         type: String,
         rootId: UUID?,
     ): JsonObject {
-        val params =
-            buildJsonObject {
-                put("operation", JsonPrimitive("schema"))
-                put("type", JsonPrimitive(type))
-                if (rootId != null) put("rootId", JsonPrimitive(rootId.toString()))
-            }
-        val result = runBlocking { QueryItemsTool().execute(params, composition.toolContext) }
-        val obj = result as JsonObject
-        assertTrue(obj["success"]!!.jsonPrimitive.boolean, "expected query_items(schema) success: $obj")
-        return obj["data"] as JsonObject
+        // The type-schema builder items_read(select=schema) serves (query_items was removed in Q19).
+        val data = runBlocking { ItemSchemaView.buildTypeSchemaJson(type, rootId, composition.toolContext.configResolver) }
+        assertTrue(data != null, "expected a schema for type '$type'")
+        return data!!
     }
 
     private fun getContextData(

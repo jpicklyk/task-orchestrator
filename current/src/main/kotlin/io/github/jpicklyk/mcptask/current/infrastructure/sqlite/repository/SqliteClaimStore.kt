@@ -1,8 +1,10 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.AccessScope
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStore
+import io.github.jpicklyk.mcptask.current.application.port.ClaimWrite
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.EligibilityBreakdown
 import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
@@ -103,6 +105,7 @@ class SqliteClaimStore(
         const val MAX_AGENT_ID_LENGTH = 500
     }
 
+    @ClaimWrite
     override suspend fun claim(
         itemId: UUID,
         agentId: String,
@@ -182,6 +185,7 @@ class SqliteClaimStore(
         }
     }
 
+    @ClaimWrite
     override suspend fun release(
         itemId: UUID,
         agentId: String
@@ -204,6 +208,7 @@ class SqliteClaimStore(
             }
         }
 
+    @ClaimWrite
     override suspend fun clear(itemId: UUID): Boolean =
         databaseManager.writeTx("WorkItemRepository.clearClaim") {
             WorkItemsTable.update({ WorkItemsTable.id eq itemId }) { clearClaimColumns(it) } > 0
@@ -498,16 +503,21 @@ class SqliteClaimStore(
         }
     }
 
-    override suspend fun claimSummaryByParent(parentIds: Set<UUID>): Map<UUID, ClaimStatusCounts> {
+    override suspend fun claimSummaryByParent(
+        parentIds: Set<UUID>,
+        scope: AccessScope,
+    ): Map<UUID, ClaimStatusCounts> {
         if (parentIds.isEmpty()) return emptyMap()
         val now = clock.unitNow()
         return databaseManager.readTx {
             val result = LinkedHashMap<UUID, ClaimStatusCounts>()
             parentIds.forEach { result[it] = ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0) }
+            val visible = visibilityConditions(scope) ?: return@readTx result
             val buckets = claimBuckets(now)
+            val condition = (listOf(WorkViewSql.inIdSet(WorkItemsTable.parentId, parentIds)) + visible).reduce { acc, op -> acc and op }
             WorkItemsTable
                 .select(WorkItemsTable.parentId, buckets.active, buckets.expired, buckets.unclaimed)
-                .where { WorkViewSql.inIdSet(WorkItemsTable.parentId, parentIds) }
+                .where { condition }
                 .groupBy(WorkItemsTable.parentId)
                 .forEach { row -> row[WorkItemsTable.parentId]?.let { result[it] = buckets.read(row) } }
             result

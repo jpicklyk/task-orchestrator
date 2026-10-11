@@ -51,7 +51,7 @@ class SearchLatencyBench {
                 val request =
                     SearchRequest(
                         query = term,
-                        corpus = corpus,
+                        corpora = setOf(corpus),
                         matchMode = SearchMatchMode.AUTO,
                         access = AccessScope.unrestricted(),
                     )

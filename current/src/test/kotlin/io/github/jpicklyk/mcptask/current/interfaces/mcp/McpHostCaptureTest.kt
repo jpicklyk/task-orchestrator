@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
 import io.github.jpicklyk.mcptask.current.application.api.RequestDecoder
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
-import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetryFactory
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
@@ -38,7 +37,6 @@ import io.modelcontextprotocol.kotlin.sdk.types.buildCallToolRequest
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -60,7 +58,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.sql.DriverManager
-import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.streams.toList
 import kotlin.test.assertEquals
@@ -260,7 +257,7 @@ class McpHostCaptureTest {
     fun `S2 a 3x tool call records the normalized clientInfo name as call_log host`(): Unit =
         runBlocking {
             val client = attach(server3x(), "Claude Code")
-            val result = client.call("query_items", "operation" to jstr("overview"))
+            val result = client.call("get_context")
             val reqId = reqIdOf(result)
 
             val row = flush().single()
@@ -271,26 +268,15 @@ class McpHostCaptureTest {
         }
 
     @Test
-    fun `S2 an error result still records the host`(): Unit =
-        runBlocking {
-            val client = attach(server3x(), "Claude Code")
-            val result = client.call("manage_items") // required operation is missing
-            assertEquals(true, result.isError, "fixture: a validation error")
-            val row = flush().single { it["req_id"] == reqIdOf(result) }
-            assertEquals("error", row["outcome"])
-            assertEquals("claude code", row["host"])
-        }
-
-    @Test
     fun `S2 a blank or empty clientInfo name records a null host with no fallback literal`(): Unit =
         runBlocking {
             val server = server3x()
             val blank = attach(server, "   ")
             val empty = attach(server, "")
             val control = attach(server, "Named")
-            val rb = blank.call("query_items", "operation" to jstr("overview"))
-            val re = empty.call("query_items", "operation" to jstr("overview"))
-            val rc = control.call("query_items", "operation" to jstr("overview"))
+            val rb = blank.call("get_context")
+            val re = empty.call("get_context")
+            val rc = control.call("get_context")
             val rows = flush().associateBy { it["req_id"] }
             assertNull(rows.getValue(reqIdOf(rb))["host"], "blank name")
             assertNull(rows.getValue(reqIdOf(re))["host"], "empty name")
@@ -303,37 +289,14 @@ class McpHostCaptureTest {
             val server = server3x()
             val dirty = attach(server, "  Pi\u0000-Agent\t ")
             val long = attach(server, "X".repeat(70))
-            val rd = dirty.call("query_items", "operation" to jstr("overview"))
-            val rl = long.call("query_items", "operation" to jstr("overview"))
+            val rd = dirty.call("get_context")
+            val rl = long.call("get_context")
             val rows = flush().associateBy { it["req_id"] }
             assertEquals("pi-agent", rows.getValue(reqIdOf(rd))["host"], "N2 removes NUL and tab, N3 trims, N4 lowercases")
             assertEquals("x".repeat(64), rows.getValue(reqIdOf(rl))["host"], "N5 keeps the first 64")
         }
 
     // ------------------------------------------------------------------ S6
-
-    @Test
-    fun `S6 a write records events whose host equals the call_log host of the same call`(): Unit =
-        runBlocking {
-            val client = attach(server3x(), "Claude Code")
-            val first = client.call("manage_items", *createArgs("S6 one"))
-            val second = client.call("manage_items", *createArgs("S6 two"))
-            assertTrue(first.isError != true && second.isError != true, "fixture: both creates succeed")
-            val id1 = reqIdOf(first)
-            val id2 = reqIdOf(second)
-
-            val rows = flush().associateBy { it["req_id"] }
-            assertEquals("claude code", rows.getValue(id1)["host"])
-            assertEquals("claude code", rows.getValue(id2)["host"])
-
-            val events = eventHosts()
-            assertTrue(events.isNotEmpty(), "fixture: the writes recorded events")
-            assertEquals(setOf<String?>(id1, id2), events.map { it.first }.toSet(), "fixture: every event belongs to one of the calls")
-            for ((reqId, host) in events) {
-                assertEquals(rows.getValue(reqId!!)["host"], host, "events.host equals call_log.host for call $reqId")
-            }
-            assertTrue(events.all { it.second == "claude code" }, "$events")
-        }
 
     @Test
     fun `S6 a rejected transition event carries the host too`(): Unit =
@@ -361,19 +324,6 @@ class McpHostCaptureTest {
             assertTrue(mine.all { it.second == "gate agent" }, "$mine")
         }
 
-    @Test
-    fun `S6 a blank client name leaves both call_log host and events host null`(): Unit =
-        runBlocking {
-            val client = attach(server3x(), "   ")
-            val result = client.call("manage_items", *createArgs("S6 anonymous host"))
-            assertTrue(result.isError != true, "fixture: create succeeds")
-            val reqId = reqIdOf(result)
-            assertNull(flush().single { it["req_id"] == reqId }["host"])
-            val events = eventHosts()
-            assertTrue(events.isNotEmpty() && events.all { it.first == reqId }, "fixture: events exist for this call: $events")
-            assertTrue(events.all { it.second == null }, "$events")
-        }
-
     // ------------------------------------------------------------------ S7
 
     @Test
@@ -388,7 +338,7 @@ class McpHostCaptureTest {
                 client: Client,
                 host: String
             ) {
-                expected[reqIdOf(client.call("query_items", "operation" to jstr("overview")))] = host
+                expected[reqIdOf(client.call("get_context"))] = host
             }
             go(alpha, "alpha")
             go(beta, "beta")
@@ -399,7 +349,7 @@ class McpHostCaptureTest {
                     .map { i ->
                         async {
                             val even = i % 2 == 0
-                            reqIdOf((if (even) alpha else beta).call("query_items", "operation" to jstr("overview"))) to
+                            reqIdOf((if (even) alpha else beta).call("get_context")) to
                                 (if (even) "alpha" else "beta")
                         }
                     }.awaitAll()
@@ -423,34 +373,13 @@ class McpHostCaptureTest {
         }
 
     @Test
-    fun `S7 events written by two sessions on one Server carry their own session's host`(): Unit =
-        runBlocking {
-            val server = server3x()
-            val alpha = attach(server, "alpha")
-            val beta = attach(server, "beta")
-            val ra = alpha.call("manage_items", *createArgs("S7 from alpha"))
-            val rb = beta.call("manage_items", *createArgs("S7 from beta"))
-            val ra2 = alpha.call("manage_items", *createArgs("S7 from alpha again"))
-            flush()
-            val events = eventHosts()
-            assertEquals(
-                setOf<String?>(reqIdOf(ra), reqIdOf(rb), reqIdOf(ra2)),
-                events.map { it.first }.toSet(),
-                "fixture: all calls wrote events"
-            )
-            assertTrue(events.filter { it.first == reqIdOf(ra) }.all { it.second == "alpha" })
-            assertTrue(events.filter { it.first == reqIdOf(rb) }.all { it.second == "beta" })
-            assertTrue(events.filter { it.first == reqIdOf(ra2) }.all { it.second == "alpha" })
-        }
-
-    @Test
     fun `S7 two clients with the same name still record the same host and different sessions`(): Unit =
         runBlocking {
             val server = server3x()
             val one = attach(server, "Same Name")
             val two = attach(server, "same name")
-            val r1 = one.call("query_items", "operation" to jstr("overview"))
-            val r2 = two.call("query_items", "operation" to jstr("overview"))
+            val r1 = one.call("get_context")
+            val r2 = two.call("get_context")
             val rows = flush().associateBy { it["req_id"] }
             assertEquals("same name", rows.getValue(reqIdOf(r1))["host"])
             assertEquals("same name", rows.getValue(reqIdOf(r2))["host"])
@@ -542,9 +471,9 @@ class McpHostCaptureTest {
             val item = rig.seed("S13 read")
             val x = attach(server, "x")
             val y = attach(server, "y")
-            val args = arrayOf("operation" to jstr("get"), "itemId" to jstr(item.id.toString()))
-            val rx = x.call("query_items", *args)
-            val ry = y.call("query_items", *args)
+            val args = arrayOf("itemId" to jstr(item.id.toString()))
+            val rx = x.call("get_context", *args)
+            val ry = y.call("get_context", *args)
             assertNotEquals(reqIdOf(rx), reqIdOf(ry), "fixture: each call has its own reqId")
             assertTrue(
                 rx.structuredContent.toString().contains("S13 read"),
@@ -575,56 +504,7 @@ class McpHostCaptureTest {
 
     // ------------------------------------------------------------------ probe: idempotent replay
 
-    @Test
-    fun `probe an idempotent replay row keeps the host of its own call`(): Unit =
-        runBlocking {
-            val server = server3x()
-            val first = attach(server, "Replayer One")
-            val second = attach(server, "Replayer Two")
-            val requestId = UUID.randomUUID().toString()
-            val args = createArgs("S14 replay host", actorId = "idem-agent", requestId = requestId)
-            val ids =
-                listOf(
-                    reqIdOf(first.call("manage_items", *args)),
-                    reqIdOf(second.call("manage_items", *args)),
-                    reqIdOf(first.call("manage_items", *args))
-                )
-            val rows = flush().associateBy { it["req_id"] }
-            assertEquals(listOf<Any?>(0L, 1L, 1L), ids.map { rows.getValue(it)["replayed"] }, "fixture: first executes, the rest replay")
-            assertEquals(
-                listOf<Any?>("replayer one", "replayer two", "replayer one"),
-                ids.map { rows.getValue(it)["host"] },
-                "a replayed row keeps the host of the session that made that call"
-            )
-            val events = eventHosts()
-            assertTrue(events.any { it.first == ids[0] }, "fixture: the original execution wrote its event: $events")
-            val expectedHosts = listOf("replayer one", "replayer two", "replayer one")
-            ids.forEachIndexed { i, reqId ->
-                assertTrue(events.filter { it.first == reqId }.all { it.second == expectedHosts[i] }, "events of call $i: $events")
-            }
-        }
-
     // ------------------------------------------------------------------ S15
-
-    @Test
-    fun `S15 an event written outside any call has a null host and one inside a call has that call's host`(): Unit =
-        runBlocking {
-            val manageItems = buildMcpTools().first { it.name == "manage_items" }
-            rig.callOk(manageItems, *createArgs("S15 outside any call"))
-            val outside = eventHosts()
-            assertTrue(outside.isNotEmpty(), "fixture: the write recorded at least one event")
-            assertTrue(outside.all { it.first == null && it.second == null }, "no call context: reqId and host both absent: $outside")
-
-            val reqId = "k7f3q9ab"
-            withContext(CallTelemetryFactory.mcp(reqId, "s15-session", "Control Host")) {
-                rig.callOk(manageItems, *createArgs("S15 inside a call"))
-            }
-            val all = eventHosts()
-            val inside = all.drop(outside.size)
-            assertTrue(inside.isNotEmpty(), "control: the write inside a call recorded events: $all")
-            assertTrue(inside.all { it.first == reqId && it.second == "control host" }, "$inside")
-            assertEquals(outside, all.take(outside.size), "the earlier rows are unchanged")
-        }
 
     // ------------------------------------------------------------------ streamable HTTP
 
@@ -659,7 +539,7 @@ class McpHostCaptureTest {
         val response =
             rpc(
                 sessionId,
-                """{"jsonrpc":"2.0","id":$id,"method":"tools/call","params":{"name":"query_items","arguments":{"operation":"overview"}}}"""
+                """{"jsonrpc":"2.0","id":$id,"method":"tools/call","params":{"name":"get_context","arguments":{}}}"""
             )
         val text = response.bodyAsText()
         val payload =

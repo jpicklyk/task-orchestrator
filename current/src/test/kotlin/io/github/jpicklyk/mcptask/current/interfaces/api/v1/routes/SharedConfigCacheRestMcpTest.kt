@@ -3,12 +3,10 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -74,7 +72,7 @@ class SharedConfigCacheRestMcpTest {
                 description: "shared cache test note"
         """.trimIndent()
 
-    /** Registers itemGateRoutes and itemWriteRoutes over the SAME [ctx], mirroring O1's shared wiring. */
+    /** Registers itemGateRoutes and effectiveConfigRoutes over the SAME [ctx], mirroring O1's shared wiring. */
     private fun Application.configureSharedApp(
         provider: RepositoryProvider,
         ctx: ToolExecutionContext,
@@ -82,13 +80,6 @@ class SharedConfigCacheRestMcpTest {
         configureTestApp(makeWriteAuthConfig()) {
             itemGateRoutes(provider, ctx.configResolver, ctx.transitionPreview())
             effectiveConfigRoutes(provider, ctx.configResolver, ServerConfigSource { null })
-            itemWriteRoutes(
-                provider,
-                DegradedModePolicy.ACCEPT_CACHED,
-                IdempotencyService(ctx.unitOfWork),
-                ctx.advanceServiceFactory(),
-                ctx.unitOfWork
-            )
         }
     }
 

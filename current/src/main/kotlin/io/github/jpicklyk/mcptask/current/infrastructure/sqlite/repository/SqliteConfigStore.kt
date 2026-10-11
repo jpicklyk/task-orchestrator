@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
 import io.github.jpicklyk.mcptask.current.application.port.ConfigAppend
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
+import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigAppendOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigHead
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
@@ -87,6 +88,7 @@ class SqliteConfigStore(
         }
     }
 
+    @StoreWrite
     override suspend fun append(
         scope: ConfigScope,
         rootId: UUID?,
@@ -188,6 +190,7 @@ class SqliteConfigStore(
             classify(rootId, fingerprint, readHead(ConfigScope.ROOT, rootId))
         }
 
+    @StoreWrite
     override suspend fun fillCanonical(
         id: UUID,
         canonicalJson: String,

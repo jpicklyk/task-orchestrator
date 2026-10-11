@@ -149,7 +149,7 @@ class SearchServiceTest {
         limit: Int = SearchRequest.DEFAULT_LIMIT,
         offset: Int = 0,
         access: AccessScope = AccessScope.unrestricted(),
-    ) = SearchRequest(query = query, corpus = corpus, matchMode = matchMode, limit = limit, offset = offset, access = access)
+    ) = SearchRequest(query = query, corpora = setOf(corpus), matchMode = matchMode, limit = limit, offset = offset, access = access)
 
     private fun search(
         index: SearchIndex,
@@ -585,7 +585,7 @@ class SearchServiceTest {
             index,
             SearchRequest(
                 query = "needle",
-                corpus = Corpus.ITEM,
+                corpora = setOf(Corpus.ITEM),
                 matchMode = SearchMatchMode.AUTO,
                 itemId = itemId,
                 ancestorId = ancestorId,

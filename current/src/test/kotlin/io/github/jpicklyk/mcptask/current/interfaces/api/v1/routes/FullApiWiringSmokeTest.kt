@@ -2,11 +2,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
-import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.OutsideUnitPolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
@@ -18,10 +15,8 @@ import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
-import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
@@ -94,26 +89,9 @@ abstract class FullApiWiringSmokeScenarios(
                 )
                 // Phase 3 read
                 itemRoutes(decorated)
-                noteRoutes(decorated)
                 transitionRoutes(decorated)
-                searchRoutes(decorated)
                 // Phase 4 config
                 configRoutes(ServerConfigSource { null })
-                // Phase 5 write
-                val toolContext =
-                    ToolExecutionContext(
-                        decorated,
-                        statusLabelService = NoOpStatusLabelService,
-                        perRootConfigService = PerRootConfigService(decorated.configStore()),
-                        unitOfWork = db.unitOfWork()
-                    )
-                itemWriteRoutes(
-                    decorated,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    IdempotencyService(db.unitOfWork()),
-                    toolContext.advanceServiceFactory(),
-                    db.unitOfWork(),
-                )
                 // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete
                 projectConfigRoutes(decorated, ConfigService(decorated, YamlConfigDocumentParser, db.unitOfWork()))
             }
@@ -145,11 +123,11 @@ abstract class FullApiWiringSmokeScenarios(
             )
 
             // Read route: 401 without auth, 200 with a READ token — capability gate active
-            assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/items").status, "read requires auth")
+            assertEquals(HttpStatusCode.Unauthorized, client.get("/api/v1/transitions").status, "read requires auth")
             assertEquals(
                 HttpStatusCode.OK,
-                client.get("/api/v1/items") { header("Authorization", "Bearer $TEST_TOKEN") }.status,
-                "READ token reads items",
+                client.get("/api/v1/transitions") { header("Authorization", "Bearer $TEST_TOKEN") }.status,
+                "READ token reads transitions",
             )
 
             // Phase 4 config route reachable on the combined surface
@@ -159,24 +137,25 @@ abstract class FullApiWiringSmokeScenarios(
                 "config reachable with READ",
             )
 
+            // A root item to write against (item creates are the items_write ops tool now, not a route).
+            val seeded =
+                (
+                    db.unitOfWork().write("smoke.seed") {
+                        Outcome.Ok(stores.workItemRepository().create(WorkItem(title = "smoke-seed", type = "test-item")))
+                    } as Outcome.Ok
+                ).value
+            // The item, note and advance write routes are gone (items_write / notes_write / advance); the per-root
+            // config PUT is the WRITE_CONFIG write route probed here and again below with a WRITE token.
+
             // Write route: READ-only token is forbidden (capability gate distinguishes read vs write
-            // even though both groups share the /api/v1 parent — the bug class this test guards against)
+            // even though both groups share the /api/v1 parent -- the bug class this test guards against)
             val forbidden =
-                client.post("/api/v1/items") {
+                client.put("/api/v1/roots/${seeded.id}/config") {
                     header("Authorization", "Bearer $TEST_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"type":"test-item","title":"should-not-create"}""")
+                    contentType(ContentType.Text.Plain)
+                    setBody("work_item_schemas: {}")
                 }
             assertEquals(HttpStatusCode.Forbidden, forbidden.status, "READ token cannot write")
-
-            // Write route: WRITE token succeeds — write path is wired and granted
-            val created =
-                client.post("/api/v1/items") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"type":"test-item","title":"smoke-created"}""")
-                }
-            assertEquals(HttpStatusCode.Created, created.status, "WRITE token creates item")
 
             // Phase 6: SSE events route — proving it is WIRED. A request with NO auth is rejected
             // by the pre-flight inline auth BEFORE any stream is opened, so .status completes.
@@ -193,14 +172,7 @@ abstract class FullApiWiringSmokeScenarios(
             // Phase 1 (project-config-rest-endpoint): proves projectConfigRoutes wired without a
             // requireCapability collision — it installs a SEPARATE READ group (GET) alongside a
             // SEPARATE WRITE_CONFIG group (PUT/DELETE) on the same /roots/{rootId}/config path.
-            val configCreated =
-                client.post("/api/v1/items") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"type":"test-item","title":"smoke-config-root"}""")
-                }
-            assertEquals(HttpStatusCode.Created, configCreated.status)
-            val rootId = Regex(""""id":"([0-9a-fA-F-]{36})"""").find(configCreated.bodyAsText())!!.groupValues[1]
+            val rootId = seeded.id.toString()
 
             // READ token can reach the GET route (capability gate wired); no config was ever
             // pushed for this root, so the expected outcome is 404 — the route IS reachable.
