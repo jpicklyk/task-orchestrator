@@ -118,8 +118,8 @@ class EventCoverageTest {
 
             val (_, rows) = rig.written { rig.itemsWrite(createOp("S2 root")).okResult(0) }
 
-            assertEquals(listOf("item.created"), rows.types())
-            val row = rows.single()
+            assertEquals(listOf("item.created", "item.pinned"), rows.types(), "a create records its created row and its pin row")
+            val row = rows.single { it.type == "item.created" }
             assertEquals("item", row.entityKind)
             assertEquals(row.entityId, row.rootId, "a root item uses its own id as root_id")
             assertNull(row.str("parentId"))
@@ -145,7 +145,7 @@ class EventCoverageTest {
 
             val (_, rows) = rig.written { rig.itemsWrite(createOp("S2b child", root.id)).okResult(0) }
 
-            val row = rows.single()
+            val row = rows.single { it.type == "item.created" }
             assertEquals("item.created", row.type)
             assertEquals(root.id, row.rootId)
             assertEquals(root.id.toString(), row.str("parentId"))
@@ -171,9 +171,11 @@ class EventCoverageTest {
                     )
                 }
 
-            val row = rows.single()
-            assertEquals("agent-p8", row.principalId)
-            assertEquals("subagent", row.principalKind)
+            assertEquals(listOf("item.created", "item.pinned"), rows.types())
+            for (row in rows) {
+                assertEquals("agent-p8", row.principalId, "${row.type} carries the call actor")
+                assertEquals("subagent", row.principalKind)
+            }
         }
 
     // ---------------------------------------------------------------------------------------------
@@ -773,7 +775,8 @@ class EventCoverageTest {
             assertEquals(3, rows.ofType("item.created").size, "$rows")
             assertEquals(1, rows.ofType("note.upserted").size)
             assertEquals(1, rows.ofType("dependency.added").size)
-            assertEquals(5, rows.size, "$rows")
+            assertEquals(3, rows.ofType("item.pinned").size, "one pin row per created item: $rows")
+            assertEquals(8, rows.size, "$rows")
             assertTrue(rows.all { it.rootId == rootId }, "every row of the tree is under the new root: $rows")
             rows.assertContiguous("create_work_tree")
         }
@@ -947,7 +950,8 @@ class EventCoverageTest {
             val adopted = rows.ofType("document.adopted")
             assertEquals(1, adopted.size, "exactly one adoption row: $rows")
             assertEquals(2, rows.ofType("item.created").size, "root and child created rows: $rows")
-            assertEquals(3, rows.size, "nothing else is recorded for the adoption call: $rows")
+            assertEquals(2, rows.ofType("item.pinned").size, "root and child pin rows: $rows")
+            assertEquals(5, rows.size, "nothing else is recorded for the adoption call: $rows")
             val row = adopted.single()
             assertEquals("r2-plan", row.str("slug"))
             assertEquals(createdRootId, row.str("adoptedByItemId"))
@@ -1160,7 +1164,7 @@ class EventCoverageTest {
             assertEquals(emptyList(), rig.rowsAfter(mark), "read-only tools must record no event rows")
             // Control: a write on the same rig does append a row, so the zero-row assertions above can fail.
             val (_, control) = rig.written { rig.itemsWrite(createOp("S17 read control")).okResult(0) }
-            assertEquals(listOf("item.created"), control.types(), "control: the same rig does append a row for a write")
+            assertEquals(listOf("item.created", "item.pinned"), control.types(), "control: the same rig does append a row for a write")
         }
 
     @Test

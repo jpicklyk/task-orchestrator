@@ -21,7 +21,7 @@ errors, per-root-config-unavailable failures, and internal errors.
 
 | Tool | Category | R/W | Description |
 |---|---|---|---|
-| `items_write` | Hierarchy & CRUD | Write | Create, update, or delete WorkItems (`ops[]`, per-element results) |
+| `items_write` | Hierarchy & CRUD | Write | Create, update, delete, or repin WorkItems (`ops[]`, per-element results) |
 | `items_read` | Hierarchy & CRUD | Read | Get one item, list a filtered page, read a note schema, search items and notes, or summarize the hierarchy (4.0 envelope) |
 | `create_work_tree` | Hierarchy & CRUD | Write | Atomically create root + children + deps + notes |
 | `complete_tree` | Hierarchy & CRUD | Write | Batch-complete descendants in topological order |
@@ -44,8 +44,8 @@ errors, per-root-config-unavailable failures, and internal errors.
 
 ### items_write
 
-**Purpose.** Create, update and delete WorkItems. One `ops[]` array of flat objects, each naming its op in `op`
-(`create`, `update`, `delete`). It is the 4.0 replacement of `manage_items`, and the same call is served over MCP and
+**Purpose.** Create, update, delete and repin WorkItems. One `ops[]` array of flat objects, each naming its op in
+`op` (`create`, `update`, `delete`, `repin`). It is the 4.0 replacement of `manage_items`, and the same call is served over MCP and
 as `POST /api/v1/ops/items_write` (the REST routes `POST /items`, `PATCH /items/{id}` and `DELETE /items/{id}` are
 gone). The request and response follow the batch envelope: `{ "ops": [...], "atomic"?: bool, "actor"?: {...} }`
 returns `data.results[i]` (`{ok:true, ...}` or `{ok:false, error}`), a `data.summary`, and `meta.reqId`. By default
@@ -63,6 +63,7 @@ and no reparent onto it (`invalid_transition`).
 | `create` | `title` and `type` (required); `parentId`, `description`, `summary`, `statusLabel`, `priority` (`high`, `medium` default, `low`), `complexity` (1-10), `requiresVerification`, `metadata`, `tags` (array), `traits` (array), `properties` (JSON object) | `{ok, id, version}` |
 | `update` | `id` (required), `expectedVersion`; any create field except that all are optional; `clear` | `{ok, id, version, cascade?}` |
 | `delete` | `id` (required), `recursive`, `expectedVersion` | `{ok, id, deleted, cascade?}` (`deleted` counts the item and its descendants) |
+| `repin` | `id` (required), `expectedVersion` | `{ok, id, version, repinned, schemaVersion?}` |
 
 **Update semantics.** An absent or `null` field keeps its stored value. `tags: []` and `traits: []` clear those
 lists. `clear` lists optional fields to set to null: `description`, `statusLabel`, `metadata`, `complexity`,
@@ -74,6 +75,21 @@ lists. `clear` lists optional fields to set to null: `description`, `statusLabel
 **Delete semantics.** A parent without `recursive: true` fails `invalid_request` with a violation on `recursive`
 whose `received` is the child count; nothing is deleted. `recursive: true` deletes the whole subtree, deepest first,
 in one unit. Notes and dependency edges go with their items, as do the links the removed notes and items were the source of and the resolved links into the removed items (an `adopted_by` link is kept). `expectedVersion` guards the item itself.
+
+**Pins.** Every item is pinned to the config it resolves against: the server and root config versions that were the
+heads when the pin was taken, and the base schema (key and layer) its type resolved to under them. Its schema,
+traits, seats, dispatch and resource requirements come from the pinned versions until a pin point fires; a later
+config push, rollback or reset changes nothing for it (status labels, note limits, independence and the resource
+registry always follow the heads). The pin points are: `create`; an `update` that changes `type`, moves the item to
+another root, or changes `traits` (one `item.pinned` event; reason precedence `type_change` > `reparent` >
+`trait_change`); a transition out of `terminal` (`reopen`, and the reopen cascade); and `repin`. A title-only
+update or a move within the same root leaves the pin alone. See `config-reference.md` "Schema pins".
+
+**Repin.** `repin` moves the item's pin to the current heads and the base schema its type resolves to now. When the
+recomputed pin equals the stored one nothing is written and no event is recorded (`repinned: false`, `version`
+unchanged); otherwise the item's `version` goes up by one and one `item.pinned` event (reason `repin`) is recorded
+(`repinned: true`). `expectedVersion` guards it like `update`. `schemaVersion` is the item's new pin view (see
+[items_read](#items_read)). Errors: `not_found`, `ambiguous_id`, `version_conflict`, `forbidden`, `unavailable`.
 
 **Cascade.** A reparent away from, or a delete under, a parent re-evaluates that old parent like a child
 completion. `cascade` (omitted when empty) lists `{itemId, from, to, applied, reason?}`; `reason` is the catalog code
@@ -93,7 +109,9 @@ under a root scope is allowed only when the item itself is a listed root. Under 
 resolves to nothing, or is ambiguous, is `forbidden` (scope is no existence oracle).
 
 **Actor and events.** The caller's actor (body `actor` over MCP, the bearer principal over REST) is recorded as the
-principal of the `item.created`, `item.updated`, `item.reparented` and `item.deleted` events the call writes.
+principal of the `item.created`, `item.updated`, `item.reparented`, `item.deleted` and `item.pinned` events the call
+writes. `item.pinned` (`{from, to, reason}`, where `from` / `to` are `{server, root, key, layer}` with the two config
+version ids) is recorded in the events table only; it is not projected onto the SSE stream.
 
 ```json
 {
@@ -142,9 +160,14 @@ comma-separated list split and trimmed); claim identity is never rendered.
 
 - Full view (`get`, the scoped overview's `item`): `id`, `parentId`, `rootId` as full UUIDs, then `type`,
   `title`, `summary`, `description`, `role`, `statusLabel`, `previousRole`, `priority`, `complexity`,
-  `depth`, `tags`, `traits`, `metadata`, `properties`, `requiresVerification`, `version`, `diagnostics`.
+  `depth`, `tags`, `traits`, `metadata`, `properties`, `requiresVerification`, `version`, `schemaVersion`, `stale`,
+  `diagnostics`. `schemaVersion` is the item's pin, `{server?, root?, key?, layer?}`: the pinned server and root
+  config version numbers and the pinned base schema key and layer (`server` or `root`), each omitted when null;
+  the whole member is omitted for an item that was never pinned. `stale: true` appears only when either pinned
+  version is no longer the head of its scope (`repin` moves it).
 - Compact view (`list` entries, overview entries, `ancestors`): `id` and `parentId` as 8-hex short ids,
-  `type`, `title`, `role`, `statusLabel`, `priority`, `depth`, `tags`, `traits`, `version`.
+  `type`, `title`, `role`, `statusLabel`, `priority`, `depth`, `tags`, `traits`, `version`. A compact view never
+  carries a pin.
 
 **`fields`.** Opt-in members; a name a select does not accept is `invalid_request` on `/fields`.
 `get`: `createdAt`, `modifiedAt`, `roleChangedAt`, `ancestors`. `list`: the same plus `summary`.
@@ -171,9 +194,11 @@ holding a version skip the body: when it equals the stored version the answer is
 
 **`schema`.** The `type` path resolves the base schema of that type, layered over `rootId`'s per-root config
 when given (the `schema_resolution` mode decides the order; global-only when the root has no pushed
-config). The `itemId` path resolves the item's fully trait-merged schema over its own `rootId`. The view is
-`{type, configFingerprint, configSource, notes: [{key, role, required, description, guidance?, skill?,
-maxLength?, seat?, independentOf?}], dispatch?, resources?, seats?, dispatchBySeat?, features}`. Seats,
+config). The `itemId` path resolves the item's fully trait-merged schema over its own `rootId` (a pinned item over
+its pinned config versions and base schema, so `configFingerprint` is the pinned layer's). The view is
+`{type, configFingerprint, configSource, schemaVersion?, stale?, notes: [{key, role, required, description,
+guidance?, skill?, maxLength?, seat?, independentOf?}], dispatch?, resources?, seats?, dispatchBySeat?, features}`;
+`schemaVersion` and `stale` are the item's pin view as in the full item view (item path only). Seats,
 dispatch and the type-path vs item-path difference are described in
 [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension).
 No matching schema is not an error: the answer is `{schemaFree: true}`. Giving both or neither of `type`
@@ -591,7 +616,11 @@ with `ok`, and `207 partial_failure` over REST when some elements failed). Both 
   and `create_work_tree` notes, in this order: (1) `role` is lowercased and must be `queue`, `work` or
   `review`; (2) the body is capped at 65536 UTF-8 bytes in every `note_limits` mode
   (`payload_too_large`); (3) CRLF becomes LF (a lone CR is kept); (4) when the item's resolved schema
-  declares the key, the role must equal the schema role (`schema_violation`); (5) the schema
+  declares the key, the role must equal the schema role (`schema_violation`); a pinned item whose pinned
+  schema does not declare the key, while the schema it would resolve to at the current config heads
+  declares it as required, fails `schema_pinned_conflict` (409, permanent; `detail.itemId`,
+  `pinnedVersion`, `currentVersion`, each version as `server:<n|none>/root:<n|none>`): `repin` the item
+  first; (5) the schema
   `maxLength` check in characters: under `note_limits.mode: warn` (default) the note is stored and the
   result carries `warning: {key, max, actual}`, under `reject` the element fails with `note_too_long`.
   `note_limits` is layered per root (see

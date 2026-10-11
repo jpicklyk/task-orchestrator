@@ -53,15 +53,16 @@ class ItemsWriteRegistrationTest {
     private val registry = ToolRegistry(buildToolSpecs())
 
     @Test
-    fun `S18 the registry holds items_write with the three ops, their capability, profile and destructive flags`() {
+    fun `S18 the registry holds items_write with its ops, their capability, profile and destructive flags`() {
         val spec = assertNotNull(registry["items_write"])
         assertTrue(spec is OpsToolSpec<*>)
-        assertEquals(listOf("create", "update", "delete"), spec.ops.map { it.name })
+        // Q24 (934b25e4) adds repin.
+        assertEquals(listOf("create", "update", "delete", "repin"), spec.ops.map { it.name })
         for (op in spec.ops) {
             assertEquals(ApiCapability.WRITE_ITEMS, op.capability, op.name)
             assertEquals(ToolProfile.KNOWLEDGE, op.profile, op.name)
         }
-        assertEquals(listOf(false, false, true), spec.ops.map { it.destructive }, "only delete is destructive")
+        assertEquals(listOf(false, false, true, false), spec.ops.map { it.destructive }, "only delete is destructive")
     }
 
     @Test
@@ -76,7 +77,10 @@ class ItemsWriteRegistrationTest {
         assertEquals(emptyList(), ParityCoverage.missing(registry, ProductionParity.scenarios, ProductionParity.exemptions))
         assertEquals(emptyList(), ParityCoverage.stale(registry, ProductionParity.scenarios))
         val itemsWriteMembers = ParityCoverage.members(registry).filter { it.first == "items_write" }
-        assertEquals(listOf("items_write" to "create", "items_write" to "update", "items_write" to "delete"), itemsWriteMembers)
+        assertEquals(
+            listOf("items_write" to "create", "items_write" to "update", "items_write" to "delete", "items_write" to "repin"),
+            itemsWriteMembers
+        )
     }
 
     @Test

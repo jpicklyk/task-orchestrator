@@ -120,6 +120,46 @@ line each. A file whose `project.rootId` names a depth-0 root is imported as tha
 per-root rules (`resources` and the legacy `note_schemas` next to `work_item_schemas` are rejected); a malformed or
 unknown `project.rootId` fails startup. An absent, empty or comment-only file imports nothing.
 
+## Schema pins
+
+Every config version is immutable, so an item can resolve against the exact versions it started under. Each item is
+**pinned**: it records the server config version and its root's config version that were the heads when the pin was
+taken (none for a scope with no config or a reset head), the base schema its type resolved to under them (the schema
+key and whether the server or the root layer declared it; none when schema-free) and that schema's `lifecycle`.
+
+**What a pin governs.** A pinned item's schema (notes and gates), trait merge, seats, dispatch and resource
+requirements come from its pinned versions and its pinned base schema, so a later push, rollback or reset of either
+scope never changes them. Settings that are not about one item always follow the heads: status labels, `note_limits`,
+`independence`, the resource registry, the declared type and trait lists, and every type-only schema lookup. A pinned
+key the pinned document does not declare resolves schema-free. An item that was never pinned resolves at the heads.
+
+**Pin points.** A pin is taken, and an `item.pinned` event (`{from, to, reason}`) recorded, at exactly these points:
+
+| Reason | When |
+|--------|------|
+| `create` | an item is created |
+| `type_change` | an update changes the item's `type` |
+| `reparent` | an update moves the item under another root (pinned against the new root's head) |
+| `trait_change` | an update changes the item's `traits` |
+| `reopen` | a transition leaves `terminal` (`reopen`, or the reopen cascade); the gate of that transition runs under the old pin |
+| `repin` | `items_write` `repin` is called and the recomputed pin differs from the stored one |
+
+One update records at most one `item.pinned` row (precedence `type_change` > `reparent` > `trait_change`). A
+title-only update or a move within the same root leaves the pin alone. `item.pinned` is recorded in the events table
+only; it is not projected onto the SSE stream.
+
+**Stale pins.** `items_read` `get`, the scoped `overview` item and `schema` (by `itemId`) render the pin as
+`schemaVersion: {server?, root?, key?, layer?}` (version numbers) and add `stale: true` when either pinned version is
+no longer the head of its scope. `repin` moves the pin to the heads. A note key that the pinned schema lacks but the
+head schema requires cannot be written until the item is repinned (`schema_pinned_conflict`).
+
+**Upgrade rule (3.x).** On the first 4.0 start the `pin-backfill` data step (phase PIN, once) pins every item that has
+no pin, to the server head (the imported server file) and its root's head, with the base schema the 3.x server gave it:
+the 3.x `schema_resolution`-aware rule over the item's `type`, so a per-root `default` still shadows a server schema of
+the same type under `legacy` mode. In-flight 3.x items therefore keep their 3.x schema until a pin point fires; new pins
+use the 4.0 rule (per-root type, server type, per-root `default`, server `default`). The step writes no events and does
+not change an item's `version` or `modifiedAt`.
+
 ## Related
 
 - [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md): the

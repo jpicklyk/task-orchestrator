@@ -1286,7 +1286,10 @@ paths:
             type: string
       responses:
         "200":
-          description: Envelope with `data` = the full item view (lean: empty members omitted, tags as an array)
+          description: >-
+            Envelope with `data` = the full item view (lean: empty members omitted, tags as an array); a pinned
+            item adds `schemaVersion` `{server?, root?, key?, layer?}` and, only when a pinned config version is no
+            longer the head, `stale: true`
           headers:
             ETag:
               description: '"v<version>" of the item read.'
@@ -2513,6 +2516,13 @@ paths:
         removed `POST /items/{id}/advance` route. Its `ops[]` elements are `transition` (apply a trigger),
         `claim` (by `itemId` or `select`), `release` and `heartbeat`, all needing the `advance` capability.
         Claim ownership and resource leases are enforced on this route exactly as on MCP.
+
+        `items_write` ops are `create`, `update`, `delete` and `repin`. `repin` (`{op: "repin", id,
+        expectedVersion?}`, `write_items` capability) moves the item's config pin to the current config heads
+        and answers `{ok, id, version, repinned, schemaVersion?}`; `repinned: false` means the pin was current
+        and nothing was written. A `notes_write` `upsert` of a key that a pinned item's pinned schema lacks but
+        the current head schema requires fails `schema_pinned_conflict` (409; `detail.itemId`, `pinnedVersion`,
+        `currentVersion` as `server:<n|none>/root:<n|none>`): repin the item first.
       parameters:
         - name: tool
           in: path
@@ -2556,6 +2566,14 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           description: forbidden envelope (capability, root or tag scope) or another 403 catalog code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "409":
+          description: >-
+            Envelope whose top-level error is a 409 catalog code: version_conflict, schema_pinned_conflict
+            (a notes_write upsert against a stale pin), resource_unavailable and the other conflict codes
           content:
             application/json:
               schema:

@@ -14,7 +14,8 @@
               "enum": [
                 "create",
                 "update",
-                "delete"
+                "delete",
+                "repin"
               ]
             },
             "title": {
@@ -82,11 +83,11 @@
             },
             "id": {
               "type": "string",
-              "description": "Item UUID or 8+ hex prefix. [ops: update, delete]"
+              "description": "Item UUID or 8+ hex prefix. [ops: update, delete, repin]"
             },
             "expectedVersion": {
               "type": "integer",
-              "description": "Fails with version_conflict if the item is at another version. [ops: update, delete]"
+              "description": "Fails with version_conflict if the item is at another version. [ops: update, delete, repin]"
             },
             "clear": {
               "type": "array",
@@ -128,7 +129,7 @@
     },
     "type": "object"
   },
-  "description": "Create, update and delete work items, one ops[] element each. Call with describe:true for each operation's parameters and errors.",
+  "description": "Create, update, delete or repin work items, one per op. Call with describe:true for each operation's parameters and errors.",
   "annotations": {
     "readOnlyHint": false,
     "destructiveHint": true,

@@ -16,6 +16,9 @@ import kotlinx.serialization.serializer
 /**
  * `items_read` select `get`: one item by id, as [ItemView.full].
  *
+ * The view carries the item's pin (`schemaVersion`, and `stale: true` when either pinned config version is no longer
+ * the head) when it is pinned.
+ *
  * Order: resolve the id under the caller's scope (D2), then [ScopeGuard][io.github.jpicklyk.mcptask.current.application.api.ScopeGuard]
  * (so an out-of-scope id is `forbidden` before any not-found or `ifVersion` answer), then read. `ifVersion` equal to
  * the stored version answers `{unchanged: true, version}` instead of the view. `fields` adds the three timestamps
@@ -62,7 +65,7 @@ object ItemsReadGet {
                                     )
                                 } else {
                                     val wanted = req.fields.orEmpty().toSet()
-                                    var view = ItemView.full(item)
+                                    var view = ItemView.full(item, pin = env.schemaPinService.view(item))
                                     for (name in listOf("createdAt", "modifiedAt", "roleChangedAt")) {
                                         if (name in wanted) view = ItemView.with(view, name, timestamp(item, name))
                                     }

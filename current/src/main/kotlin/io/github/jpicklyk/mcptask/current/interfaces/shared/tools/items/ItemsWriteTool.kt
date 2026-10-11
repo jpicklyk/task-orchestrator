@@ -43,14 +43,17 @@ data class CascadeSummary(
 )
 
 /**
- * The result of one `items_write` element. [version] is set by create and update, [deleted] (the item plus its
- * descendants) by delete; [cascade] lists the old parent's cascades and is omitted from the wire when empty.
+ * The result of one `items_write` element. [version] is set by create, update and repin, [deleted] (the item plus its
+ * descendants) by delete; [cascade] lists the old parent's cascades and is omitted from the wire when empty. [repinned]
+ * and [schemaVersion] (the pin view, omitted for an unpinned item) are set by repin only.
  */
 data class ItemWriteResult(
     val id: UUID,
     val version: Long? = null,
     val deleted: Int? = null,
-    val cascade: List<CascadeSummary> = emptyList()
+    val cascade: List<CascadeSummary> = emptyList(),
+    val repinned: Boolean? = null,
+    val schemaVersion: JsonObject? = null
 )
 
 /** Optional fields an `update` can set to null. */
@@ -96,14 +99,14 @@ internal object ItemDocs {
     const val RECURSIVE = "Delete the subtree; required when the item has children."
 }
 
-internal const val ITEMS_WRITE_DESCRIPTION = "Create, update and delete work items, one ops[] element each."
+internal const val ITEMS_WRITE_DESCRIPTION = "Create, update, delete or repin work items, one per op."
 
-/** The `items_write` tool: `create`, `update` and `delete` over one `ops[]` array. */
+/** The `items_write` tool: `create`, `update`, `delete` and `repin` over one `ops[]` array. */
 internal fun itemsWriteTool(): OpsToolSpec<ItemWriteResult> =
     OpsToolSpec(
         name = "items_write",
         description = ITEMS_WRITE_DESCRIPTION,
-        ops = listOf(createItemOp(), updateItemOp(), deleteItemOp()),
+        ops = listOf(createItemOp(), updateItemOp(), deleteItemOp(), repinItemOp()),
         codec = ItemWriteCodec,
         element = ::itemWriteElement
     )
@@ -114,6 +117,8 @@ internal fun itemWriteElement(result: ItemWriteResult): JsonObject =
         put("id", result.id.toString())
         result.version?.let { put("version", it) }
         result.deleted?.let { put("deleted", it) }
+        result.repinned?.let { put("repinned", it) }
+        result.schemaVersion?.let { put("schemaVersion", it) }
         if (result.cascade.isNotEmpty()) {
             put(
                 "cascade",
@@ -142,6 +147,8 @@ internal object ItemWriteCodec : IdempotencyCodec<ItemWriteResult> {
             id = UUID.fromString(obj.getValue("id").jsonPrimitive.content),
             version = obj["version"]?.jsonPrimitive?.longOrNull,
             deleted = obj["deleted"]?.jsonPrimitive?.intOrNull,
+            repinned = obj["repinned"]?.jsonPrimitive?.booleanOrNull,
+            schemaVersion = obj["schemaVersion"] as? JsonObject,
             cascade =
                 (obj["cascade"] as? JsonArray).orEmpty().map { element ->
                     val c = element.jsonObject

@@ -125,7 +125,7 @@ class EffectiveConfigResolver private constructor(
     suspend fun versionLayer(versionId: UUID): ConfigLayer? = versions?.let { pinnedLayer(it, versionId) }
 
     /** The config the item facets of [item] resolve against (see [forItem]). */
-    private suspend fun itemConfig(item: WorkItem): LayeredConfig = layered(item.rootId)
+    private suspend fun itemConfig(item: WorkItem): LayeredConfig = forItem(item)
 
     /** The server side of a resolution: the fixed lookup, else a lookup over the freshly (or session-memoised) read layer. */
     private suspend fun serverLookup(): GlobalConfigLookup = fixedGlobal ?: LayerBackedGlobalLookup(serverLayer())
