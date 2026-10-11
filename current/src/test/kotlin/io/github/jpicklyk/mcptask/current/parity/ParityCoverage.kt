@@ -347,7 +347,8 @@ object ItemsReadParityScenarios {
 object ProductionParity {
     val scenarios: List<ParityScenario> =
         ItemsWriteParity.scenarios + NotesParityCatalog.scenarios + DepsParityScenarios.scenarios + AdvanceParityScenarios.all +
-            ItemsReadParityScenarios.scenarios
+            ItemsReadParityScenarios.scenarios + ConfigParityScenarios.scenarios
     val exemptions: List<ScopeExempt> =
-        NotesParityCatalog.exemptions + DepsParityScenarios.exemptions + ItemsReadParityScenarios.exemptions
+        NotesParityCatalog.exemptions + DepsParityScenarios.exemptions + ItemsReadParityScenarios.exemptions +
+            ConfigParityScenarios.exemptions
 }
