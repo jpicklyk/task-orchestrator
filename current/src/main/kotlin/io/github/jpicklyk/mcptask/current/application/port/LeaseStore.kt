@@ -85,6 +85,7 @@ interface LeaseStore {
      * contention pre-pass and the writes cannot interleave with another writer; SQLITE_BUSY is retried
      * by the unit itself. A database failure is thrown.
      */
+    @ClaimWrite
     suspend fun acquireAll(
         holderItemId: UUID,
         actorId: String?,
@@ -92,6 +93,7 @@ interface LeaseStore {
     ): LeaseAcquireResult
 
     /** Releases every active or expired lease row held by [holderItemId]. Never touches other items' rows. */
+    @ClaimWrite
     suspend fun releaseAllForItem(holderItemId: UUID): LeaseReleaseResult
 
     /**
@@ -103,6 +105,7 @@ interface LeaseStore {
      * The default implementation loops [releaseAllForItem] (sums the counts); implementations with a
      * set-based statement should override it.
      */
+    @ClaimWrite
     suspend fun releaseAllForItems(holderItemIds: Set<UUID>): LeaseReleaseResult {
         var total = 0
         for (holderItemId in holderItemIds) {
@@ -123,6 +126,7 @@ interface LeaseStore {
      * @param actorId Optional opaque actor identifier of the acting principal, recorded as
      *   `released_by_actor_id` on every closed [ResourceLeaseInterval] history row (audit-only).
      */
+    @ClaimWrite
     suspend fun forceReleaseByKey(
         resourceKey: String,
         actorId: String? = null

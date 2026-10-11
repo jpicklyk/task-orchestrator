@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.application.port.ClaimStore
+import io.github.jpicklyk.mcptask.current.application.port.ClaimWrite
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.EligibilityBreakdown
 import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
@@ -103,6 +104,7 @@ class SqliteClaimStore(
         const val MAX_AGENT_ID_LENGTH = 500
     }
 
+    @ClaimWrite
     override suspend fun claim(
         itemId: UUID,
         agentId: String,
@@ -182,6 +184,7 @@ class SqliteClaimStore(
         }
     }
 
+    @ClaimWrite
     override suspend fun release(
         itemId: UUID,
         agentId: String
@@ -204,6 +207,7 @@ class SqliteClaimStore(
             }
         }
 
+    @ClaimWrite
     override suspend fun clear(itemId: UUID): Boolean =
         databaseManager.writeTx("WorkItemRepository.clearClaim") {
             WorkItemsTable.update({ WorkItemsTable.id eq itemId }) { clearClaimColumns(it) } > 0

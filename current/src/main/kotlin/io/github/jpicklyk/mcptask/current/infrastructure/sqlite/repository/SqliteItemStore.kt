@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.port.ItemPage
 import io.github.jpicklyk.mcptask.current.application.port.ItemSlice
 import io.github.jpicklyk.mcptask.current.application.port.ItemSort
 import io.github.jpicklyk.mcptask.current.application.port.ItemStore
+import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.domain.error.VersionConflictException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -110,6 +111,7 @@ class SqliteItemStore(
         }
     }
 
+    @StoreWrite
     override suspend fun create(item: WorkItem): WorkItem =
         databaseManager.writeTx("WorkItemRepository.create") {
             insertRow(item)
@@ -120,6 +122,7 @@ class SqliteItemStore(
      * different version, re-reads that version in the SAME transaction (unit) and throws
      * [VersionConflictException] with both versions. Does not touch the four claim columns.
      */
+    @StoreWrite
     override suspend fun update(item: WorkItem): WorkItem? =
         databaseManager.writeTx("WorkItemRepository.update") {
             item.validate()
@@ -168,6 +171,7 @@ class SqliteItemStore(
             }
         }
 
+    @StoreWrite
     override suspend fun delete(id: UUID): Boolean =
         databaseManager.writeTx("WorkItemRepository.delete") {
             WorkItemsTable.deleteWhere { WorkItemsTable.id eq id } > 0
@@ -301,6 +305,7 @@ class SqliteItemStore(
         }
     }
 
+    @StoreWrite
     override suspend fun deleteAll(ids: Set<UUID>): Int {
         if (ids.isEmpty()) return 0
         return databaseManager.writeTx("WorkItemRepository.deleteAll") {
