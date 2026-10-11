@@ -217,6 +217,7 @@ object CallLogFields {
             principalId = principal?.id,
             principalKind = principal?.kind,
             proofStatus = principal?.proofStatus,
+            host = telemetry.host,
             sessionId = telemetry.sessionId,
             surface = telemetry.surface,
             tool = tool,
