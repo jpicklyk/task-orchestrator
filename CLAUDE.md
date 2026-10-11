@@ -58,7 +58,7 @@ Traits are **composable orchestration signals** declared in `.taskorchestrator/c
 
 **Resolution flow:** schema and trait resolution live in `application/config` — `EffectiveConfigResolver` (the shared entry point, one instance built in `ServerComposition` and used by both MCP and REST), `LayeredConfig` (the per-root/global layer lookups for one resolution, built fresh per `EffectiveConfigResolver.layered(rootId)` call) and `TraitResolver` (the one place every cross-trait merge happens: notes, seats, resources, dispatch by role and by seat). `ToolExecutionContext.resolveSchema(item)` and its sibling methods now delegate to `configResolver` rather than resolving inline. Trait notes merge from two sources:
 - `defaultTraits` on the schema type definition (always applied to items of that type)
-- Per-item `traits` from the item's `properties` JSON bag (applied via `PropertiesHelper.extractTraits()`)
+- Per-item `traits` from the item's typed `WorkItem.traits` list (stored in the `item_traits` table; read by every `ItemStore`/`ClaimStore`/`HierarchyStore` read)
 
 **One precedence rule.** An item's base schema is per-root exact type -> server exact type -> per-root `default` -> server `default`; tags never select a schema, and a null type uses only the two `default` steps. Every trait dimension uses ONE trait order: per-item traits first, then `defaultTraits`, deduplicated with the first position kept. Notes: base notes first, a key's content comes from its first declaration (base before traits), and `required` is true if ANY declaration marks it. Seats: first declaration of a name wins (a second `enters` seat in a phase is demoted). Resources: union of keys, EXCLUSIVE beats ADVISORY, `ttlSeconds` first-seen. Dispatch by role and by seat: first trait wins. When the per-root `traits:` map contains a trait name, EVERY dimension of that trait (notes, seats, resources, both dispatch shapes) comes from the per-root entry — a dimension it does not declare is empty, never the server's. The resource registry is server-only. The 3.x `schema_resolution` key is removed (it parses with one warning and has no effect).
 
@@ -71,7 +71,7 @@ Traits are **composable orchestration signals** declared in `.taskorchestrator/c
 | Trait definitions | `.taskorchestrator/config.yaml` -> `traits:` section |
 | Schema resolution | `current/.../application/config/LayeredConfig.kt` (per-layer lookups, `resolveBaseSchema()`/`resolveTypeSchema()`, the precedence table), `current/.../application/config/EffectiveConfigResolver.kt` (shared entry point) |
 | Trait merging | `current/.../application/config/TraitResolver.kt` (`mergeSchema()`, `resources()`, `dispatch()`, `dispatchBySeat()`, `order()`) |
-| Properties helper | `current/.../application/tools/PropertiesHelper.kt` -> `extractTraits()`, `mergeTraits()` |
+| Item traits | `WorkItem.traits` (domain); `current/.../infrastructure/sqlite/schema/ItemTraitsTable.kt` + `V26__Item_Traits.sql`; `ItemStore.traitsOf()`; `TraitsFromPropertiesStep` (one-time move out of `properties`) |
 | Domain models | `WorkItemSchema.kt` (`defaultTraits`), `NoteSchemaEntry.kt` (`skill`, `guidance`) |
 | Dispatch resolution | `current/.../domain/model/DispatchProfile.kt` (domain model); `current/.../application/config/TraitResolver.kt` -> `dispatch()`/`dispatchBySeat()` |
 | `ToolExecutionContext` | `current/.../application/tools/ToolExecutionContext.kt` — thin delegate methods over `configResolver`; no longer where the merge logic lives |

@@ -110,7 +110,7 @@ class AdvanceItemToolLeaseBlockedTest {
             title = "Needs staging DB",
             role = Role.QUEUE,
             depth = 0,
-            properties = """{"traits":["needs-staging-db"]}"""
+            traits = listOf("needs-staging-db")
         )
 
     private fun startParams(itemId: UUID): JsonObject =

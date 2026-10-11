@@ -9,10 +9,10 @@ import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellat
 import io.github.jpicklyk.mcptask.current.application.tools.ElementOutcome
 import io.github.jpicklyk.mcptask.current.application.tools.ElementResult
 import io.github.jpicklyk.mcptask.current.application.tools.KeyedCall
-import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.current.application.tools.TraitList
 import io.github.jpicklyk.mcptask.current.application.tools.putElementError
 import io.github.jpicklyk.mcptask.current.application.tools.resolveWorkItemIdString
 import io.github.jpicklyk.mcptask.current.application.tools.runElement
@@ -145,8 +145,8 @@ class UpdateItemHandler {
      * Unlike [extractItemString] (which squashes blank strings to null for every other field so
      * that "not provided" and "provided empty" collapse to the same no-op), an explicit blank
      * `traits: ""` on update is the caller's signal to clear all traits — it must reach
-     * [PropertiesHelper.mergeTraitsFromString] as `""` (which resolves to an empty trait list and
-     * replaces the traits key), not as `null` (which means "leave traits untouched"). Returns null
+     * [TraitList.parse] as `""` (which resolves to an empty trait list and replaces the stored
+     * list), not as `null` (which means "leave traits untouched"). Returns null
      * only when the key is absent or not a JSON string, so the caller can still fall back to
      * `sharedTraits` exactly when the per-item field was never provided.
      */
@@ -171,6 +171,7 @@ class UpdateItemHandler {
         val newTags: String?,
         val newType: String?,
         val newProperties: String?,
+        val newTraits: List<String>,
         val newParentId: UUID?,
         val parent: ParentChange
     )
@@ -206,9 +207,10 @@ class UpdateItemHandler {
         val newMetadata = extractItemStringAllowNull(itemObj, "metadata", existing.metadata)
         val newTags = extractItemStringAllowNull(itemObj, "tags", existing.tags)
         val newType = extractItemStringAllowNull(itemObj, "type", existing.type)
-        val rawNewProperties = extractItemStringAllowNull(itemObj, "properties", existing.properties)
+        val newProperties = extractItemStringAllowNull(itemObj, "properties", existing.properties)
+        // Absent keeps the item's traits; a present value (even "") replaces them.
         val traitsStr = extractTraitsOverride(itemObj) ?: sharedTraits
-        val newProperties = PropertiesHelper.mergeTraitsFromString(rawNewProperties, traitsStr)
+        val newTraits = if (traitsStr == null) existing.traits else TraitList.parse(traitsStr)
 
         // Parse priority if provided
         val newPriority =
@@ -255,6 +257,7 @@ class UpdateItemHandler {
             newTags = newTags,
             newType = newType,
             newProperties = newProperties,
+            newTraits = newTraits,
             newParentId = newParentId,
             parent = parent
         )
@@ -286,7 +289,8 @@ class UpdateItemHandler {
                 metadata = spec.newMetadata,
                 tags = spec.newTags,
                 type = spec.newType,
-                properties = spec.newProperties
+                properties = spec.newProperties,
+                traits = spec.newTraits
             )
         val newParentId = spec.newParentId
         return when (val outcome = context.itemCommandService.patch(command)) {

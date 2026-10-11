@@ -44,6 +44,12 @@ data class WorkItem(
     val tags: String? = null,
     val type: String? = null,
     val properties: String? = null,
+    /**
+     * The item's trait names, in the caller's order (the typed home of what 3.x kept under `properties.traits`;
+     * [properties] never carries traits). Persisted in `item_traits`. Declared-set validation is the command
+     * service's job; the domain checks only the shape of each name (see [violations]).
+     */
+    val traits: List<String> = emptyList(),
     val createdAt: Instant = Instant.now(),
     val modifiedAt: Instant = Instant.now(),
     val roleChangedAt: Instant = Instant.now(),
@@ -96,6 +102,7 @@ data class WorkItem(
             if (it.isBlank()) out += "Description, if provided, must not be blank"
         }
         tags?.let { out += tagViolations(it) }
+        out += traitViolations(traits)
 
         // --- Claim-field invariants ---
         claimedBy?.let {
@@ -132,6 +139,24 @@ data class WorkItem(
 
     companion object {
         private val TAG_PATTERN = Regex("^[a-z0-9][a-z0-9-]*$")
+
+        private const val MAX_TRAIT_LENGTH = 100
+
+        /** Shape of each trait name: non-blank, trimmed, no comma, at most 100 chars, no duplicate (case-sensitive). */
+        private fun traitViolations(names: List<String>): List<String> {
+            val out = mutableListOf<String>()
+            val seen = HashSet<String>()
+            for (name in names) {
+                when {
+                    name.isBlank() -> out += "Trait names must not be blank"
+                    name != name.trim() -> out += "Trait '$name' must not have leading or trailing whitespace"
+                    name.contains(',') -> out += "Trait '$name' must not contain a comma"
+                    name.length > MAX_TRAIT_LENGTH -> out += "Trait '${name.take(20)}...' must not exceed $MAX_TRAIT_LENGTH characters"
+                }
+                if (!seen.add(name)) out += "Trait '$name' is listed more than once"
+            }
+            return out
+        }
 
         private fun tagViolations(tagString: String): List<String> =
             tagString

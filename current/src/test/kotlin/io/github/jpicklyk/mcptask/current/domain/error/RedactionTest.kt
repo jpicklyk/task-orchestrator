@@ -55,6 +55,7 @@ class RedactionTest {
             "mode",
             "type",
             "availableTypes",
+            "availableTraits",
             "errors",
             "pinnedVersion",
             "currentVersion",

@@ -85,6 +85,7 @@ internal fun itemChangedFields(
         if (old.tags != new.tags) add("tags")
         if (old.type != new.type) add("type")
         if (old.properties != new.properties) add("properties")
+        if (old.traits != new.traits) add("traits")
         if (old.claimedBy != new.claimedBy) add("claimedBy")
         if (old.claimExpiresAt != new.claimExpiresAt) add("claimExpiresAt")
     }

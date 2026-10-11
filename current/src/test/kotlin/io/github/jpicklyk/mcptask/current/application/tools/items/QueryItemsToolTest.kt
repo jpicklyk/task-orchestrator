@@ -93,7 +93,8 @@ class QueryItemsToolTest {
         summary: String? = null,
         statusLabel: String? = null,
         type: String? = null,
-        properties: String? = null
+        properties: String? = null,
+        traits: List<String> = emptyList()
     ): String {
         val itemObj =
             buildJsonObject {
@@ -106,6 +107,7 @@ class QueryItemsToolTest {
                 statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
                 type?.let { put("type", JsonPrimitive(it)) }
                 properties?.let { put("properties", JsonPrimitive(it)) }
+                if (traits.isNotEmpty()) put("traits", JsonPrimitive(traits.joinToString(",")))
             }
         // Fixture-only: a terminal (auto lifecycle) parent takes no new children since P15, so a fixture that nests
         // under a terminal parent opens it for the create and closes it again.
@@ -1496,8 +1498,7 @@ class QueryItemsToolTest {
     fun `global overview root item includes traits when properties has traits set`(): Unit =
         runBlocking {
             // Create a root item with properties containing a traits array
-            val traitProperties = """{"traits":["needs-migration-review"]}"""
-            createItem("Root With Traits", properties = traitProperties)
+            createItem("Root With Traits", traits = listOf("needs-migration-review"))
             createItem("Root Without Traits")
 
             val result =
@@ -1540,7 +1541,7 @@ class QueryItemsToolTest {
     fun `global overview root traits absent for empty and malformed properties`(): Unit =
         runBlocking {
             createItem("Empty Object Props", properties = "{}")
-            createItem("Empty Traits Array", properties = """{"traits":[]}""")
+            createItem("Empty Traits Array")
             createItem("Malformed Props", properties = "not-json")
             createItem("Other Props Only", properties = """{"someKey":"someValue"}""")
 
@@ -1565,8 +1566,7 @@ class QueryItemsToolTest {
     @Test
     fun `global overview root item with multiple traits includes all in array`(): Unit =
         runBlocking {
-            val props = """{"traits":["needs-migration-review","needs-security-review","needs-perf-review"]}"""
-            createItem("Multi Trait Root", properties = props)
+            createItem("Multi Trait Root", traits = listOf("needs-migration-review", "needs-security-review", "needs-perf-review"))
 
             val result =
                 tool.execute(
@@ -1590,8 +1590,7 @@ class QueryItemsToolTest {
     fun `global overview child traits present when set and absent when not`(): Unit =
         runBlocking {
             val rootId = createItem("Root For Child Traits")
-            val childTraitProps = """{"traits":["needs-migration-review","needs-api-compat-review"]}"""
-            createItem("Child With Traits", parentId = rootId, properties = childTraitProps)
+            createItem("Child With Traits", parentId = rootId, traits = listOf("needs-migration-review", "needs-api-compat-review"))
             createItem("Child Without Traits", parentId = rootId)
 
             val result =
@@ -1784,7 +1783,7 @@ class QueryItemsToolTest {
                 "Child With Traits",
                 parentId = rootId,
                 role = "queue",
-                properties = """{"traits":["needs-perf-review"]}"""
+                traits = listOf("needs-perf-review")
             )
             createItem("Child Without Traits", parentId = rootId, role = "queue")
 

@@ -13,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.VersionConflictException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ItemTraitsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.SortOrder
@@ -55,7 +56,7 @@ class SqliteItemStore(
                 .selectAll()
                 .where { WorkItemsTable.id eq id }
                 .singleOrNull()
-                ?.let { WorkItemRows.toWorkItem(it) }
+                ?.let { WorkItemRows.withTraits(WorkItemRows.toWorkItem(it)) }
         }
 
     /**
@@ -94,7 +95,19 @@ class SqliteItemStore(
             it[claimExpiresAt] = item.claimExpiresAt
             it[originalClaimedAt] = item.originalClaimedAt
         }
+        insertTraits(item)
         return item
+    }
+
+    /** Writes [item]'s trait rows (positions 0..n-1) in the caller's transaction. */
+    private fun insertTraits(item: WorkItem) {
+        item.traits.forEachIndexed { index, traitName ->
+            ItemTraitsTable.insert {
+                it[itemId] = item.id
+                it[position] = index
+                it[name] = traitName
+            }
+        }
     }
 
     override suspend fun create(item: WorkItem): WorkItem =
@@ -135,6 +148,9 @@ class SqliteItemStore(
                     it[version] = item.version + 1
                 }
             if (updatedCount > 0) {
+                // The trait list is replaced wholesale in the same unit (delete then insert, positions 0..n-1).
+                ItemTraitsTable.deleteWhere { ItemTraitsTable.itemId eq item.id }
+                insertTraits(item)
                 item.copy(version = item.version + 1)
             } else {
                 // Either not found or version mismatch (optimistic locking conflict)
@@ -167,6 +183,7 @@ class SqliteItemStore(
                 .where { WorkItemsTable.parentId eq parentId }
                 .limit(limit)
                 .map { WorkItemRows.toWorkItem(it) }
+                .let { WorkItemRows.withTraits(it) }
         }
 
     override suspend fun findByRole(
@@ -183,6 +200,7 @@ class SqliteItemStore(
                 .where { conditions.reduce { acc, op -> acc and op } }
                 .limit(limit)
                 .map { WorkItemRows.toWorkItem(it) }
+                .let { WorkItemRows.withTraits(it) }
         }
 
     override suspend fun findByDepth(
@@ -195,6 +213,7 @@ class SqliteItemStore(
                 .where { WorkItemsTable.depth eq depth }
                 .limit(limit)
                 .map { WorkItemRows.toWorkItem(it) }
+                .let { WorkItemRows.withTraits(it) }
         }
 
     override suspend fun findProjectRoots(): List<WorkItem> =
@@ -206,6 +225,7 @@ class SqliteItemStore(
                         (WorkItemsTable.depth eq 0) and
                         (WorkItemsTable.type eq "project")
                 }.map { WorkItemRows.toWorkItem(it) }
+                .let { WorkItemRows.withTraits(it) }
         }
 
     override suspend fun search(
@@ -220,6 +240,7 @@ class SqliteItemStore(
                 .where { (WorkItemsTable.title like pattern) or (WorkItemsTable.summary like pattern) }
                 .limit(limit)
                 .map { WorkItemRows.toWorkItem(it) }
+                .let { WorkItemRows.withTraits(it) }
         }
 
     override suspend fun count(): Long =
@@ -233,6 +254,7 @@ class SqliteItemStore(
                 .selectAll()
                 .where { WorkItemsTable.parentId eq parentId }
                 .map { WorkItemRows.toWorkItem(it) }
+                .let { WorkItemRows.withTraits(it) }
         }
 
     override suspend fun countChildrenByRole(parentId: UUID): Map<Role, Int> =
@@ -257,6 +279,7 @@ class SqliteItemStore(
                     .limit(limit)
                     .offset(offset.coerceAtLeast(0).toLong())
                     .map { WorkItemRows.toWorkItem(it) }
+                    .let { WorkItemRows.withTraits(it) }
             ItemFetchResult(items, skipped = 0)
         }
 
@@ -311,6 +334,11 @@ class SqliteItemStore(
         }
     }
 
+    override suspend fun traitsOf(ids: Set<UUID>): Map<UUID, List<String>> {
+        if (ids.isEmpty()) return emptyMap()
+        return databaseManager.readTx { WorkItemRows.traitsByIds(ids) }
+    }
+
     override suspend fun findByIdSet(ids: Set<UUID>): List<WorkItem> {
         if (ids.isEmpty()) return emptyList()
         return databaseManager.readTx {
@@ -319,6 +347,7 @@ class SqliteItemStore(
                 .selectAll()
                 .where { WorkViewSql.inIdSet(WorkItemsTable.id, ids) }
                 .map { WorkItemRows.toWorkItem(it) }
+                .let { WorkItemRows.withTraits(it) }
         }
     }
 
@@ -386,8 +415,9 @@ class SqliteItemStore(
                 .where { WorkViewSql.inIdSet(WorkItemsTable.parentId, parentIds) }
                 .orderBy(WorkItemsTable.createdAt, SortOrder.DESC)
                 .orderBy(WorkItemsTable.id, SortOrder.ASC)
-                .forEach { row ->
-                    val item = WorkItemRows.toWorkItem(row)
+                .map { WorkItemRows.toWorkItem(it) }
+                .let { WorkItemRows.withTraits(it) }
+                .forEach { item ->
                     item.parentId?.let { result.getOrPut(it) { mutableListOf() }.add(item) }
                 }
             result
@@ -412,6 +442,7 @@ class SqliteItemStore(
                     .limit(limit)
                     .offset(offset.coerceAtLeast(0).toLong())
                     .map { WorkItemRows.toWorkItem(it) }
+                    .let { WorkItemRows.withTraits(it) }
             val total =
                 WorkItemsTable
                     .selectAll()
@@ -447,6 +478,7 @@ class SqliteItemStore(
                     .limit(limit)
                     .offset(offset.coerceAtLeast(0).toLong())
                     .map { WorkItemRows.toWorkItem(it) }
+                    .let { WorkItemRows.withTraits(it) }
             val total =
                 WorkItemsTable
                     .selectAll()
@@ -484,6 +516,7 @@ class SqliteItemStore(
                     .limit(limit)
                     .offset(offset.coerceAtLeast(0).toLong())
                     .map { WorkItemRows.toWorkItem(it) }
+                    .let { WorkItemRows.withTraits(it) }
             val total =
                 WorkItemsTable
                     .selectAll()
@@ -523,6 +556,7 @@ class SqliteItemStore(
                 .limit(page.limit)
                 .offset(page.offset.toLong())
                 .map { WorkItemRows.toWorkItem(it) }
+                .let { WorkItemRows.withTraits(it) }
         }
     }
 
@@ -593,6 +627,7 @@ class SqliteItemStore(
                 .orderBy(WorkItemsTable.id, SortOrder.ASC)
                 .limit(limit)
                 .map { WorkItemRows.toWorkItem(it) }
+                .let { WorkItemRows.withTraits(it) }
         }
     }
 }

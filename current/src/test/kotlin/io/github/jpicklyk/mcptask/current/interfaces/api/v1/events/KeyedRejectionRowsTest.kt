@@ -180,7 +180,7 @@ class KeyedRejectionRowsTest {
             raw.resourceLeaseRepository().acquireAll(holder.id, "agent-0", listOf("db-credential" to 600))
             val item =
                 raw.workItemRepository().create(
-                    WorkItem(title = "Wants the lease", role = Role.QUEUE, depth = 0, properties = """{"traits":["needs-db"]}"""),
+                    WorkItem(title = "Wants the lease", role = Role.QUEUE, depth = 0, traits = listOf("needs-db")),
                 )
             val key = UUID.randomUUID().toString()
 

@@ -16,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.application.tools.TraitList
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
@@ -101,7 +102,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                                 JsonPrimitive(
                                     "Root item spec: { id? (attach mode: UUID or hex prefix of an existing item — " +
                                         "makes title optional/ignored), title (required unless id given), priority?, " +
-                                        "tags?, traits? (comma-separated, merged into properties), summary?, " +
+                                        "tags?, traits? (comma-separated), summary?, " +
                                         "description?, requiresVerification?, type (required), noteAnchors? ([{ noteKey, role, " +
                                         "anchor }] — sources this item's note bodies from the docRef document; " +
                                         "requires top-level docRef) }"
@@ -146,7 +147,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                                 JsonPrimitive(
                                     "Child item specs: [{ ref (required local name, used to wire deps/notes/parentRef), " +
                                         "title (required), parentRef? (parent's ref or \"root\", default \"root\"), " +
-                                        "priority?, tags?, traits? (comma-separated, merged into properties), summary?, " +
+                                        "priority?, tags?, traits? (comma-separated), summary?, " +
                                         "description?, requiresVerification?, type (required), noteAnchors? ([{ noteKey, role, " +
                                         "anchor }] — sources this item's note bodies from the docRef document; " +
                                         "requires top-level docRef) }]. Order-independent (topologically " +
@@ -1822,7 +1823,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         val requiresVerification = (obj["requiresVerification"] as? JsonPrimitive)?.booleanOrNull ?: false
         val type = (obj["type"] as? JsonPrimitive)?.takeIf { it.isString }?.content
         val traitsStr = (obj["traits"] as? JsonPrimitive)?.takeIf { it.isString }?.content
-        val properties = PropertiesHelper.mergeTraitsFromString(null, traitsStr)
+        val traits = TraitList.parse(traitsStr)
 
         return ItemCreateCommand(
             id = id,
@@ -1834,7 +1835,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
             requiresVerification = requiresVerification,
             tags = tags,
             type = type,
-            properties = properties
+            traits = traits
         )
     }
 
@@ -1862,7 +1863,8 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                 depth = if (command.parentId == null) 0 else 1,
                 tags = command.tags,
                 type = command.type,
-                properties = command.properties
+                properties = command.properties,
+                traits = command.traits
             )
         } catch (e: Exception) {
             e.rethrowIfCancellation()

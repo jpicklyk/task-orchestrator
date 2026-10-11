@@ -118,6 +118,7 @@ internal fun patchOf(
         tags = item.tags,
         type = item.type,
         properties = item.properties,
+        traits = item.traits,
     )
 
 /** The value of a write-service [Outcome], failing the test on a rejection. */

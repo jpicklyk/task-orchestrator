@@ -28,7 +28,7 @@ Identify which hot paths the change touches:
 
 - [ ] **Large response payloads** — does the change add fields that significantly increase response size? (e.g., adding `childCounts` to every child in overview)
 - [ ] **Repeated serialization** — same object serialized multiple times in one request?
-- [ ] **String parsing** — `PropertiesHelper.extractTraits()` parses JSON on every call. Acceptable for small objects, flag if called in tight loops.
+- [ ] **Trait hydration** — item traits are rows in `item_traits`, attached to items by one extra batched statement per read (`WorkItemRows.withTraits`). Flag a read path that loads items per row instead, or one that skips hydration.
 
 ## Step 4: Complexity Analysis
 

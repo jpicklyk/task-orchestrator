@@ -20,7 +20,7 @@ class StartupIntegrityException(
  *   external-content index); on failure `rebuild` then re-check; a second failure is a hard
  *   failure. SQLITE_BUSY means WARN and skip. Skipped (one WARN) under [FtsIntegrityMode.OFF]
  *   (`FTS_INTEGRITY=off`), whose cost grows with the indexed bytes; [verifyInventory] always runs.
- * - [reportPlacementDrift] / [reportMutualBlocks] / [reportDanglingLinks] / [reportUntypedItems]: WARN-only
+ * - [reportPlacementDrift] / [reportMutualBlocks] / [reportDanglingLinks] / [reportUntypedItems] / [reportTraitsResidue]: WARN-only
  *   reports; never fail, never write.
  */
 object StartupIntegrity {
@@ -72,6 +72,7 @@ object StartupIntegrity {
         reportMutualBlocks(connection)
         reportDanglingLinks(connection)
         reportUntypedItems(connection)
+        reportTraitsResidue(connection)
     }
 
     fun verifyInventory(connection: Connection) {
@@ -203,6 +204,18 @@ object StartupIntegrity {
             connection,
             "work items with no type (expected on the first 4.0 start of a 3.x database: the type-backfill data step types them next)",
             "SELECT lower(hex(id)) AS ident FROM work_items WHERE type IS NULL OR trim(type) = ''"
+        )
+    }
+
+    /**
+     * WARN-only: items whose `properties` still holds a `traits` key. Traits live in `item_traits` since V26, so these
+     * are rows the `traits-from-properties` data step could not migrate (it names them when it runs).
+     */
+    fun reportTraitsResidue(connection: Connection) {
+        report(
+            connection,
+            "work items whose properties still hold a traits key (the traits-from-properties data step left them untouched)",
+            "SELECT lower(hex(id)) AS ident FROM work_items WHERE json_valid(properties) AND json_type(properties, '\$.traits') IS NOT NULL"
         )
     }
 

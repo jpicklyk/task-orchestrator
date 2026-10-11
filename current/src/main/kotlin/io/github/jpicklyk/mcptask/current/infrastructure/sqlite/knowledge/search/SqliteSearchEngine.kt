@@ -36,6 +36,7 @@ import java.util.UUID
  *   `ScopeResolver` fast path) admits every item whose denormalized `root_id` is that id (indexed); any other
  *   listed id (below root, or an unstamped root) admits its bounded subtree (recursive walk, cycle-bounded).
  *   Orphans (`root_id` NULL, not under a walked id) are never admitted.
+ * - `traitsAny`: the owning item carries at least one listed trait name in `item_traits` (exact, case-sensitive).
  * - `principalTagsAny`: the owning item's comma-separated `tags` is split, every element trimmed of whitespace (the
  *   characters Kotlin's `Char.isWhitespace` accepts), and an element must EQUAL a listed tag: case-sensitive, no
  *   pattern matching, empty elements never match.
@@ -203,6 +204,19 @@ class SqliteSearchEngine(
                     whereArgs += textType to "%,$e"
                 }
                 needsItemRow = true
+            }
+            val requestTraits =
+                filter.traitsAny
+                    ?.map { it.trim() }
+                    ?.filter { it.isNotEmpty() }
+                    ?.distinct()
+                    .orEmpty()
+            if (requestTraits.isNotEmpty()) {
+                // Exact, case-sensitive membership in the owning item's typed traits (idx_item_traits_name serves it).
+                where +=
+                    "EXISTS (SELECT 1 FROM item_traits it WHERE it.item_id = $owner" +
+                    " AND it.name IN (${requestTraits.joinToString(", ") { "?" }}))"
+                requestTraits.forEach { whereArgs += textType to it }
             }
             filter.principalTagsAny?.takeIf { it.isNotEmpty() }?.let { allowed ->
                 // The same predicate the item store applies (one SQL form of the tags_include rule).

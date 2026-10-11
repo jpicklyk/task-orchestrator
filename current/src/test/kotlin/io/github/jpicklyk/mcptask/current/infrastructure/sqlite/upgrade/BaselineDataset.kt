@@ -140,6 +140,8 @@ object BaselineDataset {
         // 3.16 (V17) never writes a raw actor_proof: it stores the sha256 and claims instead. Raw proofs are only
         // seeded below V17, where they are the data the V17 scrub must remove.
         val rawProofs = "actor_proof_sha256" !in columnsOf(conn, "notes")
+        // From V26 traits are typed (item_traits rows, no properties.traits key); below it they ride in properties.
+        val typedTraits = columnsOf(conn, "item_traits").isNotEmpty()
 
         fun item(
             name: String,
@@ -172,7 +174,7 @@ object BaselineDataset {
             "metadata" to "{\"seeded\":\"$name\"}",
             "tags" to "baseline,$name",
             "type" to "feature-task",
-            "properties" to "{\"traits\":[\"needs-review\",\"trait-$name\"]}",
+            "properties" to if (typedTraits) "{\"props\":\"$name\"}" else "{\"traits\":[\"needs-review\",\"trait-$name\"]}",
             "created_at" to TS,
             "modified_at" to TS_PLUS_1,
             "role_changed_at" to TS_PLUS_2,
@@ -191,6 +193,12 @@ object BaselineDataset {
         item("task4", "feature", 2, "Task four epsilon", role = "work", statusLabel = "in-progress", claim = true)
         item("task5", "feature", 2, "Task five zeta")
         item("task6", "feature", 2, "Task six eta")
+        if (typedTraits) {
+            for (name in ITEM_NAMES) {
+                insert(conn, "item_traits", "item_id" to id(name), "position" to 0, "name" to "needs-review")
+                insert(conn, "item_traits", "item_id" to id(name), "position" to 1, "name" to "trait-$name")
+            }
+        }
 
         fun note(
             item: String,

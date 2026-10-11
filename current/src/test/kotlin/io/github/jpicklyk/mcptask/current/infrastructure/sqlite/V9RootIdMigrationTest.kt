@@ -199,6 +199,9 @@ class V9RootIdMigrationTest {
             insertRawItem(child, root, "Child")
 
             applyV9Migration()
+            // The repository hydrates item_traits (V26) on every read, so it needs the current schema; the V9
+            // backfill under test is already in place and the later migrations leave root_id alone.
+            UpgradeHarness.migrate(jdbcUrl)
 
             val repository = SQLiteWorkItemRepository(databaseManager)
             val rootResult = repository.getById(root)

@@ -13,7 +13,9 @@ import org.jetbrains.exposed.v1.core.Expression
 import org.jetbrains.exposed.v1.core.IntegerColumnType
 import org.jetbrains.exposed.v1.core.LiteralOp
 import org.jetbrains.exposed.v1.core.Op
+import org.jetbrains.exposed.v1.core.QueryBuilder
 import org.jetbrains.exposed.v1.core.SortOrder
+import org.jetbrains.exposed.v1.core.TextColumnType
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.lessEq
@@ -34,6 +36,7 @@ internal data class ItemQuerySpec(
     val role: Role? = null,
     val priority: Priority? = null,
     val tags: List<String>? = null,
+    val traits: List<String>? = null,
     val type: String? = null,
     val complexityMax: Int? = null,
     val createdAfter: Instant? = null,
@@ -65,6 +68,7 @@ internal object ItemQueries {
         spec.role?.let { conditions.add(WorkItemsTable.role eq it.name.lowercase()) }
         spec.priority?.let { conditions.add(WorkItemsTable.priority eq it.name.lowercase()) }
         spec.tags?.takeIf { it.isNotEmpty() }?.let { conditions.add(tagFilter(it)) }
+        spec.traits?.let { names -> traitFilter(names)?.let { conditions.add(it) } }
         spec.type?.let { conditions.add(WorkItemsTable.type eq it) }
         spec.complexityMax?.let { conditions.add(WorkItemsTable.complexity lessEq it) }
         spec.createdAfter?.let { conditions.add(WorkItemsTable.createdAt greaterEq it) }
@@ -93,6 +97,30 @@ internal object ItemQueries {
                     (WorkItemsTable.tags like LikeLiteral.pattern("%,$e"))
             }.reduce { acc, op -> acc or op }
 
+    /**
+     * `EXISTS (SELECT 1 FROM item_traits t WHERE t.item_id = work_items.id AND t.name IN (...))`: the item carries at
+     * least one listed trait. Each name is trimmed and empty ones are dropped; matching is exact and case-sensitive.
+     * Null when no name remains (no condition).
+     */
+    fun traitFilter(names: List<String>): Op<Boolean>? {
+        val clean = names.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        if (clean.isEmpty()) return null
+        return object : Op<Boolean>() {
+            override fun toQueryBuilder(queryBuilder: QueryBuilder) {
+                queryBuilder.apply {
+                    append("EXISTS (SELECT 1 FROM item_traits t WHERE t.item_id = ")
+                    append(WorkItemsTable.id)
+                    append(" AND t.name IN (")
+                    clean.forEachIndexed { i, name ->
+                        if (i > 0) append(", ")
+                        registerArgument(TextColumnType(), name)
+                    }
+                    append("))")
+                }
+            }
+        }
+    }
+
     /** Priority rank HIGH=0, MEDIUM=1, LOW=2 (anything else 99), the single definition behind every priority sort. */
     fun priorityRank(): Expression<Int> =
         Case()
@@ -109,6 +137,7 @@ internal object ItemQueries {
             role = filter.role,
             priority = filter.priority,
             tags = filter.tagsAny,
+            traits = filter.traitsAny,
             type = filter.type,
             createdAfter = filter.createdAfter,
             createdBefore = filter.createdBefore,

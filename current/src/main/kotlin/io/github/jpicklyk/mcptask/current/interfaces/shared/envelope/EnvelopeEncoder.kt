@@ -265,6 +265,7 @@ object EnvelopeEncoder {
                     detail.type?.let { put("type", it) }
                     put("reason", detail.reason)
                     detail.availableTypes?.let { put("availableTypes", strings(it)) }
+                    detail.availableTraits?.let { put("availableTraits", strings(it)) }
                 }
                 is ErrorDetail.SchemaPinnedConflict -> {
                     put("itemId", detail.itemId.toString())

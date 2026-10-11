@@ -175,13 +175,16 @@ class TypeBackfillGoldenTest {
 
     /**
      * The dump of [url] minus what the other production step writes: `config-canonicalize` (phase CONFIG_CANONICALIZE,
-     * before this step) fills `config_versions.canonical_json` / `model_version` and records its own `data_steps` row.
+     * before this step) fills `config_versions.canonical_json` / `model_version` and records its own `data_steps` row;
+     * `traits-from-properties` (same phase, after this step) moves `work_items.properties.traits` into `item_traits`.
      */
     private fun dumpOf(url: String) =
         DriverManager.getConnection(url).use { UpgradeHarness.dump(it) }.mapValues { (table, rows) ->
             when (table) {
                 "config_versions" -> rows.mapValues { (_, row) -> row - "canonical_json" - "model_version" }
                 "data_steps" -> rows.filterValues { it["name"] == stepName }
+                "work_items" -> rows.mapValues { (_, row) -> row - "properties" }
+                "item_traits" -> emptyMap()
                 else -> rows
             }
         }
