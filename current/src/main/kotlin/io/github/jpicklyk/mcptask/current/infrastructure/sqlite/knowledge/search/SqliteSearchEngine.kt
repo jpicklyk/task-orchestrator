@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.port.Analyzer
 import io.github.jpicklyk.mcptask.current.application.port.Candidate
 import io.github.jpicklyk.mcptask.current.application.port.Corpus
 import io.github.jpicklyk.mcptask.current.application.port.DocumentHitMeta
+import io.github.jpicklyk.mcptask.current.application.port.Highlight
 import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.application.port.ScopeFilter
 import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
@@ -51,6 +52,70 @@ class SqliteSearchEngine(
         analyzer: Analyzer,
         filter: ScopeFilter,
         window: Int,
+    ): List<Candidate> = select(corpus, query, analyzer, filter, window, highlight = true)
+
+    /** [candidates] without `snippet()`: field and snippet are empty, so a large body is never re-tokenized here. */
+    override suspend fun rankedMatches(
+        corpus: Corpus,
+        query: TextQuery,
+        analyzer: Analyzer,
+        filter: ScopeFilter,
+        window: Int,
+    ): List<Candidate> = select(corpus, query, analyzer, filter, window, highlight = false)
+
+    /**
+     * Highlights only [ids]: the same MATCH as the candidate statement, restricted to those rows by FTS5 rowid, so
+     * `snippet()` runs once per returned row and its output equals the candidate statement's. Without [snippets] the
+     * field is found with one column-filtered MATCH per field column (no `snippet()`): the first column, in field
+     * order, that contains any query term, which is the column whose snippet carries a highlight.
+     */
+    override suspend fun highlights(
+        corpus: Corpus,
+        query: TextQuery,
+        analyzer: Analyzer,
+        ids: Set<UUID>,
+        snippets: Boolean,
+    ): Map<UUID, Highlight> {
+        if (ids.isEmpty()) return emptyMap()
+        val descriptor = CorpusDescriptor.of(corpus)
+        if (!snippets && descriptor.fields.size == 1) return ids.associateWith { Highlight(descriptor.fields[0].field, "") }
+        return databaseManager.readTx {
+            if (snippets) {
+                val statement = buildHighlightStatement(descriptor, Fts5QueryRenderer.render(query), analyzer, ids)
+                rawQuery(statement.sql, statement.args) { rs ->
+                    val out = HashMap<UUID, Highlight>()
+                    while (rs.next()) {
+                        val id = uuidOf(rs.getObject(1)!!)
+                        val (field, snippet) = matchedField(descriptor, descriptor.fields.indices.map { rs.getString(2 + it) ?: "" })
+                        out[id] = Highlight(field, snippet)
+                    }
+                    out
+                }
+            } else {
+                val out = HashMap<UUID, Highlight>()
+                for (column in descriptor.fields) {
+                    val pending = ids.filterTo(LinkedHashSet()) { it !in out }
+                    if (pending.isEmpty()) break
+                    val match = "{${column.field}} : (" + Fts5QueryRenderer.renderAny(query) + ")"
+                    val statement = buildHighlightStatement(descriptor, match, analyzer, pending, withSnippets = false)
+                    rawQuery(statement.sql, statement.args) { rs ->
+                        while (rs.next()) out[uuidOf(rs.getObject(1)!!)] = Highlight(column.field, "")
+                    }
+                }
+                // A matched row always has a term in some column; the first field is only a defensive default.
+                for (id in ids) out.getOrPut(id) { Highlight(descriptor.fields[0].field, "") }
+                out
+            }
+        }
+    }
+
+    private suspend fun select(
+        corpus: Corpus,
+        query: TextQuery,
+        analyzer: Analyzer,
+        filter: ScopeFilter,
+        window: Int,
+        highlight: Boolean,
     ): List<Candidate> {
         if (window < 1) return emptyList()
         if (filter.rootIds != null && filter.rootIds.isEmpty()) return emptyList()
@@ -58,20 +123,25 @@ class SqliteSearchEngine(
             "role, tags and traits do not apply to the ${corpus.kind} corpus"
         }
         val descriptor = CorpusDescriptor.of(corpus)
-        val statement = buildStatement(descriptor, Fts5QueryRenderer.render(query), analyzer, filter, window)
+        val statement = buildStatement(descriptor, Fts5QueryRenderer.render(query), analyzer, filter, window, highlight)
+        val snippetColumns = if (highlight) descriptor.fields.size else 0
         return databaseManager.readTx {
             rawQuery(statement.sql, statement.args) { rs ->
                 val out = mutableListOf<Candidate>()
                 while (rs.next()) {
-                    // Select order: 1=rank, 2=doc_id, 3=owner_id, 4=note_key, then one snippet per field column, then
-                    // the descriptor's extra columns.
+                    // Select order: 1=rank, 2=doc_id, 3=owner_id, 4=note_key, then one snippet per field column when
+                    // highlighting, then the descriptor's extra columns.
                     val rank = (rs.getObject(1) as Number).toDouble()
                     val id = uuidOf(rs.getObject(2)!!)
                     val owner = uuidOf(rs.getObject(3)!!)
                     val noteKey = if (descriptor.noteKeyColumn != null) rs.getString(4) ?: "" else null
-                    val snippets = descriptor.fields.indices.map { rs.getString(5 + it) ?: "" }
-                    val (field, snippet) = matchedField(descriptor, snippets)
-                    val extra = 5 + descriptor.fields.size
+                    val (field, snippet) =
+                        if (highlight) {
+                            matchedField(descriptor, descriptor.fields.indices.map { rs.getString(5 + it) ?: "" })
+                        } else {
+                            "" to ""
+                        }
+                    val extra = 5 + snippetColumns
                     val document =
                         if (corpus == Corpus.DOCUMENT) {
                             DocumentHitMeta(
@@ -156,6 +226,7 @@ class SqliteSearchEngine(
             analyzer: Analyzer,
             filter: ScopeFilter,
             window: Int,
+            highlight: Boolean = true,
         ): Statement {
             val table = descriptor.table(analyzer)
             val owner = descriptor.ownerColumn
@@ -256,17 +327,13 @@ class SqliteSearchEngine(
 
             val itemJoin = if (needsItemRow) descriptor.ownerItemJoin.orEmpty() else ""
             val noteKey = descriptor.noteKeyColumn ?: "NULL"
-            val snippets =
-                descriptor.fields.joinToString(",\n") {
-                    "snippet($table, ${it.index}, '$OPEN', '$CLOSE', '$ELLIPSIS', $SNIPPET_TOKENS)"
-                }
+            val snippets = if (highlight) ",\n" + snippetColumns(descriptor, table) else ""
             val extraSelect = descriptor.extraColumns.joinToString("") { ", $it" }
             val with = if (ctes.isEmpty()) "" else "WITH RECURSIVE " + ctes.joinToString(",\n")
             val sql =
                 """
                 $with
-                SELECT ft.rank, ${descriptor.idColumn} AS doc_id, $owner AS owner_id, $noteKey AS note_key,
-                $snippets$extraSelect
+                SELECT ft.rank, ${descriptor.idColumn} AS doc_id, $owner AS owner_id, $noteKey AS note_key$snippets$extraSelect
                 FROM $table ft
                 ${descriptor.baseJoin}
                 $itemJoin
@@ -275,6 +342,41 @@ class SqliteSearchEngine(
                 LIMIT ?
                 """.trimIndent()
             return Statement(sql, cteArgs + whereArgs + listOf(intType to window))
+        }
+
+        /** One `snippet()` column per field, in field order. */
+        private fun snippetColumns(
+            descriptor: CorpusDescriptor,
+            table: String,
+        ): String =
+            descriptor.fields.joinToString(",\n") {
+                "snippet($table, ${it.index}, '$OPEN', '$CLOSE', '$ELLIPSIS', $SNIPPET_TOKENS)"
+            }
+
+        /**
+         * Renders the page highlight statement: [matchExpression] over [analyzer]'s table, restricted to the rows of
+         * [ids] through the FTS5 rowid (so FTS5 seeks each row instead of walking the whole match). Selects the id,
+         * then one snippet per field column when [withSnippets].
+         */
+        fun buildHighlightStatement(
+            descriptor: CorpusDescriptor,
+            matchExpression: String,
+            analyzer: Analyzer,
+            ids: Set<UUID>,
+            withSnippets: Boolean = true,
+        ): Statement {
+            val table = descriptor.table(analyzer)
+            val snippets = if (withSnippets) ",\n" + snippetColumns(descriptor, table) else ""
+            val placeholders = ids.joinToString(", ") { "?" }
+            val sql =
+                """
+                SELECT ${descriptor.idColumn} AS doc_id$snippets
+                FROM $table ft
+                ${descriptor.baseJoin}
+                WHERE $table MATCH ?
+                 AND ft.rowid IN (SELECT ${descriptor.contentRowidColumn} FROM ${descriptor.contentTable} WHERE id IN ($placeholders))
+                """.trimIndent()
+            return Statement(sql, listOf<Pair<ColumnType<*>, Any?>>(textType to matchExpression) + ids.map { uuidType to it })
         }
     }
 }

@@ -103,6 +103,14 @@ data class Candidate(
 )
 
 /**
+ * Where one matched row matches and an excerpt of it: [field] and [snippet] exactly as [Candidate] documents them.
+ */
+data class Highlight(
+    val field: String,
+    val snippet: String,
+)
+
+/**
  * The document-only facts of a [Candidate], read in the same statement as the match.
  *
  * @property kind The document kind (`plan`, `rule`, `page`).
@@ -136,6 +144,35 @@ interface SearchIndex {
         filter: ScopeFilter,
         window: Int = FTS_CANDIDATE_ROWS,
     ): List<Candidate>
+
+    /**
+     * [candidates] for ranking only: the same rows in the same order, but [Candidate.field] and [Candidate.snippet]
+     * may be left empty so no excerpt is built for a row that never reaches a page. The caller then asks
+     * [highlights] for the rows it actually returns. The default delegates to [candidates] (rows come highlighted).
+     */
+    suspend fun rankedMatches(
+        corpus: Corpus,
+        query: TextQuery,
+        analyzer: Analyzer,
+        filter: ScopeFilter,
+        window: Int = FTS_CANDIDATE_ROWS,
+    ): List<Candidate> = candidates(corpus, query, analyzer, filter, window)
+
+    /**
+     * The [Highlight] of each of [ids] (document ids of [corpus] rows that match [query] under [analyzer]), in one
+     * read per call: the same field and snippet [candidates] would have reported for the row. With [snippets] false
+     * only the field is determined and no excerpt is built ([Highlight.snippet] is empty).
+     *
+     * An id absent from the result keeps the field and snippet its candidate already carries; the default returns
+     * an empty map, for an index whose [rankedMatches] rows are already highlighted.
+     */
+    suspend fun highlights(
+        corpus: Corpus,
+        query: TextQuery,
+        analyzer: Analyzer,
+        ids: Set<UUID>,
+        snippets: Boolean,
+    ): Map<UUID, Highlight> = emptyMap()
 
     /** The title of each of [itemIds] that exists, in one read. Absent ids are omitted. */
     suspend fun titles(itemIds: Set<UUID>): Map<UUID, String>

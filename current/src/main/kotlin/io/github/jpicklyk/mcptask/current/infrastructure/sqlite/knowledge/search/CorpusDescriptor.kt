@@ -28,6 +28,8 @@ internal data class FieldColumn(
  *   never searched).
  * @property extraColumns Columns selected after the snippets, read into the corpus's own hit facts in the same
  *   statement.
+ * @property contentTable The content table the FTS5 tables index; its `id` column holds [idColumn]'s value.
+ * @property contentRowidColumn The [contentTable] column the FTS5 rowid mirrors.
  */
 internal data class CorpusDescriptor(
     val corpus: Corpus,
@@ -40,6 +42,8 @@ internal data class CorpusDescriptor(
     val ownerItemJoin: String?,
     val fixedPredicates: List<String> = emptyList(),
     val extraColumns: List<String> = emptyList(),
+    val contentTable: String,
+    val contentRowidColumn: String,
 ) {
     fun table(analyzer: Analyzer): String = tables.getValue(analyzer)
 
@@ -55,6 +59,8 @@ internal data class CorpusDescriptor(
                 noteKeyColumn = null,
                 fields = listOf(FieldColumn(0, "title"), FieldColumn(1, "summary"), FieldColumn(2, "description")),
                 ownerItemJoin = null,
+                contentTable = "work_items",
+                contentRowidColumn = "rowid",
             )
 
         /** Note bodies (V7 `notes_fts_*`, column body=0), owned by the note's work item. */
@@ -68,6 +74,8 @@ internal data class CorpusDescriptor(
                 noteKeyColumn = "n.key",
                 fields = listOf(FieldColumn(0, "body")),
                 ownerItemJoin = "JOIN work_items wi ON wi.id = n.work_item_id",
+                contentTable = "notes",
+                contentRowidColumn = "rowid",
             )
 
         /**
@@ -87,6 +95,8 @@ internal data class CorpusDescriptor(
                 ownerItemJoin = "JOIN work_items wi ON wi.id = d.root_item_id",
                 fixedPredicates = listOf("d.archived_at IS NULL"),
                 extraColumns = listOf("d.kind", "d.slug", "d.title", "d.version"),
+                contentTable = "documents",
+                contentRowidColumn = "doc_rowid",
             )
 
         fun of(corpus: Corpus): CorpusDescriptor =

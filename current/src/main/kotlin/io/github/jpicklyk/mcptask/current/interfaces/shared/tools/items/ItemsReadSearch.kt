@@ -90,6 +90,7 @@ object ItemsReadSearch {
                         limit = page.limit,
                         offset = page.offset,
                         access = ctx.scope,
+                        snippets = req.snippet ?: true,
                     )
                 val result =
                     try {

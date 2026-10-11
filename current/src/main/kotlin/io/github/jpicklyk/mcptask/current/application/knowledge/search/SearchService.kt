@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.port.Analyzer
 import io.github.jpicklyk.mcptask.current.application.port.Candidate
 import io.github.jpicklyk.mcptask.current.application.port.Corpus
 import io.github.jpicklyk.mcptask.current.application.port.FTS_CANDIDATE_ROWS
+import io.github.jpicklyk.mcptask.current.application.port.Highlight
 import io.github.jpicklyk.mcptask.current.application.port.MAX_FTS_RESULTS
 import io.github.jpicklyk.mcptask.current.application.port.ScopeFilter
 import io.github.jpicklyk.mcptask.current.application.port.SearchHit
@@ -39,6 +40,8 @@ import java.util.UUID
  * @property limit Page size, 1 to [MAX_FTS_RESULTS].
  * @property offset Zero-based offset into the capped result list.
  * @property access What the caller may see; applied before ranking and capping.
+ * @property snippets Whether each hit carries a snippet. When false no excerpt is built at all and
+ *   [SearchHit.snippet] is empty; [SearchHit.field] is reported either way.
  */
 data class SearchRequest(
     val query: String,
@@ -52,6 +55,7 @@ data class SearchRequest(
     val limit: Int = DEFAULT_LIMIT,
     val offset: Int = 0,
     val access: AccessScope,
+    val snippets: Boolean = true,
 ) {
     companion object {
         /** Page size when the caller names none (MCP tools). */
@@ -68,8 +72,12 @@ class SearchValidationException(
 
 /**
  * The search pipeline shared by every transport: validate, tokenize, plan (corpus by analyzer), retrieve
- * candidates, fuse in [Ranker], order, cap at [MAX_FTS_RESULTS], slice the page, and hydrate owning-item titles in
- * one read.
+ * candidates, fuse in [Ranker], order, cap at [MAX_FTS_RESULTS], slice the page, highlight the page, and hydrate
+ * owning-item titles in one read.
+ *
+ * Highlighting is page-only: candidates are retrieved unhighlighted ([SearchIndex.rankedMatches]) and only the rows
+ * of the returned page get a field and snippet ([SearchIndex.highlights], one call per corpus and analyzer). Neither
+ * affects ranking, order, the cap or the page.
  *
  * Candidate retrieval, ranking, the cap/slice and the title hydration run inside ONE [UnitOfWork.read], so the
  * index statements share a single reader connection and snapshot instead of each opening its own.
@@ -130,7 +138,7 @@ class SearchService(
                 for (corpus in searched) {
                     val perAnalyzer = LinkedHashMap<Analyzer, List<Candidate>>()
                     for (analyzer in analyzers(request.matchMode)) {
-                        perAnalyzer[analyzer] = index.candidates(corpus, textQuery, analyzer, filter, FTS_CANDIDATE_ROWS)
+                        perAnalyzer[analyzer] = index.rankedMatches(corpus, textQuery, analyzer, filter, FTS_CANDIDATE_ROWS)
                     }
                     lists[corpus] = perAnalyzer
                 }
@@ -140,7 +148,7 @@ class SearchService(
                 // not the requested page: identical at every offset.
                 val truncated = ranked.size > MAX_FTS_RESULTS
                 val capped = if (truncated) ranked.take(MAX_FTS_RESULTS) else ranked
-                val page = capped.drop(request.offset).take(request.limit)
+                val page = highlight(capped.drop(request.offset).take(request.limit), textQuery, request.snippets)
                 // A document hit carries its own title; only item and note hits need their owning item's.
                 val titleOwners =
                     page.filter { it.primary.document == null }.mapTo(LinkedHashSet()) { it.primary.ownerItemId }
@@ -178,6 +186,42 @@ class SearchService(
             }
         val nextOffset = if (request.offset + request.limit < totalHits) request.offset + request.limit else null
         return SearchResult(hits = hits, totalHits = totalHits, nextOffset = nextOffset, truncated = truncated)
+    }
+
+    /**
+     * [page] with each hit's primary candidate carrying the field and snippet built for it alone: one
+     * [SearchIndex.highlights] call per (corpus, analyzer) group of the page, in page order. A hit the index does not
+     * answer for keeps its candidate's own field and snippet. With [snippets] false the snippet is emptied.
+     */
+    private suspend fun highlight(
+        page: List<RankedHit>,
+        query: TextQuery,
+        snippets: Boolean,
+    ): List<RankedHit> {
+        if (page.isEmpty()) return page
+        val found = HashMap<Pair<Corpus, UUID>, Highlight>()
+        for ((group, hits) in page.groupBy { it.corpus to it.primaryAnalyzer }) {
+            val (corpus, analyzer) = group
+            val ids = hits.mapTo(LinkedHashSet()) { it.primary.id }
+            index.highlights(corpus, query, analyzer, ids, snippets).forEach { (id, h) -> found[corpus to id] = h }
+        }
+        return page.map { hit ->
+            val h = found[hit.corpus to hit.primary.id]
+            val field = h?.field ?: hit.primary.field
+            val snippet =
+                when {
+                    !snippets -> ""
+                    h != null -> h.snippet
+                    else -> hit.primary.snippet
+                }
+            if (field == hit.primary.field &&
+                snippet == hit.primary.snippet
+            ) {
+                hit
+            } else {
+                hit.copy(primary = hit.primary.copy(field = field, snippet = snippet))
+            }
+        }
     }
 
     private class SearchSnapshot(
