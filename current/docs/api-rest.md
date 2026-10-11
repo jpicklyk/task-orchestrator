@@ -212,6 +212,9 @@ drift apart.
 - `POST /ops/items_read` (section 20a) - every select applies the same rules; `list`, `search` and
   `overview` apply the scope before paging, ranking and capping, so `page.total` counts only visible items
   and a restricted token gets a full page of in-scope hits (a note hit is checked on its owning item);
+  `related` checks its subject item like `get` and drops every out-of-scope relative (from any signal:
+  dependencies, links, tags, text) before fusion and the cap, so a dropped relative is never named and
+  never counted (a document is visible exactly when its root item is);
   `ancestors` stop at the caller's scope root and drop ancestors that fail `tags_include`
 - `GET /transitions` - a `tags_include` token sees only rows for items it is allowed to see
 - `POST /ops/deps_read` and `POST /ops/deps_write` (section 13) - the subject item of a read is
@@ -229,7 +232,7 @@ that root *with* carry a listed tag. A reparent is checked against the new paren
 to root) under `root_ids` is allowed only when the item itself is a listed root.
 
 **A collection never turns a tag-scope mismatch into `403`.** A tag-scoped caller whose scope matches
-nothing on a collection (an `items_read` `list`, `search` or `overview` page, `GET /items/{id}/children`,
+nothing on a collection (an `items_read` `list`, `search`, `overview` or `related` page, `GET /items/{id}/children`,
 `ancestors`, `GET /transitions`) gets `200 OK` with an empty or partially filtered result; `403` is
 reserved for a single item named directly.
 

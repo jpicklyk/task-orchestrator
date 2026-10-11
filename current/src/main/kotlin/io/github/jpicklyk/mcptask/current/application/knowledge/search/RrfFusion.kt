@@ -90,6 +90,27 @@ object RrfFusion {
     }
 
     /**
+     * Weighted RRF: `score(doc) = sum over sources of weight / (k + rank_in_source(doc))`. A document absent from a
+     * source gets nothing from it. With every weight 1.0 this equals [fuse].
+     *
+     * @param sources One (docId to 1-based rank) map per source list, each paired with its weight.
+     * @param k The RRF smoothing constant.
+     * @return Map of docId to fused weighted score.
+     */
+    fun <DocId> fuseWeighted(
+        sources: List<Pair<Map<DocId, Int>, Double>>,
+        k: Double
+    ): Map<DocId, Double> {
+        val allDocIds = sources.flatMap { it.first.keys }.toSet()
+        return allDocIds.associateWith { docId ->
+            sources.sumOf { (source, weight) ->
+                val rank = source[docId]
+                if (rank != null) weight / (k + rank) else 0.0
+            }
+        }
+    }
+
+    /**
      * Convenience overload for the common two-source case (trigram + text tables).
      *
      * @param source1 First ranked source (e.g. trigram table ranks).

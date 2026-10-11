@@ -57,6 +57,9 @@ object CallLogFields {
     /** Most flags kept in `request_shape`. */
     const val MAX_SHAPE_KEYS = 16
 
+    /** The `request_shape` key of a `related` call's per-signal page contribution counts. */
+    const val RELATED_SIGNALS_KEY = "relatedSignals"
+
     /**
      * The top-level `operation` when it is a plain name (`^[a-z_]{1,64}$`), [INVALID_OPERATION] for any other
      * supplied string value, else null. Client text beyond that is never stored.
@@ -131,14 +134,19 @@ object CallLogFields {
 
     /**
      * [requestShapeJson] plus the server-derived [searchShape] of a search call (`queryHash`, `termCount`,
-     * `matchMode`, and `hitsByKind` once the search ran), which always survive the [MAX_SHAPE_KEYS] limit and
-     * replace a client flag of the same name. The query text is never part of it.
+     * `matchMode`, and `hitsByKind` once the search ran) and the [relatedSignals] of a `related` call
+     * (`relatedSignals`: per signal, the returned-page hits it contributed to), which always survive the
+     * [MAX_SHAPE_KEYS] limit and replace a client flag of the same name. The query text is never part of it.
      */
     fun requestShapeJson(
         arguments: JsonObject?,
-        searchShape: CallTelemetry.SearchShape?
+        searchShape: CallTelemetry.SearchShape?,
+        relatedSignals: Map<String, Int>? = null
     ): String? {
-        val extras = searchShape?.let { searchShapeFields(it) } ?: emptyMap()
+        val extras = (searchShape?.let { searchShapeFields(it) } ?: emptyMap()).toMutableMap()
+        relatedSignals?.let { signals ->
+            extras[RELATED_SIGNALS_KEY] = JsonObject(signals.toSortedMap().mapValues { JsonPrimitive(it.value) })
+        }
         val client = clientShape(arguments).filterKeys { it !in extras }
         if (client.isEmpty() && extras.isEmpty()) return null
         val kept = client.entries.take(MAX_SHAPE_KEYS - extras.size).associate { it.key to it.value }

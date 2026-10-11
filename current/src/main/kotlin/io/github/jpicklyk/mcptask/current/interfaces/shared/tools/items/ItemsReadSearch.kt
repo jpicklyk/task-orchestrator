@@ -46,7 +46,7 @@ object ItemsReadSearch {
         @Doc(ItemsReadDocs.TAGS) val tags: List<String>? = null,
         @Doc(ItemsReadDocs.TRAITS) val traits: List<String>? = null,
         @Doc("Add a highlighted snippet to each hit; default true.") val snippet: Boolean? = null,
-        @Doc("Add per-analyzer ranks to each hit; default false.") val explain: Boolean? = null,
+        @Doc(ItemsReadDocs.EXPLAIN) val explain: Boolean? = null,
         @Doc(ItemsReadDocs.LIMIT) val limit: Int? = null,
         @Doc(ItemsReadDocs.CURSOR) val cursor: String? = null,
     )

@@ -15,6 +15,7 @@ import org.jetbrains.exposed.v1.core.CustomFunction
 import org.jetbrains.exposed.v1.core.LongColumnType
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.plus
@@ -184,6 +185,20 @@ class SQLiteNoteRepository(
                     .where { NotesTable.itemId inList itemIds }
                     .map { mapRowToNote(it) }
             notes.groupBy { it.itemId }
+        }
+    }
+
+    override suspend fun ownersOf(noteIds: Set<UUID>): Map<UUID, UUID> {
+        if (noteIds.isEmpty()) return emptyMap()
+        return databaseManager.readTx {
+            noteIds
+                .chunked(SQL_IN_CHUNK_SIZE)
+                .flatMap { chunk ->
+                    NotesTable
+                        .select(NotesTable.id, NotesTable.itemId)
+                        .where { NotesTable.id inList chunk.map { EntityID(it, NotesTable) } }
+                        .map { it[NotesTable.id].value to it[NotesTable.itemId] }
+                }.toMap()
         }
     }
 
