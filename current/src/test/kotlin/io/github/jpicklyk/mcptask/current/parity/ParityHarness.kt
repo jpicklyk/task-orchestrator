@@ -354,15 +354,31 @@ class ParityHarness(
     ): String {
         val marker = "\"reqId\":\"$reqId\""
         assertTrue(marker in body, "body carries its reqId marker: $body")
-        return body.replace(marker, "\"reqId\":\"<REQ>\"")
+        // A stamp on the fixed clock is compared exactly; a stamp some store takes from the wall clock instead (note rows are
+        // stamped by the repository, not the injected clock) differs between the legs by milliseconds, so it must still be an
+        // ISO-8601 instant and is masked.
+        val fixed = PARITY_NOW.toString()
+        return body.replace(marker, "\"reqId\":\"<REQ>\"").replace(TIMESTAMP) { match ->
+            val value = match.groupValues[2]
+            if (value == fixed) {
+                match.value
+            } else {
+                Instant.parse(value)
+                "\"${match.groupValues[1]}\":\"<WALL>\""
+            }
+        }
     }
 
     companion object {
         private val TABLES = listOf("work_items", "notes", "dependencies", "events")
 
+        private val TIMESTAMP = Regex("\"(createdAt|modifiedAt)\":\"([^\"]*)\"")
+
         /**
          * The comparable content of every table: generated ids (all `id` columns except work_items, whose ids are seeded),
          * `seq`, request/session correlation ids and every timestamp column are dropped; rows are sorted (events by `seq`).
+         * `events.host` is dropped too: it records the caller's transport identity, which differs between the legs by design
+         * (Q7: MCP records `clientInfo.name`, REST the `X-Client-Host` header or user agent); every other event column is compared.
          */
         fun snapshot(jdbcUrl: String): Map<String, List<Map<String, Any?>>> =
             DriverManager.getConnection(jdbcUrl).use { connection ->
@@ -385,7 +401,8 @@ class ParityHarness(
                                                 label == "req_id" ||
                                                 label == "session_id" ||
                                                 label == "at" ||
-                                                label.endsWith("_at")
+                                                label.endsWith("_at") ||
+                                                (table == "events" && label == "host")
                                         ) &&
                                             !(label == "id" && table != "work_items")
                                     }

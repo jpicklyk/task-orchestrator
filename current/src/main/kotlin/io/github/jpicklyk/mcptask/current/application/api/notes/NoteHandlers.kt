@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.api.notes
 
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
-import io.github.jpicklyk.mcptask.current.application.api.CursorCodec
 import io.github.jpicklyk.mcptask.current.application.api.IdResolver
 import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.api.PageRequest
@@ -93,18 +92,9 @@ object NoteHandlers {
             env.unitOfWork
                 .read { stores.noteRepository().findSummariesByItemId(itemId, role, req.keys?.toSet()) }
                 .sortedWith(compareBy<NoteSummary> { it.key }.thenBy { it.id.toString() })
-        val window = rows.drop(page.offset)
-        val items = window.take(page.limit)
-        val truncated = items.size < window.size
+        val items = rows.drop(page.offset).take(page.limit)
         for (row in items) recordCallTargetVersion(row.id, row.version)
-        return Outcome.Ok(
-            ListPage(
-                items = items.map { entry(it, ctx) },
-                total = window.size,
-                truncated = truncated,
-                next = if (truncated) CursorCodec.encode(page.offset + items.size) else null
-            )
-        )
+        return Outcome.Ok(ListPage.of(items.map { entry(it, ctx) }, total = rows.size, page = page))
     }
 
     // ---- writes (each runs inside the element's write unit) ----------------------------------------------

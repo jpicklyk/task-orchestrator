@@ -161,11 +161,11 @@ class WorkViewQueriesTest {
             assertEquals(ids(e).slice(2..3), ids(p2.items))
             assertEquals(ids(e).drop(4), ids(p3.items))
             assertEquals(listOf(5, 5, 5), listOf(p1.total, p2.total, p3.total))
-            // ListPage invariant: truncated == (items.size < total), so a non-first page is truncated too
-            assertEquals(listOf(true, true, true), listOf(p1.truncated, p2.truncated, p3.truncated))
+            // Envelope amendment U22: truncated means items exist after this page, so only the last page is complete
+            assertEquals(listOf(true, true, false), listOf(p1.truncated, p2.truncated, p3.truncated))
             assertNotNull(p1.next)
             assertNotNull(p2.next)
-            assertNotNull(p3.next)
+            assertNull(p3.next)
             val all = ids(p1.items) + ids(p2.items) + ids(p3.items)
             assertEquals(all.size, all.toSet().size, "pages are disjoint")
             assertEquals(ids(e), all, "concatenated pages equal the full ordered eligible list")
@@ -395,7 +395,8 @@ class WorkViewQueriesTest {
 
             assertEquals(listOf(200, 200, 200), pages.map { it.items.size })
             assertEquals(listOf(600, 600, 600), pages.map { it.total })
-            assertEquals(listOf(true, true, true), pages.map { it.truncated }, "ListPage invariant: truncated == (items.size < total)")
+            // Envelope amendment U22: truncated means items exist after this page
+            assertEquals(listOf(true, true, false), pages.map { it.truncated }, "U22: only the last page is complete")
             val union = pages.flatMap { page -> page.items.map { it.item.id } }
             assertEquals(600, union.toSet().size, "pages are disjoint and cover every blocked item")
         }
@@ -551,7 +552,8 @@ class WorkViewQueriesTest {
 
             assertEquals(listOf(2, 1), listOf(first.roots.items.size, second.roots.items.size))
             assertEquals(listOf(3, 3), listOf(first.roots.total, second.roots.total))
-            assertTrue(first.roots.truncated && second.roots.truncated, "ListPage invariant: truncated == (items.size < total)")
+            // Envelope amendment U22: truncated means items exist after this page
+            assertTrue(first.roots.truncated && !second.roots.truncated, "U22: only the last page is complete")
             assertEquals(
                 setOf(tree.r1.id, tree.r2.id, tree.r3.id),
                 (first.roots.items + second.roots.items).map { it.item.id }.toSet()
