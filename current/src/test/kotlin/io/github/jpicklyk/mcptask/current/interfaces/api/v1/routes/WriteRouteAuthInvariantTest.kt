@@ -98,7 +98,6 @@ class WriteRouteAuthInvariantTest {
                     toolContext.advanceServiceFactory(),
                     db.unitOfWork(),
                 )
-                dependencyWriteRoutes(repo, degradedModePolicy, IdempotencyService(db.unitOfWork()), db.unitOfWork())
             }
         }
     }
@@ -213,14 +212,6 @@ class WriteRouteAuthInvariantTest {
             assertEquals(HttpStatusCode.Created, itemCResponse.status)
             val itemCId = extractId(itemCResponse.bodyAsText())
             assertNotNull(itemCId)
-
-            val depResponse =
-                client.post("/api/v1/dependencies") {
-                    header(HttpHeaders.Authorization, "Bearer s16-write-jwt")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"fromItemId":"$itemAId","toItemId":"$itemBId","type":"blocks"}""")
-                }
-            assertEquals(HttpStatusCode.Created, depResponse.status, "S16: POST /dependencies must be 201, never 401")
 
             val deleteResponse =
                 client.delete("/api/v1/items/$itemCId") {

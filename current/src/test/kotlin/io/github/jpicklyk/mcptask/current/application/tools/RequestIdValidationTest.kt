@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
@@ -30,9 +29,9 @@ import kotlin.test.assertTrue
 
 /**
  * Independent test-author coverage for item 71dea46e (frozen test-plan note `b703941a`):
- * a malformed `requestId` on any of the five 3.x mutating tools (manage_items,
- * manage_dependencies, advance_item, complete_tree, create_work_tree; manage_notes was replaced by notes_write, which
- * takes a per-element idempotencyKey instead) must be rejected with a
+ * a malformed `requestId` on any of the four 3.x mutating tools (manage_items, advance_item,
+ * complete_tree, create_work_tree; manage_notes and manage_dependencies were replaced by notes_write and
+ * deps_write, which take a per-element idempotencyKey instead) must be rejected with a
  * validation error naming `requestId`, with NOTHING written and the idempotency cache left
  * empty. A valid `requestId` must still replay idempotently. `requestId`-without-actor and the
  * `create_work_tree` malformed-actor contract are UNCHANGED (guard regressions, not new gates).
@@ -143,30 +142,6 @@ class RequestIdValidationTest {
                 val check: suspend () -> Boolean = {
                     val count = (context.workItemRepository().findRootItems()!!).items.size
                     count > baseline
-                }
-                params to check
-            },
-            ToolCase("manage_dependencies", ManageDependenciesTool()) { context, actorId ->
-                val from = createItem(context, "Dep From ${UUID.randomUUID()}")
-                val to = createItem(context, "Dep To ${UUID.randomUUID()}")
-                val params =
-                    buildJsonObject {
-                        put("operation", JsonPrimitive("create"))
-                        put(
-                            "dependencies",
-                            JsonArray(
-                                listOf(
-                                    buildJsonObject {
-                                        put("fromItemId", JsonPrimitive(from.toString()))
-                                        put("toItemId", JsonPrimitive(to.toString()))
-                                    }
-                                )
-                            )
-                        )
-                        put("actor", actorJson(actorId))
-                    }
-                val check: suspend () -> Boolean = {
-                    context.dependencyRepository().findByFromItemId(from).isNotEmpty()
                 }
                 params to check
             },

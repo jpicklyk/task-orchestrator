@@ -1,0 +1,56 @@
+{
+  "name": "deps_read",
+  "inputSchema": {
+    "properties": {
+      "select": {
+        "type": "string",
+        "description": "Which read to run. A field marked [select: ...] applies only to the selects named.",
+        "enum": [
+          "list",
+          "graph"
+        ]
+      },
+      "item": {
+        "type": "string",
+        "description": "Item id: a UUID or a hex prefix of 8 to 32 characters."
+      },
+      "direction": {
+        "type": "string",
+        "description": "incoming = edges whose to is item (what blocks it), outgoing = edges whose from is item. Default all. [select: list]",
+        "enum": [
+          "incoming",
+          "outgoing",
+          "all"
+        ]
+      },
+      "type": {
+        "type": "string",
+        "description": "Only edges of this type. Default both. [select: list]",
+        "enum": [
+          "blocks",
+          "relates_to"
+        ]
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Page size, 1 to 200 (default 50)."
+      },
+      "cursor": {
+        "type": "string",
+        "description": "The page.next value of the previous page."
+      },
+      "describe": {
+        "type": "boolean",
+        "description": "true: return the operations, their parameters and errors instead of running the tool."
+      }
+    },
+    "type": "object"
+  },
+  "description": "Read dependency edges between items. select: list (edges of one item, with direction and type filters) or graph (the blocking graph around an item). Edge: {id, from, to, type, unblockAt?}; from blocks to. Call with describe:true for each operation's parameters and errors.",
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

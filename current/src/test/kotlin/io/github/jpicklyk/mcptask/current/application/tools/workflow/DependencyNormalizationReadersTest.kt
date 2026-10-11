@@ -3,9 +3,9 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.seedDependencies
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -46,13 +46,11 @@ class DependencyNormalizationReadersTest {
 
     private lateinit var context: ToolExecutionContext
     private lateinit var nextTool: GetNextItemTool
-    private lateinit var manageDeps: ManageDependenciesTool
 
     @BeforeEach
     fun setUp() {
         context = ToolExecutionContext(db.repositoryProvider(), unitOfWork = db.unitOfWork())
         nextTool = GetNextItemTool()
-        manageDeps = ManageDependenciesTool()
     }
 
     private suspend fun item(
@@ -73,12 +71,7 @@ class DependencyNormalizationReadersTest {
                 put("type", JsonPrimitive(type))
                 if (unblockAt != null) put("unblockAt", JsonPrimitive(unblockAt))
             }
-        val result =
-            manageDeps.execute(
-                JsonObject(mapOf("operation" to JsonPrimitive("create"), "dependencies" to JsonArray(listOf(spec)))),
-                context
-            ) as JsonObject
-        assertTrue(result["success"]!!.jsonPrimitive.boolean, "setup failed: $result")
+        context.seedDependencies(JsonArray(listOf(spec)))
     }
 
     private suspend fun recommendedIds(): Set<UUID> {
@@ -221,10 +214,7 @@ class DependencyNormalizationReadersTest {
                     put("toItemId", JsonPrimitive(subject.id.toString()))
                     put("type", JsonPrimitive("RELATES_TO"))
                 }
-            manageDeps.execute(
-                JsonObject(mapOf("operation" to JsonPrimitive("create"), "dependencies" to JsonArray(listOf(edge)))),
-                context
-            )
+            context.seedDependencies(JsonArray(listOf(edge)))
             val recommender =
                 NextItemRecommender(UnreadableItemRepository(context.workItemRepository(), related.id), context.dependencyRepository())
 

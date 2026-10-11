@@ -8,7 +8,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTre
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
@@ -523,11 +522,11 @@ class EventCoverageTest {
         }
 
     // ---------------------------------------------------------------------------------------------
-    // manage_dependencies
+    // dependency writes
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `manage_dependencies create and delete record dependency added and removed`(
+    fun `dependency create and delete record dependency added and removed`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -538,19 +537,7 @@ class EventCoverageTest {
 
             val (_, added) =
                 rig.written {
-                    rig.callOk(
-                        ManageDependenciesTool(),
-                        "operation" to JsonPrimitive("create"),
-                        "dependencies" to
-                            buildJsonArray {
-                                add(
-                                    buildJsonObject {
-                                        put("fromItemId", a.id.toString())
-                                        put("toItemId", b.id.toString())
-                                    },
-                                )
-                            },
-                    )
+                    (rig.ctx.dependencyCommandService.create(listOf(Dependency(fromItemId = a.id, toItemId = b.id))) as Outcome.Ok).value
                 }
             val add = added.single()
             assertEquals("dependency.added", add.type)
@@ -561,12 +548,7 @@ class EventCoverageTest {
 
             val (_, removed) =
                 rig.written {
-                    rig.callOk(
-                        ManageDependenciesTool(),
-                        "operation" to JsonPrimitive("delete"),
-                        "fromItemId" to JsonPrimitive(a.id.toString()),
-                        "toItemId" to JsonPrimitive(b.id.toString()),
-                    )
+                    (rig.ctx.dependencyCommandService.deleteByRelationship(a.id, b.id, null) as Outcome.Ok).value
                 }
             val rem = removed.single()
             assertEquals("dependency.removed", rem.type)
@@ -1154,7 +1136,6 @@ class EventCoverageTest {
             val child = rig.seed("S17 child", root)
             val other = rig.seed("S17 other", root)
             val treeRoot = rig.seed("S17 tree root")
-            val depTarget = rig.seed("S17 dep target", root)
             val actor =
                 buildJsonObject {
                     put("id", "s17-agent")
@@ -1163,19 +1144,6 @@ class EventCoverageTest {
             val perTool: Map<String, Array<Pair<String, JsonElement>>> =
                 mapOf(
                     "manage_items" to itemsCreate("S17 created"),
-                    "manage_dependencies" to
-                        arrayOf(
-                            "operation" to JsonPrimitive("create"),
-                            "dependencies" to
-                                buildJsonArray {
-                                    add(
-                                        buildJsonObject {
-                                            put("fromItemId", child.id.toString())
-                                            put("toItemId", depTarget.id.toString())
-                                        },
-                                    )
-                                },
-                        ),
                     "advance_item" to advance(other.id, "start"),
                     "claim_item" to
                         arrayOf(
@@ -1223,7 +1191,6 @@ class EventCoverageTest {
                     "query_items" to arrayOf("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(root.id.toString())),
                     "query_notes" to arrayOf("operation" to JsonPrimitive("search"), "query" to JsonPrimitive("anything")),
                     "get_context" to arrayOf("itemId" to JsonPrimitive(root.id.toString())),
-                    "query_dependencies" to arrayOf("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(child.id.toString())),
                     "get_next_status" to arrayOf("itemId" to JsonPrimitive(root.id.toString())),
                     "get_next_item" to emptyArray(),
                     "get_blocked_items" to emptyArray(),
@@ -1269,7 +1236,6 @@ class EventCoverageTest {
         val WRITE_TOOLS_COVERED: Map<String, Set<String>> =
             mapOf(
                 "manage_items" to setOf("item.created"),
-                "manage_dependencies" to setOf("dependency.added"),
                 "advance_item" to setOf("item.transitioned"),
                 "claim_item" to setOf("claim.acquired"),
                 "complete_tree" to setOf("item.transitioned"),
@@ -1283,7 +1249,6 @@ class EventCoverageTest {
             setOf(
                 "query_items",
                 "query_notes",
-                "query_dependencies",
                 "get_next_status",
                 "get_next_item",
                 "get_blocked_items",

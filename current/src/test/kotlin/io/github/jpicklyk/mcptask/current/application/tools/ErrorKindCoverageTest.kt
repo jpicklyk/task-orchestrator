@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
@@ -116,7 +115,6 @@ class ErrorKindCoverageTest {
             listOf(
                 QueryItemsTool(),
                 ManageItemsTool(),
-                ManageDependenciesTool(),
                 CompleteTreeTool(),
                 ClaimItemTool(),
                 AdvanceItemTool()
@@ -358,7 +356,7 @@ class ErrorKindCoverageTest {
         }
 
     // ----------------------------------------------
-    // S5 - manage_items / manage_dependencies per-element failures
+    // S5 - manage_items per-element failures
     // ----------------------------------------------
 
     @Test
@@ -418,41 +416,6 @@ class ErrorKindCoverageTest {
 
             val failure = result.data().entries("failures").single()
             assertEquals("not_found", failure.str("errorCode"))
-            assertEquals("permanent", failure.str("errorKind"))
-        }
-
-    @Test
-    fun `S5 manage_dependencies duplicate edge keeps its error and gains errorCode duplicate with errorKind permanent`(): Unit =
-        runBlocking {
-            val a = item("dep a")
-            val b = item("dep b")
-            val edge = mapOf("fromItemId" to a.id.toString(), "toItemId" to b.id.toString())
-            val first = call("manage_dependencies", mapOf("operation" to "create", "dependencies" to listOf(edge)))
-            assertTrue(first.isError != true, "control: the first edge is created: ${first.content}")
-
-            val result = call("manage_dependencies", mapOf("operation" to "create", "dependencies" to listOf(edge)))
-
-            val failure = result.data().entries("failures").single()
-            assertTrue(failure.str("error")!!.contains("already exists", ignoreCase = true), "error text kept: $failure")
-            assertEquals("duplicate", failure.str("errorCode"))
-            assertEquals("permanent", failure.str("errorKind"))
-        }
-
-    @Test
-    fun `S5 manage_dependencies cycle keeps its error and gains errorCode cycle_detected with errorKind permanent`(): Unit =
-        runBlocking {
-            val a = item("cycle a")
-            val b = item("cycle b")
-            val forward = mapOf("fromItemId" to a.id.toString(), "toItemId" to b.id.toString())
-            val backward = mapOf("fromItemId" to b.id.toString(), "toItemId" to a.id.toString())
-            val first = call("manage_dependencies", mapOf("operation" to "create", "dependencies" to listOf(forward)))
-            assertTrue(first.isError != true, "control: the forward edge is created: ${first.content}")
-
-            val result = call("manage_dependencies", mapOf("operation" to "create", "dependencies" to listOf(backward)))
-
-            val failure = result.data().entries("failures").single()
-            assertTrue(failure.str("error")!!.contains("circular", ignoreCase = true), "error text kept: $failure")
-            assertEquals("cycle_detected", failure.str("errorCode"))
             assertEquals("permanent", failure.str("errorKind"))
         }
 

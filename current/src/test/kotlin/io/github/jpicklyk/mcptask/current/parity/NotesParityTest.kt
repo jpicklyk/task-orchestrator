@@ -551,7 +551,8 @@ class NotesParityTest {
 
     @Test
     fun `S21 the catalog gives every notes select and op a happy and a restricted-scope forbidden scenario`() {
-        val registry = ToolRegistry(buildToolSpecs())
+        // The notes tools only: other items' tools (deps_*, Q12) carry their own catalogs.
+        val registry = ToolRegistry(buildToolSpecs().filter { it.name.startsWith("notes_") })
         val members = ParityCoverage.members(registry)
         assertEquals(
             setOf("notes_read" to "get", "notes_read" to "list", "notes_write" to "upsert", "notes_write" to "delete"),
@@ -564,7 +565,7 @@ class NotesParityTest {
 
     @Test
     fun `S21 the production catalog registers the notes scenarios`() {
-        assertEquals(NotesParityCatalog.scenarios, ProductionParity.scenarios)
-        assertEquals(NotesParityCatalog.exemptions, ProductionParity.exemptions)
+        assertTrue(ProductionParity.scenarios.containsAll(NotesParityCatalog.scenarios), "every notes scenario is registered")
+        assertTrue(ProductionParity.exemptions.containsAll(NotesParityCatalog.exemptions), "every notes exemption is registered")
     }
 }
