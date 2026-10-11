@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.tools
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
@@ -354,36 +353,6 @@ class KeyedElementToolsTest {
             val mismatch = CreateWorkTreeTool().execute(treeParams("Different title"), ctx)
             assertTrue("idempotency_mismatch" in mismatch.toString(), "a changed tree is a mismatch: $mismatch")
             assertEquals(1, itemRows(), "a mismatch must not create a second tree")
-        }
-
-    @Test
-    fun `S6 manage_dependencies create replays an identical retry and creates one dependency`(): Unit =
-        runBlocking {
-            val ctx = context()
-            val from = queueItem("From").id
-            val to = queueItem("To").id
-            val key = UUID.randomUUID().toString()
-            val params =
-                obj(
-                    "operation" to JsonPrimitive("create"),
-                    "dependencies" to
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("fromItemId", from.toString())
-                                    put("toItemId", to.toString())
-                                }
-                            )
-                        },
-                    "requestId" to JsonPrimitive(key),
-                    "actor" to actor()
-                )
-            ManageDependenciesTool().execute(params, ctx)
-            val replay = ManageDependenciesTool().execute(params, ctx)
-
-            assertEquals(true, data(replay)["replayed"]?.jsonPrimitive?.booleanOrNull, "single-element tools report data.replayed: $replay")
-            assertEquals(1, ctx.dependencyRepository().findByFromItemId(from).size)
-            assertEquals(1, records())
         }
 
     // ---------------------------------------------------------------- S2 / S7

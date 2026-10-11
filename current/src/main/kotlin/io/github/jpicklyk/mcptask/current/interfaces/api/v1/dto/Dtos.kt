@@ -130,14 +130,6 @@ data class DependenciesDto(
     val related: List<DependencyEdgeDto>,
 )
 
-/** DTO for a single backlink entry — another item referencing this one via a dependency edge. */
-@Serializable
-data class BacklinkDto(
-    val fromItemId: String,
-    val fromTitle: String,
-    val type: String,
-)
-
 /** DTO for a single dependency edge. */
 @Serializable
 data class DependencyEdgeDto(
@@ -436,21 +428,6 @@ data class NoteWriteDto(
     val role: String,
     val body: String,
     val properties: JsonObject? = null,
-)
-
-/**
- * Request DTO for `POST /api/v1/dependencies`.
- *
- * `type` must be one of "blocks" or "relates_to" (case-insensitive).
- * `unblockAt` may be one of "queue", "work", "review", "terminal"; null defaults to "terminal"
- * for BLOCKS edges and must be absent for RELATES_TO edges.
- */
-@Serializable
-data class DependencyCreateDto(
-    val fromItemId: String,
-    val toItemId: String,
-    val type: String,
-    val unblockAt: String? = null,
 )
 
 /**

@@ -1,10 +1,10 @@
 package io.github.jpicklyk.mcptask.current.application.tools.compound
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findByFilters
+import io.github.jpicklyk.mcptask.current.test.seedDependencies
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -52,14 +52,12 @@ class DependencyNormalizationTreeToolsTest {
     private lateinit var context: ToolExecutionContext
     private lateinit var createTool: CreateWorkTreeTool
     private lateinit var completeTool: CompleteTreeTool
-    private lateinit var manageDeps: ManageDependenciesTool
 
     @BeforeEach
     fun setUp() {
         context = ToolExecutionContext(db.repositoryProvider(), unitOfWork = db.unitOfWork())
         createTool = CreateWorkTreeTool()
         completeTool = CompleteTreeTool()
-        manageDeps = ManageDependenciesTool()
     }
 
     private fun child(
@@ -247,13 +245,8 @@ class DependencyNormalizationTreeToolsTest {
         }
 
     private suspend fun createDeps(vararg pairs: Pair<String, JsonElement>) {
-        val result =
-            manageDeps.execute(
-                JsonObject(mapOf<String, JsonElement>("operation" to JsonPrimitive("create"), *pairs)),
-                context
-            ) as JsonObject
-        assertTrue(result["success"]!!.jsonPrimitive.boolean, "dependency setup failed: $result")
-        assertTrue((result["data"] as JsonObject)["created"]!!.jsonPrimitive.int > 0, "dependency setup created nothing: $result")
+        val specs = pairs.single { it.first == "dependencies" }.second.jsonArray
+        assertTrue(context.seedDependencies(specs).isNotEmpty(), "dependency setup created nothing")
     }
 
     @Test
@@ -294,9 +287,16 @@ class DependencyNormalizationTreeToolsTest {
             val c = queueItem("C")
             // a is blocked by b, b is blocked by c: c blocks b blocks a
             createDeps(
-                "pattern" to JsonPrimitive("linear"),
-                "type" to JsonPrimitive("IS_BLOCKED_BY"),
-                "itemIds" to JsonArray(listOf(a, b, c).map { JsonPrimitive(it.toString()) })
+                "dependencies" to
+                    JsonArray(
+                        listOf(a to b, b to c).map { (from, to) ->
+                            buildJsonObject {
+                                put("fromItemId", JsonPrimitive(from.toString()))
+                                put("toItemId", JsonPrimitive(to.toString()))
+                                put("type", JsonPrimitive("IS_BLOCKED_BY"))
+                            }
+                        }
+                    )
             )
 
             val result = completeTool.execute(completeParams(listOf(a, b, c)), context) as JsonObject

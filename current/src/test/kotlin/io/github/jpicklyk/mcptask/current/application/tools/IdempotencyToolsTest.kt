@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.tools
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
@@ -400,63 +399,6 @@ class IdempotencyToolsTest {
             val notes = context.noteRepository().findByItemId(UUID.fromString(itemId))
             assertNotNull(notes)
             assertEquals("v2", notes[0].body, "Without requestId, second call must overwrite")
-        }
-
-    // ──────────────────────────────────────────────
-    // ManageDependenciesTool — create idempotency
-    // ──────────────────────────────────────────────
-
-    @Test
-    fun `manage_dependencies create caches response on requestId`() =
-        runBlocking {
-            val tool = ManageDependenciesTool()
-            val from = createTestItem("From").toString()
-            val to = createTestItem("To").toString()
-            val requestId = UUID.randomUUID().toString()
-
-            val firstResult =
-                tool.execute(
-                    params(
-                        "operation" to JsonPrimitive("create"),
-                        "dependencies" to
-                            JsonArray(
-                                listOf(
-                                    buildJsonObject {
-                                        put("fromItemId", JsonPrimitive(from))
-                                        put("toItemId", JsonPrimitive(to))
-                                    }
-                                )
-                            ),
-                        "requestId" to JsonPrimitive(requestId),
-                        "actor" to actor()
-                    ),
-                    context
-                ) as JsonObject
-
-            val secondResult =
-                tool.execute(
-                    params(
-                        "operation" to JsonPrimitive("create"),
-                        "dependencies" to
-                            JsonArray(
-                                listOf(
-                                    buildJsonObject {
-                                        put("fromItemId", JsonPrimitive(from))
-                                        put("toItemId", JsonPrimitive(to))
-                                    }
-                                )
-                            ),
-                        "requestId" to JsonPrimitive(requestId),
-                        "actor" to actor()
-                    ),
-                    context
-                ) as JsonObject
-
-            assertEquals(firstResult.sansReplay(), secondResult.sansReplay())
-
-            // Verify exactly one dependency exists (cached call did NOT create a duplicate)
-            val deps = context.dependencyRepository().findByFromItemId(UUID.fromString(from))
-            assertEquals(1, deps.size, "Cached call must not create a duplicate dependency")
         }
 
     // ──────────────────────────────────────────────
@@ -1116,67 +1058,6 @@ class IdempotencyToolsTest {
     // C3: getOrCompute regression — single-thread existing tests still pass
     // (same-key retry gets cached result across all migrated tools)
     // ──────────────────────────────────────────────
-
-    /**
-     * TEST-C3e: ManageDependenciesTool returns cached response on exact retry after getOrCompute migration.
-     *
-     * Regression guard: verifies the migrate-to-getOrCompute didn't break single-thread caching.
-     */
-    @Test
-    fun `manage_dependencies getOrCompute regression same-key retry gets cached result`(): Unit =
-        runBlocking {
-            val tool = ManageDependenciesTool()
-            val from = createTestItem("Dep From").toString()
-            val to = createTestItem("Dep To").toString()
-            val requestId = UUID.randomUUID().toString()
-
-            val first =
-                tool.execute(
-                    params(
-                        "operation" to JsonPrimitive("create"),
-                        "dependencies" to
-                            JsonArray(
-                                listOf(
-                                    buildJsonObject {
-                                        put("fromItemId", JsonPrimitive(from))
-                                        put("toItemId", JsonPrimitive(to))
-                                    }
-                                )
-                            ),
-                        "requestId" to JsonPrimitive(requestId),
-                        "actor" to actor("dep-agent")
-                    ),
-                    context
-                )
-
-            val second =
-                tool.execute(
-                    params(
-                        "operation" to JsonPrimitive("create"),
-                        "dependencies" to
-                            JsonArray(
-                                listOf(
-                                    buildJsonObject {
-                                        put("fromItemId", JsonPrimitive(from))
-                                        put("toItemId", JsonPrimitive(to))
-                                    }
-                                )
-                            ),
-                        "requestId" to JsonPrimitive(requestId),
-                        "actor" to actor("dep-agent")
-                    ),
-                    context
-                )
-
-            assertEquals(
-                first.sansReplay(),
-                second.sansReplay(),
-                "Same-key retry must return the cached response after getOrCompute migration"
-            )
-            // Only one dependency should exist (no double-create)
-            val deps = context.dependencyRepository().findByFromItemId(UUID.fromString(from))
-            assertEquals(1, deps.size, "getOrCompute must prevent double-creation on retry")
-        }
 
     /**
      * TEST-C3f: CreateWorkTreeTool returns cached response on exact retry after getOrCompute migration.

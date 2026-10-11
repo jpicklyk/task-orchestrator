@@ -62,8 +62,6 @@ enum class LegacyRestCode(
     RESOURCE_UNAVAILABLE("resource_unavailable", HttpStatusCode.Conflict, ErrorCode.RESOURCE_UNAVAILABLE),
     NOT_CLAIM_HOLDER("not_claim_holder", HttpStatusCode.Conflict, ErrorCode.NOT_CLAIM_HOLDER),
     IDEMPOTENCY_MISMATCH("idempotency_mismatch", HttpStatusCode.Conflict, ErrorCode.IDEMPOTENCY_MISMATCH),
-    DUPLICATE_DEPENDENCY("duplicate_dependency", HttpStatusCode.Conflict, ErrorCode.DUPLICATE),
-    CYCLE_DETECTED("cycle_detected", HttpStatusCode.BadRequest, ErrorCode.CYCLE_DETECTED),
     DB_ERROR("db_error", HttpStatusCode.InternalServerError, ErrorCode.INTERNAL),
     INTERNAL("internal", HttpStatusCode.InternalServerError, ErrorCode.INTERNAL),
     UNAVAILABLE("unavailable", HttpStatusCode.ServiceUnavailable, ErrorCode.UNAVAILABLE),

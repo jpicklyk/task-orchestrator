@@ -43,8 +43,7 @@ import kotlin.test.assertTrue
  * the upsert response's `data.failures` array — the same array/field names
  * [ManageNotesToolTest] already exercises for ordinary validation failures (e.g. "upsert
  * validates itemId exists", "invalid actor kind in upsert returns failure for that note") and
- * that [io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesToolTest]
- * confirms carries a zero-based `index` matching the request array's position.
+ * that carries a zero-based `index` matching the request array's position.
  *
  * Harness: a REAL [PerRootConfigService] backed by a REAL [ConfigStore] (SQLite-backed
  * [DefaultRepositoryProvider], schema via [SqliteTestDatabase]) wrapped in a private

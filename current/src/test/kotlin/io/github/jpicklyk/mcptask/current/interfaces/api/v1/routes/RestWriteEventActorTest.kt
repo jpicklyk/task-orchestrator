@@ -4,8 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.domain.model.Dependency
-import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
@@ -31,9 +29,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.application.Application
 import io.ktor.server.testing.testApplication
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
@@ -81,7 +77,6 @@ class RestWriteEventActorTest {
                 unitOfWork,
                 toolContext.noteCommandService
             )
-            dependencyWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyService(unitOfWork), unitOfWork)
         }
     }
 
@@ -258,62 +253,6 @@ class RestWriteEventActorTest {
             assertTrue(
                 events.any { it.event == ApiEventType.NOTE_DELETED },
                 "R5: no note.deleted event; got $events",
-            )
-        }
-
-    @Test
-    fun `R6 dependency create attributes dependency added to the api actor`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val from = seed(repo, "R6 from")
-            val to = seed(repo, "R6 to")
-            val bus = ApiEventBus()
-            application { wire(bus) }
-            val flow = bus.subscribe("r6", emptySet(), lastEventId = null)
-
-            val response =
-                client.post("/api/v1/dependencies") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"fromItemId":"${from.id}","toItemId":"${to.id}","type":"blocks"}""")
-                }
-            assertEquals(HttpStatusCode.Created, response.status)
-            val events = bus.drainDelivered("r6", flow)
-
-            assertAttributed(events, "R6 all events")
-            assertTrue(
-                events.any { it.event == ApiEventType.DEPENDENCY_ADDED },
-                "R6: no dependency.added event; got $events",
-            )
-        }
-
-    @Test
-    fun `R7 dependency remove attributes dependency removed to the api actor`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val from = seed(repo, "R7 from")
-            val to = seed(repo, "R7 to")
-            val dep =
-                runBlocking {
-                    withContext(Dispatchers.IO) {
-                        repo.dependencyRepository().create(
-                            Dependency(fromItemId = from.id, toItemId = to.id, type = DependencyType.BLOCKS),
-                        )
-                    }
-                }
-            val bus = ApiEventBus()
-            application { wire(bus) }
-            val flow = bus.subscribe("r7", emptySet(), lastEventId = null)
-
-            val response =
-                client.delete("/api/v1/dependencies/${dep.id}") { header("Authorization", "Bearer $WRITE_TOKEN") }
-            assertEquals(HttpStatusCode.NoContent, response.status)
-            val events = bus.drainDelivered("r7", flow)
-
-            assertAttributed(events, "R7 all events")
-            assertTrue(
-                events.any { it.event == ApiEventType.DEPENDENCY_REMOVED },
-                "R7: no dependency.removed event; got $events",
             )
         }
 

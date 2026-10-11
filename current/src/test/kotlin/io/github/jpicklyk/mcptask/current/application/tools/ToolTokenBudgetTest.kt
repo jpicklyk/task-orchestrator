@@ -70,14 +70,12 @@ class ToolTokenBudgetTest {
             "query_items" to 7550, // was 7350; +163 chars, per-mode limit semantics (97aa5855)
             "create_work_tree" to 5100, // was 3080; measured 4408 after docRef/noteAnchors (materialize-from-document)
             "get_next_item" to 3150, // was 2500; T2.3 added the `ancestorId` scope parameter
-            "manage_dependencies" to 2585,
             "manage_items" to 2950, // was 2520; measured 2526 after items[].id -> itemId / ids -> itemIds (de711807)
             "query_notes" to 2386,
             "get_context" to 2650, // was 1909; T2.3 added the `ancestorId` scope parameter
             "claim_item" to 2550, // was 2100; +when-to-call trigger sentence, measured 2181
             "manage_notes" to 2057,
             "complete_tree" to 2500, // was 2100; measured 2171 after the AdvanceService pipeline semantics (3e455253)
-            "query_dependencies" to 2050, // was 1708; +333 chars, limit/offset params + graph.truncated (6e2d8fc2)
             "advance_item" to 3150, // was 2650; +when-to-call trigger sentence, measured 2701
             "get_blocked_items" to 1250, // was 830; T2.3 added the `ancestorId` scope parameter
             "get_next_status" to 650, // was 470; +when-to-call trigger sentence, measured 559

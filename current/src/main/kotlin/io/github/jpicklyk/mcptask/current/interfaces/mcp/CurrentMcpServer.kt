@@ -14,8 +14,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkT
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.QueryRulesTool
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.QueryDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
@@ -50,8 +48,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.installRequestCorrelation
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.opsRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configRoutes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyRoutes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyWriteRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.effectiveConfigRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemGateRoutes
@@ -609,9 +605,6 @@ internal fun buildMcpTools(): List<ToolDefinition> =
         QueryItemsTool(),
         ManageNotesTool(),
         QueryNotesTool(),
-        // Phase 2: Dependencies
-        ManageDependenciesTool(),
-        QueryDependenciesTool(),
         // Phase 2: Workflow
         AdvanceItemTool(),
         ClaimItemTool(),
@@ -772,7 +765,6 @@ internal fun Application.installRestApiRoutes(
             itemRoutes(effectiveProvider)
             itemGateRoutes(effectiveProvider, toolContext.configResolver, toolContext.transitionPreview())
             noteRoutes(effectiveProvider, toolContext.unitOfWork)
-            dependencyRoutes(effectiveProvider)
             transitionRoutes(
                 effectiveProvider,
                 redactAttribution = appConfig.apiRedactNoteAttribution,
@@ -797,13 +789,6 @@ internal fun Application.installRestApiRoutes(
                 toolContext.idempotency,
                 toolContext.unitOfWork,
                 toolContext.noteCommandService
-            )
-            dependencyWriteRoutes(
-                effectiveProvider,
-                degradedModePolicy,
-                toolContext.idempotency,
-                toolContext.unitOfWork,
-                toolContext.dependencyCommandService
             )
             // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete —
             // converges on the same ConfigService the manage_project_config MCP tool uses.
