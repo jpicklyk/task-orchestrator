@@ -1,8 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
@@ -12,10 +10,11 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.findB
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.test.createTreeOp
+import io.github.jpicklyk.mcptask.current.test.errorAt
+import io.github.jpicklyk.mcptask.current.test.itemsWrite
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.put
@@ -23,21 +22,12 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
-import io.modelcontextprotocol.kotlin.sdk.client.Client
-import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
-import io.modelcontextprotocol.kotlin.sdk.server.Server
-import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
-import io.modelcontextprotocol.kotlin.sdk.testing.ChannelTransport
-import io.modelcontextprotocol.kotlin.sdk.types.ClientCapabilities
-import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
-import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -46,7 +36,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -54,16 +43,13 @@ import kotlin.test.assertTrue
  * Independently authored (blind test author) against the frozen `task-scope-addendum` note on
  * item `840e700a` (A3) -- S11 (par D "BUDGET": `PlanDocumentService.stash` rejects `rule/`-slug
  * bodies over `RuleService.MAX_RULE_BODY_BYTES` == 16384 UTF-8 bytes; multibyte counted as bytes;
- * non-rule slugs keep the existing 64 KiB cap) and S12 (par E "D1": `CreateWorkTreeTool`'s
- * `docRef.slug` guard rejects any `rule/`-prefixed slug -- zero items created, the referenced
- * document stays PENDING and re-stashable).
+ * non-rule slugs keep the existing 64 KiB cap) and S12 (par E "D1": the `docRef.slug` guard of
+ * `items_write` `create_tree` (formerly `create_work_tree`) rejects any `rule/`-prefixed slug -- zero
+ * items created, the referenced document stays PENDING and re-stashable).
  *
  * Harness (contract "Public-API rule" / "Harness rule"): the `PlanDocumentService` leg calls the
- * public service directly; S12 drives the REAL
- * [CreateWorkTreeTool] (`validateParams` for the guard itself, `execute` against a real SQLite-backed
- * `ToolExecutionContext` to confirm zero items created and the document's PENDING status
- * survives), mirroring [io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeToolIntegrationTest]'s
- * docRef-failure-is-atomic pattern.
+ * public service directly; S12 drives the REAL `items_write` dispatcher over the composition's
+ * `ToolExecutionContext` to confirm the guard, zero items created and the document's PENDING status.
  */
 class RuleBudgetStashTest {
     @RegisterExtension
@@ -203,15 +189,18 @@ class RuleBudgetStashTest {
     }
 
     // =========================================================================================
-    // S12 -- D1: create_work_tree docRef.slug rule/x is rejected; zero items, doc stays pending
+    // S12 -- D1: items_write create_tree docRef.slug rule/x is rejected; zero items, doc stays pending
     // =========================================================================================
 
     @Test
-    fun `S12 CreateWorkTreeTool validateParams rejects a docRef slug that starts with rule slash`() {
-        val ex =
-            assertFailsWith<ToolValidationException> {
-                CreateWorkTreeTool().validateParams(
-                    params(
+    fun `S12 create_tree rejects a docRef slug that starts with rule slash`(
+        @TempDir tempDir: Path,
+    ): Unit =
+        runBlocking {
+            val composition = buildComposition(tempDir)
+            val result =
+                composition.toolContext.itemsWrite(
+                    createTreeOp(
                         "root" to
                             buildJsonObject {
                                 put("type", JsonPrimitive("test-item"))
@@ -220,23 +209,17 @@ class RuleBudgetStashTest {
                         "docRef" to buildJsonObject { put("slug", JsonPrimitive("rule/some-rule-key")) },
                     ),
                 )
-            }
-        assertTrue(ex.message?.contains("rule/") == true, "exception should mention the rule/ guard: ${ex.message}")
-    }
+            val error = result.errorAt(0)
+            assertEquals("invalid_request", error["code"]?.jsonPrimitive?.content, "the rule/ guard is an invalid_request: $error")
+            assertTrue(error.toString().contains("/ops/0/docRef/slug"), "the violation names docRef.slug: $error")
+        }
 
     /**
-     * Arbitration ruling (orchestrator, 2026-09-28): the ONLY production entry point for
-     * `create_work_tree` is the MCP adapter, which runs `validateParams()` BEFORE `execute()` for
-     * every tool call -- there is no REST path for `create_work_tree`. A bare `execute()` call
-     * skips that validation phase and does not represent production, so this scenario is driven
-     * through the REAL [McpToolAdapter] -- mirrors
-     * [io.github.jpicklyk.mcptask.current.interfaces.mcp.QueryRulesConfigUnavailableTest]'s own
-     * real [Server]/[Client] pair over [ChannelTransport.createLinkedPair]. Same oracle as before:
-     * the call fails, zero items are created, and the rule/ document stays PENDING and
-     * re-stashable.
+     * The guard runs before any read or write of the tree: the element fails, zero items are created, and the rule/ document
+     * stays PENDING and re-stashable (the oracle of the retired `create_work_tree` scenario, now over `items_write`).
      */
     @Test
-    fun `S12 create_work_tree via MCP adapter rejects docRef rule slash x, zero items, doc stays PENDING and re-stashable`(
+    fun `S12 create_tree rejects docRef rule slash x, zero items, doc stays PENDING and re-stashable`(
         @TempDir tempDir: Path,
     ): Unit =
         runBlocking {
@@ -245,68 +228,37 @@ class RuleBudgetStashTest {
             val root = repo.workItemRepository().create(WorkItem(title = "S12 MCP Root", depth = 0))!!
             repo.planDocumentRepository().stash(root.id, "rule/x", "A rule document, not a feature plan.")
 
-            val server =
-                Server(
-                    serverInfo = Implementation(name = "test-server", version = "1.0.0"),
-                    options = ServerOptions(capabilities = ServerCapabilities(tools = ServerCapabilities.Tools(listChanged = true))),
+            val result =
+                composition.toolContext.itemsWrite(
+                    createTreeOp(
+                        "root" to
+                            buildJsonObject {
+                                put("title", JsonPrimitive("Feature via rule doc"))
+                                put("type", JsonPrimitive("test-item"))
+                            },
+                        "parentId" to JsonPrimitive(root.id.toString()),
+                        "docRef" to buildJsonObject { put("slug", JsonPrimitive("rule/x")) },
+                    ),
                 )
-            val adapter = McpToolAdapter()
-            adapter.registerToolWithServer(server, CreateWorkTreeTool(), composition.toolContext)
-            val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
-            val client =
-                Client(
-                    clientInfo = Implementation(name = "test-client", version = "1.0.0"),
-                    options = ClientOptions(capabilities = ClientCapabilities()),
-                )
-            server.createSession(serverTransport)
-            client.connect(clientTransport)
+            val error = result.errorAt(0)
+            assertEquals("invalid_request", error["code"]?.jsonPrimitive?.content, "review follow-up: assert the REASON: $error")
+            assertTrue(error.toString().contains("/ops/0/docRef/slug"), "the validation reason must name the docRef.slug guard: $error")
 
-            try {
-                val result =
-                    client.callTool(
-                        name = "create_work_tree",
-                        arguments =
-                            mapOf(
-                                "root" to mapOf("title" to "Feature via rule doc", "type" to "test-item"),
-                                "parentId" to root.id.toString(),
-                                "docRef" to mapOf("slug" to "rule/x"),
-                            ),
-                    )
-                assertEquals(true, result.isError, "the adapter's pre-execute validateParams() must reject this call: $result")
-                val structured =
-                    result.structuredContent
-                        ?: error("error response must carry structuredContent: $result")
-                val errorObj =
-                    structured["error"]?.jsonObject
-                        ?: error("structuredContent must contain the error object: $structured")
-                assertEquals(
-                    io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes.VALIDATION_ERROR,
-                    errorObj["code"]?.jsonPrimitive?.content,
-                    "review follow-up: assert the REASON, not just isError",
-                )
-                assertTrue(
-                    errorObj["message"]?.jsonPrimitive?.content?.contains("rule/") == true,
-                    "the validation reason must name the rule/ guard: $errorObj",
-                )
+            val itemsResult = repo.workItemRepository().findByFilters(parentId = root.id, limit = 100)
+            val titles = itemsResult.items.map { it.title }
+            assertTrue("Feature via rule doc" !in titles, "zero items must be created when docRef.slug is rule/-prefixed; got: $titles")
 
-                val itemsResult = repo.workItemRepository().findByFilters(parentId = root.id, limit = 100)
-                val titles = itemsResult.items.map { it.title }
-                assertTrue("Feature via rule doc" !in titles, "zero items must be created when docRef.slug is rule/-prefixed; got: $titles")
+            val doc = (repo.planDocumentRepository().get(root.id, "rule/x")!!)
+            assertNotNull(doc, "the rule document must still exist")
+            assertEquals(
+                PlanDocumentStatus.PENDING,
+                doc.status,
+                "the document must remain PENDING (not adopted) after the rejected docRef"
+            )
 
-                val doc = (repo.planDocumentRepository().get(root.id, "rule/x")!!)
-                assertNotNull(doc, "the rule document must still exist")
-                assertEquals(
-                    PlanDocumentStatus.PENDING,
-                    doc.status,
-                    "the document must remain PENDING (not adopted) after the rejected docRef"
-                )
-
-                // Re-stashable: pushing a new body to the same slug must still succeed.
-                val reStash = repo.planDocumentRepository().stash(root.id, "rule/x", "Updated rule body after the rejected docRef.")
-                assertNotNull(reStash, "the document must remain re-stashable: $reStash")
-            } finally {
-                closeInMemoryPair(client, server)
-            }
+            // Re-stashable: pushing a new body to the same slug must still succeed.
+            val reStash = repo.planDocumentRepository().stash(root.id, "rule/x", "Updated rule body after the rejected docRef.")
+            assertNotNull(reStash, "the document must remain re-stashable: $reStash")
         }
 
     // =========================================================================================

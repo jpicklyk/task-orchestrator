@@ -9,8 +9,6 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.QueryRulesTool
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
@@ -584,9 +582,6 @@ internal fun productionServerCapabilities(): ServerCapabilities =
  */
 internal fun buildMcpTools(): List<ToolDefinition> =
     listOf(
-        // Phase 3: Compound operations
-        CompleteTreeTool(),
-        CreateWorkTreeTool(),
         // Per-root schema layering: transport-agnostic config sync
         ManageProjectConfigTool(YamlConfigDocumentParser),
         // Git-tracked rule text: read-only view over rule/<key> plan documents (A3, 840e700a)

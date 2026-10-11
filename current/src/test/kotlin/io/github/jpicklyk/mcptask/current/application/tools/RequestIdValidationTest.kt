@@ -1,7 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -28,12 +26,12 @@ import kotlin.test.assertTrue
 
 /**
  * Independent test-author coverage for item 71dea46e (frozen test-plan note `b703941a`):
- * a malformed `requestId` on any of the three remaining 3.x mutating tools (advance_item, complete_tree,
- * create_work_tree; manage_items, manage_notes and manage_dependencies were replaced by items_write, notes_write and
- * deps_write, which take a per-element idempotencyKey instead) must be rejected with a
+ * a malformed `requestId` on the remaining 3.x mutating tool (advance_item; manage_items, manage_notes,
+ * manage_dependencies, complete_tree and create_work_tree were replaced by items_write, notes_write and deps_write,
+ * which take a per-element idempotencyKey instead) must be rejected with a
  * validation error naming `requestId`, with NOTHING written and the idempotency cache left
- * empty. A valid `requestId` must still replay idempotently. `requestId`-without-actor and the
- * `create_work_tree` malformed-actor contract are UNCHANGED (guard regressions, not new gates).
+ * empty. A valid `requestId` must still replay idempotently. (The `create_work_tree` requestId-without-actor and
+ * malformed-actor guards, S4/S5, left with that tool in Q21.)
  *
  * Oracles (see test-plan for full citations):
  * - O1 api-reference.md Idempotency section (as revised: "rejected at validation", not "silently
@@ -142,39 +140,6 @@ class RequestIdValidationTest {
                     res?.role != Role.QUEUE
                 }
                 params to check
-            },
-            ToolCase("complete_tree", CompleteTreeTool()) { context, actorId ->
-                val itemId = createItem(context, "Complete Target ${UUID.randomUUID()}")
-                val params =
-                    buildJsonObject {
-                        put("itemIds", JsonArray(listOf(JsonPrimitive(itemId.toString()))))
-                        put("trigger", JsonPrimitive("cancel"))
-                        put("actor", actorJson(actorId))
-                    }
-                val check: suspend () -> Boolean = {
-                    val res = context.workItemRepository().getById(itemId)
-                    res?.role != Role.QUEUE
-                }
-                params to check
-            },
-            ToolCase("create_work_tree", CreateWorkTreeTool()) { context, actorId ->
-                val baseline = (context.workItemRepository().findRootItems()!!).items.size
-                val params =
-                    buildJsonObject {
-                        put(
-                            "root",
-                            buildJsonObject {
-                                put("type", JsonPrimitive("test-item"))
-                                put("title", JsonPrimitive("Tree Root ${UUID.randomUUID()}"))
-                            }
-                        )
-                        put("actor", actorJson(actorId))
-                    }
-                val check: suspend () -> Boolean = {
-                    val count = (context.workItemRepository().findRootItems()!!).items.size
-                    count > baseline
-                }
-                params to check
             }
         )
 
@@ -262,83 +227,6 @@ class RequestIdValidationTest {
                     )
                 }
             }
-        }
-
-    // ──────────────────────────────────────────────────────────────────
-    // S4 — guard (create_work_tree): valid requestId, actor ABSENT -> unchanged
-    // ──────────────────────────────────────────────────────────────────
-
-    @TestFactory
-    fun `S4 requestId without actor does not enable idempotency (guard unchanged)`(): List<DynamicTest> =
-        listOf("create_work_tree").map { label ->
-            dynamicTest(label) {
-                runBlocking {
-                    val context = freshContext()
-                    val case = toolCases().first { it.label == label }
-                    val (baseParams, _) = case.build(context, "agent-1")
-                    val paramsNoActor = baseParams.withoutActor()
-                    val requestId = UUID.randomUUID().toString()
-                    val params = paramsNoActor.withRequestId(JsonPrimitive(requestId))
-
-                    case.tool.execute(params, context)
-                    case.tool.execute(params, context)
-
-                    val allItems = (context.workItemRepository().findRootItems()!!).items
-                    assertEquals(
-                        2,
-                        allItems.size,
-                        "$label: without an actor, requestId must NOT enable idempotency — both calls must execute"
-                    )
-                    assertEquals(0, databaseOf.getValue(context).idempotencyRecordCount(), "$label: cache must stay empty without an actor")
-                }
-            }
-        }
-
-    // ──────────────────────────────────────────────────────────────────
-    // S5 — guard (create_work_tree): valid requestId + MALFORMED actor -> succeeds, idempotency off
-    // ──────────────────────────────────────────────────────────────────
-
-    @Test
-    fun `S5 create_work_tree with malformed actor succeeds twice with idempotency disabled`() =
-        runBlocking {
-            val context = freshContext()
-            val case = toolCases().first { it.label == "create_work_tree" }
-            val (baseParams, _) = case.build(context, "agent-1")
-            // A structurally-present actor object with an invalid `kind` enum value — malformed,
-            // but NOT absent, per the parameterSchema's documented actor contract ("kind (required:
-            // orchestrator|subagent|user|external)"). Not-covered: this test does not independently
-            // verify the "attribution drops to null" half of the O4 citation, since observing note
-            // attribution requires createNotes=true, which is outside this scenario's minimal shape.
-            val paramsMalformedActor =
-                buildJsonObject {
-                    for ((k, v) in baseParams) {
-                        if (k != "actor") put(k, v)
-                    }
-                    put(
-                        "actor",
-                        buildJsonObject {
-                            put("id", JsonPrimitive("agent-1"))
-                            put("kind", JsonPrimitive("not-a-real-kind"))
-                        }
-                    )
-                }
-            val requestId = UUID.randomUUID().toString()
-            val params = paramsMalformedActor.withRequestId(JsonPrimitive(requestId))
-
-            case.tool.execute(params, context)
-            case.tool.execute(params, context)
-
-            val allItems = (context.workItemRepository().findRootItems()!!).items
-            assertEquals(
-                2,
-                allItems.size,
-                "create_work_tree: a malformed actor must disable idempotency — both calls must succeed and create a tree"
-            )
-            assertEquals(
-                0,
-                databaseOf.getValue(context).idempotencyRecordCount(),
-                "create_work_tree: cache must stay empty with a malformed actor"
-            )
         }
 
     // ──────────────────────────────────────────────────────────────────
