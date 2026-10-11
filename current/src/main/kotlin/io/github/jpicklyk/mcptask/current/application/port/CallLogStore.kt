@@ -6,7 +6,8 @@ import java.util.UUID
 /**
  * One row of the `call_log` table (plan section 3.8): one MCP tool call or one REST request.
  *
- * Field names mirror the columns. [host], [runId] and [seat] stay null until W4/W5 capture them. [targetIds],
+ * Field names mirror the columns. [host] is the client application name (MCP clientInfo.name, or the REST X-Client-Host / User-Agent product);
+ * [runId] and [seat] stay null until W4/W5 capture them. [targetIds],
  * [targetVersions] and [requestShape] are JSON text. Byte counts are UTF-8 bytes of the bodies the caller sent
  * and received; [responseTokensEst] is [TokenEstimate] of [responseBytes] and [tokenMethod] names the method.
  */

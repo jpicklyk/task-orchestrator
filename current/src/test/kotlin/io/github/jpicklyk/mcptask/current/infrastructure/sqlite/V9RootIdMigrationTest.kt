@@ -199,6 +199,8 @@ class V9RootIdMigrationTest {
             insertRawItem(child, root, "Child")
 
             applyV9Migration()
+            // The repository maps every column of the current table, so the rest of the chain runs before the read.
+            UpgradeHarness.migrate(jdbcUrl)
 
             val repository = SQLiteWorkItemRepository(databaseManager)
             val rootResult = repository.getById(root)

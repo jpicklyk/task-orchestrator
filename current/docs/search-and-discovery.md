@@ -11,7 +11,7 @@ This document explains the FTS5 full-text search and graph-aware discovery featu
 
 ### Two-Table FTS5 Index
 
-Work-item titles and summaries are indexed in two complementary SQLite FTS5 virtual tables:
+Work-item titles, summaries and descriptions are indexed in two complementary SQLite FTS5 virtual tables (no prefix index; every query term is quoted, so none is ever issued):
 
 | Table | Tokenizer | Best for |
 |---|---|---|
@@ -58,7 +58,9 @@ syntax. The SQLite adapter is the only place FTS5 syntax is produced: it wraps e
 quotes (doubling any embedded `"`), so `*`, `:`, `-`, parentheses and the operator words `AND`,
 `OR`, `NOT`, `NEAR` are matched literally.
 
-An empty or whitespace-only query is rejected. For `matchMode="substring"`, a query whose every
+An empty or whitespace-only query is rejected, and so is a query containing a control character
+(U+0000-U+001F or U+007F-U+009F other than tab, line feed, vertical tab, form feed, carriage return
+and space): MCP answers `VALIDATION_ERROR`, REST answers `400`. For `matchMode="substring"`, a query whose every
 term is shorter than 3 characters is rejected too (the trigram index minimum).
 
 You do not need to escape or quote search terms — pass them as plain text.
@@ -151,7 +153,7 @@ All FTS5 search operations return the same shape:
 }
 ```
 
-`field` names the field that actually contains a match (`title` or `summary`; `title` when both
+`field` names the field that actually contains a match (`title`, `summary` or `description`; the first of those in that order when several
 do), and `snippet` is taken from that field. `title` is the item's own title for an item hit and the
 owning item's title for a note hit (omitted if the item could not be read).
 

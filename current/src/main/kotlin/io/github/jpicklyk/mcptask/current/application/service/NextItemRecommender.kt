@@ -1,10 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator
-import io.github.jpicklyk.mcptask.current.domain.graph.DependencyEdges
 import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -13,18 +12,20 @@ import java.time.Instant
 import java.util.UUID
 
 /**
- * Service that wraps `findClaimable` + dependency-blocking walk into a single
- * "what's eligible next" recommendation query. Both `GetNextItemTool` and the
- * selector path of `ClaimItemTool` call into this service so there is one
- * authoritative source of truth for "what item should an agent pick up next."
+ * Service that answers "what's eligible next": the one authoritative source of truth for which item an agent
+ * should pick up next. Both `GetNextItemTool` and the selector path of `ClaimItemTool` call into it.
+ *
+ * Eligibility is decided entirely in SQL ([WorkItemRepository.findEligible]): the selector filters, the
+ * active-claim and ancestor-claim exclusions, and dependency blocking are all predicates of one query that pages
+ * and counts, so an eligible item is found however many ineligible ones rank ahead of it.
  */
 class NextItemRecommender(
     private val workItemRepo: WorkItemRepository,
     private val dependencyRepo: DependencyStore,
 ) {
     /**
-     * Filter criteria for [recommend].  All fields mirror the parameters of
-     * [WorkItemRepository.findClaimable]; the service maps them 1:1 to the repository call.
+     * Filter criteria for [recommend]. All fields mirror the parameters of
+     * [WorkItemRepository.findClaimable] and map 1:1 onto an [EligibilityQuery] ([toEligibilityQuery]).
      */
     data class Criteria(
         val role: Role = Role.QUEUE,
@@ -41,88 +42,70 @@ class NextItemRecommender(
         val roleChangedBefore: Instant? = null,
         val orderBy: NextItemOrder = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
         /**
-         * Optional agent identifier forwarded to [WorkItemRepository.findClaimable] for
-         * ancestor-claim sub-tree isolation.
+         * Optional agent identifier for ancestor-claim sub-tree isolation.
          *
          * When non-null, candidates whose ancestor chain contains a live claim held by a
          * *different* agent are excluded; candidates under the same agent's claimed ancestor
          * are retained (enabling the hybrid fleet pattern: claim at parent feature, orchestrate
          * sub-tree below). When null, any live ancestor claim disqualifies the candidate (strict
-         * exclusion for callers without actor context, such as [GetNextItemTool]).
+         * exclusion for callers without actor context, such as `GetNextItemTool`).
          */
         val requestingAgentId: String? = null,
         /**
-         * Optional subtree scope forwarded to [WorkItemRepository.findClaimable]. When null
-         * (default), unscoped. When non-null, candidates are restricted to the subtree(s)
-         * rooted at these UUIDs (roots included) — same resolution as [WorkItemRepository.find]'s `AccessScope.rootIds`.
+         * Optional subtree scope. When null (default), unscoped. When non-null, candidates are restricted to the
+         * subtree(s) rooted at these UUIDs (roots included) — same resolution as [WorkItemRepository.find]'s
+         * `AccessScope.rootIds`.
          */
         val ancestorIds: Set<UUID>? = null,
-    )
+    ) {
+        /** These criteria as the store's [EligibilityQuery]; [includeClaimed] turns the claim predicates off. */
+        fun toEligibilityQuery(includeClaimed: Boolean = false): EligibilityQuery =
+            EligibilityQuery(
+                role = role,
+                parentId = parentId,
+                tags = tags,
+                priority = priority,
+                type = type,
+                complexityMax = complexityMax,
+                createdAfter = createdAfter,
+                createdBefore = createdBefore,
+                modifiedAfter = modifiedAfter,
+                modifiedBefore = modifiedBefore,
+                roleChangedAfter = roleChangedAfter,
+                roleChangedBefore = roleChangedBefore,
+                orderBy = orderBy,
+                requestingAgentId = requestingAgentId,
+                rootIds = ancestorIds,
+                includeClaimed = includeClaimed,
+            )
+    }
 
     /**
-     * Returns the top [limit] unblocked, claimable work items that match [criteria].
-     *
-     * Algorithm:
-     * 1. Over-fetch up to [OVER_FETCH_LIMIT] candidates from [WorkItemRepository.findClaimable]
-     *    (active-claim exclusion is always applied by the repository).
-     * 2. Propagate repository errors immediately.
-     * 3. Walk each candidate through [isBlocked] and discard blocked items.
-     * 4. Take the top [limit] unblocked items and return them.
+     * Returns the top [limit] eligible work items that match [criteria]: no active claim, no ancestor claim by a
+     * disqualifying agent, no unsatisfied blocking dependency, ranked by [Criteria.orderBy] (ties by id).
      */
     suspend fun recommend(
         criteria: Criteria,
         limit: Int
     ): List<WorkItem> = recommendCounted(criteria, limit).items
 
-    /** The recommended items plus how many candidates the repository returned before the dependency-block walk. */
+    /** The recommended items plus the exact number of eligible items for the criteria. */
     data class Counted(
         val items: List<WorkItem>,
         val candidateCount: Int
     )
 
     /**
-     * [recommend] that also reports the size of the candidate list it walked (at most [OVER_FETCH_LIMIT]), for
-     * `get_next_item`'s call-log `eligible_count`. [recommend] shares this one implementation.
+     * [recommend] that also reports [Counted.candidateCount]: the EXACT number of items eligible under [criteria]
+     * (all pages, not a window), for `get_next_item`'s call-log `eligible_count`. [recommend] shares this one
+     * implementation. Items and count come from one read transaction.
      */
     suspend fun recommendCounted(
         criteria: Criteria,
         limit: Int
     ): Counted {
-        val candidatesResult =
-            workItemRepo.findClaimable(
-                role = criteria.role,
-                parentId = criteria.parentId,
-                tags = criteria.tags,
-                priority = criteria.priority,
-                type = criteria.type,
-                complexityMax = criteria.complexityMax,
-                createdAfter = criteria.createdAfter,
-                createdBefore = criteria.createdBefore,
-                modifiedAfter = criteria.modifiedAfter,
-                modifiedBefore = criteria.modifiedBefore,
-                roleChangedAfter = criteria.roleChangedAfter,
-                roleChangedBefore = criteria.roleChangedBefore,
-                orderBy = criteria.orderBy,
-                limit = OVER_FETCH_LIMIT,
-                requestingAgentId = criteria.requestingAgentId,
-                rootIds = criteria.ancestorIds,
-            )
-
-        val candidates = candidatesResult
-
-        // Early-exit walk: stop once we have `limit` unblocked items. Sequences cannot
-        // call suspending isBlocked, so this is a manual loop. Each isBlocked() call costs
-        // 2 DB queries; for the dominant selector limit=1 case this caps the walk at the
-        // first unblocked candidate instead of all 200 over-fetched.
-        val unblocked = mutableListOf<WorkItem>()
-        for (item in candidates) {
-            if (!isBlocked(item)) {
-                unblocked.add(item)
-                if (unblocked.size >= limit) break
-            }
-        }
-
-        return Counted(unblocked, candidates.size)
+        val slice = workItemRepo.findEligible(criteria.toEligibilityQuery(), limit = limit, offset = 0)
+        return Counted(slice.items, slice.total)
     }
 
     /**
@@ -132,78 +115,29 @@ class NextItemRecommender(
      * now" (transient — worth retrying).
      *
      * Call this ONLY after [recommend] has already returned an empty list for the same
-     * [criteria] — it re-queries rather than reusing [recommend]'s candidates, so calling it
-     * unconditionally would double the DB round-trips for the common non-empty case.
+     * [criteria] — it re-queries rather than reusing [recommend]'s result.
      *
-     * Counts, over items matching [criteria]'s selector filters (via
-     * [WorkItemRepository.countSelectorMatches]):
+     * Counts, over items matching [criteria]'s selector filters, all exact and from one statement
+     * ([WorkItemRepository.explainIneligible]):
      * - [ExclusionCounts.claimed] — live item-level claim, any holder (incl. the caller).
-     * - [ExclusionCounts.dependencyBlocked] — unclaimed, ancestor-claim-passing candidates (the
-     *   same set [recommend] would have ranked) that [isBlocked] drops.
+     * - [ExclusionCounts.dependencyBlocked] — unclaimed, ancestor-claim-passing items (the same set
+     *   [recommend] ranks) that have an unsatisfied blocking dependency.
      * - [ExclusionCounts.ancestorClaimed] — the remainder: `matched - claimed - dependencyBlocked`,
-     *   floored at 0. This also absorbs any matching rows beyond [OVER_FETCH_LIMIT] that neither
-     *   the claim count nor the dependency walk below ever sees.
+     *   floored at 0. After an empty [recommend] this is exactly the items shielded by an ancestor claim.
      *
      * `matched == 0` iff the caller should report `queue_empty`; otherwise the three counts here
-     * are the transient `none_eligible` outcome's `excluded` breakdown.
+     * are the transient `none_eligible` outcome's `excluded` breakdown, and they sum to `matched`.
      */
     suspend fun explainEmpty(criteria: Criteria): ExclusionCounts {
-        val countsResult =
-            workItemRepo.countSelectorMatches(
-                role = criteria.role,
-                parentId = criteria.parentId,
-                tags = criteria.tags,
-                priority = criteria.priority,
-                type = criteria.type,
-                complexityMax = criteria.complexityMax,
-                createdAfter = criteria.createdAfter,
-                createdBefore = criteria.createdBefore,
-                modifiedAfter = criteria.modifiedAfter,
-                modifiedBefore = criteria.modifiedBefore,
-                roleChangedAfter = criteria.roleChangedAfter,
-                roleChangedBefore = criteria.roleChangedBefore,
-                rootIds = criteria.ancestorIds,
-            )
-        val counts = countsResult
-
-        if (counts.matched == 0) {
+        val breakdown = workItemRepo.explainIneligible(criteria.toEligibilityQuery())
+        if (breakdown.matched == 0) {
             return ExclusionCounts(claimed = 0, ancestorClaimed = 0, dependencyBlocked = 0)
         }
-
-        // Re-derive the same claimable candidate set `recommend` ranked (unclaimed at the item
-        // level, ancestor-claim-passing) to count how many of THOSE are dependency-blocked.
-        val candidatesResult =
-            workItemRepo.findClaimable(
-                role = criteria.role,
-                parentId = criteria.parentId,
-                tags = criteria.tags,
-                priority = criteria.priority,
-                type = criteria.type,
-                complexityMax = criteria.complexityMax,
-                createdAfter = criteria.createdAfter,
-                createdBefore = criteria.createdBefore,
-                modifiedAfter = criteria.modifiedAfter,
-                modifiedBefore = criteria.modifiedBefore,
-                roleChangedAfter = criteria.roleChangedAfter,
-                roleChangedBefore = criteria.roleChangedBefore,
-                orderBy = criteria.orderBy,
-                limit = OVER_FETCH_LIMIT,
-                requestingAgentId = criteria.requestingAgentId,
-                rootIds = criteria.ancestorIds,
-            )
-        val candidates = candidatesResult
-
-        var dependencyBlocked = 0
-        for (item in candidates) {
-            if (isBlocked(item)) dependencyBlocked++
-        }
-
-        val ancestorClaimed = maxOf(0, counts.matched - counts.activelyClaimed - dependencyBlocked)
-
+        val ancestorClaimed = maxOf(0, breakdown.matched - breakdown.activelyClaimed - breakdown.dependencyBlocked)
         return ExclusionCounts(
-            claimed = counts.activelyClaimed,
+            claimed = breakdown.activelyClaimed,
             ancestorClaimed = ancestorClaimed,
-            dependencyBlocked = dependencyBlocked,
+            dependencyBlocked = breakdown.dependencyBlocked,
         )
     }
 
@@ -221,39 +155,17 @@ class NextItemRecommender(
     }
 
     /**
-     * Returns true if [item] is dependency-blocked by any unsatisfied dependency.
+     * Returns true if [item] is dependency-blocked by any unsatisfied dependency: the Kotlin form of the SQL
+     * predicate [WorkItemRepository.findEligible] applies, for a single item.
      *
-     * Reads every dependency that names [item], normalizes them ([DependencyEdges.normalize]) and keeps the
-     * blocking edges whose blocked side is [item]; [BlockerEvaluator] decides satisfaction. RELATES_TO
-     * dependencies carry no blocking semantics and are ignored. Fail-closed: a blocker that cannot be read
-     * (e.g. deleted) counts as blocking.
-     *
-     * Visibility: `internal` so [GetNextItemTool]'s includeClaimed=true path can reuse this
-     * method directly instead of duplicating the dependency-walk logic.
+     * Reads the normalized blocking edges into [item] ([DependencyStore.blockingEdgesFor]) and its blockers'
+     * roles ([WorkItemRepository.rolesOf]); [BlockerEvaluator] decides satisfaction. RELATES_TO dependencies carry
+     * no blocking semantics. Fail-closed: a blocker whose role cannot be read (no row) counts as blocking.
      */
     internal suspend fun isBlocked(item: WorkItem): Boolean {
-        val deps = dependencyRepo.findByToItemId(item.id) + dependencyRepo.findByFromItemId(item.id)
-        val edges = DependencyEdges.normalize(deps.distinctBy { it.id }).blocking.filter { it.blocked == item.id }
+        val edges = dependencyRepo.blockingEdgesFor(setOf(item.id))
         if (edges.isEmpty()) return false
-
-        val roles = HashMap<UUID, Role>()
-        for (edge in edges) {
-            if (edge.blocker in roles) continue
-            legacyReadOrNull { workItemRepo.getById(edge.blocker) }?.let { roles[edge.blocker] = it.role }
-        }
+        val roles = workItemRepo.rolesOf(edges.map { it.blocker }.toSet())
         return BlockerEvaluator.unsatisfied(listOf(item.id), edges, roles).getValue(item.id).isNotEmpty()
-    }
-
-    companion object {
-        /**
-         * Pre-fetch budget for [recommend]. Sized to leave room for the dependency-blocking
-         * filter to drop candidates without starving the caller's `limit` (default 1, max 20
-         * for `get_next_item`). Increase if blocking-filter drop rates are observed to climb.
-         *
-         * `internal` so [GetNextItemTool]'s includeClaimed=true path can reference the same
-         * value when it invokes `findForNextItem` directly (the recommender is bypassed
-         * because findClaimable always excludes active claims).
-         */
-        internal const val OVER_FETCH_LIMIT = 200
     }
 }

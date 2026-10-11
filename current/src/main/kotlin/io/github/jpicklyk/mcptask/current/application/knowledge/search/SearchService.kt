@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
 import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.application.port.SearchResult
 import io.github.jpicklyk.mcptask.current.application.port.TextQuery
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallResultCounts
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallSearchShape
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -61,6 +62,9 @@ class SearchValidationException(
  * candidates, fuse in [Ranker], order, cap at [MAX_FTS_RESULTS], slice the page, and hydrate owning-item titles in
  * one read.
  *
+ * Candidate retrieval, ranking, the cap/slice and the title hydration run inside ONE [UnitOfWork.read], so the
+ * index statements share a single reader connection and snapshot instead of each opening its own.
+ *
  * Paging follows the [SearchResult] contract: a fixed [FTS_CANDIDATE_ROWS] window per analyzer independent of the
  * offset, a total order, the cap before the slice, so `totalHits` is the same on every page.
  *
@@ -69,17 +73,21 @@ class SearchValidationException(
  */
 class SearchService(
     private val index: SearchIndex,
+    private val unitOfWork: UnitOfWork,
 ) {
     /**
      * Runs [request].
      *
-     * @throws SearchValidationException for an out-of-range limit or offset, an empty query, or a substring-only
+     * @throws SearchValidationException for an out-of-range limit or offset, a query containing a control character,
+     *   an empty query, or a substring-only
      *   query with no term of at least [QueryTokenizer.SUBSTRING_MIN_TERM_LENGTH] characters.
      */
     suspend fun search(request: SearchRequest): SearchResult {
         if (request.limit < 1) throw SearchValidationException("limit must be at least 1")
         if (request.limit > MAX_FTS_RESULTS) throw SearchValidationException(limitTooLargeMessage(request.limit))
         if (request.offset < 0) throw SearchValidationException("offset must be non-negative")
+
+        QueryTokenizer.controlCharacterViolation(request.query)?.let { throw SearchValidationException(it) }
 
         val terms = QueryTokenizer.tokenize(request.query)
         if (terms.isEmpty()) throw SearchValidationException(EMPTY_QUERY_MESSAGE)
@@ -98,22 +106,33 @@ class SearchService(
                 tagsAny = request.tags?.takeIf { it.isNotEmpty() },
                 principalTagsAny = request.access.tagsInclude.takeIf { it.isNotEmpty() },
             )
-        val perAnalyzer = LinkedHashMap<Analyzer, List<Candidate>>()
-        for (analyzer in analyzers(request.matchMode)) {
-            perAnalyzer[analyzer] = index.candidates(request.corpus, textQuery, analyzer, filter, FTS_CANDIDATE_ROWS)
-        }
-        val ranked = Ranker.rank(mapOf(request.corpus to perAnalyzer))
+        val snapshot =
+            unitOfWork.read {
+                val perAnalyzer = LinkedHashMap<Analyzer, List<Candidate>>()
+                for (analyzer in analyzers(request.matchMode)) {
+                    perAnalyzer[analyzer] =
+                        index.candidates(request.corpus, textQuery, analyzer, filter, FTS_CANDIDATE_ROWS)
+                }
+                val ranked = Ranker.rank(mapOf(request.corpus to perAnalyzer))
 
-        // Cap BEFORE slicing so totalHits (and the nextOffset derived from it) describe the whole query, not the
-        // requested page: identical at every offset.
-        val truncated = ranked.size > MAX_FTS_RESULTS
-        val capped = if (truncated) ranked.take(MAX_FTS_RESULTS) else ranked
-        val totalHits = capped.size
-        val page = capped.drop(request.offset).take(request.limit)
+                // Cap BEFORE slicing so totalHits (and the nextOffset derived from it) describe the whole query,
+                // not the requested page: identical at every offset.
+                val truncated = ranked.size > MAX_FTS_RESULTS
+                val capped = if (truncated) ranked.take(MAX_FTS_RESULTS) else ranked
+                val page = capped.drop(request.offset).take(request.limit)
+                val titles =
+                    if (page.isEmpty()) {
+                        emptyMap()
+                    } else {
+                        index.titles(page.mapTo(LinkedHashSet()) { it.primary.ownerItemId })
+                    }
+                SearchSnapshot(page, capped.size, truncated, titles)
+            }
+        val page = snapshot.page
+        val totalHits = snapshot.totalHits
+        val truncated = snapshot.truncated
+        val titles = snapshot.titles
         recordCallResultCounts(totalHits, null)
-
-        val titles =
-            if (page.isEmpty()) emptyMap() else index.titles(page.mapTo(LinkedHashSet()) { it.primary.ownerItemId })
         val hits =
             page.map { hit ->
                 SearchHit(
@@ -132,6 +151,13 @@ class SearchService(
         val nextOffset = if (request.offset + request.limit < totalHits) request.offset + request.limit else null
         return SearchResult(hits = hits, totalHits = totalHits, nextOffset = nextOffset, truncated = truncated)
     }
+
+    private class SearchSnapshot(
+        val page: List<RankedHit>,
+        val totalHits: Int,
+        val truncated: Boolean,
+        val titles: Map<UUID, String>,
+    )
 
     companion object {
         const val EMPTY_QUERY_MESSAGE = "Search query is empty. Provide at least one search term."

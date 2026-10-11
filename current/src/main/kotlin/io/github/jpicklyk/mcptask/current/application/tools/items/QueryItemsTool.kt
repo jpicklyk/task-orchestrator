@@ -67,8 +67,8 @@ Operations: get, search, overview, schema
 
 **get** requires `itemId`.
 
-**search** has two modes: FTS mode when `query` is provided (ranked full-text hits over titles and
-summaries); list mode (structured filters) when `query` is omitted — see each parameter's schema
+**search** has two modes: FTS mode when `query` is provided (ranked full-text hits over titles,
+summaries and descriptions); list mode (structured filters) when `query` is omitted — see each parameter's schema
 description for the available filters. `claimedBy` identity is NEVER included in search results
 (list mode's `claimStatus` filter only adds a boolean `isClaimed`) — use `get_context(itemId)` for
 full claim details.
@@ -193,7 +193,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                                 "description",
                                 JsonPrimitive(
                                     "Search terms (triggers FTS mode: ranked hits with snippets). Multiple words = " +
-                                        "implicit AND; special characters are auto-escaped — pass plain terms."
+                                        "implicit AND; special characters are auto-escaped — pass plain terms. Control characters are rejected."
                                 )
                             )
                         }
@@ -762,7 +762,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
     // ──────────────────────────────────────────────
 
     /**
-     * Full-text search over work-item titles and summaries via FTS5.
+     * Full-text search over work-item titles, summaries and descriptions via FTS5.
      *
      * Parses the params, delegates to the shared
      * [io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService] (item corpus, unrestricted

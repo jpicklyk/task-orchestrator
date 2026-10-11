@@ -769,13 +769,13 @@ internal fun Application.installRestApiRoutes(
             // Phase 3: read API — items, notes, dependencies, transitions, search
             itemRoutes(effectiveProvider)
             itemGateRoutes(effectiveProvider, toolContext.configResolver, toolContext.transitionPreview())
-            noteRoutes(effectiveProvider)
+            noteRoutes(effectiveProvider, toolContext.unitOfWork)
             dependencyRoutes(effectiveProvider)
             transitionRoutes(
                 effectiveProvider,
                 redactAttribution = appConfig.apiRedactNoteAttribution,
             )
-            searchRoutes(effectiveProvider)
+            searchRoutes(effectiveProvider, toolContext.unitOfWork)
             // Phase 4: config/schema-discovery + status-graph
             configRoutes(noteSchemaService)
             // Phase 5: write API — items, notes, dependencies, advance

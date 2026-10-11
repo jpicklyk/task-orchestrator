@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging
 
-import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.telemetry.CallLogFields
 import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetry
+import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetryFactory
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
 import io.github.jpicklyk.mcptask.current.infrastructure.logging.MdcValues
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
@@ -115,7 +115,12 @@ internal fun Application.installRequestCorrelation(
         val reqId = ReqId.generate()
         val startedAt = clock.now()
         val started = TimeSource.Monotonic.markNow()
-        val telemetry = CallTelemetry(reqId, CallLogRecord.SURFACE_REST, null)
+        val telemetry =
+            CallTelemetryFactory.rest(
+                reqId,
+                call.request.headers[CLIENT_HOST_HEADER],
+                call.request.headers[HttpHeaders.UserAgent]
+            )
         call.response.header(REQ_ID_HEADER, reqId)
         captureResponse(call)
 
@@ -150,6 +155,9 @@ internal class OpsCallInfo(
 
 /** Set by the /ops route once a call reaches the dispatcher; the call log records it instead of the route template. */
 internal val OPS_CALL_INFO = AttributeKey<OpsCallInfo>("CallLogOpsCall")
+
+/** Optional request header naming the calling client application; recorded as `host`. */
+internal const val CLIENT_HOST_HEADER = "X-Client-Host"
 private const val API_ROOT = "/api/v1"
 private const val EVENT_STREAM_PATH = "/api/v1/events"
 

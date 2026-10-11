@@ -45,8 +45,7 @@ Operations: get, list, search
 
 **list** requires `itemId`. Optional `role`/`keys` filters.
 
-**search** requires `query`; full-text search over note bodies, returning ranked snippets. To filter
-by note role (queue/work/review), use `list` instead — `search`'s `scope` has no role field.
+**search** requires `query`; full-text search over note bodies.
         """.trimIndent()
 
     override val category = ToolCategory.NOTE_MANAGEMENT
@@ -121,7 +120,7 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                                 "description",
                                 JsonPrimitive(
                                     "Search terms (required for search). Multiple words = implicit AND; special " +
-                                        "characters are auto-escaped — pass plain terms."
+                                        "characters are auto-escaped — pass plain terms. Control characters are rejected."
                                 )
                             )
                         }
@@ -133,7 +132,8 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Structural scope filter for search mode. All fields are optional and combined with AND."
+                                    "Structural scope filter for search mode. All fields are optional and combined with AND. " +
+                                        "scope.role/scope.tags are rejected (VALIDATION_ERROR); use operation=list for role."
                                 )
                             )
                             put(

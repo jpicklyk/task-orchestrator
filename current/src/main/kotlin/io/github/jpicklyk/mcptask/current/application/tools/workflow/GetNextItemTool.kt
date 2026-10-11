@@ -337,88 +337,28 @@ Call when choosing what to work on next — at session start or after finishing 
 
         val workItemRepo = context.workItemRepository()
 
-        // includeClaimed=false (default): recommender handles everything — active-claim exclusion
-        // + dependency blocking + ordering. includeClaimed=true: fetch with claims included via
-        // findForNextItem(excludeActiveClaims=false), then apply new filters in-memory and run
-        // the same dependency-blocking walk. The new filters do NOT change the includeClaimed
-        // disclosure contract — claimedBy/claimedAt are never exposed in either path.
+        // Both paths decide eligibility in SQL over the whole matching set (no over-fetch window), so an eligible
+        // item is found however many ineligible ones rank ahead of it. includeClaimed=false (default): the
+        // recommender applies the active-claim and ancestor-claim exclusions plus dependency blocking.
+        // includeClaimed=true: the same query with the claim predicates off (claimed items stay, sub-tree
+        // isolation is off); dependency blocking and every filter still apply, and the order is the same (null
+        // complexity last). Neither path exposes claimedBy/claimedAt.
         var eligibleCount = 0
         val recommendations: List<WorkItem> =
             if (!includeClaimed) {
-                run {
-                    val counted =
-                        legacyRead(
-                            { return errorResponse(it, LegacyMcpCode.DATABASE_ERROR) }
-                        ) { context.nextItemRecommender.recommendCounted(criteria, limit) }
-                    eligibleCount = counted.candidateCount
-                    counted.items
-                }
+                val counted =
+                    legacyRead(
+                        { return errorResponse(it, LegacyMcpCode.DATABASE_ERROR) }
+                    ) { context.nextItemRecommender.recommendCounted(criteria, limit) }
+                eligibleCount = counted.candidateCount
+                counted.items
             } else {
-                val dependencyRepo = context.dependencyRepository()
-                val candidatesResult =
+                val slice =
                     legacyRead({ return errorResponse(it, LegacyMcpCode.DATABASE_ERROR) }) {
-                        workItemRepo.findForNextItem(
-                            role = targetRole,
-                            parentId = parentId,
-                            excludeActiveClaims = false,
-                            limit = NextItemRecommender.OVER_FETCH_LIMIT,
-                            rootIds = ancestorId?.let { setOf(it) }
-                        )
+                        workItemRepo.findEligible(criteria.toEligibilityQuery(includeClaimed = true), limit = limit, offset = 0)
                     }
-
-                val candidates =
-                    candidatesResult
-
-                // Apply new filters in-memory for the includeClaimed=true path.
-                // Tag matching mirrors the DB-side semantics in ItemQueries.tagFilter:
-                // exact-token match against comma-separated tags (NOT substring match).
-                // Uses isNotBlank to reject whitespace-only tokens (consistent with ClaimItemTool's selector path).
-                val filtered =
-                    candidates.filter { item ->
-                        (
-                            criteria.tags == null ||
-                                item.tags?.let { t ->
-                                    val itemTokens =
-                                        t.split(",").map { it.trim() }.filter { it.isNotBlank() }
-                                    criteria.tags.any { tag -> tag in itemTokens }
-                                } == true
-                        ) &&
-                            (criteria.priority == null || item.priority == criteria.priority) &&
-                            (criteria.type == null || item.type == criteria.type) &&
-                            (criteria.complexityMax == null || (item.complexity != null && item.complexity <= criteria.complexityMax)) &&
-                            (criteria.createdAfter == null || !item.createdAt.isBefore(criteria.createdAfter)) &&
-                            (criteria.createdBefore == null || !item.createdAt.isAfter(criteria.createdBefore)) &&
-                            (criteria.modifiedAfter == null || !item.modifiedAt.isBefore(criteria.modifiedAfter)) &&
-                            (criteria.modifiedBefore == null || !item.modifiedAt.isAfter(criteria.modifiedBefore)) &&
-                            (criteria.roleChangedAfter == null || !item.roleChangedAt.isBefore(criteria.roleChangedAfter)) &&
-                            (criteria.roleChangedBefore == null || !item.roleChangedAt.isAfter(criteria.roleChangedBefore))
-                    }
-
-                eligibleCount = filtered.size
-
-                // Apply ordering
-                val sorted =
-                    when (parsedOrderBy) {
-                        NextItemOrder.PRIORITY_THEN_COMPLEXITY ->
-                            filtered.sortedWith(
-                                compareBy<WorkItem> { PRIORITY_ORDER[it.priority] ?: 99 }.thenBy { it.complexity }
-                            )
-                        NextItemOrder.OLDEST_FIRST -> filtered.sortedBy { it.createdAt }
-                        NextItemOrder.NEWEST_FIRST -> filtered.sortedByDescending { it.createdAt }
-                    }
-
-                // Filter dependency-blocked items — reuse the recommender's internal isBlocked
-                // so this path and the default path can never diverge on dependency-walk semantics.
-                // Early-exit walk: stop once we have `limit` unblocked items (Sequences cannot
-                // call suspending isBlocked, so a manual loop with break is the simplest form).
-                val unblocked = mutableListOf<WorkItem>()
-                for (item in sorted) {
-                    if (!context.nextItemRecommender.isBlocked(item)) {
-                        unblocked.add(item)
-                        if (unblocked.size >= limit) break
-                    }
-                }
-                unblocked
+                eligibleCount = slice.total
+                slice.items
             }
 
         recordCallResultCounts(result = recommendations.size, eligible = eligibleCount)
@@ -498,10 +438,5 @@ Call when choosing what to work on next — at session start or after finishing 
             } ?: "unknown"
 
         return if (total == 1) "Next: $title" else "Next: $title (+${total - 1} more)"
-    }
-
-    private companion object {
-        /** In-memory priority ordering for the includeClaimed=true path (mirrors the DB CASE expression). */
-        val PRIORITY_ORDER = mapOf(Priority.HIGH to 0, Priority.MEDIUM to 1, Priority.LOW to 2)
     }
 }

@@ -112,7 +112,7 @@ class TagScopeBeforeCapSearchTest {
         // Precondition: the unrestricted ranking holds a full capped page of OTHER items, so none of the alpha items is visible at all.
         val unrestricted =
             runBlocking {
-                SearchService(provider.searchIndex()).search(
+                SearchService(provider.searchIndex(), db.unitOfWork()).search(
                     SearchRequest(
                         query = "zephyrword",
                         corpus = Corpus.ITEM,
@@ -152,7 +152,7 @@ class TagScopeBeforeCapSearchTest {
 
         val unrestricted =
             runBlocking {
-                SearchService(provider.searchIndex()).search(
+                SearchService(provider.searchIndex(), db.unitOfWork()).search(
                     SearchRequest(
                         query = "zephyrnote",
                         corpus = Corpus.NOTE,

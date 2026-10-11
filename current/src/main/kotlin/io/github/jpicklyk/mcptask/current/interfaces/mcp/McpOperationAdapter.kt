@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.application.service.ActorVerificationS
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.telemetry.CallLogFields
 import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetry
+import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetryFactory
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
 import io.github.jpicklyk.mcptask.current.infrastructure.logging.MdcValues
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
@@ -63,7 +64,9 @@ class McpOperationAdapter(
     ) {
         for (spec in registry.tools) {
             val tool = toolFor(spec, profile) ?: continue
-            server.addTool(tool) { request -> handle(spec, profile, request.arguments, sessionId) }
+            server.addTool(tool) { request ->
+                handle(spec, profile, request.arguments, sessionId, server.sessions[sessionId]?.clientVersion?.name)
+            }
             logger.debug("Registered 4.0 tool '{}' ({} profile)", spec.name, profile.wire)
         }
     }
@@ -72,13 +75,14 @@ class McpOperationAdapter(
         spec: ToolSpec,
         profile: ToolProfile,
         rawArguments: JsonObject?,
-        sessionId: String?
+        sessionId: String?,
+        clientName: String?
     ): CallToolResult {
         val arguments = rawArguments ?: JsonObject(emptyMap())
         val reqId = ReqId.generate()
         val startedAt = clock.now()
         val started = TimeSource.Monotonic.markNow()
-        val telemetry = CallTelemetry(reqId, CallLogRecord.SURFACE_MCP, sessionId)
+        val telemetry = CallTelemetryFactory.mcp(reqId, sessionId, clientName)
         val correlationFields =
             buildMap {
                 put("transport", "mcp")

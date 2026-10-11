@@ -14,6 +14,9 @@ package io.github.jpicklyk.mcptask.current.application.knowledge.search
  * 3. **Substring minimum.** The substring analyzer cannot match a term shorter than [SUBSTRING_MIN_TERM_LENGTH]
  *    characters, so a substring-only search whose every term is shorter than that is rejected
  *    ([substringViolation]).
+ * 4. **Control characters.** Any ISO control character (U+0000-U+001F, U+007F-U+009F) other than the six
+ *    separators above is rejected ([controlCharacterViolation]); it is never meaningful search text and a NUL
+ *    breaks the FTS5 engine.
  *
  * ```
  * tokenize("OAuth flow")    -> ["OAuth", "flow"]
@@ -29,6 +32,15 @@ object QueryTokenizer {
 
     /** ASCII whitespace: tab, line feed, vertical tab, form feed, carriage return, space. */
     private val SEPARATORS: Set<Char> = setOf(Char(9), Char(10), Char(11), Char(12), Char(13), Char(32))
+
+    /**
+     * The rejection message naming the first ISO control character in [rawQuery] that is not one of the six
+     * separators, else null.
+     */
+    fun controlCharacterViolation(rawQuery: String): String? {
+        val c = rawQuery.firstOrNull { it.isISOControl() && it !in SEPARATORS } ?: return null
+        return "Search query contains a control character (U+%04X). Remove it and retry.".format(c.code)
+    }
 
     /** The terms of [rawQuery], in order; empty when it has none. */
     fun tokenize(rawQuery: String): List<String> {

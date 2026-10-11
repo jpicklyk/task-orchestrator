@@ -424,6 +424,25 @@ on REST rows is the authenticated API principal (`api:<tokenId>`); only MCP rows
 `CORS_EXPOSE_HEADERS`. See
 `fleet-deployment.md` -> "Call log and `reqId`".
 
+### Client host (`X-Client-Host`)
+
+A request may carry the optional `X-Client-Host` header to name the client application making the call. It sets the
+`host` recorded on the request's `call_log` row and on every `events` row the request writes (a `401` row included).
+The host is data only: nothing branches on it and responses do not change. It is resolved in this order:
+
+1. the first `X-Client-Host` value, when it is non-empty after normalization;
+2. otherwise the first product token of the `User-Agent` header (the text before the first `/`, per RFC 9110
+   section 10.1.5; a blank `User-Agent`, or one starting with `(`, has no product, and later products are never
+   consulted);
+3. otherwise the literal `rest`.
+
+Whichever value is chosen is normalized the same way: control characters are dropped, the text is trimmed and
+lowercased, and it is capped at 64 code points (a surrogate pair is never split, and trailing whitespace at the cut is
+trimmed). A value that is empty after normalization counts as absent, so a blank `X-Client-Host` falls through to the
+`User-Agent`. `X-Client-Host` is in the default `CORS_ALLOWED_HEADERS`, so browser clients can send it cross-origin. The value is
+self-reported and unauthenticated: it labels telemetry only and is never used for authorization, scoping or identity.
+MCP calls take their host from the client's `initialize` `clientInfo.name` instead.
+
 ## 7. Pagination
 
 List endpoints return a `PageDto<T>`:
@@ -1708,10 +1727,10 @@ All require `READ`.
 
 ### GET /search
 
-FTS5 full-text search over item titles and summaries.
+FTS5 full-text search over item titles, summaries and descriptions.
 
 **Query parameters:**
-- `q` (required) — search query; special characters are auto-sanitized
+- `q` (required) — search query; special characters are auto-sanitized. A control character other than ASCII whitespace (for example `%00`) -> `400`
 - `ancestorId` — scope results to a subtree (invalid UUID -> `400 validation_error`)
 - `role` — filter by item role (invalid value -> `400 validation_error`)
 - `tag` — comma-separated tag filter
@@ -1729,7 +1748,7 @@ page is taken.
 FTS5 full-text search over note bodies.
 
 **Query parameters:**
-- `q` (required) — search query
+- `q` (required) — search query; a control character other than ASCII whitespace (for example `%00`) -> `400`
 - `ancestorId` — scope results to a subtree (invalid UUID -> `400 validation_error`)
 
 Returns up to 50 hits. `noteKey` is populated on every hit (note-body search always has a key), and

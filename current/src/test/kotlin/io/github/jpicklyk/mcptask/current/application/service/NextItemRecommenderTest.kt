@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
+import io.github.jpicklyk.mcptask.current.application.port.EligibilityQuery
+import io.github.jpicklyk.mcptask.current.application.port.ItemSlice
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
@@ -8,114 +10,66 @@ import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.coEvery
 import io.mockk.coVerify
-import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.extension.RegisterExtension
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
-import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
+/**
+ * NextItemRecommender over the SQL eligibility (Q14). The criteria pass-through scenarios stay MockK-based (they
+ * verify the 1:1 mapping onto the store's [EligibilityQuery]); every behavior scenario runs on a real SQLite
+ * database, since eligibility (claims, ancestor claims, dependency blocking, order, limit) is now decided in SQL.
+ */
 class NextItemRecommenderTest {
-    private lateinit var workItemRepo: WorkItemRepository
-    private lateinit var dependencyRepo: DependencyStore
-    private lateinit var recommender: NextItemRecommender
+    @RegisterExtension
+    val db = SqliteTestDatabase.perMethod()
 
-    @BeforeEach
-    fun setUp() {
-        workItemRepo = mockk()
-        dependencyRepo = mockk()
-        recommender = NextItemRecommender(workItemRepo, dependencyRepo)
-    }
+    private val repo: WorkItemRepository get() = db.repositoryProvider().workItemRepository()
+    private val deps: DependencyStore get() = db.repositoryProvider().dependencyRepository()
+    private val recommender: NextItemRecommender get() = NextItemRecommender(repo, deps)
 
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
 
-    private fun workItem(
-        id: UUID = UUID.randomUUID(),
+    private suspend fun item(
         title: String = "Item",
         role: Role = Role.QUEUE,
         priority: Priority = Priority.MEDIUM,
-        complexity: Int = 5,
-        parentId: UUID? = null,
-    ) = WorkItem(id = id, title = title, role = role, priority = priority, complexity = complexity, parentId = parentId)
+        complexity: Int? = 5,
+    ): WorkItem = repo.create(WorkItem(title = title, role = role, priority = priority, complexity = complexity))
 
-    private fun blocksDep(
-        fromItemId: UUID,
-        toItemId: UUID,
+    private suspend fun link(
+        from: UUID,
+        to: UUID,
+        type: DependencyType = DependencyType.BLOCKS,
         unblockAt: String? = null
-    ) = Dependency(fromItemId = fromItemId, toItemId = toItemId, type = DependencyType.BLOCKS, unblockAt = unblockAt)
-
-    private fun isBlockedByDep(
-        fromItemId: UUID,
-        toItemId: UUID,
-        unblockAt: String? = null
-    ) = Dependency(fromItemId = fromItemId, toItemId = toItemId, type = DependencyType.IS_BLOCKED_BY, unblockAt = unblockAt)
-
-    private fun relatesToDep(
-        fromItemId: UUID,
-        toItemId: UUID
-    ) = Dependency(fromItemId = fromItemId, toItemId = toItemId, type = DependencyType.RELATES_TO)
-
-    /** Stub findClaimable to return a fixed list with no dependency activity. */
-    private fun stubFindClaimable(
-        items: List<WorkItem>,
-        role: Role = Role.QUEUE,
-        parentId: UUID? = null,
-        tags: List<String>? = null,
-        priority: Priority? = null,
-        type: String? = null,
-        complexityMax: Int? = null,
-        createdAfter: Instant? = null,
-        createdBefore: Instant? = null,
-        modifiedAfter: Instant? = null,
-        modifiedBefore: Instant? = null,
-        roleChangedAfter: Instant? = null,
-        roleChangedBefore: Instant? = null,
-        orderBy: NextItemOrder = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
-        requestingAgentId: String? = null,
     ) {
-        coEvery {
-            workItemRepo.findClaimable(
-                role = role,
-                parentId = parentId,
-                tags = tags,
-                priority = priority,
-                type = type,
-                complexityMax = complexityMax,
-                createdAfter = createdAfter,
-                createdBefore = createdBefore,
-                modifiedAfter = modifiedAfter,
-                modifiedBefore = modifiedBefore,
-                roleChangedAfter = roleChangedAfter,
-                roleChangedBefore = roleChangedBefore,
-                orderBy = orderBy,
-                limit = 200,
-                requestingAgentId = requestingAgentId,
-            )
-        } returns items
+        deps.create(Dependency(fromItemId = from, toItemId = to, type = type, unblockAt = unblockAt))
     }
 
-    /** Stub both dep lookups to return empty lists for all items. */
-    private fun stubNoDependencies() {
-        every { dependencyRepo.findByToItemId(any()) } returns emptyList()
-        every { dependencyRepo.findByFromItemId(any()) } returns emptyList()
+    private fun mockedRecommender(): Pair<WorkItemRepository, NextItemRecommender> {
+        val workItemRepo = mockk<WorkItemRepository>()
+        coEvery { workItemRepo.findEligible(any(), any(), any()) } returns ItemSlice(emptyList(), 0)
+        return workItemRepo to NextItemRecommender(workItemRepo, mockk())
     }
 
     // -----------------------------------------------------------------------
-    // Filter pass-through to repository
+    // Filter pass-through to the store
     // -----------------------------------------------------------------------
 
     @Test
-    fun `criteria fields are passed 1-to-1 to findClaimable`(): Unit =
+    fun `criteria fields are passed 1-to-1 to findEligible`(): Unit =
         runBlocking {
+            val (workItemRepo, recommender) = mockedRecommender()
             val parentId = UUID.randomUUID()
             val after = Instant.parse("2024-01-01T00:00:00Z")
             val before = Instant.parse("2024-06-01T00:00:00Z")
@@ -123,7 +77,6 @@ class NextItemRecommenderTest {
             val roleBefore = Instant.parse("2024-05-01T00:00:00Z")
             val modAfter = Instant.parse("2024-03-01T00:00:00Z")
             val modBefore = Instant.parse("2024-04-01T00:00:00Z")
-
             val criteria =
                 NextItemRecommender.Criteria(
                     role = Role.WORK,
@@ -141,52 +94,30 @@ class NextItemRecommenderTest {
                     orderBy = NextItemOrder.OLDEST_FIRST,
                 )
 
-            val item = workItem(role = Role.WORK, priority = Priority.HIGH)
-            coEvery {
-                workItemRepo.findClaimable(
-                    role = Role.WORK,
-                    parentId = parentId,
-                    tags = listOf("backend", "api"),
-                    priority = Priority.HIGH,
-                    type = "feature-task",
-                    complexityMax = 3,
-                    createdAfter = after,
-                    createdBefore = before,
-                    modifiedAfter = modAfter,
-                    modifiedBefore = modBefore,
-                    roleChangedAfter = roleAfter,
-                    roleChangedBefore = roleBefore,
-                    orderBy = NextItemOrder.OLDEST_FIRST,
-                    limit = 200,
-                    requestingAgentId = null,
-                )
-            } returns listOf(item)
-            every { dependencyRepo.findByToItemId(item.id) } returns emptyList()
-            every { dependencyRepo.findByFromItemId(item.id) } returns emptyList()
+            recommender.recommend(criteria, limit = 10)
 
-            val result = recommender.recommend(criteria, limit = 10)
-
-            assertNotNull(result)
-            assertEquals(1, result.size)
-
-            // Verify the repo was called exactly once with the correct args
             coVerify(exactly = 1) {
-                workItemRepo.findClaimable(
-                    role = Role.WORK,
-                    parentId = parentId,
-                    tags = listOf("backend", "api"),
-                    priority = Priority.HIGH,
-                    type = "feature-task",
-                    complexityMax = 3,
-                    createdAfter = after,
-                    createdBefore = before,
-                    modifiedAfter = modAfter,
-                    modifiedBefore = modBefore,
-                    roleChangedAfter = roleAfter,
-                    roleChangedBefore = roleBefore,
-                    orderBy = NextItemOrder.OLDEST_FIRST,
-                    limit = 200,
-                    requestingAgentId = null,
+                workItemRepo.findEligible(
+                    EligibilityQuery(
+                        role = Role.WORK,
+                        parentId = parentId,
+                        tags = listOf("backend", "api"),
+                        priority = Priority.HIGH,
+                        type = "feature-task",
+                        complexityMax = 3,
+                        createdAfter = after,
+                        createdBefore = before,
+                        modifiedAfter = modAfter,
+                        modifiedBefore = modBefore,
+                        roleChangedAfter = roleAfter,
+                        roleChangedBefore = roleBefore,
+                        orderBy = NextItemOrder.OLDEST_FIRST,
+                        requestingAgentId = null,
+                        rootIds = null,
+                        includeClaimed = false,
+                    ),
+                    10,
+                    0,
                 )
             }
         }
@@ -194,34 +125,12 @@ class NextItemRecommenderTest {
     @Test
     fun `default criteria uses QUEUE role and PRIORITY_THEN_COMPLEXITY order`(): Unit =
         runBlocking {
-            val criteria = NextItemRecommender.Criteria()
-            val item = workItem()
+            val (workItemRepo, recommender) = mockedRecommender()
 
-            stubFindClaimable(listOf(item))
-            stubNoDependencies()
-
-            val result = recommender.recommend(criteria, limit = 1)
-            assertNotNull(result)
-            assertEquals(1, result.size)
+            recommender.recommend(NextItemRecommender.Criteria(), limit = 1)
 
             coVerify(exactly = 1) {
-                workItemRepo.findClaimable(
-                    role = Role.QUEUE,
-                    parentId = null,
-                    tags = null,
-                    priority = null,
-                    type = null,
-                    complexityMax = null,
-                    createdAfter = null,
-                    createdBefore = null,
-                    modifiedAfter = null,
-                    modifiedBefore = null,
-                    roleChangedAfter = null,
-                    roleChangedBefore = null,
-                    orderBy = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
-                    limit = 200,
-                    requestingAgentId = null,
-                )
+                workItemRepo.findEligible(EligibilityQuery(role = Role.QUEUE, orderBy = NextItemOrder.PRIORITY_THEN_COMPLEXITY), 1, 0)
             }
         }
 
@@ -230,297 +139,150 @@ class NextItemRecommenderTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun `criteria ancestorIds is forwarded to findClaimable as rootIds`(): Unit =
+    fun `criteria ancestorIds is forwarded to findEligible as rootIds`(): Unit =
         runBlocking {
+            val (workItemRepo, recommender) = mockedRecommender()
             val scopeRoot = UUID.randomUUID()
-            val criteria = NextItemRecommender.Criteria(role = Role.WORK, ancestorIds = setOf(scopeRoot))
-            val item = workItem(role = Role.WORK)
 
-            coEvery {
-                workItemRepo.findClaimable(
-                    role = Role.WORK,
-                    parentId = null,
-                    tags = null,
-                    priority = null,
-                    type = null,
-                    complexityMax = null,
-                    createdAfter = null,
-                    createdBefore = null,
-                    modifiedAfter = null,
-                    modifiedBefore = null,
-                    roleChangedAfter = null,
-                    roleChangedBefore = null,
-                    orderBy = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
-                    limit = 200,
-                    requestingAgentId = null,
-                    rootIds = setOf(scopeRoot),
-                )
-            } returns listOf(item)
-            stubNoDependencies()
-
-            val result = recommender.recommend(criteria, limit = 1)
-            assertNotNull(result)
-            assertEquals(1, result.size)
+            recommender.recommend(NextItemRecommender.Criteria(role = Role.WORK, ancestorIds = setOf(scopeRoot)), limit = 1)
 
             coVerify(exactly = 1) {
-                workItemRepo.findClaimable(
-                    role = Role.WORK,
-                    parentId = null,
-                    tags = null,
-                    priority = null,
-                    type = null,
-                    complexityMax = null,
-                    createdAfter = null,
-                    createdBefore = null,
-                    modifiedAfter = null,
-                    modifiedBefore = null,
-                    roleChangedAfter = null,
-                    roleChangedBefore = null,
-                    orderBy = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
-                    limit = 200,
-                    requestingAgentId = null,
-                    rootIds = setOf(scopeRoot),
-                )
+                workItemRepo.findEligible(EligibilityQuery(role = Role.WORK, rootIds = setOf(scopeRoot)), 1, 0)
             }
         }
 
     @Test
-    fun `default criteria ancestorIds is null - findClaimable called with rootIds null`(): Unit =
+    fun `default criteria ancestorIds is null - findEligible called with rootIds null`(): Unit =
         runBlocking {
-            val criteria = NextItemRecommender.Criteria()
-            val item = workItem()
+            val (workItemRepo, recommender) = mockedRecommender()
 
-            stubFindClaimable(listOf(item))
-            stubNoDependencies()
+            recommender.recommend(NextItemRecommender.Criteria(), limit = 1)
 
-            val result = recommender.recommend(criteria, limit = 1)
-            assertNotNull(result)
-            assertEquals(1, result.size)
-
-            coVerify(exactly = 1) {
-                workItemRepo.findClaimable(
-                    role = Role.QUEUE,
-                    parentId = null,
-                    tags = null,
-                    priority = null,
-                    type = null,
-                    complexityMax = null,
-                    createdAfter = null,
-                    createdBefore = null,
-                    modifiedAfter = null,
-                    modifiedBefore = null,
-                    roleChangedAfter = null,
-                    roleChangedBefore = null,
-                    orderBy = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
-                    limit = 200,
-                    requestingAgentId = null,
-                    rootIds = null,
-                )
-            }
+            coVerify(exactly = 1) { workItemRepo.findEligible(match { it.rootIds == null }, 1, 0) }
         }
 
     // -----------------------------------------------------------------------
-    // Dependency-blocked items excluded
+    // Dependency-blocked items excluded (real SQLite)
     // -----------------------------------------------------------------------
 
     @Test
     fun `item blocked by BLOCKS dep with unsatisfied blocker is excluded`(): Unit =
         runBlocking {
-            val blocker = workItem(role = Role.QUEUE) // not yet terminal
-            val blocked = workItem()
-
-            stubFindClaimable(listOf(blocked))
-            // blocked has an incoming BLOCKS dep from blocker
-            every { dependencyRepo.findByToItemId(blocked.id) } returns
-                listOf(blocksDep(fromItemId = blocker.id, toItemId = blocked.id))
-            every { dependencyRepo.findByFromItemId(blocked.id) } returns emptyList()
-            coEvery { workItemRepo.getById(blocker.id) } returns blocker
+            val blocker = item("Blocker", role = Role.WORK) // not yet terminal, and not a QUEUE candidate itself
+            val blocked = item("Blocked")
+            link(blocker.id, blocked.id)
 
             val result = recommender.recommend(NextItemRecommender.Criteria(), limit = 10)
 
-            assertNotNull(result)
-            assertTrue(result.isEmpty(), "Blocked item should be excluded")
+            assertTrue(result.isEmpty(), "Blocked item should be excluded: $result")
         }
 
     @Test
     fun `item blocked by IS_BLOCKED_BY dep with unsatisfied blocker is excluded`(): Unit =
         runBlocking {
-            val blocked = workItem()
-            val blocker = workItem(role = Role.QUEUE)
-
-            stubFindClaimable(listOf(blocked))
-            every { dependencyRepo.findByToItemId(blocked.id) } returns emptyList()
-            // blocked IS_BLOCKED_BY blocker
-            every { dependencyRepo.findByFromItemId(blocked.id) } returns
-                listOf(isBlockedByDep(fromItemId = blocked.id, toItemId = blocker.id))
-            coEvery { workItemRepo.getById(blocker.id) } returns blocker
+            val blocked = item("Blocked")
+            val blocker = item("Blocker", role = Role.WORK)
+            // blocked IS_BLOCKED_BY blocker: stored normalized as blocker BLOCKS blocked
+            link(blocked.id, blocker.id, DependencyType.IS_BLOCKED_BY)
 
             val result = recommender.recommend(NextItemRecommender.Criteria(), limit = 10)
 
-            assertNotNull(result)
-            assertTrue(result.isEmpty(), "IS_BLOCKED_BY item should be excluded")
+            assertTrue(result.isEmpty(), "IS_BLOCKED_BY item should be excluded: $result")
         }
 
     @Test
     fun `item with satisfied BLOCKS dep (blocker at TERMINAL) is included`(): Unit =
         runBlocking {
-            val blocker = workItem(role = Role.TERMINAL)
-            val item = workItem()
-
-            stubFindClaimable(listOf(item))
-            every { dependencyRepo.findByToItemId(item.id) } returns
-                listOf(blocksDep(fromItemId = blocker.id, toItemId = item.id))
-            every { dependencyRepo.findByFromItemId(item.id) } returns emptyList()
-            coEvery { workItemRepo.getById(blocker.id) } returns blocker
+            val blocker = item("Blocker", role = Role.TERMINAL)
+            val subject = item("Subject")
+            link(blocker.id, subject.id)
 
             val result = recommender.recommend(NextItemRecommender.Criteria(), limit = 10)
 
-            assertNotNull(result)
-            assertEquals(1, result.size, "Item with satisfied dep should be included")
+            assertEquals(listOf(subject.id), result.map { it.id }, "Item with satisfied dep should be included")
         }
 
     @Test
     fun `RELATES_TO dep does not block item`(): Unit =
         runBlocking {
-            val related = workItem(role = Role.QUEUE)
-            val item = workItem()
-
-            stubFindClaimable(listOf(item))
-            every { dependencyRepo.findByToItemId(item.id) } returns
-                listOf(relatesToDep(fromItemId = related.id, toItemId = item.id))
-            every { dependencyRepo.findByFromItemId(item.id) } returns emptyList()
+            val related = item("Related", role = Role.WORK)
+            val subject = item("Subject")
+            link(related.id, subject.id, DependencyType.RELATES_TO)
 
             val result = recommender.recommend(NextItemRecommender.Criteria(), limit = 10)
 
-            assertNotNull(result)
-            assertEquals(1, result.size, "RELATES_TO dep should not block item")
+            assertEquals(listOf(subject.id), result.map { it.id }, "RELATES_TO dep should not block item")
         }
 
     @Test
     fun `custom unblockAt work is satisfied when blocker is at WORK`(): Unit =
         runBlocking {
-            val blocker = workItem(role = Role.WORK)
-            val item = workItem()
-
-            stubFindClaimable(listOf(item))
-            every { dependencyRepo.findByToItemId(item.id) } returns
-                listOf(blocksDep(fromItemId = blocker.id, toItemId = item.id, unblockAt = "work"))
-            every { dependencyRepo.findByFromItemId(item.id) } returns emptyList()
-            coEvery { workItemRepo.getById(blocker.id) } returns blocker
+            val blocker = item("Blocker", role = Role.WORK)
+            val subject = item("Subject")
+            link(blocker.id, subject.id, unblockAt = "work")
 
             val result = recommender.recommend(NextItemRecommender.Criteria(), limit = 10)
 
-            assertNotNull(result)
-            assertEquals(1, result.size, "Dep with unblockAt=work satisfied when blocker is WORK")
+            assertEquals(listOf(subject.id), result.map { it.id }, "Dep with unblockAt=work satisfied when blocker is WORK")
         }
 
     @Test
-    fun `blocker item that cannot be fetched (deleted or repo error) blocks the item (fail-closed)`(): Unit =
+    fun `blocker item that cannot be read blocks the item (fail-closed)`(): Unit =
         runBlocking {
-            // The recommender is fail-closed (BlockerEvaluator): when workItemRepo.getById(blockerId)
-            // cannot read the blocker (e.g., it was deleted, or a transient repo failure), the
-            // dependency counts as unsatisfied, so the candidate item is not recommended.
-            val missingBlockerId = UUID.randomUUID()
-            val item = workItem(title = "Item with phantom blocker")
+            // A blocker row cannot go missing in SQLite (the FK cascades), so the fail-closed rule is exercised on
+            // isBlocked with the blocker's role unreadable, plus the SQL analogue: a BLOCKED blocker never satisfies.
+            val blocker = item("Blocker", role = Role.TERMINAL)
+            val subject = item("Subject")
+            link(blocker.id, subject.id)
+            val unreadable =
+                object : WorkItemRepository by repo {
+                    override suspend fun rolesOf(ids: Set<UUID>): Map<UUID, Role> = repo.rolesOf(ids) - blocker.id
+                }
 
-            stubFindClaimable(listOf(item))
-            every { dependencyRepo.findByToItemId(item.id) } returns
-                listOf(blocksDep(fromItemId = missingBlockerId, toItemId = item.id))
-            every { dependencyRepo.findByFromItemId(item.id) } returns emptyList()
-            coEvery { workItemRepo.getById(missingBlockerId) } returns null
+            assertTrue(!recommender.isBlocked(subject), "control: a readable terminal blocker satisfies the edge")
+            assertTrue(NextItemRecommender(unreadable, deps).isBlocked(subject), "an unreadable blocker counts as blocking")
 
-            val result = recommender.recommend(NextItemRecommender.Criteria(), limit = 10)
-
-            assertNotNull(result)
-            assertEquals(
-                0,
-                result.size,
-                "Item must be treated as blocked when its blocker cannot be fetched — the evaluator is fail-closed"
-            )
+            val heldBlocker = item("Held Blocker", role = Role.BLOCKED)
+            val heldSubject = item("Held Subject")
+            link(heldBlocker.id, heldSubject.id, unblockAt = "queue")
+            val ids = recommender.recommend(NextItemRecommender.Criteria(), limit = 10).map { it.id }
+            assertTrue(heldSubject.id !in ids, "a BLOCKED blocker never satisfies, even a queue threshold: $ids")
         }
 
     // -----------------------------------------------------------------------
-    // Limit applied AFTER blocking filter (over-fetch scenario)
+    // Limit applied AFTER the blocking filter
     // -----------------------------------------------------------------------
 
     @Test
-    fun `limit applied after blocking filter — over-fetch returns 5 items, 3 blocked, limit=2 returns top 2 unblocked`(): Unit =
+    fun `limit applied after blocking filter - 5 candidates, 3 blocked, limit=2 returns the 2 unblocked`(): Unit =
         runBlocking {
-            val unblockedA = workItem(title = "Unblocked A", priority = Priority.HIGH)
-            val unblockedB = workItem(title = "Unblocked B", priority = Priority.MEDIUM)
-            val blockerX = workItem(role = Role.QUEUE, title = "Blocker X")
-            val blockerY = workItem(role = Role.QUEUE, title = "Blocker Y")
-            val blockerZ = workItem(role = Role.QUEUE, title = "Blocker Z")
-            val blockedC = workItem(title = "Blocked C")
-            val blockedD = workItem(title = "Blocked D")
-            val blockedE = workItem(title = "Blocked E")
+            // The blocked candidates rank FIRST (high priority), so a limit applied before the filter would starve.
+            val blockedC = item("Blocked C", priority = Priority.HIGH)
+            val blockedD = item("Blocked D", priority = Priority.HIGH)
+            val blockedE = item("Blocked E", priority = Priority.HIGH)
+            val unblockedA = item("Unblocked A", priority = Priority.MEDIUM)
+            val unblockedB = item("Unblocked B", priority = Priority.LOW)
+            listOf(blockedC, blockedD, blockedE).forEach { link(item("Blocker for ${it.title}", role = Role.WORK).id, it.id) }
 
-            // Repository returns 5 candidates: 2 unblocked + 3 blocked
-            stubFindClaimable(listOf(unblockedA, unblockedB, blockedC, blockedD, blockedE))
-
-            // No incoming/outgoing deps for unblocked items
-            every { dependencyRepo.findByToItemId(unblockedA.id) } returns emptyList()
-            every { dependencyRepo.findByFromItemId(unblockedA.id) } returns emptyList()
-            every { dependencyRepo.findByToItemId(unblockedB.id) } returns emptyList()
-            every { dependencyRepo.findByFromItemId(unblockedB.id) } returns emptyList()
-
-            // Each blocked item has a BLOCKS dep from an unsatisfied blocker
-            every { dependencyRepo.findByToItemId(blockedC.id) } returns
-                listOf(blocksDep(fromItemId = blockerX.id, toItemId = blockedC.id))
-            every { dependencyRepo.findByFromItemId(blockedC.id) } returns emptyList()
-            coEvery { workItemRepo.getById(blockerX.id) } returns blockerX
-
-            every { dependencyRepo.findByToItemId(blockedD.id) } returns
-                listOf(blocksDep(fromItemId = blockerY.id, toItemId = blockedD.id))
-            every { dependencyRepo.findByFromItemId(blockedD.id) } returns emptyList()
-            coEvery { workItemRepo.getById(blockerY.id) } returns blockerY
-
-            every { dependencyRepo.findByToItemId(blockedE.id) } returns
-                listOf(blocksDep(fromItemId = blockerZ.id, toItemId = blockedE.id))
-            every { dependencyRepo.findByFromItemId(blockedE.id) } returns emptyList()
-            coEvery { workItemRepo.getById(blockerZ.id) } returns blockerZ
-
-            // limit=2 → should return exactly the 2 unblocked items, not the blocked ones
             val result = recommender.recommend(NextItemRecommender.Criteria(), limit = 2)
 
-            assertNotNull(result)
-            assertEquals(2, result.size, "Should return exactly 2 items after blocking filter")
-            val ids = result.map { it.id }
-            assertTrue(ids.contains(unblockedA.id), "unblockedA should be in result")
-            assertTrue(ids.contains(unblockedB.id), "unblockedB should be in result")
+            assertEquals(listOf(unblockedA.id, unblockedB.id), result.map { it.id })
         }
 
     // -----------------------------------------------------------------------
-    // OVER_FETCH_LIMIT exhaustion — every candidate is blocked
+    // Every candidate blocked (formerly OVER_FETCH_LIMIT exhaustion)
     // -----------------------------------------------------------------------
 
     @Test
-    fun `all candidates blocked returns empty success without crash (OVER_FETCH_LIMIT exhaustion)`(): Unit =
+    fun `all candidates blocked returns empty without crash`(): Unit =
         runBlocking {
-            // Simulates the silent-starvation edge case noted in OVER_FETCH_LIMIT KDoc:
-            // every over-fetched candidate fails the dependency-blocking walk. The
-            // recommender must return emptyList() — not an error, not a
-            // crash. Callers may legitimately receive 0 items even when the underlying
-            // queue has many candidates, if blocking-filter drop rates are high.
-            val blocker = workItem(role = Role.QUEUE, title = "Blocker (not yet at terminal)")
-            val blockedItems = (1..10).map { i -> workItem(title = "Blocked #$i") }
+            val blocker = item("Blocker (not yet terminal)", role = Role.WORK)
+            repeat(10) { i -> link(blocker.id, item("Blocked #$i").id) }
 
-            stubFindClaimable(blockedItems)
+            val counted = recommender.recommendCounted(NextItemRecommender.Criteria(), limit = 5)
 
-            blockedItems.forEach { item ->
-                every { dependencyRepo.findByToItemId(item.id) } returns
-                    listOf(blocksDep(fromItemId = blocker.id, toItemId = item.id))
-                every { dependencyRepo.findByFromItemId(item.id) } returns emptyList()
-            }
-            coEvery { workItemRepo.getById(blocker.id) } returns blocker
-
-            val result = recommender.recommend(NextItemRecommender.Criteria(), limit = 5)
-
-            assertNotNull(result)
-            assertTrue(
-                result.isEmpty(),
-                "All candidates blocked must yield empty Success — not error, not partial"
-            )
+            assertTrue(counted.items.isEmpty(), "All candidates blocked must yield an empty list: ${counted.items}")
+            assertEquals(0, counted.candidateCount, "the eligible count is exact: nothing is eligible")
         }
 
     // -----------------------------------------------------------------------
@@ -528,44 +290,26 @@ class NextItemRecommenderTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun `empty repository result returns empty success (not error)`(): Unit =
+    fun `empty repository result returns empty (not error)`(): Unit =
         runBlocking {
-            stubFindClaimable(emptyList())
-
             val result = recommender.recommend(NextItemRecommender.Criteria(), limit = 5)
 
-            assertNotNull(result)
             assertTrue(result.isEmpty())
         }
 
     // -----------------------------------------------------------------------
-    // Repository error propagation
+    // Store error propagation
     // -----------------------------------------------------------------------
 
     @Test
-    fun `repository error propagates as Result Error`(): Unit =
+    fun `store error propagates unchanged`(): Unit =
         runBlocking {
-            // P5b: stores throw; the store fault propagates out of recommend() unchanged (was Result.Error).
+            // P5b: stores throw; the store fault propagates out of recommend() unchanged.
+            val workItemRepo = mockk<WorkItemRepository>()
             val repoError = IllegalStateException("connection failed")
-            coEvery {
-                workItemRepo.findClaimable(
-                    role = any(),
-                    parentId = any(),
-                    tags = any(),
-                    priority = any(),
-                    type = any(),
-                    complexityMax = any(),
-                    createdAfter = any(),
-                    createdBefore = any(),
-                    roleChangedAfter = any(),
-                    roleChangedBefore = any(),
-                    orderBy = any(),
-                    limit = any(),
-                    requestingAgentId = any(),
-                )
-            } throws repoError
+            coEvery { workItemRepo.findEligible(any(), any(), any()) } throws repoError
 
-            val thrown = assertFails { recommender.recommend(NextItemRecommender.Criteria(), limit = 5) }
+            val thrown = assertFails { NextItemRecommender(workItemRepo, mockk()).recommend(NextItemRecommender.Criteria(), limit = 5) }
 
             assertEquals(repoError, thrown)
         }
@@ -575,106 +319,23 @@ class NextItemRecommenderTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun `requestingAgentId in Criteria is forwarded to findClaimable`(): Unit =
+    fun `requestingAgentId in Criteria is forwarded to findEligible`(): Unit =
         runBlocking {
-            val item = workItem()
+            val (workItemRepo, recommender) = mockedRecommender()
             val agentId = "agent-fleet-worker-1"
 
-            // Stub findClaimable specifically for this agentId
-            coEvery {
-                workItemRepo.findClaimable(
-                    role = Role.QUEUE,
-                    parentId = null,
-                    tags = null,
-                    priority = null,
-                    type = null,
-                    complexityMax = null,
-                    createdAfter = null,
-                    createdBefore = null,
-                    roleChangedAfter = null,
-                    roleChangedBefore = null,
-                    orderBy = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
-                    limit = 200,
-                    requestingAgentId = agentId,
-                )
-            } returns listOf(item)
-            every { dependencyRepo.findByToItemId(item.id) } returns emptyList()
-            every { dependencyRepo.findByFromItemId(item.id) } returns emptyList()
+            recommender.recommend(NextItemRecommender.Criteria(requestingAgentId = agentId), limit = 1)
 
-            val criteria = NextItemRecommender.Criteria(requestingAgentId = agentId)
-            val result = recommender.recommend(criteria, limit = 1)
-
-            assertNotNull(result)
-            assertEquals(1, result.size)
-
-            // Verify the agent ID was forwarded to the repository
-            coVerify(exactly = 1) {
-                workItemRepo.findClaimable(
-                    role = Role.QUEUE,
-                    parentId = null,
-                    tags = null,
-                    priority = null,
-                    type = null,
-                    complexityMax = null,
-                    createdAfter = null,
-                    createdBefore = null,
-                    roleChangedAfter = null,
-                    roleChangedBefore = null,
-                    orderBy = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
-                    limit = 200,
-                    requestingAgentId = agentId,
-                )
-            }
+            coVerify(exactly = 1) { workItemRepo.findEligible(EligibilityQuery(requestingAgentId = agentId), 1, 0) }
         }
 
     @Test
-    fun `null requestingAgentId in Criteria forwards null to findClaimable (strict exclusion mode)`(): Unit =
+    fun `null requestingAgentId in Criteria forwards null to findEligible (strict exclusion mode)`(): Unit =
         runBlocking {
-            val item = workItem()
+            val (workItemRepo, recommender) = mockedRecommender()
 
-            coEvery {
-                workItemRepo.findClaimable(
-                    role = Role.QUEUE,
-                    parentId = null,
-                    tags = null,
-                    priority = null,
-                    type = null,
-                    complexityMax = null,
-                    createdAfter = null,
-                    createdBefore = null,
-                    roleChangedAfter = null,
-                    roleChangedBefore = null,
-                    orderBy = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
-                    limit = 200,
-                    requestingAgentId = null,
-                )
-            } returns listOf(item)
-            every { dependencyRepo.findByToItemId(item.id) } returns emptyList()
-            every { dependencyRepo.findByFromItemId(item.id) } returns emptyList()
+            recommender.recommend(NextItemRecommender.Criteria(), limit = 1)
 
-            // Default Criteria has requestingAgentId = null
-            val criteria = NextItemRecommender.Criteria()
-            val result = recommender.recommend(criteria, limit = 1)
-
-            assertNotNull(result)
-            assertEquals(1, result.size)
-
-            coVerify(exactly = 1) {
-                workItemRepo.findClaimable(
-                    role = any(),
-                    parentId = any(),
-                    tags = any(),
-                    priority = any(),
-                    type = any(),
-                    complexityMax = any(),
-                    createdAfter = any(),
-                    createdBefore = any(),
-                    roleChangedAfter = any(),
-                    roleChangedBefore = any(),
-                    orderBy = any(),
-                    limit = any(),
-                    requestingAgentId = null,
-                )
-            }
+            coVerify(exactly = 1) { workItemRepo.findEligible(match { it.requestingAgentId == null && !it.includeClaimed }, 1, 0) }
         }
 }

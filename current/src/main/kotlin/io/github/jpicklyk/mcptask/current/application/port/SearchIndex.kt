@@ -7,7 +7,7 @@ import java.util.UUID
 enum class Corpus(
     val kind: String
 ) {
-    /** Work-item title and summary. */
+    /** Work-item title, summary and description. */
     ITEM("item"),
 
     /** Note bodies; every hit is owned by the note's work item. */
@@ -68,9 +68,12 @@ data class ScopeFilter(
  * @property id The stable id of the matched document: the work-item id ([Corpus.ITEM]) or the note id ([Corpus.NOTE]).
  * @property ownerItemId The work item that owns the document (equal to [id] for [Corpus.ITEM]).
  * @property noteKey The note key ([Corpus.NOTE] only).
- * @property rank The engine's raw relevance rank (lower is better). Comparable only within one candidate list.
- * @property field The field that actually contains a match (`title`/`summary` for items, `body` for notes); when
- *   several do, the first in the corpus's field order (title before summary).
+ * @property rank The engine's raw score (lower is better); it orders ONE candidate list. Scores from different
+ *   analyzers come from different indexes and are not calibrated against each other. Their only cross-list use is
+ *   the choice `Ranker` makes of which matched candidate supplies a fused hit's `field` and `snippet` (lower raw
+ *   rank, substring on a tie), a presentation heuristic inherited from 3.x that never affects score or order.
+ * @property field The field that actually contains a match (`title`/`summary`/`description` for items, `body` for
+ *   notes); when several do, the first in the corpus's field order (title, then summary, then description).
  * @property snippet A short excerpt of [field] with `<mark>`/`</mark>` around the matched text.
  */
 data class Candidate(

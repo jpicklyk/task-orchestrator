@@ -296,7 +296,7 @@ The MCP server includes FTS5 full-text search backed by SQLite's FTS5 extension 
 query_items(operation="search", query="OAuth token")
 ```
 
-Returns ranked hits with ~32-token snippets from item titles and summaries. Multiple words are
+Returns ranked hits with ~32-token snippets from item titles, summaries and descriptions. Multiple words are
 treated as implicit AND. Pass plain terms — special characters are automatically escaped.
 
 **Search within a feature's subtree:**

@@ -122,4 +122,28 @@ class QueryTokenizerTest {
     fun `the minimum term length constant is 3`() {
         assertEquals(3, QueryTokenizer.SUBSTRING_MIN_TERM_LENGTH)
     }
+
+    // -- control characters ----------------------------------------------------------------------
+
+    @Test
+    fun `control characters other than the six separators are flagged with the first one`() {
+        listOf(0x0000, 0x0001, 0x001F, 0x007F, 0x0085, 0x009F).forEach { code ->
+            assertEquals(
+                "Search query contains a control character (U+%04X). Remove it and retry.".format(code),
+                QueryTokenizer.controlCharacterViolation("ab${code.toChar()}cd")
+            )
+        }
+        assertEquals(
+            "Search query contains a control character (U+0002). Remove it and retry.",
+            QueryTokenizer.controlCharacterViolation("a\u0002b\u0001")
+        )
+    }
+
+    @Test
+    fun `separators and ordinary non-ASCII text are not control characters`() {
+        listOf("a\tb", "a\nb", "a\u000Bb", "a\u000Cb", "a\rb", "a b", "caf\u00e9", "a\u00a0b", "").forEach {
+            assertNull(QueryTokenizer.controlCharacterViolation(it), "input '$it'")
+        }
+        assertEquals(listOf("a", "b"), QueryTokenizer.tokenize("a\tb"))
+    }
 }

@@ -62,7 +62,7 @@ class AppConfigTest {
 
         assertEquals(emptyList(), c.corsAllowedOrigins)
         assertEquals(listOf("GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"), c.corsAllowedMethods)
-        assertEquals(listOf("Authorization", "Content-Type", "If-Match"), c.corsAllowedHeaders)
+        assertEquals(listOf("Authorization", "Content-Type", "If-Match", "X-Client-Host"), c.corsAllowedHeaders)
         assertEquals(listOf("ETag", "Last-Event-ID", "Retry-After", "X-Req-Id"), c.corsExposeHeaders)
         assertEquals(3600L, c.corsMaxAgeSeconds)
     }
