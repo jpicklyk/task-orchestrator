@@ -477,211 +477,6 @@ components:
           type: string
           nullable: true
 
-    AdvanceRequestDto:
-      type: object
-      required: [trigger]
-      properties:
-        trigger:
-          type: string
-          enum: [start, complete, block, hold, resume, cancel, reopen]
-        credentialRefs:
-          type: array
-          nullable: true
-          items:
-            type: string
-            pattern: '^[a-z0-9][a-z0-9\-_./]*$'
-          maxItems: 8
-          description: >-
-            Opaque audit labels for credentials/resources consumed by this transition (never secret
-            values). Each entry 1-128 chars matching the pattern. Once the target item declares at
-            least one resource via its traits (registry state alone does not trigger this), each
-            ref must name a declared/registered key (closed set) — an unrecognized ref returns 400
-            validation_error.
-            Declared resource keys are auto-recorded on work entry; you do not need to repeat them.
-        overrideResourceLeases:
-          type: boolean
-          nullable: true
-          default: false
-          description: >-
-            ADMIN-only. When true, skips the resource-lease gate for this transition (no lease taken,
-            gate bypassed not satisfied). A non-ADMIN caller setting this to true receives 403
-            insufficient_capability before the item is even loaded. WARN-logged; stamps
-            "(resource leases overridden)" on the persisted transition's summary.
-
-    ResourceLeaseDto:
-      type: object
-      required: [resourceKey, holderItemId, acquiredAt, expiresAt, originalAcquiredAt]
-      properties:
-        resourceKey:
-          type: string
-        holderItemId:
-          type: string
-          format: uuid
-        acquiredByActorId:
-          type: string
-          nullable: true
-          description: Present only for callers with ADMIN capability; omitted (not null) otherwise.
-        acquiredAt:
-          type: string
-          format: date-time
-        expiresAt:
-          type: string
-          format: date-time
-        originalAcquiredAt:
-          type: string
-          format: date-time
-
-    ResourceLeaseListResponseDto:
-      type: object
-      required: [leases]
-      properties:
-        leases:
-          type: array
-          items:
-            $ref: "#/components/schemas/ResourceLeaseDto"
-
-    ResourceLeaseReleaseResponseDto:
-      type: object
-      required: [resourceKey, releasedCount]
-      properties:
-        resourceKey:
-          type: string
-        releasedCount:
-          type: integer
-
-    ResourceLeaseIntervalDto:
-      type: object
-      required: [resourceKey, holderItemId, acquiredAt, expiresAt]
-      description: >-
-        One row per lease hold interval (append-only, never pruned in v1) — see the
-        resource_lease_history table.
-      properties:
-        resourceKey:
-          type: string
-        holderItemId:
-          type: string
-          format: uuid
-        acquiredByActorId:
-          type: string
-          nullable: true
-          description: Present only for callers with ADMIN capability; omitted (not null) otherwise.
-        acquiredAt:
-          type: string
-          format: date-time
-        expiresAt:
-          type: string
-          format: date-time
-        releasedAt:
-          type: string
-          format: date-time
-          nullable: true
-          description: Null while the interval is still open.
-        releaseReason:
-          type: string
-          nullable: true
-          enum: [released, expired, force_released]
-          description: Null while the interval is still open.
-        releasedByActorId:
-          type: string
-          nullable: true
-          description: >-
-            Present only for callers with ADMIN capability; omitted (not null) otherwise. Null for a
-            passive "expired" close (no explicit release action performed it).
-
-    ResourceLeaseHistoryResponseDto:
-      type: object
-      required: [intervals]
-      properties:
-        intervals:
-          type: array
-          items:
-            $ref: "#/components/schemas/ResourceLeaseIntervalDto"
-
-    MissingNoteDto:
-      type: object
-      required: [key, description]
-      properties:
-        key:
-          type: string
-        description:
-          type: string
-        guidance:
-          type: string
-          nullable: true
-        skill:
-          type: string
-          nullable: true
-
-    CascadeEventDto:
-      type: object
-      required: [itemId, title, previousRole, targetRole, applied]
-      properties:
-        itemId:
-          type: string
-          format: uuid
-        title:
-          type: string
-        previousRole:
-          type: string
-        targetRole:
-          type: string
-        applied:
-          type: boolean
-        statusLabel:
-          type: string
-          nullable: true
-        gateBlocked:
-          type: boolean
-          description: True when this cascade was suppressed by a required-note gate on the parent.
-        missingNotes:
-          type: array
-          nullable: true
-          description: Present only when gateBlocked is true.
-          items:
-            $ref: "#/components/schemas/MissingNoteDto"
-        error:
-          type: string
-          nullable: true
-          description: >-
-            Reason this cascade's own apply step failed (a persistence conflict), when applied is
-            false and no suppression flag is set. Null on success and on every
-            gate/resource/role/dependency suppression.
-        roleBlocked:
-          type: boolean
-          description: True when a terminal cascade was suppressed because the parent is blocked (held).
-        dependencyBlocked:
-          type: boolean
-          description: True when a terminal cascade was suppressed by an unmet blocking dependency on the parent.
-        blockers:
-          type: array
-          nullable: true
-          description: Present only when dependencyBlocked is true.
-          items:
-            $ref: "#/components/schemas/CascadeBlockerDto"
-        violations:
-          type: array
-          nullable: true
-          description: >-
-            A2: independence-attestation findings for this cascade's own target schema. Present
-            only when the list is non-empty; null (not an empty array) when independence checking
-            applies but finds nothing, and also when independence mode is off or the target schema
-            declares no independent_of. Populated in warn mode too, whenever there is something to
-            report.
-          items:
-            $ref: "#/components/schemas/IndependenceViolationDto"
-
-    CascadeBlockerDto:
-      type: object
-      required: [fromItemId, currentRole, requiredRole]
-      properties:
-        fromItemId:
-          type: string
-          format: uuid
-        currentRole:
-          type: string
-        requiredRole:
-          type: string
-
     IndependenceViolationDto:
       type: object
       required: [key, constraint]
@@ -712,37 +507,6 @@ components:
           description: >-
             True only for a same_actor finding covered by the independence: temporal-only waiver.
             A waived finding never blocks a reject-mode transition. Omitted unless true.
-
-    UnblockedItemDto:
-      type: object
-      required: [itemId, title]
-      properties:
-        itemId:
-          type: string
-          format: uuid
-        title:
-          type: string
-
-    ExpectedNoteDto:
-      type: object
-      required: [key, role, required, description, exists]
-      properties:
-        key:
-          type: string
-        role:
-          type: string
-        required:
-          type: boolean
-        description:
-          type: string
-        guidance:
-          type: string
-          nullable: true
-        skill:
-          type: string
-          nullable: true
-        exists:
-          type: boolean
 
     GateStatusDto:
       type: object
@@ -820,53 +584,6 @@ components:
           description: >-
             First missing required note's skill pointer. Omitted from JSON (not serialized as
             null) when there is none.
-
-    AdvanceResponseDto:
-      type: object
-      required: [itemId, previousRole, newRole, trigger]
-      properties:
-        itemId:
-          type: string
-          format: uuid
-        previousRole:
-          type: string
-        newRole:
-          type: string
-        trigger:
-          type: string
-        statusLabel:
-          type: string
-          nullable: true
-        cascadeEvents:
-          type: array
-          description: >-
-            Cascade transitions applied (or gate-blocked) as a side effect of this advance —
-            e.g. completing the last child auto-completing the parent. Mirrors the MCP
-            advance_item cascadeEvents. Added when the REST and MCP advance paths were unified
-            behind AdvanceService.
-          items:
-            $ref: "#/components/schemas/CascadeEventDto"
-        unblockedItems:
-          type: array
-          description: Downstream items whose blocking dependencies are now satisfied.
-          items:
-            $ref: "#/components/schemas/UnblockedItemDto"
-        expectedNotes:
-          type: array
-          description: Schema notes expected for the item's NEW role (parity with MCP advance_item).
-          items:
-            $ref: "#/components/schemas/ExpectedNoteDto"
-        violations:
-          type: array
-          nullable: true
-          description: >-
-            A2: independence-attestation findings for the transition's target schema. Present only
-            when the list is non-empty; null (not an empty array) when independence checking
-            applies but finds nothing, and also when independence mode is off or the target schema
-            declares no independent_of. Populated in warn mode too, whenever there is something to
-            report. See config-format.md "Independence (A2)".
-          items:
-            $ref: "#/components/schemas/IndependenceViolationDto"
 
     SearchHitDto:
       type: object
@@ -2056,108 +1773,6 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /items/{id}/advance:
-    post:
-      summary: Trigger a role transition
-      operationId: advanceItem
-      tags: [items]
-      description: |
-        Runs the SAME advance pipeline as the MCP advance_item tool (resolve → validate →
-        required-note gate → resource-lease gate → apply → cascade → unblock), unified behind
-        AdvanceService.
-
-        Bypasses MCP claim ownership — a claimed item advances successfully regardless of
-        which MCP agent holds the claim. Response does NOT include claimedBy. WARN is logged
-        when API_WARN_ON_CLAIMED_ADVANCE=true (default).
-
-        Required-note gates ARE enforced: a start/complete that leaves a required note unfilled
-        is rejected with 422 (error code "gate_blocked") and the missing notes in details.missingNotes,
-        rather than silently advancing. When the target schema is seat-aware (A1),
-        details.missingBySeat additionally buckets those keys by owning seat, appended after
-        missingNotes — see GateStatusDto.missingBySeat. The response includes cascadeEvents,
-        unblockedItems, and expectedNotes (additive — older clients can ignore the new fields).
-
-        Resource-lease gate ALSO enforced on both start and resume (both re-enter WORK) — unlike
-        claim ownership above, this gate is NOT bypassed for ordinary callers; only an explicit
-        ADMIN overrideResourceLeases:true opts out (403 for non-admin callers who set it). Contention
-        returns 409 resource_unavailable with a Retry-After header — never the current holder's
-        identity. An item with no declared resources can never produce this response.
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-        - $ref: "#/components/parameters/idempotencyKey"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AdvanceRequestDto"
-      responses:
-        "200":
-          description: Transition applied
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AdvanceResponseDto"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          description: >-
-            Two independent discriminants share this status, both defensive on the REST path since
-            REST bypasses claim ownership by default (see the ownership/lease asymmetry above):
-            error="resource_unavailable" — resource lease contended; details.contendedResources lists
-            the contended keys and details.retryAfterMs the suggested backoff (echoed as a Retry-After
-            header, whole seconds, rounded up); no holder identity disclosed, use
-            GET /api/v1/resources/leases (ADMIN) to diagnose. Only reachable for items that declare
-            resources: via traits. error="not_claim_holder" — a different agent holds a live claim on
-            the item (not expected to occur on the REST path, which bypasses ownership enforcement,
-            but defensively mapped). error="idempotency_mismatch" — the Idempotency-Key was already
-            used with a different request; nothing was executed.
-          headers:
-            Retry-After:
-              schema:
-                type: integer
-              description: Present only for resource_unavailable. Whole seconds until the contended lease can possibly free up (rounded up, floor 1).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "422":
-          description: >-
-            Transition rejected. error="gate_blocked" with details.missingNotes (and, for a
-            seat-aware schema, details.missingBySeat) when a required-note gate fails, and/or (A2)
-            details.violations when a non-waived independence violation blocks in reject mode —
-            details.violations can be present and non-empty even when missingNotes is empty;
-            error="transition_blocked" with details.blockers when a dependency blocks the
-            transition; error="transition_failed" for invalid-state resolution/apply failures.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "413":
-          description: >-
-            Payload too large — body exceeds the shared 1 MiB write-body limit, enforced before
-            the body is buffered (Content-Length pre-check, then a capped channel read).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "415":
-          description: >-
-            Unsupported media type — Content-Type is present and is not application/json (an
-            absent header is accepted as */*); checked before the body is read.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "503":
-          $ref: "#/components/responses/ConfigUnavailable"
-
   /items/{id}/tree:
     get:
       summary: Descendant tree (flat paginated list)
@@ -2483,109 +2098,6 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
-
-  /resources/leases:
-    get:
-      summary: List active resource leases
-      operationId: listResourceLeases
-      tags: [resources]
-      description: >-
-        Cross-project, server-wide — not root-scoped, unlike the rest of this API. Backs the
-        resource-lease gate on POST /items/{id}/advance and the resources: trait dimension.
-      responses:
-        "200":
-          description: >-
-            Active leases. acquiredByActorId is present per-entry only for ADMIN callers
-            (omitted, not null, for others).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ResourceLeaseListResponseDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-
-  /resources/leases/{key}:
-    delete:
-      summary: Force-release a resource lease (operator recovery)
-      operationId: forceReleaseResourceLease
-      tags: [resources]
-      description: >-
-        ADMIN only. Recovers a lease stuck by a crashed holder without waiting out the TTL (up to
-        24h) or disabling enforcement server-wide. WARN-logged with the acting principal's token id.
-      parameters:
-        - name: key
-          in: path
-          required: true
-          schema:
-            type: string
-            pattern: '^[a-z0-9][a-z0-9\-_./]*$'
-            maxLength: 128
-      responses:
-        "200":
-          description: Released
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ResourceLeaseReleaseResponseDto"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          description: No active lease exists on this key (idempotent-safe — a repeat call 404s, not a second 200)
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-
-  /resources/leases/history:
-    get:
-      summary: Lease-interval audit history (who held resource R at time T)
-      operationId: listResourceLeaseHistory
-      tags: [resources]
-      description: >-
-        Append-only lease-interval audit log — answers "who held resource R at time T" after a
-        lease has already been released, stolen, or force-released, which the current-holders-only
-        /resources/leases list cannot. No pruning/retention in v1.
-      parameters:
-        - name: key
-          in: query
-          required: false
-          schema:
-            type: string
-            pattern: '^[a-z0-9][a-z0-9\-_./]*$'
-            maxLength: 128
-        - name: at
-          in: query
-          required: false
-          description: >-
-            ISO-8601 instant. When present, returns every interval held at that instant
-            (acquiredAt <= at < coalesce(releasedAt, expiresAt)). When absent, returns the most
-            recent intervals, newest-first.
-          schema:
-            type: string
-            format: date-time
-        - name: limit
-          in: query
-          required: false
-          description: Default 100, clamped to [1, 500].
-          schema:
-            type: integer
-      responses:
-        "200":
-          description: >-
-            Matching intervals. acquiredByActorId / releasedByActorId are present per-entry only
-            for ADMIN callers (omitted, not null, for others).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ResourceLeaseHistoryResponseDto"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
 
   /transitions:
     get:
@@ -3265,8 +2777,8 @@ paths:
 
         Authorization/validation order: READ capability -> parse {rootId} as a UUID (400) ->
         ApiScope.rootIds scope check (403) -> root WorkItem exists (404) -> root is depth-0 (422)
-        -> exactly one per-root config read, wrapped in the same config_unavailable 503 envelope
-        POST /items/{id}/advance and GET /items/{id}/gate use.
+        -> exactly one per-root config read, answered with the same config_unavailable 503 as
+        the `advance` tool and GET /items/{id}/gate use.
       parameters:
         - name: If-None-Match
           in: header
@@ -3593,6 +3105,11 @@ paths:
         `ops[].idempotencyKey`), or a body that is not a JSON object (field `$`). A body over 1 MiB
         is 413 `payload_too_large`. A missing or invalid credential keeps the legacy 401 body
         (see Unauthorized). Serves the orchestration profile.
+
+        The `advance` tool (`/ops/advance`) replaces the 3.x `advance_item` and `claim_item` tools and the
+        removed `POST /items/{id}/advance` route. Its `ops[]` elements are `transition` (apply a trigger),
+        `claim` (by `itemId` or `select`), `release` and `heartbeat`, all needing the `advance` capability.
+        Claim ownership and resource leases are enforced on this route exactly as on MCP.
       parameters:
         - name: tool
           in: path
@@ -3648,6 +3165,146 @@ paths:
                 $ref: "#/components/schemas/OpsEnvelope"
         "500":
           description: internal envelope (fixed message; detail only in the server log)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+
+  /resources/leases:
+    get:
+      summary: List active resource leases
+      operationId: listResourceLeases
+      tags: [resources]
+      description: >-
+        Cross-project, server-wide - not root-scoped, unlike the rest of this API. Backs the
+        resource-lease gate of the `advance` tool's `transition` op and the resources: trait
+        dimension. Answers the response envelope: a list page ordered by (resourceKey, holderItemId)
+        whose `page.total` equals `items.length` (lease cardinality is bounded, so the list is never
+        truncated). Item shape: `{resourceKey, holderItemId, acquiredByActorId?, acquiredAt,
+        expiresAt, originalAcquiredAt}`; `acquiredByActorId` is present only for ADMIN callers.
+        Requires `read`; a token without it gets `forbidden` (`scope: capability`).
+      responses:
+        "200":
+          description: Envelope with ok=true and a list page of active leases
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: forbidden envelope (the token lacks `read`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+
+  /resources/leases/{key}:
+    delete:
+      summary: Force-release a resource lease (operator recovery)
+      operationId: forceReleaseResourceLease
+      tags: [resources]
+      description: >-
+        ADMIN only (`admin` capability; otherwise `forbidden` with `scope: capability`, `required:
+        admin`). Recovers a lease stuck by a crashed holder without waiting out the TTL (up to 24h) or
+        disabling enforcement server-wide; this is the only recovery path now that the advance
+        `overrideResourceLeases` flag is gone. WARN-logged with the acting principal's token id.
+        Answers the response envelope: `data = {resourceKey, releasedCount}`.
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-z0-9][a-z0-9\-_./]*$'
+            maxLength: 128
+      responses:
+        "200":
+          description: Envelope with ok=true; data is {resourceKey, releasedCount}
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "400":
+          description: invalid_request envelope (field `key` fails the pattern or length)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: forbidden envelope (the token lacks `admin`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "404":
+          description: >-
+            not_found envelope with detail kind `lease`: no active lease exists on this key (a repeat
+            call after a successful release is a 404, not a second 200)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+
+  /resources/leases/history:
+    get:
+      summary: Lease-interval audit history (who held resource R at time T)
+      operationId: listResourceLeaseHistory
+      tags: [resources]
+      description: >-
+        Append-only lease-interval audit log - answers "who held resource R at time T" after a lease
+        has already been released, stolen, or force-released, which the current-holders-only
+        /resources/leases list cannot. No pruning/retention in v1. Answers the response envelope: a
+        list page, newest-first by acquiredAt, with `page.total` equal to `items.length`. Item shape:
+        `{resourceKey, holderItemId, acquiredByActorId?, acquiredAt, expiresAt, releasedAt?,
+        releaseReason?, releasedByActorId?}`; the two actor ids are present only for ADMIN callers.
+        Requires `read`.
+      parameters:
+        - name: key
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^[a-z0-9][a-z0-9\-_./]*$'
+            maxLength: 128
+        - name: at
+          in: query
+          required: false
+          description: >-
+            ISO-8601 instant. When present, returns every interval held at that instant
+            (acquiredAt <= at < coalesce(releasedAt, expiresAt)). When absent, returns the most
+            recent intervals. An unparsable value is invalid_request on field `at`.
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          description: Integer from 1 to 200, default 50. Any other value is invalid_request on field `limit`.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: Envelope with ok=true and a list page of lease intervals
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "400":
+          description: invalid_request envelope (fields key, at or limit)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: forbidden envelope (the token lacks `read`)
           content:
             application/json:
               schema:

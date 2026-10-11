@@ -4,7 +4,7 @@ import java.time.Instant
 import java.util.UUID
 
 /** Entity families that errors can refer to. */
-enum class EntityKind { ITEM, NOTE, DEPENDENCY, DOCUMENT, RUN, ROOT }
+enum class EntityKind { ITEM, NOTE, DEPENDENCY, DOCUMENT, RUN, ROOT, LEASE }
 
 /** Scope that a `forbidden` error says the caller lacks. */
 enum class ForbiddenScope { ROOT, TAG, CAPABILITY }
@@ -33,6 +33,12 @@ data class Blocker(
 data class ResourceRef(
     val name: String,
     val mode: String
+)
+
+/** One blocking finding of a gate that is not a missing note (today: an independence-attestation conflict). */
+data class GateViolation(
+    val gate: String,
+    val reason: String
 )
 
 /** One configuration problem. */
@@ -106,13 +112,15 @@ sealed interface ErrorDetail {
         val allowed: List<String>
     ) : ErrorDetail
 
+    /** [violations] is null unless blocking findings other than missing notes exist (an independence-only block has an empty [missing]). */
     data class GateBlocked(
         val itemId: UUID,
         val role: String,
-        val missing: List<MissingNote>
+        val missing: List<MissingNote>,
+        val violations: List<GateViolation>? = null
     ) : ErrorDetail {
         init {
-            require(missing.isNotEmpty()) { "missing must not be empty" }
+            require(missing.isNotEmpty() || !violations.isNullOrEmpty()) { "missing and violations must not both be empty" }
         }
     }
 

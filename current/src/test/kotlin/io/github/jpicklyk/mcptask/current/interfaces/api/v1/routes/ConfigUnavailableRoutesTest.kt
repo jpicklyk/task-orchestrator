@@ -21,12 +21,8 @@ import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.get
 import io.ktor.client.request.header
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -61,46 +57,6 @@ import kotlin.test.assertTrue
 class ConfigUnavailableRoutesTest {
     @RegisterExtension
     val db = SqliteTestDatabase.perMethod()
-
-    @Test
-    fun `S10 - POST items id advance returns 503 config_unavailable when the per-root config read fails cold`() =
-        testApplication {
-            val sqlite = db.repositoryProvider()
-            val (root, item) =
-                runBlocking {
-                    val r = sqlite.workItemRepository().create(WorkItem(title = "Root S10", depth = 0))!!
-                    val i =
-                        sqlite
-                            .workItemRepository()
-                            .create(
-                                WorkItem(title = "Child S10", role = Role.QUEUE, parentId = r.id, rootId = r.id, depth = 1)
-                            )!!
-                    r to i
-                }
-            val failable = FailableProjectConfigRepository(sqlite.configStore())
-            failable.failFingerprint = true
-            val provider = FailableRepositoryProvider(sqlite, failable)
-            application { configureAdvanceApp(provider, NoSchemaWorkItemSchemaService, unitOfWork = db.unitOfWork()) }
-
-            val response =
-                client.post("/api/v1/items/${item.id}/advance") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"trigger":"start"}""")
-                }
-
-            assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
-            val body = response.bodyAsText()
-            assertTrue(body.contains("config_unavailable"), "body: $body")
-
-            val persisted = runBlocking { sqlite.workItemRepository().getById(item.id)!! }
-            assertEquals(Role.QUEUE, persisted.role, "role must be unchanged when the advance is rejected for config_unavailable")
-            assertEquals(
-                null,
-                response.headers["Retry-After"],
-                "D6: no Retry-After on a config_unavailable 503 (only SHEDDING carries retryAfterMs)"
-            )
-        }
 
     @Test
     fun `S11 - GET items id gate returns 503 config_unavailable when the per-root config read fails cold`() =

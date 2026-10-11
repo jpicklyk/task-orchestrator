@@ -30,12 +30,11 @@ errors, per-root-config-unavailable failures, and internal errors.
 | `query_notes` | Notes | Read | FTS5-search note bodies |
 | `deps_write` | Dependencies | Write | Create or delete dependency edges, single or by pattern (linear, fan_out, fan_in) (4.0 envelope) |
 | `deps_read` | Dependencies | Read | List an item's edges by direction, or walk its blocking graph in topological order (4.0 envelope) |
-| `advance_item` | Workflow | Write | Trigger-based role transitions with cascade and gate enforcement |
+| `advance` | Workflow | Write | Phase transitions (cascade and gate enforcement) and claim ownership: ops `transition`, `claim`, `release`, `heartbeat` |
 | `get_next_status` | Workflow | Read | Read-only transition recommendation for a single item |
 | `get_context` | Workflow | Read | Context snapshot: item mode, session resume, or health check |
 | `get_next_item` | Workflow | Read | Priority-ranked recommendation of next actionable item |
 | `get_blocked_items` | Workflow | Read | Items blocked by dependency or explicit block trigger, capped at 500 per role |
-| `claim_item` | Workflow | Write | Atomically claim or release work items for exclusive ownership |
 | `manage_project_config` | System | Write/Read | Push or read back per-root config YAML for the layered schema resolver |
 | `manage_plan_documents` | System | Write/Read | Stash, read back, or list per-root plan documents |
 | `query_rules` | System | Read | Read git-tracked rule text by rootId+key, by an item skill-pointer resolution, or list rule keys under a root |
@@ -1036,309 +1035,72 @@ capability (`manage-dependencies`); `delete` is destructive.
 
 ## Category: Workflow
 
-### advance_item
+### advance
 
-**Purpose.** Trigger-based role transitions for WorkItems with dependency validation, note-schema
-gate enforcement, cascade detection, and unblock reporting. Supports batch transitions.
+**Purpose.** Phase transitions and claim ownership in one write tool. It replaces the 3.x `advance_item` and `claim_item`
+tools and the REST `POST /items/{id}/advance` route. It is served over MCP and `POST /api/v1/ops/advance` (see `api-rest.md`
+section 20a); both answer the same response envelope.
 
-This tool and the REST `POST /items/{id}/advance` route share a single advance pipeline
-(`AdvanceService`). Each transition is ONE transaction: the item is re-read, the transition policy
-evaluates its gates in a fixed order (claim ownership → transition table → cascade warrant → hold →
-blocking dependencies → required notes → resource lease; the first failure wins), and the role change,
-its audit row, its event, the lease acquire or release, and every cascade it triggers commit together
-or not at all. Unblocked downstream items are then reported. The MCP path enforces claim ownership; the
-REST path bypasses it (see `api-rest.md`). Both enforce the same gates (REST accepts an ADMIN-only
-override for the lease gate; MCP does not), and report the same cascade/unblock results.
+Every `transition` is ONE transaction through the shared advance pipeline (`AdvanceService`): the item is re-read, the transition
+policy evaluates its gates in a fixed order (claim ownership, transition table, cascade warrant, hold, blocking dependencies,
+required notes, resource lease; the first failure wins), and the role change, its audit row, its event, the lease acquire or
+release, and every cascade it triggers commit together or not at all. Unblocked downstream items are then reported.
 
-**When to call.** Call to move an item between phases once its work is done — never edit status via `manage_items`.
+**Call shape.** `ops` is an array of flat objects, each naming its `op`. Optional top-level `atomic` (default false: each
+element succeeds or fails alone; true: the first failure rolls the whole call back and is returned with its `error.index`) and
+`actor` (`{id, kind, parent?, proof?}`; on REST the bearer token is the actor and a body `actor` is ignored). Each element may
+carry an optional `idempotencyKey` (needs an actor); a repeat of the same key and payload replays the stored result, the same
+key with another payload is `idempotency_mismatch`. All ops need the `advance` capability.
 
-#### Key Parameters
+| Op | Element fields | Result element (on top of `ok: true`) |
+|---|---|---|
+| `transition` | `itemId`, `trigger` (`start`, `complete`, `block`, `hold`, `resume`, `cancel`, `reopen`), `summary?`, `credentialRefs?` | `{itemId, previousRole, newRole, trigger, statusLabel?, cascades?, unblocked?, expectedNotes?, guidanceKey?, skillPointer?, dispatch?, violations?}` |
+| `claim` | exactly one of `itemId` or `select`; `ttlSeconds` (1 to 86400, default 900); `claimRef?` (at most 64 characters) | `{itemId, claimed: true, claimedAt, expiresAt, originalClaimedAt, refreshed?, selected?, claimRef?}` |
+| `release` | `itemId` | `{itemId, released: true}` |
+| `heartbeat` | `itemId`, `ttlSeconds` (default 900) | `{itemId, claimed: true, claimedAt, expiresAt, originalClaimedAt, refreshed: true}` |
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `transitions` | array | Conditional | Array of transition objects: `[{ itemId, trigger, summary?, actor? }]`. Required unless the singular-form sugar (`itemId` + `trigger`) is used instead. |
-| `itemId` | string (UUID or 4+ char prefix) | Conditional | Singular-form sugar: advance a single item without a `transitions` array. Provide with `trigger` (and optional top-level `summary`/`actor`); the server wraps it into a one-element `transitions` array. Ignored when `transitions` is present. |
-| `trigger` | string | Conditional | Singular-form sugar: the trigger for the single item named by top-level `itemId`. |
-| `summary` | string | No | Singular-form sugar (optional): transition summary for the single top-level `itemId`. |
-| `actor` | object | No | Singular-form sugar (optional): actor claim for the single top-level `itemId`, same shape as a transition's `actor`. |
-| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. Each transition is applied once for 24 hours (see [Idempotency](#idempotency)). Uses the first transition's `actor.id` as the idempotency principal. |
+`itemId` is a UUID or a dash-free hex prefix of 8 to 32 characters (`not_found` when nothing matches, `ambiguous_id` with the
+candidate ids when several do).
 
-Provide **either** a `transitions` array **or** the singular `itemId` + `trigger`. If `transitions` is present, the top-level singular fields are ignored.
+**`transition` result.** `cascades` lists the parents evaluated as a side effect: `{itemId, previousRole, targetRole, applied,
+blocked?: gate | resource | role | dependency, missing?: [{key, role, seat?}], contended?: [resourceKey], blockers?: [{id, role}]}`.
+`unblocked` is `[{itemId, title}]`. `expectedNotes` is the list of note keys the new phase expects; `guidanceKey` and
+`skillPointer` name the first missing required note's guidance and skill. `dispatch` is `{agent?, model?, effort?}` for the
+phase just entered. `violations` is `[{key, seat?, constraint, conflictingSeat?, waived?}]`, present only when the list is
+non-empty. Empty and null members are omitted.
 
-**Transition object fields:**
+**Ownership.** When an item has an active (non-expired) claim, `transition` requires the caller's trusted actor id to equal the
+holder, on every trigger and on both MCP and REST; any other caller (including one with no actor) gets `not_claim_holder`.
+An unclaimed item, or one whose claim has lapsed, can be transitioned by anyone. Cascades are system transitions and bypass the
+check. A transition that lands the item in `terminal` clears its claim. There is no override: an operator who must take over a
+claimed item waits out the claim TTL.
 
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `itemId` | string (UUID) | Yes | Item to transition |
-| `trigger` | string | Yes | One of: `start`, `complete`, `block`, `hold`, `resume`, `cancel`, `reopen` (case-insensitive). `cascade` is system-internal and is rejected at the API boundary. |
-| `summary` | string | No | Optional annotation stored on the transition record |
-| `actor` | object | No | Optional actor claim — see Actor Attribution section |
-| `credentialRefs` | string or array of strings | No | Opaque audit labels for credentials/resources this transition consumed — never secret values. A bare string is coerced to a one-element array. Max 8 entries, each 1-128 chars matching `^[a-z0-9][a-z0-9\-_./]*$`. See **Resource-lease gate** below for the closed-set rule that applies once the item declares `resources:`. |
+**Claims.** `claim` makes the caller the holder; any other item it held is released (one claim per actor). The holder claiming
+again refreshes the claim (`refreshed: true`, `originalClaimedAt` kept). `heartbeat` is the same refresh but never takes an item:
+it is `not_claim_holder` unless the caller holds the active claim (recommended cadence: half the TTL). Claim, release and heartbeat
+need an `actor` (`invalid_request` on `/actor` otherwise); the holder id is the trusted id after the degraded-mode policy (`unauthenticated`
+when the policy rejects). The holder's identity never appears in any error detail.
 
-Each transition element may include an optional `actor` object:
-- `id` (required string): Identifier for the actor making this transition
-- `kind` (required string): One of `orchestrator`, `subagent`, `user`, `external`
-- `parent` (optional string): ID of the dispatching agent (forms delegation chain)
-- `proof` (optional string): Opaque credential blob — checked by the configured actor verifier (not verified under `noop`), never returned in MCP responses. Since migration V17, the raw proof is never persisted — only a SHA-256 hash (always, when non-blank) and the verified JWT claims (when VERIFIED) are stored; see [Verification Record](#verification-record).
+`select` filters: `role` (default `queue`), `parentId`, `tags` (any), `priority`, `type`, `complexityMax`, `createdAfter`,
+`createdBefore`, `roleChangedAfter`, `roleChangedBefore`, `orderBy` (`priority` default, `oldest`, `newest`). The best eligible
+match (no active claim, no blocking ancestor claim by another actor, no unmet dependency) is claimed and `selected: true` is
+reported. A selector that finds nothing claimable is `ok` with `{claimed: false}` plus, when matching items exist but none can be
+claimed, `reason` (`claim_held` or `dependency_unmet`), `retryAfterMs` 30000 and `excluded: {claimed, ancestorClaimed,
+dependencyBlocked, outOfScope}`; nothing matched at all has no `reason`. Under a root- or tag-scoped token, candidates outside the
+scope are skipped and counted in `excluded.outOfScope`; a selector never answers `forbidden`.
 
-When provided, the response includes an `actor` object on each successful transition. A `verification` object is also included, *except* when no actor verifier is configured (the default `noop` verifier) — in that case `verification` is omitted entirely. See [Verification Record](#verification-record).
+**Error codes** (per element; the call is `207 partial_failure` when some elements fail): `invalid_request` (field pointers
+such as `/ops/0/trigger`, `/ops/1/ttlSeconds`, `/ops/2/itemId`, `/ops/0/credentialRefs/1`; `/actor` when the actor is missing),
+`unknown_parameter`, `not_found` (item), `ambiguous_id`, `forbidden` (token scope or capability), `invalid_transition` (also for
+claiming a terminal item), `gate_blocked` (`detail.missing[]`; for an independence block `missing` is empty and
+`detail.violations` is `[{gate: "independence", reason}]`), `dependency_unmet`, `not_claim_holder`, `claim_held`
+(`detail.expiresAt`, `detail.retryAfterMs`), `resource_unavailable` (`detail.resources[]` with the contended key and its mode,
+`retryAfterMs`; never the holder), `unauthenticated`, `unavailable` (per-root config could not be read; `retryAfterMs` 1000),
+`idempotency_mismatch`.
 
-**Ownership enforcement.** When an item has an active (non-expired) claim, `advance_item` enforces ownership on **every** trigger value. The actor (resolved via `degradedModePolicy`) must match the `claimedBy` value on the item. If the item is unclaimed or the claim has expired, any actor can transition it. Cascade transitions (system-generated, parent promotions) are always allowed and bypass ownership checks — they are not reachable via this tool.
-
-**Trigger effects:**
-
-| Trigger | Effect |
-|---|---|
-| `start` | QUEUE→WORK, WORK→REVIEW (or TERMINAL if no review phase in schema), REVIEW→TERMINAL |
-| `complete` | Any non-terminal, non-blocked → TERMINAL |
-| `block` / `hold` | Any non-terminal → BLOCKED (saves `previousRole`) |
-| `resume` | BLOCKED → `previousRole` (dependency-gated when that role is WORK or REVIEW) |
-| `cancel` | Any non-terminal → TERMINAL with the `cancel` status label (default `"cancelled"`); never dependency-gated |
-| `reopen` | TERMINAL → QUEUE (clears statusLabel, bypasses gate enforcement, cascades parent TERMINAL → WORK) |
-
-**Gate enforcement.** The schema used for gate checks is resolved by one precedence rule over the item's `type`:
-1. the root's per-root config declares the type;
-2. the server config declares the type;
-3. the root's per-root `default` schema;
-4. the server `default` schema.
-
-Tags never select a schema, and there are no `schema_resolution` modes (a config that still sets the key loads with a removal warning).
-
-When a schema is resolved:
-- `start`: required notes for the current phase must exist and be filled.
-- `complete`: all required notes across all phases must be filled.
-
-Trait notes are merged into the resolved schema from the item's per-item traits first, then the type's `default_traits`, in every dimension (notes, dispatch, seats, resources). A note's `required` flag is OR'd across the base schema and every trait, EXCLUSIVE beats ADVISORY for a resource, and a per-root trait replaces the server trait of the same name as a whole (no per-dimension fall-through within a trait); see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension) → "Dispatch (Trait Dimension)" for the full precedence and layering rules.
-
-**Lifecycle modes** (set on the schema via `work_item_schemas`):
-- `AUTO` (default) — cascades (terminal, start and reopen) apply automatically
-- `MANUAL` — suppresses every cascade into this item; it must be advanced explicitly
-- `PERMANENT` — item never auto-transitions; intended for persistent containers
-
-**Dependency gate.** A transition into `work`, `review` or `terminal` requires every blocking
-dependency's blocker to have reached its `unblockAt` threshold — for `start`, `complete`, `resume`
-(into work or review) and every cascade; `cancel` is exempt. A blocker whose row cannot be read never
-satisfies its dependency and is reported with `currentRole: "unknown"`.
-
-**Start cascade.** When a child item transitions to WORK, the parent is automatically advanced from QUEUE to WORK if it is still in QUEUE and its lifecycle is `AUTO`. This is immediate-parent-only — it does not chain further up the ancestor chain (a grandparent stays in QUEUE until the parent itself transitions to WORK through its own trigger or cascade). The cascade is suppressed rather than applied — the `cascadeEvents` entry carries `applied: false` and the parent is left in QUEUE — when the parent has an unmet blocking dependency (`dependencyBlocked: true` + `blockers`), unfilled CURRENT-phase required notes (`gateBlocked: true` + `missingNotes`), or a contended exclusive resource (`resourceBlocked: true` + `contendedResources`). This appears in `cascadeEvents` in the response with `trigger="cascade"`.
-
-**Terminal cascade.** When a child item reaches TERMINAL, the parent may also automatically advance if all its children are terminal. A terminal cascade is suppressed (the entry carries `applied: false` and the cascade stops climbing the tree) in three cases, checked in this order:
-
-1. **Parent is BLOCKED** (an explicit hold) — `roleBlocked: true`. Applies regardless of trigger, including a cancel-originated cascade. Resume the parent, or cancel it directly, to move it.
-2. **Parent has an unmet blocking dependency** — `dependencyBlocked: true` plus a `blockers` array of `{fromItemId, currentRole, requiredRole}` (the same element shape as a `dependency_blocked` failure). This is the same validation a direct advance on the parent runs, and applies regardless of trigger.
-3. **Parent has unfilled required notes** — `gateBlocked: true` plus `missingNotes`, checked against ALL required notes across all phases (the same check a direct `complete` on the parent would enforce). A cancel-originated cascade bypasses this note gate only.
-
-`violations` is omitted on role- and dependency-suppressed events because the note gate never evaluated them.
-
-**Reopen cascade.** When a child item is reopened (TERMINAL → QUEUE) and its parent is TERMINAL with an `AUTO` lifecycle, the parent is automatically reopened to WORK. This ensures the parent reflects that it has active children again. Reopen cascades never gate on notes — the direct `reopen` trigger itself bypasses gate enforcement (see the `reopen` row above), so gating its cascade would contradict that — but they are dependency-gated (`dependencyBlocked`) and acquire the parent's exclusive leases like a start (`resourceBlocked` on contention).
-
-All cascade types are recorded in `cascadeEvents`. Cascades commit in the same transaction as the
-child's transition: if applying a cascade (or releasing a lease) fails, the WHOLE advance fails with
-`apply_failed` and nothing is persisted, the child's transition included. The `error` field of a
-cascade event is therefore never populated (it is kept for response-shape compatibility). A per-root
-config read failure for a cascade parent skips that cascade (no event) and the child's transition still
-commits.
-
-**Examples.**
-
-```json
-// Single transition
-{ "transitions": [{ "itemId": "550e8400-e29b-41d4-a716-446655440001", "trigger": "start" }] }
-
-// Single transition — singular-form sugar (equivalent to the above)
-{ "itemId": "550e8400-e29b-41d4-a716-446655440001", "trigger": "start" }
-
-// Batch
-{
-  "transitions": [
-    { "itemId": "uuid-1", "trigger": "complete" },
-    { "itemId": "uuid-2", "trigger": "complete" }
-  ]
-}
-```
-
-**Response (success).**
-
-```json
-{
-  "results": [
-    {
-      "itemId": "uuid",
-      "newRole": "work",
-      "statusLabel": "in-progress",
-      "applied": true,
-      "cascadeEvents": [
-        { "itemId": "uuid-parent", "title": "Auth Feature", "previousRole": "queue", "targetRole": "work", "applied": true }
-      ],
-      "unblockedItems": [{ "itemId": "uuid-next", "title": "Next task" }],
-      "expectedNotes": [
-        { "key": "done-criteria", "role": "work", "required": true, "exists": false }
-      ],
-      "guidanceKey": "done-criteria",
-      "dispatch": { "agent": "task-orchestrator:implementer", "effort": "medium" },
-      "noteProgress": { "filled": 0, "remaining": 1, "total": 1 }
-    }
-  ],
-  "summary": { "total": 1, "succeeded": 1, "failed": 0 }
-}
-```
-
-`previousRole` and `trigger` are omitted from successful results — the caller supplied the trigger, and `newRole` is the outcome. Both remain present on `cascadeEvents` entries and on failed results (see below). `cascadeEvents` and `unblockedItems` are omitted entirely when empty (there is no top-level `allUnblockedItems` aggregate — sum `unblockedItems` across `results` if you need a batch total). `expectedNotes` is always present (`[]` when no schema matches the item's tags) and is keys-only: `key`, `role`, `required`, `exists` (`filled` appears only in `get_context`'s item-mode `schema` entries, not here). `statusLabel` (string, optional) is present when the transition set a status label (config-driven via `status_labels`; defaults: `"in-progress"` for `start`, `"done"` for `complete`, `"blocked"` for `block`, `"cancelled"` for `cancel`; `resume`/`reopen` set none). `status_labels` is layered per-root: a per-root `manage_project_config` push resolves a label for a given trigger from that root's `status_labels` map first, falling through to the global config PER TRIGGER when the root's map doesn't mention that trigger (or has no `status_labels` section at all). `summary` (string, optional) echoes the transition's input annotation when one was supplied.
-
-`guidanceKey` (string, optional) names the first unfilled required note with guidance for the **new** role; omitted when no schema matches, no required notes exist for the new role, or all required notes are already filled. Resolve the full guidance text via `query_items(operation="schema", itemId=...)`.
-
-`skillPointer` (string, optional): Skill name to invoke for the first unfilled required note. Omitted when no skill is configured or all required notes are filled.
-
-`noteProgress` provides counts of required notes for the new role: `filled` (notes that exist with non-blank body), `remaining` (missing or blank), and `total` (filled + remaining). Omitted from the response when no schema matches the item's tags, or when the new role is terminal (e.g. after `complete`/`cancel`).
-
-`dispatch` (object, optional): `{agent?, model?, effort?}` routing profile for the **new** role (`newRole`), resolved from the `dispatch` trait dimension — see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension) → "Dispatch (Trait Dimension)". Omitted entirely (never `null`/`{}`) when no resolved trait declares a profile for the new role.
-
-**Independence (A2).** A successfully-applied result gains `violations` (array, same `{key, seat?, constraint, conflictingSeat?, waived?}` shape as `get_context`'s `gateStatus.violations`) — present only when the list is non-empty (omitted, not `[]`, when independence checking applies but finds nothing, and also omitted when independence mode is `off` or the target schema declares no `independent_of`), populated in `warn` mode too (a `warn`-mode transition still applies and still reports what it found, when there is something to report). Each `cascadeEvents` entry gains the same `violations` field under the same non-empty-only rule, evaluated against that cascade's own target schema. See [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2) → "Independence (A2)".
-
-**Response (failed transition).** When `applied: false`, the result shape differs from the success shape:
-
-```json
-{
-  "results": [
-    {
-      "itemId": "uuid",
-      "trigger": "start",
-      "applied": false,
-      "error": "Gate check failed: required notes not filled for queue phase: requirements",
-      "errorCode": "dependency_blocked",
-      "errorKind": "permanent",
-      "blockers": [
-        { "fromItemId": "uuid-blocker", "currentRole": "queue", "requiredRole": "terminal" }
-      ]
-    }
-  ],
-  "summary": { "total": 1, "succeeded": 0, "failed": 1 }
-}
-```
-
-`blockers` is only present when the transition failed due to dependency constraints. `error` contains a human-readable description of why the transition was rejected. Note that (unlike success results) `trigger` **is** present on failed results, while `previousRole`, `newRole`, and `expectedNotes` are absent.
-
-**Every failure carries `errorCode` + `errorKind`.** Every `applied: false` result — not only ownership/policy/resource-lease rejections — includes these two fields, so a caller (or a hook such as `subagent-start.mjs`) can branch on the code without inferring meaning from field absence. Per-transition codes: `gate_blocked` (permanent), `dependency_blocked` (permanent, `blockers` present), `validation_failed` (permanent, e.g. a `credentialRefs` rule with no `blockers`), `invalid_transition` (permanent — no transition exists for the trigger from the item's current role), `apply_failed` (transient — the transition was valid but the write failed), `item_not_found` (permanent — the item id did not resolve, or a resolved id's row does not exist), `invalid_trigger` (permanent — unrecognized trigger string), `invalid_actor` (permanent — the `actor` object failed to parse). `not_claim_holder`, `rejected_by_policy`, and `resource_unavailable` are documented separately below.
-
-**Gate-blocked failure.** When the gate itself rejects the transition (missing required notes), the result includes a `missingNotes` array instead of `blockers`, plus `previousRole` and `targetRole` naming the blocked transition (the phase the item was in when the gate fired, and the phase it would have moved to). Each `missingNotes` entry carries the **full** guidance text — this is the only place full guidance text is returned directly (everywhere else you get a `guidanceKey`/`skillPointer` reference and resolve via `query_items(operation="schema")`):
-
-```json
-{
-  "results": [
-    {
-      "itemId": "uuid",
-      "trigger": "start",
-      "applied": false,
-      "error": "Gate check failed: required notes not filled for queue phase: feature-summary",
-      "errorCode": "gate_blocked",
-      "errorKind": "permanent",
-      "missingNotes": [
-        { "key": "feature-summary", "description": "...", "guidance": "...", "skill": "spec-quality" }
-      ],
-      "missingBySeat": { "planner": ["feature-summary"] },
-      "previousRole": "queue",
-      "targetRole": "work"
-    }
-  ],
-  "summary": { "total": 1, "succeeded": 0, "failed": 1 }
-}
-```
-
-`guidance` and `skill` are omitted per-entry when unset. `previousRole`/`targetRole` are present only on gate-blocked failures — other failure shapes (dependency `blockers`, ownership/policy rejection, resource-lease contention) do not carry them. A hook such as `subagent-start.mjs` distinguishes "item already in your phase" from every other failure via `errorCode === "gate_blocked"` combined with `previousRole` equal to the caller's own phase — never via the mere absence of `errorCode`, since every failure now has one.
-
-`missingBySeat` (object, optional, A1) buckets `missingNotes`' keys by owning seat — same shape, ordering, and omission rule as `get_context`'s `gateStatus.missingBySeat` (`{<seat>: [keys], ..., "unowned": [keys]}`, non-empty buckets only, `unowned` last): present only when the target schema is seat-aware, appended after `missingNotes`, omitted entirely for a seat-less schema.
-
-`violations` (array, optional, A2) is appended after `missingBySeat` on a gate-blocked failure — same shape and presence rule as the success-path `violations` field above. A transition can be gate-blocked by missing required notes, by a non-waived independence violation in `reject` mode, or both at once; `violations` reports whichever independence findings exist regardless of which condition actually triggered the block (it is also present, non-empty, when the block was violations-only — `missingNotes: []` with a populated `violations`).
-
-**Ownership / policy rejection.** When a transition is rejected because another agent holds a live claim, or by `degradedModePolicy=reject`, the failed result carries structured fields alongside `error`: `errorKind`, `errorCode` (`not_claim_holder` or `rejected_by_policy`), and — for ownership rejections — `contendedItemId`.
-
-**Resource-lease gate.** When an item's resolved traits declare `resources:` (see
-[`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md)),
-entering the `work` role — via **both** `start` (queue→work) and `resume` (blocked→work) — acquires
-an exclusive lease per `mode: exclusive` resource key the item declares, atomically (all keys or
-none). `mode: advisory` keys never lock; they are recorded into `consumedCredentials` (below) for
-audit visibility only. The lease is released on every exit from `work` (`complete`, `cancel`,
-`block`/`hold`, `reopen`, or a terminal cascade) and is not re-validated while the item stays in
-`work` — it is a precondition captured at entry, not a continuously-checked invariant. Items that
-declare no resources are entirely unaffected (zero extra queries, byte-identical behavior). The
-acquire runs in the transition's own transaction: a transition that then FAILS to persist (`apply_failed`)
-rolls the lease back with it, so a failed `start`/`resume` never orphans a lease. A store fault while
-acquiring or releasing a lease fails the transition with `apply_failed` (transient).
-
-*Contention.* When an exclusive key is already held by another item, the transition is rejected as
-**transient**, not gate-blocked — the fix is to wait and retry (or work a different item), not to write
-more notes. `retryAfterMs` is the time until the soonest of the contended leases expires (at least 1):
-
-```json
-{
-  "results": [
-    {
-      "itemId": "uuid",
-      "trigger": "start",
-      "applied": false,
-      "error": "Cannot enter work phase: resource(s) currently held by another work item: staging-db",
-      "errorKind": "transient",
-      "errorCode": "resource_unavailable",
-      "retryAfterMs": 30000,
-      "contendedResources": ["staging-db"]
-    }
-  ],
-  "summary": { "total": 1, "succeeded": 0, "failed": 1 }
-}
-```
-
-`contendedResources` names the contended keys only. **The current holder's identity is never
-disclosed on this path** — no item id, no actor id — by the same tiered-disclosure principle
-`claim_item`'s `already_claimed` outcome follows. Diagnose a specific stuck lease via
-`get_context(itemId=...)` (below) or, for operators, `GET /api/v1/resources/leases` (REST, `ADMIN`
-capability for holder actor identity — see `api-rest.md`).
-
-*`credentialRefs` becomes a closed set.* Once an item declares at least one resource via its
-traits' `resources:` (registry state alone does not trigger this), each supplied `credentialRefs`
-entry must name a
-declared/registered key — an unrecognized ref is rejected before anything is persisted. Declared
-resource keys (both the exclusive keys just acquired and any advisory keys) are **auto-recorded**
-into the persisted transition's `consumedCredentials`, unioned with any caller-supplied
-`credentialRefs` — you do not need to repeat a declared key yourself. Items with no declared
-resources keep the open, format-only-validated behavior of the plain `credentialRefs` field
-(unchanged from its baseline behavior).
-
-A start or reopen cascade into `work` acquires leases the same way; on contention the cascade event
-is recorded with `applied: false`, `resourceBlocked: true`, and `contendedResources` — the **child's
-own transition still succeeds**, only the parent's automatic promotion is deferred.
-
-See [Workflow Guide §11 — Resource Leasing](workflow-guide.md#11-resource-leasing) for the full
-guarantees-vs-non-guarantees statement (no fairness/queueing, crash recovery via TTL or ADMIN
-force-release, item-keyed exclusivity, single-DB arbiter, opaque-labels-never-secrets) and the
-`exclusive` vs `advisory` modeling guidance.
-
-**Per-root config unavailable.** When a transition's per-root config cannot be read (a transient
-database error), that ONE transition is rejected as **transient**. The advance reads the item's config
-inside its unit of work, where the last-known-good fallback is disabled (see `manage_project_config`'s
-Purpose note below), so this happens even when the cache is warm, keyed or unkeyed alike; a cascade
-parent whose own root's config cannot be read is skipped instead (the transition still commits) —
-the rest of a batch continues — and nothing is persisted for it:
-
-```json
-{
-  "results": [
-    {
-      "itemId": "uuid",
-      "trigger": "start",
-      "applied": false,
-      "error": "Per-root config read failed for root <uuid> and no last-known-good config is cached: ...",
-      "errorKind": "transient",
-      "errorCode": "config_unavailable"
-    }
-  ],
-  "summary": { "total": 1, "succeeded": 0, "failed": 1 }
-}
-```
-
-No `retryAfterMs` is populated (the caller applies its own backoff, per the `ErrorKind` contract
-above). A read failure resolving the RESPONSE-ONLY `dispatch` hint on an ALREADY-APPLIED transition
-is handled differently: the transition is reported as `applied: true` and `dispatch` is simply
-omitted, never turned into a failure of a transition that already committed.
+Resource leases: a `transition` that enters `work` acquires an exclusive lease for each resource the item's traits declare;
+a held key is `resource_unavailable`. Leases are released on every exit from `work`. `DELETE /api/v1/resources/leases/{key}`
+(admin) is the recovery path for a stuck lease.
 
 ---
 
@@ -1724,228 +1486,6 @@ FIFO queue drain — oldest unclaimed item first:
 ```
 
 `isClaimed` is `true` when the item has a live (non-expired) claim at query time. `claimedBy` identity is never included — tiered disclosure applies here.
-
----
-
-### claim_item
-
-**Purpose.** Atomically claim or release work items for exclusive ownership. One claim per agent:
-claiming a new item auto-releases any prior claim held by the same agent. Claims are
-time-bounded (TTL, default 900s). Re-claiming an already-held item refreshes the TTL without
-changing the claim holder.
-
-**When to call.** Call only in claim-mode deployments, to take ownership before working an item.
-
-> **See also:** [Workflow Guide §10 — Claim Mechanism](./workflow-guide.md#10-claim-mechanism-for-multi-agent-fleets) for the agent-side lifecycle, heartbeat pattern, and discovery patterns. [Fleet Deployment Guide](./fleet-deployment.md) for `degradedModePolicy`, capacity planning, tiered disclosure, and Claims Troubleshooting.
-
-#### Key Parameters
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `actor` | object | Yes | Actor identity — `{ id, kind, parent?, proof? }`. Verified identity overrides any `agentId` field on individual claim entries. |
-| `claims` | array | No | Items to claim. Each entry uses **ID mode** or **selector mode** (see below). At least one of `claims` or `releases` must be non-empty. |
-| `releases` | array | No | Items to release: `[{ itemId (UUID or hex prefix) }]`. |
-| `requestId` | string (UUID) | **Yes** | Client-generated UUID for idempotency. Required — `claim_item` is a fleet-mode tool and idempotency is a hard contract. Single-orchestrator deployments do not use `claim_item`; fleet callers are in a multi-agent context where network retries are a real concern. Each claim and release is applied once for 24 hours (see [Idempotency](#idempotency)). |
-
-**`claims[]` entry schema — two mutually exclusive modes:**
-
-- **ID mode:** `{ itemId (required UUID or hex prefix), ttlSeconds? (optional int, default 900, max 86400), agentId? (optional — overridden by verified actor), claimRef? (optional string, max 64 chars — echoed verbatim in the result for caller correlation) }`
-- **Selector mode:** `{ selector (required object — see below), ttlSeconds? (optional int, default 900, max 86400), claimRef? (optional string, max 64 chars — echoed verbatim in the result) }`
-
-Each entry must have exactly one of `itemId` or `selector`. The `claims` array must contain at most 1 entry (see single-claim-per-call note below).
-
-**`selector` object fields** (all optional within the object; the object itself is required in selector mode):
-
-| Field | Type | Description |
-|---|---|---|
-| `role` | string | Role to search in: `queue`\|`work`\|`review`\|`blocked` (default: `queue`) |
-| `parentId` | string (UUID or hex prefix) | Filter to items under this parent (accepts full UUID or 4+ char hex prefix, like other `parentId` fields on the surface) |
-| `tags` | string (comma-separated) | Filter by tags (any-match) |
-| `priority` | string | `high`\|`medium`\|`low` |
-| `type` | string | Item type (exact match) |
-| `complexityMax` | integer (1–10) | Maximum complexity |
-| `createdAfter` | string (ISO 8601) | Items created after this timestamp |
-| `createdBefore` | string (ISO 8601) | Items created before this timestamp |
-| `roleChangedAfter` | string (ISO 8601) | Items whose role changed after this timestamp |
-| `roleChangedBefore` | string (ISO 8601) | Items whose role changed before this timestamp |
-| `orderBy` | string | `priority`\|`oldest`\|`newest` (default: `priority`) |
-
-The selector filter shape is identical to the `get_next_item` filter parameters — the two tools share the same underlying eligibility logic (`NextItemRecommender`), so the same filter expression produces the same item ranking in both tools.
-
-**Claim semantics:**
-
-- **One claim per agent.** Claiming item B auto-releases the agent's existing claim on item A (if any). No extra parameter needed.
-- **Re-claim as TTL extension.** Calling `claim_item` again on an already-held item refreshes `claimExpiresAt` but preserves `originalClaimedAt`. Use this for heartbeats on long-running work (recommended cadence: TTL/2 = 450s for the default 900s TTL).
-- **Terminal items cannot be claimed.** QUEUE, WORK, REVIEW, and BLOCKED items are all claimable.
-- **Claims are cleared on reaching terminal.** Any transition that lands an item in TERMINAL — via `advance_item`, `complete_tree`, a REST `advance` call, or a cascade — clears `claimedBy`/`claimedAt`/`claimExpiresAt`/`originalClaimedAt` on that item, regardless of which trigger or path reached TERMINAL. Consequently `reopen` always starts the item unclaimed; a stale pre-terminal claim never resurfaces.
-- **Identity resolution.** `actor.id` is used as the claim identity, subject to `degradedModePolicy`. If JWKS verification succeeds, the verified `actor.id` (from the JWT `sub` claim) is used; otherwise the self-reported `actor.id` is used (unless `degradedModePolicy=reject`, in which case the claim fails with `rejected_by_policy`).
-- **Passive expiry.** There is no background reaper. Expired claims are filtered at read time. Crash recovery happens automatically via TTL.
-- **One clock, UTC.** All claim timestamps (`claimedAt`, `claimExpiresAt`, `originalClaimedAt`) come from the server's bound clock and are stored as canonical UTC text (`yyyy-MM-dd HH:mm:ss.SSS`); expiry equal to now is expired. Claiming, refreshing and releasing a claim do not change the item's `version`. Operators inspecting raw rows must not assume host-local time.
-- **Per-entry `agentId` vs verified `actor.id`.** When the configured verifier resolves a trusted identity from `actor.proof`, that verified id becomes the claim holder and any `agentId` on the individual claim entry is ignored. The server logs a warning when the two disagree. Callers without a verifier configured may still supply `agentId`; it has no special status beyond providing a self-reported identity.
-- **Ancestor-claim filtering in selector mode.** When using selector mode, items whose ancestor chain contains a live claim held by a *different* agent are excluded from the eligible set. Items under an ancestor claimed by the *same* agent (the requesting `actor.id`) are retained — enabling the hybrid fleet pattern: claim a feature at the top level, then orchestrate its child sub-tree. Root items (no parent) are unaffected. This filter is applied *before* dependency-blocking and ordering. Items excluded by this filter appear as absent from selector results; the competing agent's identity is never disclosed. **ID-mode claims bypass this filter entirely** — the per-item `claim()` path goes directly to the item, regardless of ancestor claim state.
-
-**Claim outcome codes per item:**
-
-| Outcome | Meaning |
-|---|---|
-| `success` | Claim placed or TTL refreshed. Response includes own claim metadata. Selector claims also include `selectorResolved: true`. |
-| `queue_empty` | Selector matched nothing at all; `kind=permanent`, `code="queue_empty"`. No claim attempted, no `retryAfterMs`, no `itemId`, no `excluded`. |
-| `none_eligible` | Selector matched items, but every match is excluded by claim or dependency state; `kind=transient`, `code="none_eligible"`. Response includes `retryAfterMs` (fixed 30000) and an aggregate `excluded` breakdown (`claimed`, `ancestorClaimed`, `dependencyBlocked` — counts only, never item or agent identities). No `itemId`. |
-| `already_claimed` | Another agent holds a live claim. Response includes `retryAfterMs` (no competing agent identity). |
-| `not_found` | No item with that ID. |
-| `terminal_item` | Item is in TERMINAL role; cannot be claimed. |
-| `rejected_by_policy` | Actor verification rejected by `degradedModePolicy=reject`. All claims in the batch fail. |
-| `db_error` | Transient database error during the claim attempt (`kind=transient`, with `code`, `message`, `contendedItemId`). Safe to retry. |
-
-**Release outcome codes per item:**
-
-| Outcome | Meaning |
-|---|---|
-| `success` | Claim cleared. |
-| `not_claimed_by_you` | Item is not claimed by this agent (or is unclaimed). |
-| `not_found` | No item with that ID. |
-| `db_error` | Transient database error during the release attempt (`kind=transient`). Safe to retry. |
-
-**Tiered disclosure rule.** On `already_claimed`, the response includes `kind`, `contendedItemId`, and `retryAfterMs` — never the competing agent's identity. This prevents claim sniping and jealousy patterns.
-
-**Idempotency replay.** A successful claim is stored under `"<requestId>:<index>"` and replayed verbatim on a retry with the same request — including the same `itemId` for selector calls. The selector is **not** re-evaluated against fresh queue state when a stored success is replayed. A claim that did not succeed (`already_claimed`, `none_eligible`, a fault) is not stored, so a retry with the same `requestId` runs it again.
-
-> **Single-claim-per-call:** The `claims` array must contain at most 1 entry. `claims.size > 1` returns a `validation_error` with code `multi_claim_not_supported` immediately, regardless of whether entries use `itemId` or `selector` mode.
->
-> The cap derives from the heartbeat write-budget assumption (one TTL refresh per agent per cycle). A future `claim_heartbeats` table mitigation could remove the constraint.
->
-> Releases array (`releases`) continues to support N entries — only `claims` is restricted. Issue one `claim_item` call per item you want to claim.
-
-#### Atomic Find-and-Claim (Selector Mode)
-
-Selector mode resolves a filter+rank query and claims the top match in a single MCP call. This eliminates the **user-facing** race window of the two-call pattern (`get_next_item` → `claim_item(itemId=...)`), where another agent can claim the recommended item between your two calls. A much smaller server-side window between recommend and claim still exists and surfaces as `already_claimed` — typically rare in practice.
-
-**Request:**
-
-```json
-{
-  "claims": [{
-    "selector": {
-      "priority": "high",
-      "complexityMax": 4,
-      "orderBy": "oldest"
-    },
-    "ttlSeconds": 900,
-    "claimRef": "worker-7-round-42"
-  }],
-  "actor": { "id": "worker-agent-7", "kind": "subagent", "parent": "orchestrator-1" },
-  "requestId": "550e8400-e29b-41d4-a716-446655440099"
-}
-```
-
-**Response (item found and claimed):**
-
-```json
-{
-  "claimResults": [
-    {
-      "itemId": "550e8400-e29b-41d4-a716-446655440001",
-      "outcome": "success",
-      "selectorResolved": true,
-      "claimRef": "worker-7-round-42",
-      "claimedBy": "worker-agent-7",
-      "claimedAt": "2026-01-01T12:00:00Z",
-      "claimExpiresAt": "2026-01-01T12:15:00Z"
-    }
-  ],
-  "releaseResults": []
-}
-```
-
-**Response (queue genuinely empty for the selector):**
-
-```json
-{
-  "claimResults": [
-    {
-      "outcome": "queue_empty",
-      "kind": "permanent",
-      "code": "queue_empty",
-      "claimRef": "worker-7-round-42"
-    }
-  ],
-  "releaseResults": []
-}
-```
-
-`queue_empty` means nothing matches the selector's filters at all. `kind=permanent` signals there is no point retrying with the same filters immediately — the condition will only change when new items enter the queue.
-
-**Response (matches exist, but none is currently claimable):**
-
-```json
-{
-  "claimResults": [
-    {
-      "outcome": "none_eligible",
-      "kind": "transient",
-      "code": "none_eligible",
-      "retryAfterMs": 30000,
-      "excluded": { "claimed": 1, "ancestorClaimed": 0, "dependencyBlocked": 1 },
-      "claimRef": "worker-7-round-42"
-    }
-  ],
-  "releaseResults": []
-}
-```
-
-`none_eligible` means the selector's filters DID match items, but every match is currently excluded — by an active item-level claim, a claimed ancestor, or an unmet dependency. `kind=transient` signals the condition is expected to change soon (a claim expiring, a dependency clearing); retry after `retryAfterMs`. `excluded` is an aggregate breakdown only — it never names the contending item or agent.
-
-`selectorResolved: true` on success confirms the `itemId` in the result was resolved from the selector, not supplied directly by the caller.
-
-#### Example (ID Mode)
-
-```json
-{
-  "claims": [{ "itemId": "550e8400-e29b-41d4-a716-446655440001", "ttlSeconds": 900 }],
-  "actor": { "id": "worker-agent-7", "kind": "subagent", "parent": "orchestrator-1" },
-  "requestId": "550e8400-e29b-41d4-a716-000000000001"
-}
-```
-
-**Response (all succeed).**
-
-```json
-{
-  "claimResults": [
-    {
-      "itemId": "550e8400-e29b-41d4-a716-446655440001",
-      "outcome": "success",
-      "claimedBy": "worker-agent-7",
-      "claimedAt": "2026-01-01T12:00:00Z",
-      "claimExpiresAt": "2026-01-01T12:15:00Z"
-    }
-  ],
-  "releaseResults": []
-}
-```
-
-`originalClaimedAt` is omitted here because it equals `claimedAt` (a fresh claim with no prior claim to preserve). It appears — and differs from `claimedAt` — only on a TTL-refresh re-claim.
-
-**Response (claim contested).**
-
-```json
-{
-  "claimResults": [
-    {
-      "itemId": "550e8400-e29b-41d4-a716-446655440001",
-      "outcome": "already_claimed",
-      "kind": "transient",
-      "contendedItemId": "550e8400-e29b-41d4-a716-446655440001",
-      "retryAfterMs": 420000
-    }
-  ],
-  "releaseResults": []
-}
-```
-
-No `summary` block is returned in any `claim_item` response — counts are derivable from the `claimResults`/`releaseResults` array sizes and each entry's `outcome`.
-
-On `already_claimed`, `retryAfterMs` approximates the remaining TTL of the existing claim in milliseconds. Use it to schedule a retry after the current claim expires, or pick a different unclaimed item instead.
 
 ---
 
@@ -2515,22 +2055,19 @@ not accept an `actor` parameter -- it is read-only, with no write to attribute.
 
 ## Idempotency
 
-The mutating tools `manage_items`, `advance_item`, `create_work_tree`, `complete_tree`, and `claim_item` support `requestId: UUID` for idempotency. The 4.0 tools (`notes_write`, `deps_write`) use a per-element `ops[].idempotencyKey` instead; see [notes_write](#notes_write).
+The mutating 3.x tools `manage_items`, `create_work_tree`, and `complete_tree` support `requestId: UUID` for idempotency. The 4.0 write tools (`notes_write`, `deps_write`, `advance`) use a per-element `ops[].idempotencyKey` instead; see [notes_write](#notes_write) and [advance](#advance).
 
-**`claim_item` requires `requestId` (mandatory).** `claim_item` is a fleet-mode tool by definition — single-orchestrator deployments don't claim items. Fleet deployments using `claim_item` are by definition in a multi-agent context where network retries are a real concern, so `claim_item` enforces idempotency as a contract. Calls missing `requestId` are rejected at validation. For `claim_item`, the principal is the trusted agent identity (post-`DegradedModePolicy` resolution), matching the actor used by the claim itself.
+**`requestId` is optional.** `manage_items`, `create_work_tree`, and `complete_tree` serve both orchestrator-mode (single dispatcher, no idempotency needed) and fleet-mode (idempotency desired) callers. Omitting `requestId` (or the `actor` that identifies the principal) skips idempotency entirely — execution is exactly as before. When present, `requestId` must be a valid UUID — a malformed value is rejected at validation (see Constraints below), not silently ignored.
 
-**The rest keep `requestId` optional.** `manage_items`, `advance_item`, `create_work_tree`, and `complete_tree` serve both orchestrator-mode (single dispatcher, no idempotency needed) and fleet-mode (idempotency desired) callers. Omitting `requestId` (or the `actor` that identifies the principal) skips idempotency entirely — execution is exactly as before. When present, `requestId` must be a valid UUID — a malformed value is rejected at validation (see Constraints below), not silently ignored.
-
-**How it works.** With a `requestId` and a trusted `actor`, the server keys every **element** of the call — each `items[i]`, `notes[i]`, `transitions[i]`, `claims[i]` and `releases[i]`, or the whole call for an atomic tool — as `"<requestId>:<index>"` under the tool and operation (`mcp.<tool>[.<operation>]`; `claim_item` uses `mcp.claim_item.claim` and `mcp.claim_item.release`, each array numbered from 0). The element runs in one transaction together with its record, so a record exists only if the element's effects committed. A record lives for 24 hours, is stored in the database (it survives restarts and is shared by every server process on it), and is scoped to the trusted principal id: the actor id after the server's actor policy is applied, which is the self-reported id when the actor is unverified, and always under `degraded_mode_policy: accept-self-reported` (see below).
+**How it works.** With a `requestId` and a trusted `actor`, the server keys every **element** of the call — each `items[i]`, or the whole call for an atomic tool — as `"<requestId>:<index>"` under the tool and operation (`mcp.<tool>[.<operation>]`). The element runs in one transaction together with its record, so a record exists only if the element's effects committed. A record lives for 24 hours, is stored in the database (it survives restarts and is shared by every server process on it), and is scoped to the trusted principal id: the actor id after the server's actor policy is applied, which is the self-reported id when the actor is unverified, and always under `degraded_mode_policy: accept-self-reported` (see below).
 
 - **Same key, same element → replayed.** The stored result is returned with `"replayed": true` on that element (`data.replayed: true` for an atomic or single-element tool) and the element is **not** re-executed. Batch counts are recomputed from the element results.
 - **Same key, different element → `idempotency_mismatch`.** The element fails with `errorCode` `idempotency_mismatch` and nothing is executed. The comparison is a SHA-256 of the canonical request (sorted keys, no whitespace); the shared call parameters count too, and an `actor.proof` does not.
-- **Config-derived decorations are recomputed, never stored:** `schemaMatch` and `expectedNotes` on a created item, `dispatch` on an advance result, and `itemContext` on a notes upsert reflect the config at replay time.
+- **Config-derived decorations are recomputed, never stored:** `schemaMatch` and `expectedNotes` on a created item reflect the config at replay time.
 
-**What is recorded.** Only a result that committed, and a payload rejection that depends on the payload alone (an element that is not a JSON object), is recorded. A failure that depends on state or is transient — `gate_blocked`, `resource_unavailable`, `already_claimed`, a missing item, a config or database fault, any other validation failure — rolls the element back and is **not** recorded, so a retry with the same `requestId` runs it again. This is the retry rule: **a stored success replays for 24 hours; a state or transient failure re-executes on retry with the same `requestId`.** (`complete_tree` is recorded only when every item succeeded; a batch whose elements partly failed re-runs just those on retry because the elements that succeeded replay.)
+**What is recorded.** Only a result that committed, and a payload rejection that depends on the payload alone (an element that is not a JSON object), is recorded. A failure that depends on state or is transient — `gate_blocked`, a missing item, a config or database fault, any other validation failure — rolls the element back and is **not** recorded, so a retry with the same `requestId` runs it again. This is the retry rule: **a stored success replays for 24 hours; a state or transient failure re-executes on retry with the same `requestId`.** (`complete_tree` is recorded only when every item succeeded; a batch whose elements partly failed re-runs just those on retry because the elements that succeeded replay.)
 
 **Constraints:**
-- For `advance_item`, the `actor.id` of the **first** transition in the batch is the principal.
 - For `manage_items`, `create_work_tree`, and `complete_tree`, the top-level `actor.id` is the principal. (Implementation note: these tools extract actor from the request-level field, not per-item fields.)
 - `create_work_tree` and `complete_tree` are atomic or single calls: element `0` is the whole call. `complete_tree` opens a unit per item, so concurrent callers with the same key may both run; the call converges because already-terminal items are skipped.
 - A non-UUID `requestId` string is rejected at validation on every one of these tools. There is no silent-ignore path.
@@ -2539,7 +2076,9 @@ The mutating tools `manage_items`, `advance_item`, `create_work_tree`, `complete
 
 ```json
 {
-  "transitions": [{ "itemId": "uuid", "trigger": "start", "actor": { "id": "agent-1", "kind": "subagent" } }],
+  "operation": "create",
+  "items": [{ "type": "task", "title": "Write tests" }],
+  "actor": { "id": "agent-1", "kind": "subagent" },
   "requestId": "e3b0c442-98fc-1c14-9afb-f4c8996fb924"
 }
 ```

@@ -1,3 +1,9 @@
+/*
+ * TEST-ONLY LEGACY DRIVER. The production `advance_item` / `claim_item` tools were deleted in Q13 (replaced by the
+ * `advance` tool). This verbatim copy of the 3.x tool survives in the test tree only so the service-level suites that
+ * drive AdvanceService / ClaimService through it (atomicity, unit counts, events, actor verification, idempotency) keep
+ * their coverage. It is not registered anywhere and is not exercised for its own sake; new tests drive `advance`.
+ */
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult

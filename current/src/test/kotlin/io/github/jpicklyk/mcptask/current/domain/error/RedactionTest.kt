@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.domain.error
 
+import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
 import kotlinx.serialization.json.jsonObject
 import java.lang.reflect.Field
@@ -22,6 +23,8 @@ class RedactionTest {
     private val allowedNames =
         setOf(
             "fields",
+            "violations",
+            "gate",
             "field",
             "reason",
             "received",
@@ -149,7 +152,7 @@ class RedactionTest {
     fun `S15 walk covers all 23 detail classes and their nested value types`() {
         val owners = allFieldsWalked().map { it.first.simpleName }.toSet()
         assertEquals(23, allDetailClasses().size)
-        for (nested in listOf("FieldViolation", "MissingNote", "Blocker", "ResourceRef", "ConfigViolation")) {
+        for (nested in listOf("FieldViolation", "MissingNote", "Blocker", "ResourceRef", "ConfigViolation", "GateViolation")) {
             assertTrue(nested in owners, "nested value type $nested was not walked")
         }
         assertTrue(allFieldsWalked().size >= 40, "walk looks too small: ${allFieldsWalked().size}")
@@ -239,5 +242,25 @@ class RedactionTest {
                 .jsonObject
         assertEquals(setOf("code", "kind", "message"), error.keys)
         assertTrue("detail" !in error && "fix" !in error)
+    }
+
+    // ------------------------------------------------------------------ Q13 (item 2cd17c00)
+    // Oracle: envelope spec section 2 detail rule (never another principal's identity), section 4 rows gate_blocked and claim_held.
+
+    @Test
+    fun `Q13-S15 gate_blocked detail carries exactly itemId role missing and violations and a violation exactly gate and reason`() {
+        assertEquals(
+            setOf("itemId", "role", "missing", "violations"),
+            dataFields(ErrorDetail.GateBlocked::class.java).map { it.name }.toSet()
+        )
+        assertEquals(setOf("gate", "reason"), dataFields(GateViolation::class.java).map { it.name }.toSet())
+    }
+
+    @Test
+    fun `Q13-S15 the already-claimed result that feeds claim_held carries no holder identity`() {
+        assertEquals(
+            setOf("itemId", "expiresAt", "retryAfterMs"),
+            dataFields(ClaimResult.AlreadyClaimed::class.java).map { it.name }.toSet()
+        )
     }
 }

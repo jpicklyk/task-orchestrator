@@ -99,8 +99,6 @@ data class AppConfig(
     val apiTokensPath: String,
     // ---- REST API: redaction (AttributionRedactor / TransitionRoutes) ----
     val apiRedactNoteAttribution: Boolean,
-    // ---- REST API: advance warning (ItemWriteRoutes) ----
-    val apiWarnOnClaimedAdvance: Boolean,
     // ---- CORS (CorsConfig) ----
     val corsAllowedOrigins: List<String>,
     val corsAllowedMethods: List<String>,
@@ -164,9 +162,6 @@ data class AppConfig(
                 // (true/1/yes vs false/0/no) now disables via "0"/"no" too, not only "false".
                 apiRedactNoteAttribution =
                     EnvBoolean.parse("API_REDACT_NOTE_ATTRIBUTION", env("API_REDACT_NOTE_ATTRIBUTION"), true),
-                // REST API advance warning — default true; unified vocabulary as above.
-                apiWarnOnClaimedAdvance =
-                    EnvBoolean.parse("API_WARN_ON_CLAIMED_ADVANCE", env("API_WARN_ON_CLAIMED_ADVANCE"), true),
                 // CORS — comma-separated lists, blank entries dropped; defaults mirror CorsConfig.
                 corsAllowedOrigins = parseCsv(env("CORS_ALLOWED_ORIGINS")) ?: emptyList(),
                 corsAllowedMethods = parseCsv(env("CORS_ALLOWED_METHODS")) ?: DEFAULT_CORS_METHODS,

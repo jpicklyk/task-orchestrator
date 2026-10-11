@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.domain.lifecycle
 import io.github.jpicklyk.mcptask.current.domain.error.Blocker
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
+import io.github.jpicklyk.mcptask.current.domain.error.GateViolation
 import io.github.jpicklyk.mcptask.current.domain.error.ResourceRef
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockingEdge
 import io.github.jpicklyk.mcptask.current.domain.graph.UnsatisfiedBlocker
@@ -547,7 +548,7 @@ class TransitionPolicyTest {
         )
 
     @Test
-    fun `S10 reject-mode independence block with no missing notes reports the declaring key`() {
+    fun `S10 reject-mode independence block with no missing notes reports the violation not a missing note`() {
         val s =
             snap(
                 QUEUE,
@@ -559,7 +560,11 @@ class TransitionPolicyTest {
         assertEquals(ErrorCode.GATE_BLOCKED, r.error.code)
         assertEquals(RejectContext.Notes(emptyList(), listOf(violation)), r.context)
         val detail = assertIs<ErrorDetail.GateBlocked>(r.error.detail)
-        assertEquals(listOf("impl"), detail.missing.map { it.key })
+        assertEquals(emptyList(), detail.missing)
+        assertEquals(
+            listOf(GateViolation("independence", "impl: same_actor conflicts with seat implementer")),
+            detail.violations
+        )
     }
 
     @Test
