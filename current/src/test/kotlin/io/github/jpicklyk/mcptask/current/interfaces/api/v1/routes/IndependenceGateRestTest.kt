@@ -148,7 +148,7 @@ work_item_schemas:
             appConfig = appConfig,
             databaseManager = db.databaseManager,
             shutdownCoordinator = ShutdownCoordinator()
-        ).build()
+        ).build().also { runBlocking { it.dataStepRunner.run() } }
     }
 
     private fun Application.configureProductionRestApp(
@@ -167,7 +167,7 @@ work_item_schemas:
             serverName = serverName,
             serverVersion = "1.0.0",
             actorAuthEnabled = composition.actorAuthEnabled,
-            noteSchemaService = composition.noteSchemaService,
+            serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             degradedModePolicy = composition.degradedModePolicy,
         )

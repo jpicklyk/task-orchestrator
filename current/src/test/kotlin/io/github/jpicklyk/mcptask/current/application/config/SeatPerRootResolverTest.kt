@@ -79,7 +79,7 @@ class SeatPerRootResolverTest {
             appConfig = appConfig,
             databaseManager = buildDatabaseManager(),
             shutdownCoordinator = ShutdownCoordinator()
-        ).build()
+        ).build().also { runBlocking { it.dataStepRunner.run() } }
     }
 
     private fun createRoot(

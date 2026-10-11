@@ -93,7 +93,7 @@ class RestHostCaptureTest {
             serverName = "q7-rest-host",
             serverVersion = "test",
             actorAuthEnabled = composition.actorAuthEnabled,
-            noteSchemaService = composition.noteSchemaService,
+            serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             degradedModePolicy = composition.degradedModePolicy,
             callLog = writer

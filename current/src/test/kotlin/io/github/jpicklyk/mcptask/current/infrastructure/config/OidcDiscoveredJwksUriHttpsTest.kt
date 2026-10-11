@@ -128,7 +128,13 @@ class OidcDiscoveredJwksUriHttpsTest {
             val discoveredUri = "https://idp.test.example/jwks.json"
             val (engine, discoveryHits, jwksHits) = discoveryMockEngine(discoveryUrl, discoveredUri)
             val config = VerifierConfig.Jwks(oidcDiscovery = discoveryUrl)
-            val provider = DefaultJwksKeySetProvider(config, httpClientEngineForTest = engine)
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    java.nio.file.Path
+                        .of("."),
+                    httpClientEngineForTest = engine
+                )
             try {
                 val result = provider.getKeySet()
                 assertEquals(1, result.keys.keys.size, "S6: the served JWKS key must come through")
@@ -153,7 +159,13 @@ class OidcDiscoveredJwksUriHttpsTest {
             val discoveredUri = "http://idp.example/j"
             val (engine, discoveryHits, jwksHits) = discoveryMockEngine(discoveryUrl, discoveredUri)
             val config = VerifierConfig.Jwks(oidcDiscovery = discoveryUrl)
-            val provider = DefaultJwksKeySetProvider(config, httpClientEngineForTest = engine)
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    java.nio.file.Path
+                        .of("."),
+                    httpClientEngineForTest = engine
+                )
             try {
                 val ex = assertThrows<IllegalStateException> { provider.getKeySet() }
                 assertTrue(
@@ -176,7 +188,13 @@ class OidcDiscoveredJwksUriHttpsTest {
             val (engine, discoveryHits, jwksHits) = discoveryMockEngine(discoveryUrl, discoveredUri)
             // allowInsecureUrl defaults to false -- loopback alone is not sufficient.
             val config = VerifierConfig.Jwks(oidcDiscovery = discoveryUrl)
-            val provider = DefaultJwksKeySetProvider(config, httpClientEngineForTest = engine)
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    java.nio.file.Path
+                        .of("."),
+                    httpClientEngineForTest = engine
+                )
             try {
                 assertThrows<IllegalStateException> { provider.getKeySet() }
                 assertEquals(1, discoveryHits())
@@ -194,7 +212,13 @@ class OidcDiscoveredJwksUriHttpsTest {
             val discoveredUri = "http://idp.example/j"
             val (engine, _, _) = discoveryMockEngine(discoveryUrl, discoveredUri)
             val config = VerifierConfig.Jwks(oidcDiscovery = discoveryUrl, algorithms = listOf("RS256"))
-            val provider = DefaultJwksKeySetProvider(config, httpClientEngineForTest = engine)
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    java.nio.file.Path
+                        .of("."),
+                    httpClientEngineForTest = engine
+                )
             val verifier = JwksActorVerifier(config = config, keySetProvider = provider)
             try {
                 val result =
@@ -230,7 +254,13 @@ class OidcDiscoveredJwksUriHttpsTest {
             val discoveredUri = "http://127.0.0.1:9/j"
             val (engine, discoveryHits, jwksHits) = discoveryMockEngine(discoveryUrl, discoveredUri)
             val config = VerifierConfig.Jwks(oidcDiscovery = discoveryUrl, allowInsecureUrl = true)
-            val provider = DefaultJwksKeySetProvider(config, httpClientEngineForTest = engine)
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    java.nio.file.Path
+                        .of("."),
+                    httpClientEngineForTest = engine
+                )
             try {
                 val result = provider.getKeySet()
                 assertEquals(1, result.keys.keys.size, "S14: keys must be fetched once the loopback opt-in is honored")

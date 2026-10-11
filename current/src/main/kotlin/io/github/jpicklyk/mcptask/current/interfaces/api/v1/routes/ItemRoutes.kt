@@ -20,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.model.ClaimStatus
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -598,6 +599,9 @@ fun Route.itemGateRoutes(
                 } catch (e: PerRootConfigUnavailableException) {
                     call.respondError(LegacyRestCode.CONFIG_UNAVAILABLE, e.message)
                     return@get
+                } catch (e: PerRootConfigInvalidException) {
+                    call.respondError(LegacyRestCode.CONFIG_INVALID, e.message)
+                    return@get
                 }
 
             val resolvedSchema = startView.schema
@@ -673,6 +677,9 @@ fun Route.itemGateRoutes(
                     withConfigSession { ItemSchemaView.buildItemSchemaJson(item, configResolver) }
                 } catch (e: PerRootConfigUnavailableException) {
                     call.respondError(LegacyRestCode.CONFIG_UNAVAILABLE, e.message)
+                    return@get
+                } catch (e: PerRootConfigInvalidException) {
+                    call.respondError(LegacyRestCode.CONFIG_INVALID, e.message)
                     return@get
                 }
 

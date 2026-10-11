@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping
 
+import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SchemaFacts
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionTable
@@ -25,7 +26,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.StatusGraphTypeD
  * application layer must not depend on interface DTOs.
  */
 class StatusGraphBuilder(
-    private val schemaService: WorkItemSchemaService,
+    private val schemaService: WorkItemSchemaService = NoOpNoteSchemaService,
 ) {
     companion object {
         /** The ordered list of roles that appear as rows in the graph. */
@@ -42,18 +43,22 @@ class StatusGraphBuilder(
     /**
      * Returns the current status graph, rebuilding it when the config fingerprint has changed.
      */
-    fun getStatusGraph(): StatusGraphDto {
-        val fingerprint = schemaService.getConfigFingerprint()
+    fun getStatusGraph(): StatusGraphDto = getStatusGraph(schemaService)
+
+    /**
+     * Same as [getStatusGraph], for the [catalog] read for THIS request (the REST config routes view the server head
+     * through a fresh catalog per request). The fingerprint-keyed cache is shared across calls.
+     */
+    fun getStatusGraph(catalog: WorkItemSchemaService): StatusGraphDto {
+        val fingerprint = catalog.getConfigFingerprint()
         val cached = cache
         if (cached != null && cached.first == fingerprint) {
             return cached.second
         }
-        val graph = buildGraph()
+        val graph = buildStatusGraph(catalog.getAllSchemas())
         cache = Pair(fingerprint, graph)
         return graph
     }
-
-    private fun buildGraph(): StatusGraphDto = buildStatusGraph(schemaService.getAllSchemas())
 
     /**
      * Builds the status-transition graph for [schemas] directly, bypassing the fingerprint cache —

@@ -102,6 +102,8 @@ Create `.taskorchestrator/config.yaml` in your project (see [Workflow Enforcemen
 }
 ```
 
+At every start the server imports the mounted file into its database (the `server-config-import` boot step) and then serves the stored copy; editing the file takes effect on the next restart. If several containers share one data volume but mount different files, the last one to boot wins; use step 3 for multi-project setups.
+
 Use an absolute host path. Claude Code's `.mcp.json` expands only environment variables (`${VAR}` and `${VAR:-default}`), so editor-style placeholders such as `${workspaceFolder}` are not substituted. Only the `.taskorchestrator/` folder is exposed; the server has no access to the rest of your project.
 
 ### 3. Multi-project setup (HTTP + config-sync)

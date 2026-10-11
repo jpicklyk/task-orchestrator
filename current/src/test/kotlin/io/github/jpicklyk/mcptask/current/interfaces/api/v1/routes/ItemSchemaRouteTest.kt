@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
@@ -112,7 +113,7 @@ class ItemSchemaRouteTest {
             serverName = "item-schema-route-test",
             serverVersion = "test",
             actorAuthEnabled = composition.actorAuthEnabled,
-            noteSchemaService = composition.noteSchemaService,
+            serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             degradedModePolicy = composition.degradedModePolicy,
         )
@@ -371,7 +372,7 @@ class ItemSchemaRouteTest {
                     serverName = "item-schema-route-test-503",
                     serverVersion = "test",
                     actorAuthEnabled = false,
-                    noteSchemaService = ItemSchemaRouteNoGlobalSchemaService,
+                    serverConfig = ServerConfigSource { null },
                     toolContext = toolContext,
                     degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
                 )

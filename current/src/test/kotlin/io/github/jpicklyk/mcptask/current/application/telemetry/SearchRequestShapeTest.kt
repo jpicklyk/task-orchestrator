@@ -162,7 +162,7 @@ class SearchRequestShapeTest {
             serverName = "s13-rest-call-log",
             serverVersion = "test",
             actorAuthEnabled = rig.rig.composition.actorAuthEnabled,
-            noteSchemaService = rig.rig.composition.noteSchemaService,
+            serverConfig = rig.rig.composition.serverConfig,
             toolContext = rig.rig.composition.toolContext,
             degradedModePolicy = rig.rig.composition.degradedModePolicy,
             callLog = rig.writer

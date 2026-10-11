@@ -86,27 +86,39 @@ Traits are **composable orchestration signals** declared in `.taskorchestrator/c
 
 ## Configuration Directory (AGENT_CONFIG_DIR)
 
-**CRITICAL:** All services reading from `.taskorchestrator/` MUST support the `AGENT_CONFIG_DIR` environment variable.
+**CRITICAL:** No service reads `AGENT_CONFIG_DIR` (or any environment variable) itself. The environment is read once, in
+`AppConfig` (`infrastructure/config/AppConfig.kt`), and the composition root hands every consumer a typed value.
+`architecture/EnvAccessTest` fails the build when production code outside `AppConfig.kt`, `EnvBoolean.kt` and
+`LogFileAppenderInstaller.kt` calls `System.getenv`.
 
 ```kotlin
 // AppConfig.resolveConfigBaseDir(agentConfigDir): String =
 //     agentConfigDir ?: System.getProperty("user.dir")
-val globalConfigPath = Paths.get(AppConfig.resolveConfigBaseDir(appConfig.agentConfigDir))
-    .resolve(".taskorchestrator/config.yaml")
+val configBaseDir = Paths.get(AppConfig.resolveConfigBaseDir(appConfig.agentConfigDir))   // built ONCE in ServerComposition
+val globalConfigPath = configBaseDir.resolve(".taskorchestrator/config.yaml")
 ```
 
 - In Docker: `-e AGENT_CONFIG_DIR=/project` (where config is mounted)
 - In local dev: not needed (uses working directory)
-- Resolved once in `ServerComposition.kt` into a single `GlobalConfigFile(globalConfigPath)`
-  (`infrastructure/config/GlobalConfigFile.kt`), which reads and parses
-  `.taskorchestrator/config.yaml` exactly ONCE and caches the parsed `ConfigDocument` for the life
-  of the process. The schema service (`YamlWorkItemSchemaService`, exposed under the
-  `YamlNoteSchemaService` type alias), the status-label service (`YamlStatusLabelService`), and the
-  actor-authentication service (`YamlActorAuthenticationConfigService`) all take this SAME
-  `GlobalConfigFile` instance instead of each independently re-reading and re-parsing the file.
-  `ManageNotesTool`, `ManagePlanDocumentsTool`, and `JwksKeySetProvider` also resolve
-  `AGENT_CONFIG_DIR` independently for their own (non-global-config) file access.
-- **This is the GLOBAL/fallback config.** `AGENT_CONFIG_DIR` locates the single, server-wide `.taskorchestrator/config.yaml`, read once at startup (restart to reload). Per-**project** config is stored per-root in the DB — pushed via `manage_project_config` or `PUT /api/v1/roots/{rootId}/config`, synced from the workspace file by the `config-sync` SessionStart hook — and hot-reloads without a restart, layering over this global file per item `rootId`. See `claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md` → "Global vs Per-Project Config".
+- `ServerComposition.kt` builds ONE `GlobalConfigFile(globalConfigPath)` (`infrastructure/config/GlobalConfigFile.kt`), which reads
+  `.taskorchestrator/config.yaml` exactly ONCE (a broken file fails startup before the readiness marker) and exposes the raw text
+  (`ConfigFileSource`) plus a lenient parsed layer. The file is **imported** by the every-boot data step `server-config-import`
+  (`application/upgrade/steps/ServerConfigImportStep.kt`, phase `CONFIG_IMPORT`): `ConfigService.importDocument` parses it strictly
+  and appends it as a `file-import` config version (`project.rootId` absent = the SERVER scope; present = that depth-0 root), verbatim
+  with `configFingerprint(text)`. The 3.x top-level keys (`schema_resolution`, `orchestration`, `retrospective`, `actor_attribution`)
+  are allowed at boot as stored warnings (`GET /api/v1/info` -> `configWarnings`); any other error fails startup as `DATA_STEPS`.
+  An absent or empty file imports nothing.
+- **Runtime config is DB-only.** The server layer is the stored SERVER head, read per call through `ServerConfigSource`
+  (`PerRootConfigService` implements both it and `PerRootConfigSource`; `EffectiveConfigResolver(server, perRoot)`), so a version another
+  process appends to a shared volume is served without a restart (last booting process wins, by design). A head that cannot be
+  loaded surfaces as `config_invalid` (REST 422) at every boundary; read faults keep `config_unavailable`.
+- The one exception is `actor_authentication:`, which stays file-sourced: `YamlActorAuthenticationConfigService` takes the same
+  `GlobalConfigFile` (it is stripped before validation and never stored in canonical form). `TypeBackfillStep` also keeps reading the file.
+- `jwks_path` resolves against the injected `configBaseDir` (`DefaultJwksKeySetProvider(config, configBaseDir)`); `bodyFromFile` against
+  the `FileBodySource` root built from the same base directory.
+- **This is the SERVER-scope/fallback config.** Per-**project** config is stored per-root in the DB: pushed via `manage_project_config` or
+  `PUT /api/v1/roots/{rootId}/config`, synced from the workspace file by the `config-sync` SessionStart hook, and layered over the server
+  config per item `rootId` (hot-reloads, no restart). See `claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md` -> "Global vs Per-Project Config".
 - This repo's own `.taskorchestrator/config.yaml` is git-tracked dogfood config and doubles as a living schema/trait example — it is delivered to the server per-root via the `config-sync` hook, not mounted as the global config. The actual global mount is the process-schema floor at `deploy/global-config/.taskorchestrator/` — agent-observation, session-retrospective, improvement-proposal, and container schemas only, shared across every project the server serves.
 
 ## Adding New Components
@@ -141,7 +153,7 @@ default, and an unrecognized non-empty value either falls back to the default wi
   `stdio` and `http` transport — the marker is cleared at the start of startup (before DB init, so a
   stale marker from a crashed run cannot signal readiness) and again on shutdown
 
-**REST API environment variables** (`API_*`, `CORS_*`, `RESOURCE_LEASES_ENFORCED`) are documented with defaults in `current/docs/fleet-deployment.md` and `current/docs/api-rest.md`. Gotchas: `API_ENABLED`/`API_ALLOW_UNAUTHENTICATED` use `EnvBoolean.require` (a bad value fails startup) while the other booleans fall back with a WARN; `RESOURCE_LEASES_ENFORCED` is read fresh on every `advance_item`/advance-route call, but since a running process's environment cannot change and a container's environment changes only when the container is recreated, flipping this var takes effect only after the process or container restarts.
+**REST API environment variables** (`API_*`, `CORS_*`, `RESOURCE_LEASES_ENFORCED`) are documented with defaults in `current/docs/fleet-deployment.md` and `current/docs/api-rest.md`. Gotchas: `API_ENABLED`/`API_ALLOW_UNAUTHENTICATED` use `EnvBoolean.require` (a bad value fails startup) while the other booleans fall back with a WARN; `RESOURCE_LEASES_ENFORCED` is read ONCE at startup into `AppConfig.resourceLeasesEnforced` (restart required; `true`/`1`/`yes` vs `false`/`0`/`no`; false skips the lease gate and acquisition on every advance, releases still run).
 
 **Migration files:** `current/src/main/resources/db/migration/sqlite/` (the only configured Flyway location)
 

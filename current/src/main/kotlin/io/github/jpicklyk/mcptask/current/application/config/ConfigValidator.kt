@@ -55,6 +55,17 @@ class ConfigValidator(
     fun validate(
         parsed: ConfigDocumentParser.Outcome.Parsed,
         scope: ConfigScope = ConfigScope.ROOT,
+    ): ConfigValidationResult = validate(parsed, scope, serverLayer.layer())
+
+    /**
+     * Same as the 2-arg overload, but checks a per-root document against the explicitly supplied [serverLayer] (the
+     * DB head, read by the caller) instead of the constructor's. Ignored for [ConfigScope.SERVER]: that document is
+     * its own server layer.
+     */
+    fun validate(
+        parsed: ConfigDocumentParser.Outcome.Parsed,
+        scope: ConfigScope,
+        serverLayer: ConfigLayer?,
     ): ConfigValidationResult {
         val document = parsed.document
         val root = parsed.rawRoot
@@ -71,7 +82,7 @@ class ConfigValidator(
                 .validate(root)
                 .filter { it.path !in parserPaths }
                 .forEach(::add)
-            semantic(document, root, scope).forEach(::add)
+            semantic(document, root, scope, serverLayer).forEach(::add)
         }
 
         val order = compareBy<ConfigViolation>({ it.path }, { it.reason })
@@ -103,6 +114,7 @@ class ConfigValidator(
         document: ConfigDocument,
         root: Map<String, Any?>,
         scope: ConfigScope,
+        serverLayer: ConfigLayer?,
     ): List<ConfigViolation> {
         val out = mutableListOf<ConfigViolation>()
 
@@ -123,7 +135,7 @@ class ConfigValidator(
             )
         }
 
-        val serverDocument = if (scope == ConfigScope.SERVER) document else serverLayer.layer()?.document
+        val serverDocument = if (scope == ConfigScope.SERVER) document else serverLayer?.document
         val knownTraits = document.traits.keys + (serverDocument?.traits?.keys ?: emptySet())
         val knownResources = serverDocument?.resourceRegistry?.keys ?: emptySet()
 

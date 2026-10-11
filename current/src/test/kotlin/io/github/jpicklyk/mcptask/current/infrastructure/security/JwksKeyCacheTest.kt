@@ -59,7 +59,7 @@ class JwksKeyCacheTest {
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
                 val config = VerifierConfig.Jwks(jwksPath = "jwks.json")
-                val cache = JwksKeyCache(config)
+                val cache = JwksKeyCache(config, tempDir)
                 try {
                     val result = cache.getKeySet()
                     assertNotNull(result.keys)
@@ -92,7 +92,7 @@ class JwksKeyCacheTest {
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
                 val config = VerifierConfig.Jwks(jwksPath = "jwks.json", cacheTtlSeconds = 300)
-                val cache = JwksKeyCache(config, clock = fixedClock)
+                val cache = JwksKeyCache(config, tempDir, clock = fixedClock)
                 try {
                     val first = cache.getKeySet()
                     val second = cache.getKeySet()
@@ -131,7 +131,7 @@ class JwksKeyCacheTest {
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
                 val config = VerifierConfig.Jwks(jwksPath = "jwks.json", cacheTtlSeconds = 60)
-                val cache = JwksKeyCache(config, clock = advancingClock)
+                val cache = JwksKeyCache(config, tempDir, clock = advancingClock)
                 try {
                     val first = cache.getKeySet()
                     // Advance past TTL
@@ -194,7 +194,7 @@ class JwksKeyCacheTest {
                     cacheTtlSeconds = 60,
                     staleOnError = true,
                 )
-            val cache = JwksKeyCache(config, clock = advancingClock, httpClientEngineForTest = engine)
+            val cache = JwksKeyCache(config, tempDir, clock = advancingClock, httpClientEngineForTest = engine)
             try {
                 // First call: fresh fetch succeeds and populates the cache.
                 val first = cache.getKeySet()
@@ -264,7 +264,7 @@ class JwksKeyCacheTest {
                     cacheTtlSeconds = 60,
                     staleOnError = false, // hard-fail mode
                 )
-            val cache = JwksKeyCache(config, clock = advancingClock, httpClientEngineForTest = engine)
+            val cache = JwksKeyCache(config, tempDir, clock = advancingClock, httpClientEngineForTest = engine)
             try {
                 // Prime the cache.
                 cache.getKeySet()

@@ -46,8 +46,8 @@ process that silently logged an error and kept running.
 
 **The global `.taskorchestrator/config.yaml` fails startup, closed, if it is broken.** If the file
 at `AGENT_CONFIG_DIR/.taskorchestrator/config.yaml` exists but cannot be read, is not valid YAML,
-or its top-level document is not a mapping, both the note-schema loader and the
-`actor_authentication:` loader throw before the object graph finishes wiring — the exception
+or its top-level document is not a mapping, the shared file loader throws before the object graph
+finishes wiring — the exception
 propagates out of `ServerComposition.build()` and `CurrentMcpServer.run()`, so the process exits
 non-zero **before** the readiness marker is ever written and before any transport binds. The same
 applies to a present, non-null field that fails to parse under `actor_authentication:` (an
@@ -62,6 +62,33 @@ now fails startup. Per-project config pushed via `manage_project_config` / `PUT
 /api/v1/roots/{rootId}/config` is unaffected — only the single, server-wide global file is on this
 fail-closed path. One key in that file is exempt: a malformed `status_labels:` block (display-only
 labels) still falls back to the default labels with a WARN.
+
+**The file is imported into the database at every boot; the runtime reads only the stored copy.**
+After the lenient load above, the every-boot data step `server-config-import` (phase `CONFIG_IMPORT`)
+parses the file **strictly** (the same rules a per-root push is held to) and appends it as a
+`file-import` config version, byte for byte, with the same fingerprint 3.x reported for the file. From
+then on schemas, traits, the resource registry, status labels and note limits are read from the stored
+head on every request, never from the file: editing the file without a restart changes nothing, and a
+version another process appends to a shared volume is served on the next read.
+
+- An identical file appends nothing. An absent, empty or comment-only file imports nothing and never
+  resets a stored head.
+- **Last booting process wins on a shared volume.** Two processes mounting different files onto one
+  database alternate `file-import` versions at their boots (history shows each); use per-project
+  config (multi-project setup, `manage_project_config`) instead of differing mounts.
+- A file with no `project.rootId` becomes the **server** config. A file that sets `project.rootId` is
+  imported as that depth-0 root's config instead; the root must exist in this database, and such a file
+  must not carry `resources:` (the resource registry is server-only: drop `project.rootId` to declare
+  one).
+- **Legacy 3.x keys boot with warnings.** Top-level `schema_resolution`, `orchestration`,
+  `retrospective` and `actor_attribution` (plugin sections a 3.x global file carried) are accepted at
+  boot, each recorded as a stored warning that `GET /api/v1/info` returns as `configWarnings`; a push
+  of the same text is still rejected. `actor_authentication:` stays read from the file (never imported
+  or validated here).
+- **Any other strict error, or a file over 128 KiB, fails startup** as `DATA_STEPS` with one
+  `path: reason` line per error, before any transport binds or the readiness marker is written.
+- A stored head that cannot be loaded (no canonical form, undecodable) fails closed: tools and routes
+  answer `config_invalid` (REST 422), never "no config" and never the 3.x global fall-through.
 
 **Data steps.** After Flyway migrates and before any background service or transport starts, the
 server runs its registered data steps: idempotent, code-level upgrade steps that Flyway SQL cannot
@@ -287,7 +314,7 @@ API_ALLOW_UNAUTHENTICATED=true
 | `API_ALLOW_QUERY_TOKEN_FOR_SSE` | SSE + browser | `false` | Allow `?token=` auth for SSE (browser EventSource workaround). |
 | `API_SSE_AUTH_CHECK_INTERVAL_SECONDS` | SSE in use | `30` | Interval for token-expiry checks on open SSE connections. |
 | `API_REDACT_NOTE_ATTRIBUTION` | always | `true` | When `true`, non-admin callers see no `actor`/`verification` on notes/transitions. |
-| `RESOURCE_LEASES_ENFORCED` | always (`EnvBoolean`) | `true` | Deployment-wide kill switch for the resource-lease gate (see Resource Leasing below). `false`/`0`/`no` disable it; `true`/`1`/`yes` or unset leave it on; matching is case-insensitive and trimmed; any other value logs a WARN and enforcement stays on. Disables **acquisition only**; releases always run regardless. `AdvanceService` is constructed fresh per `advance_item`/`POST .../advance` invocation and reads this var each time — but since a running process's environment cannot change mid-process, and a container's environment changes only when the container is recreated, flipping this var takes effect only after the process or container restarts. |
+| `RESOURCE_LEASES_ENFORCED` | always (`EnvBoolean`) | `true` | Deployment-wide kill switch for the resource-lease gate (see Resource Leasing below). `false`/`0`/`no` disable it; `true`/`1`/`yes` or unset leave it on; matching is case-insensitive and trimmed; any other value logs a WARN and enforcement stays on. Disables **acquisition only**; releases always run regardless. Read **once at startup** into the typed `AppConfig` snapshot (restart-required); no runtime code reads the environment. |
 
 ### Bearer token secret file
 
@@ -752,7 +779,7 @@ The provider supports three sources; configure exactly one (more than one fails 
 
 - `oidc_discovery` — fetches the discovery document, extracts `jwks_uri` (and `issuer`, unless explicitly configured)
 - `jwks_uri` — fetched directly
-- `jwks_path` — local file, resolved relative to `AGENT_CONFIG_DIR` or `user.dir`
+- `jwks_path` — local file, resolved relative to the agent config base directory (`AGENT_CONFIG_DIR`, else `user.dir`), which `AppConfig` resolves once at startup
 
 
 **`oidc_discovery` and `jwks_uri` must use `https`.** A configured `oidc_discovery` or `jwks_uri` value, and a `jwks_uri` discovered from an OIDC discovery document, are all validated at load time (or, for the discovered value, at fetch time): `https` is always accepted, and plaintext `http` is accepted only when `allow_insecure_url: true` is also set AND the URL's host is a literal loopback address (`localhost`, `127.x.x.x`, `::1` — no DNS resolution, so a host that merely resolves to loopback is still rejected). Any other case — `http` without the opt-in, `http` to a non-loopback host, or a non-http(s) scheme (`file`, `ftp`, ...) — fails startup with an `IllegalArgumentException` naming the offending config key; a discovered `jwks_uri` that breaks the rule is refused at fetch time instead (no keys are fetched, and verification reports `UNAVAILABLE`). `jwks_path` (a local file) and `did:web` DID-trust mode are unaffected — this rule only governs sources fetched over the network. This mirrors the REST API's `API_JWKS_URL` / `API_JWKS_ALLOW_INSECURE_URL` contract (see the `API_JWKS_URL` row in the REST API environment-variable table above), but the actor-authentication key is `allow_insecure_url` under `actor_authentication.verifier:`, not an environment variable.
@@ -1166,9 +1193,11 @@ releases keep running regardless, so no lease is ever stranded by flipping the s
 an emergency valve if the gate itself is suspected of misbehaving (e.g. falsely rejecting every WORK
 entry) — it degrades the deployment to rung-1/rung-2 behavior (the audit field and the lease table
 both still exist and are still readable/force-releasable via REST) without requiring a config edit.
-It does, however, need a process/container restart to take effect: the var is read fresh on every
-advance call, but the environment itself only changes when the process or container is recreated.
-Re-enable the same way, by unsetting the var (or setting it to `true`/`1`/`yes`) and restarting.
+It does, however, need a process/container restart to take effect: the var is read once at startup
+(`AppConfig.resourceLeasesEnforced`), so a running process never sees a change. Accepted values are
+`true`/`1`/`yes` (enforced) and `false`/`0`/`no` (disabled), case-insensitive and trimmed; anything else
+logs a WARN and keeps enforcement on. Re-enable the same way, by unsetting the var (or setting it to
+`true`/`1`/`yes`) and restarting.
 
 ---
 

@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.test.AdvanceMockStores
 import io.github.jpicklyk.mcptask.current.test.advanceSeeded
 import io.github.jpicklyk.mcptask.current.test.testClaimService
@@ -43,6 +44,10 @@ import kotlin.test.assertTrue
  * per-test so the enforcement matrix can be driven row by row.
  */
 class AdvanceServiceLeaseGateTest {
+    /** `RESOURCE_LEASES_ENFORCED` as the startup snapshot ([AppConfig.fromEnv]) parses it; null = unset. */
+    private fun leasesFrom(value: String?): Boolean =
+        AppConfig.fromEnv { if (it == "RESOURCE_LEASES_ENFORCED") value else null }.resourceLeasesEnforced
+
     private lateinit var workItemRepo: WorkItemRepository
     private lateinit var depRepo: DependencyStore
     private lateinit var roleTransitionRepo: TransitionStore
@@ -496,12 +501,12 @@ class AdvanceServiceLeaseGateTest {
         }
 
     @Test
-    fun `kill switch parses only the literal false as disabled`() {
-        assertTrue(AdvanceService.resourceLeasesEnforcedFromEnv { null })
-        assertTrue(AdvanceService.resourceLeasesEnforcedFromEnv { "true" })
-        assertTrue(!AdvanceService.resourceLeasesEnforcedFromEnv { "0" })
-        assertTrue(!AdvanceService.resourceLeasesEnforcedFromEnv { "false" })
-        assertTrue(!AdvanceService.resourceLeasesEnforcedFromEnv { "FALSE" })
+    fun `kill switch is parsed once into AppConfig with the shared boolean vocabulary`() {
+        assertTrue(leasesFrom(null))
+        assertTrue(leasesFrom("true"))
+        assertTrue(!leasesFrom("0"))
+        assertTrue(!leasesFrom("false"))
+        assertTrue(!leasesFrom("FALSE"))
     }
 
     // ──────────────────────────────────────────────

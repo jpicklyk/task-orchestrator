@@ -145,7 +145,7 @@ traits:
                 appConfig = appConfig,
                 databaseManager = buildDatabaseManager(),
                 shutdownCoordinator = ShutdownCoordinator(),
-            ).build()
+            ).build().also { runBlocking { it.dataStepRunner.run() } }
 
         val repo = composition.toolContext.repositoryProvider
         runBlocking {

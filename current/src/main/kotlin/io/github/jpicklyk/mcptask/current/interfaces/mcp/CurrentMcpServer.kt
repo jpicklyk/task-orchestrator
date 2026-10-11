@@ -3,10 +3,10 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 import io.github.jpicklyk.mcptask.current.application.api.BatchRunner
 import io.github.jpicklyk.mcptask.current.application.api.RequestDecoder
 import io.github.jpicklyk.mcptask.current.application.config.ConfigValidator
+import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
@@ -220,7 +220,7 @@ class CurrentMcpServer(
             }
             val toolContext = composition.toolContext
             val apiWiring = composition.apiWiring
-            val noteSchemaService = composition.noteSchemaService
+            val serverConfig = composition.serverConfig
             val degradedModePolicy = composition.degradedModePolicy
 
             // Expired idempotency records are pruned once now and then hourly. Registered AFTER Close Database
@@ -298,7 +298,7 @@ class CurrentMcpServer(
                             serverName,
                             toolCount,
                             apiWiring,
-                            noteSchemaService,
+                            serverConfig,
                             toolContext,
                             degradedModePolicy,
                             composition.actorAuthEnabled,
@@ -403,7 +403,7 @@ class CurrentMcpServer(
         serverName: String,
         toolCount: Int,
         apiWiring: ApiWiring,
-        noteSchemaService: WorkItemSchemaService,
+        serverConfig: ServerConfigSource,
         toolContext: ToolExecutionContext,
         degradedModePolicy: DegradedModePolicy,
         actorAuthEnabled: Boolean,
@@ -484,7 +484,7 @@ class CurrentMcpServer(
                     serverName = serverName,
                     serverVersion = version,
                     actorAuthEnabled = actorAuthEnabled,
-                    noteSchemaService = noteSchemaService,
+                    serverConfig = serverConfig,
                     toolContext = toolContext,
                     degradedModePolicy = degradedModePolicy,
                     jwksVerifier = jwksVerifier,
@@ -705,7 +705,7 @@ internal fun Application.installRestApiRoutes(
     serverName: String,
     serverVersion: String,
     actorAuthEnabled: Boolean,
-    noteSchemaService: WorkItemSchemaService,
+    serverConfig: ServerConfigSource,
     toolContext: ToolExecutionContext,
     degradedModePolicy: DegradedModePolicy,
     jwksVerifier: JwksApiVerifier? = null,
@@ -754,6 +754,7 @@ internal fun Application.installRestApiRoutes(
                 serverName = serverName,
                 serverVersion = serverVersion,
                 actorAuthEnabled = actorAuthEnabled,
+                configService = toolContext.configService,
             )
             // Phase 3: read API — items, notes, dependencies, transitions, search
             itemRoutes(effectiveProvider)
@@ -767,7 +768,7 @@ internal fun Application.installRestApiRoutes(
             )
             searchRoutes(effectiveProvider, toolContext.unitOfWork)
             // Phase 4: config/schema-discovery + status-graph
-            configRoutes(noteSchemaService)
+            configRoutes(serverConfig)
             // Phase 5: write API — items, notes, dependencies
             itemWriteRoutes(
                 effectiveProvider,
@@ -787,11 +788,12 @@ internal fun Application.installRestApiRoutes(
                         YamlConfigDocumentParser,
                         toolContext.unitOfWork,
                         ConfigValidator(NetworkntConfigStructuralValidator()),
+                        serverConfig = serverConfig,
                     ),
             )
             // Additive per-root effective (layered) config view — same LayeredConfig the MCP
             // configResolver already computes, surfaced as one REST resource (AR-42).
-            effectiveConfigRoutes(effectiveProvider, toolContext.configResolver, noteSchemaService)
+            effectiveConfigRoutes(effectiveProvider, toolContext.configResolver, serverConfig)
             // plan_documents store: per-root plan document read/write —
             // converges on the same PlanDocumentService the manage_plan_documents MCP tool uses.
             planDocumentRoutes(effectiveProvider, toolContext.unitOfWork)

@@ -99,7 +99,7 @@ class RulePointerOnlyGoldenTest {
     private class Fixture(
         val toolContext: ToolExecutionContext,
         val repositoryProvider: RepositoryProvider,
-        val noteSchemaService: io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService,
+        val serverConfig: io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource,
         val degradedModePolicy: io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy,
     )
 
@@ -183,7 +183,7 @@ class RulePointerOnlyGoldenTest {
         return Fixture(
             toolContext = composition.toolContext,
             repositoryProvider = repo,
-            noteSchemaService = composition.noteSchemaService,
+            serverConfig = composition.serverConfig,
             degradedModePolicy = composition.degradedModePolicy,
         )
     }
@@ -335,7 +335,7 @@ class RulePointerOnlyGoldenTest {
                     serverName = "a3-s5-golden",
                     serverVersion = "test",
                     actorAuthEnabled = false,
-                    noteSchemaService = fx.noteSchemaService,
+                    serverConfig = fx.serverConfig,
                     toolContext = fx.toolContext,
                     degradedModePolicy = fx.degradedModePolicy,
                 )

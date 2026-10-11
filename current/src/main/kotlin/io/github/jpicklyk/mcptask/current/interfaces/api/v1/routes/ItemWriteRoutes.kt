@@ -21,6 +21,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
@@ -135,6 +136,15 @@ private fun itemConfigUnavailableCaptured(
 ): CachedHttpResponse {
     writeLogger.warn("{}: per-root config unavailable: {}", route, e.message)
     return LegacyRestErrorMapper.captured(LegacyRestCode.CONFIG_UNAVAILABLE, e.message)
+}
+
+/** 422 `config_invalid` for a config head that cannot be loaded (fail closed) while resolving an item write. */
+private fun itemConfigInvalidCaptured(
+    route: String,
+    e: PerRootConfigInvalidException,
+): CachedHttpResponse {
+    writeLogger.warn("{}: config invalid: {}", route, e.message)
+    return LegacyRestErrorMapper.captured(LegacyRestCode.CONFIG_INVALID, e.message)
 }
 
 /**
@@ -299,6 +309,8 @@ fun Route.itemWriteRoutes(
                         withEventActor(actorClaim) { itemCommandService.create(command) }
                     } catch (e: PerRootConfigUnavailableException) {
                         return itemConfigUnavailableCaptured("POST /items", e)
+                    } catch (e: PerRootConfigInvalidException) {
+                        return itemConfigInvalidCaptured("POST /items", e)
                     }
                 return when (outcome) {
                     is Outcome.Ok ->
@@ -557,6 +569,8 @@ fun Route.itemWriteRoutes(
                         withEventActor(actorClaim) { itemCommandService.patch(command) }
                     } catch (e: PerRootConfigUnavailableException) {
                         return itemConfigUnavailableCaptured("PATCH /items/$id", e)
+                    } catch (e: PerRootConfigInvalidException) {
+                        return itemConfigInvalidCaptured("PATCH /items/$id", e)
                     }
 
                 return when (outcome) {
