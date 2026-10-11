@@ -21,7 +21,7 @@ errors, per-root-config-unavailable failures, and internal errors.
 
 | Tool | Category | R/W | Description |
 |---|---|---|---|
-| `items_write` | Hierarchy & CRUD | Write | Create, update, delete, or repin WorkItems (`ops[]`, per-element results) |
+| `items_write` | Hierarchy & CRUD | Write | Create, update, or delete WorkItems (`ops[]`, per-element results); orchestration profile adds `repin` |
 | `items_read` | Hierarchy & CRUD | Read | Get one item, list a filtered page, read a note schema, search items and notes, or summarize the hierarchy (4.0 envelope) |
 | `create_work_tree` | Hierarchy & CRUD | Write | Atomically create root + children + deps + notes |
 | `complete_tree` | Hierarchy & CRUD | Write | Batch-complete descendants in topological order |
@@ -45,7 +45,8 @@ errors, per-root-config-unavailable failures, and internal errors.
 ### items_write
 
 **Purpose.** Create, update, delete and repin WorkItems. One `ops[]` array of flat objects, each naming its op in
-`op` (`create`, `update`, `delete`, `repin`). It is the 4.0 replacement of `manage_items`, and the same call is served over MCP and
+`op` (`create`, `update`, `delete`, and `repin` on the orchestration profile only; the knowledge profile neither
+lists nor accepts it). It is the 4.0 replacement of `manage_items`, and the same call is served over MCP and
 as `POST /api/v1/ops/items_write` (the REST routes `POST /items`, `PATCH /items/{id}` and `DELETE /items/{id}` are
 gone). The request and response follow the batch envelope: `{ "ops": [...], "atomic"?: bool, "actor"?: {...} }`
 returns `data.results[i]` (`{ok:true, ...}` or `{ok:false, error}`), a `data.summary`, and `meta.reqId`. By default

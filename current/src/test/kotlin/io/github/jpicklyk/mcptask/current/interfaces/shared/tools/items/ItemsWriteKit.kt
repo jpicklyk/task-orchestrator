@@ -54,12 +54,12 @@ internal class IwKit(
             put("ops", JsonArray(ops.toList()))
         }
 
-    /** Unscoped dispatch over the real dispatcher (the MCP default path). */
+    /** Unscoped dispatch over the real dispatcher (the MCP default path: the orchestration profile the server serves). */
     suspend fun call(
         vararg ops: JsonObject,
         atomic: Boolean = false,
         actor: JsonObject? = null
-    ): Dispatched = buildToolDispatcher(rig.ctx).dispatch(spec, ToolProfile.KNOWLEDGE, args(ops, atomic, actor), "k7f3q9ab", "mcp")
+    ): Dispatched = buildToolDispatcher(rig.ctx).dispatch(spec, ToolProfile.ORCHESTRATION, args(ops, atomic, actor), "k7f3q9ab", "mcp")
 
     /** A real MCP client/server call under the token's principal, scope and capabilities; returns the envelope body. */
     suspend fun callScoped(

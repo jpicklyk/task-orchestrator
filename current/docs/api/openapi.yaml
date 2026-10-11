@@ -2517,8 +2517,8 @@ paths:
         `claim` (by `itemId` or `select`), `release` and `heartbeat`, all needing the `advance` capability.
         Claim ownership and resource leases are enforced on this route exactly as on MCP.
 
-        `items_write` ops are `create`, `update`, `delete` and `repin`. `repin` (`{op: "repin", id,
-        expectedVersion?}`, `write_items` capability) moves the item's config pin to the current config heads
+        `items_write` ops are `create`, `update`, `delete` and `repin` (orchestration profile only). `repin`
+        (`{op: "repin", id, expectedVersion?}`, `write_items` capability) moves the item's config pin to the current config heads
         and answers `{ok, id, version, repinned, schemaVersion?}`; `repinned: false` means the pin was current
         and nothing was written. A `notes_write` `upsert` of a key that a pinned item's pinned schema lacks but
         the current head schema requires fails `schema_pinned_conflict` (409; `detail.itemId`, `pinnedVersion`,

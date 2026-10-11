@@ -60,8 +60,12 @@ class ItemsWriteRegistrationTest {
         assertEquals(listOf("create", "update", "delete", "repin"), spec.ops.map { it.name })
         for (op in spec.ops) {
             assertEquals(ApiCapability.WRITE_ITEMS, op.capability, op.name)
-            assertEquals(ToolProfile.KNOWLEDGE, op.profile, op.name)
         }
+        // Plan section 2 (U23): the knowledge profile hides repin.
+        assertEquals(
+            listOf(ToolProfile.KNOWLEDGE, ToolProfile.KNOWLEDGE, ToolProfile.KNOWLEDGE, ToolProfile.ORCHESTRATION),
+            spec.ops.map { it.profile }
+        )
         assertEquals(listOf(false, false, true, false), spec.ops.map { it.destructive }, "only delete is destructive")
     }
 

@@ -99,9 +99,12 @@ internal object ItemDocs {
     const val RECURSIVE = "Delete the subtree; required when the item has children."
 }
 
-internal const val ITEMS_WRITE_DESCRIPTION = "Create, update, delete or repin work items, one per op."
+internal const val ITEMS_WRITE_DESCRIPTION = "Create, update and delete work items, one ops[] element each."
 
-/** The `items_write` tool: `create`, `update`, `delete` and `repin` over one `ops[]` array. */
+/**
+ * The `items_write` tool: `create`, `update`, `delete` and `repin` over one `ops[]` array. `repin` is orchestration-only,
+ * so the description names only the knowledge ops (the repin op doc renders on the orchestration profile).
+ */
 internal fun itemsWriteTool(): OpsToolSpec<ItemWriteResult> =
     OpsToolSpec(
         name = "items_write",

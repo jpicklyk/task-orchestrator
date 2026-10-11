@@ -22,13 +22,15 @@ import java.util.UUID
 /**
  * Sweep fixtures for tests that drive item writes through the production `items_write` tool over the real
  * dispatcher (the removed `manage_items` was their previous entry point). Pure plumbing: no assertion logic lives
- * here, and the oracle of every test stays in the test itself.
+ * here, and the oracle of every test stays in the test itself. The default [profile] is the one the MCP server serves
+ * (orchestration), so orchestration-only ops such as `repin` are reachable.
  */
 internal suspend fun ToolExecutionContext.itemsWrite(
     vararg ops: JsonObject,
     atomic: Boolean = false,
     actor: JsonObject? = null,
-    reqId: String = "k7f3q9ab"
+    reqId: String = "k7f3q9ab",
+    profile: ToolProfile = ToolProfile.ORCHESTRATION
 ): JsonObject {
     val spec = checkNotNull(ToolRegistry(buildToolSpecs())["items_write"]) { "items_write is not registered" }
     val arguments =
@@ -37,7 +39,7 @@ internal suspend fun ToolExecutionContext.itemsWrite(
             if (atomic) put("atomic", true)
             put("ops", JsonArray(ops.toList()))
         }
-    return buildToolDispatcher(this).dispatch(spec, ToolProfile.KNOWLEDGE, arguments, reqId, "mcp").envelope.body
+    return buildToolDispatcher(this).dispatch(spec, profile, arguments, reqId, "mcp").envelope.body
 }
 
 /** [ToolExecutionContext.itemsWrite] over the rig's production composition. */
@@ -45,8 +47,9 @@ internal suspend fun EventLogRig.itemsWrite(
     vararg ops: JsonObject,
     atomic: Boolean = false,
     actor: JsonObject? = null,
-    reqId: String = "k7f3q9ab"
-): JsonObject = ctx.itemsWrite(*ops, atomic = atomic, actor = actor, reqId = reqId)
+    reqId: String = "k7f3q9ab",
+    profile: ToolProfile = ToolProfile.ORCHESTRATION
+): JsonObject = ctx.itemsWrite(*ops, atomic = atomic, actor = actor, reqId = reqId, profile = profile)
 
 /** A `create` element for [title]; [extra] adds or overrides fields. */
 internal fun createOp(

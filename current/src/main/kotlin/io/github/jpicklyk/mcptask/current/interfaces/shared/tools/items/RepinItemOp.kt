@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.serializer
 
@@ -19,7 +20,7 @@ data class RepinItemRequest(
     @Doc(ItemDocs.EXPECTED_VERSION) val expectedVersion: Long? = null
 )
 
-/** The wire name of the repin op. */
+/** The wire name of the repin op. The op is orchestration-only: the knowledge profile neither lists nor accepts it. */
 internal object RepinItemOp {
     const val NAME = "repin"
 }
@@ -28,6 +29,7 @@ internal fun repinItemOp(): OpSpec<RepinItemRequest, ItemWriteResult> =
     OpSpec(
         name = RepinItemOp.NAME,
         doc = "Move an item's config pin to the current config; repinned is false when it was current.",
+        profile = ToolProfile.ORCHESTRATION,
         capability = ApiCapability.WRITE_ITEMS,
         request = serializer<RepinItemRequest>(),
         errors =

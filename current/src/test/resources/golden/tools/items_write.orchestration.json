@@ -129,7 +129,7 @@
     },
     "type": "object"
   },
-  "description": "Create, update, delete or repin work items, one per op. Call with describe:true for each operation's parameters and errors.",
+  "description": "Create, update and delete work items, one ops[] element each. Call with describe:true for each operation's parameters and errors.",
   "annotations": {
     "readOnlyHint": false,
     "destructiveHint": true,
