@@ -576,7 +576,7 @@ class KeyedElementToolsTest {
                         depth = 0,
                         tags = "feature-task",
                         type = "feature-task",
-                        properties = """{"traits":["needs-staging-db"]}"""
+                        traits = listOf("needs-staging-db")
                     )
                 )
             val leases = db.repositoryProvider().resourceLeaseRepository()

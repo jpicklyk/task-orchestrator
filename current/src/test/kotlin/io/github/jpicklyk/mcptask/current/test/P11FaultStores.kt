@@ -122,7 +122,7 @@ internal class P11FaultRig(
                     role = Role.WORK,
                     parentId = parent.id,
                     depth = 1,
-                    properties = """{"traits":["$P11_FAULT_TRAIT"]}""",
+                    traits = listOf("$P11_FAULT_TRAIT"),
                 ),
             )
         raw.resourceLeaseRepository().acquireAll(child.id, "p11-holder", listOf(P11_FAULT_LEASE_KEY to 600))

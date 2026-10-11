@@ -172,15 +172,19 @@ object UpgradeHarness {
             rows
         }
 
-    /** The row after the [seeds] transforms (see [MigrationSeed.expected]), applied in ascending version order. */
+    /**
+     * The row after the [seeds] transforms, applied in ascending version order: [MigrationSeed.expected] for the bare
+     * chain, [MigrationSeed.expectedAfterDataSteps] when the production data steps also ran ([afterDataSteps]).
+     */
     private fun expectedRow(
         table: String,
         row: Map<String, Any?>,
-        seeds: List<MigrationSeed>
+        seeds: List<MigrationSeed>,
+        afterDataSteps: Boolean
     ): Map<String, Any?> {
         var current = row
         for (seed in seeds.sortedBy { it.version }) {
-            val overrides = seed.expected(table, current)
+            val overrides = if (afterDataSteps) seed.expectedAfterDataSteps(table, current) else seed.expected(table, current)
             if (overrides.isNotEmpty()) current = current + overrides
         }
         return current
@@ -188,7 +192,9 @@ object UpgradeHarness {
 
     /**
      * Every failure of the post-migration invariants against [before]. [transforms] are the seeds whose migrations
-     * ran in this chain (see [applicableSeeds]); their [MigrationSeed.expected] values are compared exactly.
+     * ran in this chain (see [applicableSeeds]); their [MigrationSeed.expected] values are compared exactly, or their
+     * [MigrationSeed.expectedAfterDataSteps] values when the production data steps ran too (a [dataSteps] report or a
+     * non-empty [registeredDataSteps] is given).
      */
     fun checkUpgrade(
         conn: Connection,
@@ -199,6 +205,7 @@ object UpgradeHarness {
         registeredDataSteps: List<DataStep> = emptyList()
     ): List<String> {
         val failures = mutableListOf<String>()
+        val afterDataSteps = dataSteps != null || registeredDataSteps.isNotEmpty()
         failures += dataStepFailures(conn, dataSteps, registeredDataSteps)
         if (probe != null && probe.observed.isEmpty()) failures += "the foreign-key probe never fired (vacuous check)"
         probe?.violations()?.forEach { failures += "foreign_keys was '$it' (not 0) on Flyway's connection during a migration" }
@@ -207,11 +214,11 @@ object UpgradeHarness {
         for ((table, rows) in before) {
             val afterRows = after[table]
             if (afterRows == null) {
-                failures += relocationFailures(table, rows, after, transforms)
+                failures += relocationFailures(table, rows, after, transforms, afterDataSteps)
                 continue
             }
             for ((id, beforeRow) in rows) {
-                val row = expectedRow(table, beforeRow, transforms)
+                val row = expectedRow(table, beforeRow, transforms, afterDataSteps)
                 val now = afterRows[id]
                 if (now == null) {
                     failures += "$table row $id was lost"
@@ -244,12 +251,13 @@ object UpgradeHarness {
         table: String,
         rows: Map<String, Map<String, Any?>>,
         after: Dump,
-        transforms: List<MigrationSeed>
+        transforms: List<MigrationSeed>,
+        afterDataSteps: Boolean
     ): List<String> {
         val ordered = transforms.sortedBy { it.version }
         val moves =
             rows.mapValues { (_, beforeRow) ->
-                val row = expectedRow(table, beforeRow, ordered)
+                val row = expectedRow(table, beforeRow, ordered, afterDataSteps)
                 ordered.firstNotNullOfOrNull { it.relocated(table, row) }
             }
         if (rows.isEmpty() || moves.values.all { it == null }) return listOf("table $table disappeared")

@@ -47,6 +47,7 @@ fun WorkItem.toFullJson(includeTimestamps: Boolean = false): JsonObject =
         tags?.let { put("tags", JsonPrimitive(it)) }
         type?.let { put("type", JsonPrimitive(it)) }
         properties?.let { put("properties", JsonPrimitive(it)) }
+        if (traits.isNotEmpty()) put("traits", JsonArray(traits.map { JsonPrimitive(it) }))
         if (includeTimestamps) {
             put("createdAt", JsonPrimitive(createdAt.toString()))
             put("modifiedAt", JsonPrimitive(modifiedAt.toString()))
@@ -56,7 +57,7 @@ fun WorkItem.toFullJson(includeTimestamps: Boolean = false): JsonObject =
 
 /**
  * Minimal JSON representation of a [WorkItem] for list/search responses.
- * Includes only: id, parentId, title, role, priority, depth, tags.
+ * Includes only: id, parentId, title, role, priority, depth, tags, type, traits (omitted when empty).
  */
 fun WorkItem.toMinimalJson(): JsonObject =
     buildJsonObject {
@@ -69,6 +70,7 @@ fun WorkItem.toMinimalJson(): JsonObject =
         put("depth", JsonPrimitive(depth))
         tags?.let { put("tags", JsonPrimitive(it)) }
         type?.let { put("type", JsonPrimitive(it)) }
+        if (traits.isNotEmpty()) put("traits", JsonArray(traits.map { JsonPrimitive(it) }))
     }
 
 /**

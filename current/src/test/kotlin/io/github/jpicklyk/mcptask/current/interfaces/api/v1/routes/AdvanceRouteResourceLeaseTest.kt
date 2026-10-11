@@ -253,7 +253,7 @@ private fun DefaultRepositoryProvider.createTracedItem(title: String): WorkItem 
                     title = title,
                     role = Role.QUEUE,
                     depth = 0,
-                    properties = """{"traits":["needs-staging-db"]}""",
+                    traits = listOf("needs-staging-db"),
                 ),
             )!!
     }

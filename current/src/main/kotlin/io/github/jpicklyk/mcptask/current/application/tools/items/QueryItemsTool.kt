@@ -1224,10 +1224,6 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
 
                 buildJsonObject {
                     child.toMinimalJson().forEach { (k, v) -> put(k, v) }
-                    val childTraits = PropertiesHelper.extractTraits(child.properties)
-                    if (childTraits.isNotEmpty()) {
-                        put("traits", JsonArray(childTraits.map { JsonPrimitive(it) }))
-                    }
                     put("childCounts", roleCountToJson(descendantCounts))
                 }
             }
@@ -1308,10 +1304,6 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
 
                 buildJsonObject {
                     item.toMinimalJson().forEach { (k, v) -> put(k, v) }
-                    val rootTraits = PropertiesHelper.extractTraits(item.properties)
-                    if (rootTraits.isNotEmpty()) {
-                        put("traits", JsonArray(rootTraits.map { JsonPrimitive(it) }))
-                    }
                     put("childCounts", roleCountToJson(childCounts))
                     // claimSummary: counts for children of this root item (omit if query failed)
                     if (claimCounts != null) {
@@ -1392,13 +1384,9 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
     ): JsonObject {
         val grandchildCounts =
             (legacyReadOrNull { context.workItemRepository().countChildrenByRole(child.id) } ?: emptyMap())
-        val childTraits = PropertiesHelper.extractTraits(child.properties)
         return buildJsonObject {
             child.toMinimalJson().forEach { (k, v) -> put(k, v) }
             put("childCounts", roleCountToJson(grandchildCounts))
-            if (childTraits.isNotEmpty()) {
-                put("traits", JsonArray(childTraits.map { JsonPrimitive(it) }))
-            }
         }
     }
 }

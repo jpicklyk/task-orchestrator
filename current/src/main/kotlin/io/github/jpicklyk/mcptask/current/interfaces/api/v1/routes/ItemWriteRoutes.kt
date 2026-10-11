@@ -177,6 +177,7 @@ private fun itemConfigUnavailableCaptured(
 private fun typeViolationCaptured(error: DomainError): CachedHttpResponse {
     val violation = error.detail as? ErrorDetail.SchemaViolation
     val available = ItemCommandErrors.availableTypes(error)?.takeIf { it.isNotEmpty() }
+    val availableTraits = ItemCommandErrors.availableTraits(error)?.takeIf { it.isNotEmpty() }
     return LegacyRestErrorMapper.captured(
         LegacyRestCode.VALIDATION_ERROR,
         error.message,
@@ -184,6 +185,7 @@ private fun typeViolationCaptured(error: DomainError): CachedHttpResponse {
             put("reason", JsonPrimitive(violation?.reason ?: error.message))
             put("type", JsonPrimitive(violation?.type))
             if (available != null) put("availableTypes", JsonArray(available.map { JsonPrimitive(it) }))
+            if (availableTraits != null) put("availableTraits", JsonArray(availableTraits.map { JsonPrimitive(it) }))
         },
     )
 }
@@ -390,6 +392,7 @@ fun Route.itemWriteRoutes(
                         tags = tagsStr,
                         type = dto.type,
                         properties = dto.properties?.toString(),
+                        traits = dto.traits.orEmpty(),
                     )
 
                 // The item is always created in QUEUE; its depth/rootId come from the parent row read
@@ -646,6 +649,7 @@ fun Route.itemWriteRoutes(
                         tags = patchDto.tags,
                         type = patchDto.type,
                         properties = patchDto.properties,
+                        traits = patchDto.traits.orEmpty(),
                     )
 
                 // One unit: the guards (self-parent, own-descendant, closed parent), the placement read,

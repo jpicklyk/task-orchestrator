@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
-import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -233,9 +232,9 @@ class LayeredConfigSeatTest {
                     )
             )
         val config = LayeredConfig(UUID.randomUUID(), null, globalLookup(doc))
-        val item = WorkItem(title = "S9 item", type = "bug-fix", role = Role.WORK, depth = 0, properties = """{"traits":["t1"]}""")
+        val item = WorkItem(title = "S9 item", type = "bug-fix", role = Role.WORK, depth = 0, traits = listOf("t1"))
 
-        val merged = TraitResolver(config).mergeSchema(baseSchema, PropertiesHelper.extractTraits(item.properties), item.id)
+        val merged = TraitResolver(config).mergeSchema(baseSchema, item.traits, item.id)
 
         val implementer = merged.seats.single { it.name == "implementer" }
         assertEquals(Role.WORK, implementer.phase, "a trait may add seats but not redefine a base seat -- the base phase wins")
@@ -304,7 +303,7 @@ class LayeredConfigSeatTest {
                         )
                 )
             val resolver = EffectiveConfigResolver(globalLookup(doc), perRoot = null)
-            val item = WorkItem(title = "S7 item", type = "bug-fix", role = Role.WORK, depth = 0, properties = """{"traits":["t-item"]}""")
+            val item = WorkItem(title = "S7 item", type = "bug-fix", role = Role.WORK, depth = 0, traits = listOf("t-item"))
             val resolvedSchema =
                 WorkItemSchema(type = "bug-fix", defaultTraits = listOf("t-def"), seats = listOf(SeatDefinition("x", Role.WORK)))
 

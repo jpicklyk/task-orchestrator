@@ -4,11 +4,13 @@ import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ItemTraitsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.WorkItemsTable
 import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.ColumnType
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
+import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.java.UUIDColumnType
@@ -89,11 +91,43 @@ internal object WorkItemRows {
     fun loadByIds(ids: Collection<UUID>): List<WorkItem> =
         ids.chunked(SQL_IN_CHUNK_SIZE).flatMap { chunk ->
             val entityIds = chunk.map { EntityID(it, WorkItemsTable) }
-            WorkItemsTable
-                .selectAll()
-                .where { WorkItemsTable.id inList entityIds }
-                .map { toWorkItem(it) }
+            withTraits(
+                WorkItemsTable
+                    .selectAll()
+                    .where { WorkItemsTable.id inList entityIds }
+                    .map { toWorkItem(it) }
+            )
         }
+
+    /**
+     * The trait names of each id in [ids], in position order, as ONE statement (a bound JSON id set). An id with
+     * no trait rows is absent. Must run inside an active transaction.
+     */
+    fun traitsByIds(ids: Collection<UUID>): Map<UUID, List<String>> {
+        if (ids.isEmpty()) return emptyMap()
+        val out = LinkedHashMap<UUID, MutableList<String>>()
+        ItemTraitsTable
+            .selectAll()
+            .where { WorkViewSql.inIdSet(ItemTraitsTable.itemId, ids) }
+            .orderBy(ItemTraitsTable.itemId, SortOrder.ASC)
+            .orderBy(ItemTraitsTable.position, SortOrder.ASC)
+            .forEach { row -> out.getOrPut(row[ItemTraitsTable.itemId]) { mutableListOf() }.add(row[ItemTraitsTable.name]) }
+        return out
+    }
+
+    /**
+     * [items] with their traits attached, from ONE extra statement however many items there are (none when the
+     * list is empty). Every read path that returns items goes through here (or [loadByIds]), so a mapped row never
+     * reaches a caller without its traits. Must run inside an active transaction.
+     */
+    fun withTraits(items: List<WorkItem>): List<WorkItem> {
+        if (items.isEmpty()) return items
+        val byId = traitsByIds(items.map { it.id })
+        return items.map { item -> byId[item.id]?.let { item.copy(traits = it) } ?: item }
+    }
+
+    /** [withTraits] for one item. */
+    fun withTraits(item: WorkItem): WorkItem = withTraits(listOf(item)).single()
 }
 
 /**

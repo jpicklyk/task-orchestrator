@@ -111,7 +111,7 @@ class SeatPerRootResolverTest {
         rootId: UUID,
         type: String,
         role: Role = Role.WORK,
-        properties: String? = null,
+        traits: List<String> = emptyList(),
     ): WorkItem =
         runBlocking {
             composition.toolContext.repositoryProvider
@@ -124,7 +124,7 @@ class SeatPerRootResolverTest {
                         parentId = rootId,
                         rootId = rootId,
                         depth = 1,
-                        properties = properties,
+                        traits = traits,
                     ),
                 )!!
         }
@@ -352,7 +352,7 @@ class SeatPerRootResolverTest {
         val composition = buildComposition(tempDir, "work_item_schemas: {}\n")
         val root = createRoot(composition, "S9 root")
         pushPerRoot(composition, root, perRootYaml)
-        val item = createChild(composition, root, "bug-fix", role = Role.WORK, properties = """{"traits":["t1"]}""")
+        val item = createChild(composition, root, "bug-fix", role = Role.WORK, traits = listOf("t1"))
 
         val data = getContextData(composition, item.id)
         val seats = data["seats"]!!.jsonArray.map { it.jsonObject }

@@ -206,7 +206,7 @@ class AdvanceItemToolApplyFailureLeaseTest {
             val item =
                 (
                     repositoryProvider.workItemRepository().create(
-                        WorkItem(title = "Traited S2", role = Role.QUEUE, depth = 0, properties = """{"traits":["needs-staging-db"]}""")
+                        WorkItem(title = "Traited S2", role = Role.QUEUE, depth = 0, traits = listOf("needs-staging-db"))
                     )!!
                 )
             val failingRoleTx = FailingRoleTransitionRepository(repositoryProvider.roleTransitionRepository(), failFor = item.id)
@@ -243,7 +243,7 @@ class AdvanceItemToolApplyFailureLeaseTest {
                             title = "Traited S2 batch",
                             role = Role.QUEUE,
                             depth = 0,
-                            properties = """{"traits":["needs-staging-db"]}"""
+                            traits = listOf("needs-staging-db")
                         )
                     )!!
                 )
@@ -275,7 +275,7 @@ class AdvanceItemToolApplyFailureLeaseTest {
             val p =
                 (
                     repositoryProvider.workItemRepository().create(
-                        WorkItem(title = "P S3", role = Role.QUEUE, depth = 0, properties = """{"traits":["needs-staging-db"]}""")
+                        WorkItem(title = "P S3", role = Role.QUEUE, depth = 0, traits = listOf("needs-staging-db"))
                     )!!
                 )
             val pStamped = (repositoryProvider.workItemRepository().update(p.copy(rootId = p.id))!!)
