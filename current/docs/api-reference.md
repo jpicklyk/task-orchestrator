@@ -758,7 +758,7 @@ the `If-Match` / `If-None-Match` compare-and-set are gone: use `expectedVersion`
 
 **Versioned store.** The stored config is the head of a versioned, append-only store: a `push` appends the next
 version of the root's config and moves the head, and a byte-identical re-push appends nothing (`appended: false`).
-`rollback` appends a copy of an earlier version (source `rollback`; to the head's own content it appends nothing),
+`rollback` appends a copy of an earlier version (source `rollback`; to the head's own content it appends nothing; to a reset version it appends a reset, or nothing when the head is already a reset),
 `reset` appends an empty `reset` version so the root falls back to the server config, and history keeps every version.
 `get` without `version` reads the head (a reset head is `not_found`); with `version` it reads that exact version, a
 reset one as an empty document. `get` with `fingerprint` adds `relation`: `current`, `superseded` (an earlier version

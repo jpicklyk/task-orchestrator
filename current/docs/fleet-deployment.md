@@ -348,7 +348,7 @@ This is different from the MCP actor `reject` policy, which governs MCP tool cal
 
 ### Client-side config sync (SessionStart hook)
 
-> **4.0 migration note (W8).** The per-root config and rule REST routes this hook calls (`PUT /api/v1/roots/{rootId}/config`, `GET /api/v1/roots/{rootId}/config`, `GET /api/v1/roots/{rootId}/rules`) were removed in 4.0 in favor of `POST /api/v1/ops/config` (the `config` tool). The plugin hook is moved to the new endpoint separately; until it is, the description below is the 3.x contract and the hook no-ops against a 4.0 server.
+> **4.0 migration note (W8).** The per-root config and rule REST routes this hook calls (`PUT /api/v1/roots/{rootId}/config`, `GET /api/v1/roots/{rootId}/config`, `GET /api/v1/roots/{rootId}/rules`) were removed in 4.0 in favor of `POST /api/v1/ops/config` (the `config` tool). The plugin hook is moved to the new endpoint separately; until it is, the description below is the 3.x contract. Against a 4.0 server the hook stays fail-open (it never blocks the session) but prints a failure line (`PUT returned HTTP 404`, plus a rules `root not found` line) and syncs nothing.
 
 In a shared HTTP deployment, per-project config lives in the DB per root (hot-reloaded, no restart), while the mounted global `.taskorchestrator/config.yaml` is only a fallback. The plugin's `config-sync.mjs` SessionStart hook keeps a project's DB config in sync with its workspace file: on session start it fingerprints the local file and, if it differs from the server's stored config, PUTs it to `PUT /api/v1/roots/{rootId}/config`. **The file is the source of truth; the DB row is a synced replica** (a byte-identical file is a no-op via `If-Match`/fingerprint).
 

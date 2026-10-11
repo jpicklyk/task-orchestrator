@@ -356,7 +356,7 @@ alike (including `401`), is the `req_id` of every `events` row the request wrote
 request's row in the `call_log` table. Only `/api/v1` and paths under `/api/v1/` are covered (not
 `/api/v10`). A `401` from the auth layer records its body's `error` code (`invalid_request`,
 `invalid_token`, ...) as the row's `error_code`; `http_<status>` is the fallback. The row's `tool` is
-the matched route template as declared (`GET /api/v1/roots/{rootId}/config`); a call that matched no route is
+the matched route template as declared (`POST /api/v1/ops/{tool}`); a call that matched no route is
 `<METHOD> /api/v1/<first segment>` for a served top-level resource, else `<METHOD> unmatched`. `principal_id`
 on REST rows is the authenticated API principal (`api:<tokenId>`); only MCP rows can carry a self-reported actor id (up to 500 characters, with `proof_status` distinguishing verified ids). `X-Req-Id` is in the default
 `CORS_EXPOSE_HEADERS`. See

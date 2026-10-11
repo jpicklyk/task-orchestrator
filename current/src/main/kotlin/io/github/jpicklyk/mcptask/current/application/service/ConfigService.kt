@@ -309,7 +309,8 @@ class ConfigService(
 
     /**
      * Appends a copy of version [toVersion] as the new head with source `rollback`. A target equal to the head
-     * writes nothing and reports `appended = false`. A target whose `canonical_json` is still NULL is canonicalized
+     * writes nothing and reports `appended = false`. A target that is a RESET version appends a RESET (or writes
+     * nothing when the head is already a reset): same as [reset], so the root falls through to the server layer. A target whose `canonical_json` is still NULL is canonicalized
      * first, in the same unit.
      */
     suspend fun rollback(
@@ -335,6 +336,50 @@ class ConfigService(
                 }
             if (head == null || target == null) {
                 return@writeUnit UnitResult.Commit(ConfigRollbackResult.NotFound(rootItemId, toVersion))
+            }
+            if (target.source == ConfigVersionSource.RESET) {
+                // A reset version means "no per-root config": rolling back to it is a reset, not a copy of its empty content.
+                if (head.source == ConfigVersionSource.RESET) {
+                    if (expectedVersion != null &&
+                        expectedVersion != head.version ||
+                        expectedFingerprint != null &&
+                        expectedFingerprint != head.fingerprint
+                    ) {
+                        return@writeUnit UnitResult.Commit(
+                            ConfigRollbackResult.PreconditionFailed(rootItemId, head.version, head.fingerprint)
+                        )
+                    }
+                    val headVersion = store.version(head.versionId) ?: target
+                    return@writeUnit UnitResult.Commit(ConfigRollbackResult.Success(headVersion, appended = false))
+                }
+                val resetOutcome =
+                    store.append(
+                        scope = ConfigScope.ROOT,
+                        rootId = rootItemId,
+                        append = resetAppend(principalId, reqId),
+                        expectedVersion = expectedVersion,
+                        expectedFingerprint = expectedFingerprint,
+                        rejectSuperseded = false,
+                        now = now,
+                    )
+                return@writeUnit UnitResult.Commit(
+                    when (resetOutcome) {
+                        is ConfigAppendOutcome.Applied -> {
+                            if (resetOutcome.appended) events.record(createdEvent(resetOutcome.version))
+                            ConfigRollbackResult.Success(resetOutcome.version, resetOutcome.appended)
+                        }
+                        is ConfigAppendOutcome.PreconditionFailed ->
+                            ConfigRollbackResult.PreconditionFailed(
+                                rootItemId,
+                                resetOutcome.currentVersion,
+                                resetOutcome.currentFingerprint
+                            )
+                        is ConfigAppendOutcome.Superseded ->
+                            ConfigRollbackResult.RepositoryError(
+                                DomainError(ErrorCode.INTERNAL, "Rollback append was unexpectedly rejected as superseded")
+                            )
+                    }
+                )
             }
             val canonical =
                 target.canonicalJson ?: run {
@@ -410,17 +455,7 @@ class ConfigService(
                 store.append(
                     scope = ConfigScope.ROOT,
                     rootId = rootItemId,
-                    append =
-                        ConfigAppend(
-                            yaml = "",
-                            fingerprint = store.computeFingerprint(""),
-                            canonicalJson = CanonicalConfigJson.encode(null),
-                            modelVersion = CanonicalConfigJson.MODEL_VERSION,
-                            source = ConfigVersionSource.RESET,
-                            principalId = principalId,
-                            reqId = reqId,
-                            warnings = emptyList(),
-                        ),
+                    append = resetAppend(principalId, reqId),
                     now = now,
                 )
             if (outcome is ConfigAppendOutcome.Applied && outcome.appended) {
@@ -429,6 +464,22 @@ class ConfigService(
             Outcome.Ok(outcome is ConfigAppendOutcome.Applied && outcome.appended)
         }
     }
+
+    /** The empty RESET version shared by [reset] and a [rollback] whose target is a reset. */
+    private fun resetAppend(
+        principalId: String?,
+        reqId: String?,
+    ): ConfigAppend =
+        ConfigAppend(
+            yaml = "",
+            fingerprint = repositoryProvider.configStore().computeFingerprint(""),
+            canonicalJson = CanonicalConfigJson.encode(null),
+            modelVersion = CanonicalConfigJson.MODEL_VERSION,
+            source = ConfigVersionSource.RESET,
+            principalId = principalId,
+            reqId = reqId,
+            warnings = emptyList(),
+        )
 
     /**
      * Classifies [fingerprint] against [rootItemId]'s stored state and returns the lowercase [FingerprintRelation]
