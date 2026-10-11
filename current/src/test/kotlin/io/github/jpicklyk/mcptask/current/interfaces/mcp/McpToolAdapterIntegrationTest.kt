@@ -5,9 +5,12 @@ import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import io.github.jpicklyk.mcptask.current.application.tools.*
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
+import io.github.jpicklyk.mcptask.current.test.seedItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
@@ -342,25 +345,22 @@ class McpToolAdapterIntegrationTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `callTool with real CreateWorkTreeTool returns the created root in its payload`(): Unit =
+    fun `callTool with a real 4_0 tool reads a seeded item`(): Unit =
         runBlocking {
-            adapter.registerToolWithServer(server, CreateWorkTreeTool(), dummyContext)
+            // Every 3.x ToolDefinition is gone from production (Q21, Q23), so the real-tool path is a 4.0 tool on the same server.
+            val itemId = seedItem(dummyContext, buildJsonObject { put("title", JsonPrimitive("integration-test-marker")) })
+            McpOperationAdapter(
+                buildToolDispatcher(dummyContext)
+            ).register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
 
-            val result =
-                client.callTool(
-                    name = "create_work_tree",
-                    arguments =
-                        mapOf(
-                            "root" to mapOf("type" to "test-item", "title" to "integration-test-marker")
-                        )
-                )
+            val result = client.callTool(name = "items_read", arguments = mapOf("select" to "get", "itemId" to itemId))
 
             assertTrue(result.isError != true, "Expected a successful read, got: ${result.content}")
             val textContent = result.content.filterIsInstance<TextContent>()
             assertTrue(textContent.isNotEmpty())
             assertTrue(
                 result.structuredContent.toString().contains("integration-test-marker"),
-                "The payload should carry the created root: ${result.structuredContent}"
+                "The payload should carry the seeded item: ${result.structuredContent}"
             )
         }
 
@@ -443,21 +443,23 @@ class McpToolAdapterIntegrationTest {
     @Test
     fun `not_found error carries its code through structuredContent`(): Unit =
         runBlocking {
-            // Real tool, real DB: an unresolvable parentId prefix produces a top-level
-            // RESOURCE_NOT_FOUND error envelope.
-            adapter.registerToolWithServer(server, CreateWorkTreeTool(), dummyContext)
+            // Real tool, real DB: an unresolvable itemId prefix produces a top-level not_found error envelope (the 4.0 catalog
+            // name of RESOURCE_NOT_FOUND; every 3.x ToolDefinition is gone from production).
+            McpOperationAdapter(
+                buildToolDispatcher(dummyContext)
+            ).register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
 
             val result =
                 client.callTool(
-                    name = "create_work_tree",
-                    arguments = mapOf("parentId" to "deadbeef", "root" to mapOf("title" to "orphan")) // valid hex prefix, matches nothing
+                    name = "items_read",
+                    arguments = mapOf("select" to "get", "itemId" to "deadbeef") // valid hex prefix, matches nothing
                 )
 
             assertEquals(true, result.isError)
             val structured =
                 assertNotNull(result.structuredContent, "not_found error must carry structuredContent")
             val error = assertNotNull(structured["error"]?.jsonObject, "structuredContent must contain the error object")
-            assertEquals(ErrorCodes.RESOURCE_NOT_FOUND, error["code"]?.jsonPrimitive?.content)
+            assertEquals("not_found", error["code"]?.jsonPrimitive?.content)
             assertTrue(
                 error["message"]
                     ?.jsonPrimitive

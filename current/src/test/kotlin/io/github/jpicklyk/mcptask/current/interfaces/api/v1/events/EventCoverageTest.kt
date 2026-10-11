@@ -4,8 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.EventStore
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -18,16 +16,20 @@ import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.test.callTool
+import io.github.jpicklyk.mcptask.current.test.completeTreeOp
 import io.github.jpicklyk.mcptask.current.test.createOp
+import io.github.jpicklyk.mcptask.current.test.createTreeOp
 import io.github.jpicklyk.mcptask.current.test.deleteOp
 import io.github.jpicklyk.mcptask.current.test.envelopeOk
 import io.github.jpicklyk.mcptask.current.test.itemsWrite
 import io.github.jpicklyk.mcptask.current.test.listNotesVia
 import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.treeItemId
 import io.github.jpicklyk.mcptask.current.test.updateOp
 import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
 import kotlinx.coroutines.runBlocking
@@ -691,7 +693,7 @@ class EventCoverageTest {
         }
 
     @Test
-    fun `create_work_tree records created rows for every item plus note and dependency rows in one contiguous run`(
+    fun `create_tree records created rows for every item plus note and dependency rows in one contiguous run`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -699,67 +701,63 @@ class EventCoverageTest {
 
             val (result, rows) =
                 rig.written {
-                    rig.callOk(
-                        CreateWorkTreeTool(),
-                        "root" to
-                            buildJsonObject {
-                                put("type", "test-item")
-                                put("title", "tree root")
-                            },
-                        "children" to
-                            buildJsonArray {
-                                add(
+                    rig
+                        .itemsWrite(
+                            createTreeOp(
+                                "root" to
                                     buildJsonObject {
-                                        put("ref", "c1")
                                         put("type", "test-item")
-                                        put("title", "tree c1")
+                                        put("title", "tree root")
                                     },
-                                )
-                                add(
-                                    buildJsonObject {
-                                        put("ref", "c2")
-                                        put("type", "test-item")
-                                        put("title", "tree c2")
+                                "children" to
+                                    buildJsonArray {
+                                        add(
+                                            buildJsonObject {
+                                                put("ref", "c1")
+                                                put("type", "test-item")
+                                                put("title", "tree c1")
+                                            },
+                                        )
+                                        add(
+                                            buildJsonObject {
+                                                put("ref", "c2")
+                                                put("type", "test-item")
+                                                put("title", "tree c2")
+                                            },
+                                        )
                                     },
-                                )
-                            },
-                        "deps" to
-                            buildJsonArray {
-                                add(
-                                    buildJsonObject {
-                                        put("from", "c1")
-                                        put("to", "c2")
-                                        put("type", "BLOCKS")
+                                "deps" to
+                                    buildJsonArray {
+                                        add(
+                                            buildJsonObject {
+                                                put("from", "c1")
+                                                put("to", "c2")
+                                                put("type", "blocks")
+                                            },
+                                        )
                                     },
-                                )
-                            },
-                        "notes" to
-                            buildJsonArray {
-                                add(
-                                    buildJsonObject {
-                                        put("itemRef", "c1")
-                                        put("key", "approach")
-                                        put("role", "work")
-                                        put("body", "b")
-                                    },
-                                )
-                            },
-                    )
+                                "notes" to
+                                    buildJsonArray {
+                                        add(
+                                            buildJsonObject {
+                                                put("itemRef", "c1")
+                                                put("key", "approach")
+                                                put("role", "work")
+                                                put("body", "b")
+                                            },
+                                        )
+                                    }
+                            )
+                        ).okResult(0)
                 }
 
-            val rootId =
-                UUID.fromString(
-                    result["data"]!!
-                        .jsonObject["root"]!!
-                        .jsonObject["id"]!!
-                        .jsonPrimitive.content
-                )
+            val rootId = result.treeItemId(0)
             assertEquals(3, rows.ofType("item.created").size, "$rows")
             assertEquals(1, rows.ofType("note.upserted").size)
             assertEquals(1, rows.ofType("dependency.added").size)
             assertEquals(5, rows.size, "$rows")
             assertTrue(rows.all { it.rootId == rootId }, "every row of the tree is under the new root: $rows")
-            rows.assertContiguous("create_work_tree")
+            rows.assertContiguous("create_tree")
         }
 
     // ---------------------------------------------------------------------------------------------
@@ -849,7 +847,10 @@ class EventCoverageTest {
 
             val (_, rows) =
                 rig.written {
-                    rig.call(CompleteTreeTool(), "rootId" to JsonPrimitive(root.id.toString()), "trigger" to JsonPrimitive("complete"))
+                    rig.itemsWrite(
+                        completeTreeOp("rootId" to JsonPrimitive(root.id.toString()), "trigger" to JsonPrimitive("complete")),
+                        profile = ToolProfile.ORCHESTRATION
+                    )
                 }
 
             val rejected = rows.ofType("transition.rejected").filter { it.entityId == child.id }
@@ -873,11 +874,11 @@ class EventCoverageTest {
         }
 
     // ---------------------------------------------------------------------------------------------
-    // Round 2 -- plan-document adoption through create_work_tree; rejection rows under idempotency keys
+    // Round 2 -- plan-document adoption through create_tree; rejection rows under idempotency keys
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `create_work_tree with a docRef records exactly one plan document adopted row plus the item created rows`(
+    fun `create_tree with a docRef records exactly one plan document adopted row plus the item created rows`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -891,36 +892,34 @@ class EventCoverageTest {
 
             val (result, rows) =
                 rig.written {
-                    rig.callOk(
-                        CreateWorkTreeTool(),
-                        "root" to
-                            buildJsonObject {
-                                put("type", "test-item")
-                                put("title", "adopting root")
-                            },
-                        "parentId" to JsonPrimitive(project.id.toString()),
-                        "children" to
-                            buildJsonArray {
-                                add(
+                    rig
+                        .itemsWrite(
+                            createTreeOp(
+                                "root" to
                                     buildJsonObject {
-                                        put("ref", "c1")
                                         put("type", "test-item")
-                                        put("title", "adopting child")
+                                        put("title", "adopting root")
                                     },
-                                )
-                            },
-                        "docRef" to
-                            buildJsonObject {
-                                put("rootId", project.id.toString())
-                                put("slug", "r2-plan")
-                            },
-                    )
+                                "parentId" to JsonPrimitive(project.id.toString()),
+                                "children" to
+                                    buildJsonArray {
+                                        add(
+                                            buildJsonObject {
+                                                put("ref", "c1")
+                                                put("type", "test-item")
+                                                put("title", "adopting child")
+                                            },
+                                        )
+                                    },
+                                "docRef" to
+                                    buildJsonObject {
+                                        put("rootId", project.id.toString())
+                                        put("slug", "r2-plan")
+                                    }
+                            )
+                        ).okResult(0)
                 }
-            val createdRootId =
-                result["data"]!!
-                    .jsonObject["root"]!!
-                    .jsonObject["id"]!!
-                    .jsonPrimitive.content
+            val createdRootId = result.treeItemId(0).toString()
 
             val adopted = rows.ofType("document.adopted")
             assertEquals(1, adopted.size, "exactly one adoption row: $rows")
@@ -931,7 +930,7 @@ class EventCoverageTest {
             assertEquals(createdRootId, row.str("adoptedByItemId"))
             assertEquals(stashed.entityId, row.entityId, "the adoption row is about the document that was stashed")
             assertEquals(project.id, row.rootId)
-            rows.assertContiguous("create_work_tree with docRef")
+            rows.assertContiguous("create_tree with docRef")
         }
 
     @Test
@@ -1056,7 +1055,6 @@ class EventCoverageTest {
             val root = rig.seed("S17 root")
             val child = rig.seed("S17 child", root)
             val other = rig.seed("S17 other", root)
-            val treeRoot = rig.seed("S17 tree root")
             val depTarget = rig.seed("S17 dep target", root)
             val perTool: Map<String, Array<Pair<String, JsonElement>>> =
                 mapOf(
@@ -1065,15 +1063,6 @@ class EventCoverageTest {
                     "deps_write" to emptyArray(),
                     "advance" to emptyArray(),
                     "docs_write" to emptyArray(),
-                    "complete_tree" to arrayOf("rootId" to JsonPrimitive(treeRoot.id.toString()), "trigger" to JsonPrimitive("complete")),
-                    "create_work_tree" to
-                        arrayOf(
-                            "root" to
-                                buildJsonObject {
-                                    put("type", "test-item")
-                                    put("title", "S17 tree")
-                                }
-                        ),
                     "config" to emptyArray(),
                 )
             assertEquals(WRITE_TOOLS_COVERED.keys, perTool.keys, "the scenario table must cover exactly the covered write tools")
@@ -1158,8 +1147,6 @@ class EventCoverageTest {
                 "deps_write" to setOf("dependency.added"),
                 "advance" to setOf("item.transitioned"),
                 "docs_write" to setOf("document.created"),
-                "complete_tree" to setOf("item.transitioned"),
-                "create_work_tree" to setOf("item.created"),
                 "config" to setOf("config.version_created"),
             )
 

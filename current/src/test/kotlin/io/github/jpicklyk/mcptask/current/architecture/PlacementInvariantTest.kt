@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.architecture
 import ch.qos.logback.classic.Level
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.application.service.ParentChange
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.StartupIntegrity
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.management.SchemaTestSupport.at
@@ -15,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.patchOf
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureWriteTestApp
 import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
 import io.github.jpicklyk.mcptask.current.test.createOp
+import io.github.jpicklyk.mcptask.current.test.createTreeOp
 import io.github.jpicklyk.mcptask.current.test.deleteOp
 import io.github.jpicklyk.mcptask.current.test.itemsWrite
 import io.github.jpicklyk.mcptask.current.test.okId
@@ -23,6 +23,7 @@ import io.github.jpicklyk.mcptask.current.test.rawCount
 import io.github.jpicklyk.mcptask.current.test.rawExec
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.strings
+import io.github.jpicklyk.mcptask.current.test.treeItemId
 import io.github.jpicklyk.mcptask.current.test.updateOp
 import io.ktor.client.request.delete
 import io.ktor.client.request.patch
@@ -37,9 +38,6 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
@@ -56,7 +54,7 @@ import kotlin.test.assertTrue
 /**
  * Placement invariant (item 947f0230, task-scope AC1, test-plan S14; plan section 8 "PlacementInvariantTest"):
  * random sequences of create / reparent / move-to-root / delete driven across the service, `manage_items`, the REST item
- * routes and `create_work_tree`; after EVERY step each stored row satisfies the placement invariant and
+ * routes and `items_write` `create_tree`; after EVERY step each stored row satisfies the placement invariant and
  * `StartupIntegrity.reportPlacementDrift` reports nothing.
  *
  * Oracle (independent of the code): plan 3.5 / task-scope AC1 - a root has depth 0 and rootId = its own id; every other row
@@ -192,25 +190,18 @@ class PlacementInvariantTest {
                         }
                     )
                 }
-            val result = rig.callOk(CreateWorkTreeTool(), *params.toTypedArray())
-            val data = result["data"]!!.jsonObject
-            val root = UUID.fromString(data["root"]!!.jsonObject["id"]!!.jsonPrimitive.content)
-            val child =
-                UUID.fromString(
-                    data["children"]!!
-                        .jsonArray[0]
-                        .jsonObject["id"]!!
-                        .jsonPrimitive.content
-                )
+            val result = rig.itemsWrite(createTreeOp(*params.toTypedArray())).okResult(0)
+            val root = result.treeItemId(0)
+            val child = result.treeItemId(1)
             return listOf(root to parent, child to root)
         }
 
         override suspend fun reparent(
             id: UUID,
             newParent: UUID?
-        ) = error("create_work_tree does not reparent")
+        ) = error("create_tree does not reparent")
 
-        override suspend fun delete(id: UUID) = error("create_work_tree does not delete")
+        override suspend fun delete(id: UUID) = error("create_tree does not delete")
     }
 
     /** The test's own model of the forest: item id to parent id. Expected placement is recomputed from it. */

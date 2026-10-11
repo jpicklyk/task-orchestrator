@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
@@ -10,8 +9,13 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.test.completeTreeOp
+import io.github.jpicklyk.mcptask.current.test.itemsWrite
+import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.strings
 import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
@@ -237,24 +241,19 @@ work_item_schemas:
         return extractData(result)["results"]!!.jsonArray[0].jsonObject
     }
 
+    /** The single `items[]` entry of an `items_write` `complete_tree` over [itemId] (Q21: the 4.0 op; trigger complete or cancel). */
     private suspend fun completeTree(
         toolContext: ToolExecutionContext,
         itemId: UUID,
         trigger: String = "complete"
-    ): JsonObject {
-        val result =
-            CompleteTreeTool().execute(
-                buildJsonObject {
-                    put(
-                        "itemIds",
-                        buildJsonArray { add(JsonPrimitive(itemId.toString())) }
-                    )
-                    put("trigger", JsonPrimitive(trigger))
-                },
-                toolContext
-            )
-        return extractData(result)["results"]!!.jsonArray[0].jsonObject
-    }
+    ): JsonObject =
+        toolContext
+            .itemsWrite(
+                completeTreeOp("itemIds" to strings(itemId.toString()), "trigger" to JsonPrimitive(trigger)),
+                profile = ToolProfile.ORCHESTRATION
+            ).okResult(0)["items"]!!
+            .jsonArray[0]
+            .jsonObject
 
     // ─────────────────────────────────────────────────────────────────────
     // S1-addendum -- REJECT mode, a schema with no independent_of anywhere -> no `violations` key.
@@ -477,14 +476,15 @@ work_item_schemas:
             upsertNote(toolContext, item.id, "implementation-notes", "work", "impl", actorId = "same-agent")
             upsertNote(toolContext, item.id, "test-manifest", "work", "tm", actorId = "same-agent")
 
-            val r = completeTree(toolContext, item.id, trigger = "start")
-            assertFalse(r["applied"]!!.jsonPrimitive.boolean, "REJECT must block complete_tree on an independence violation: $r")
-            val violations = r["violations"]!!.jsonArray
+            // Q21: the 4.0 op takes complete or cancel only; complete evaluates every phase, so the work-phase pair still blocks.
+            // The review note is filled (by its own seat) so the only block left is the work-phase independence pair.
+            upsertNote(toolContext, item.id, "review-checklist", "review", "rc", actorId = "agent-r")
+            val r = completeTree(toolContext, item.id)
+            assertEquals("failed", r["outcome"]!!.jsonPrimitive.content, "REJECT must block complete_tree on an independence violation: $r")
+            val error = r["error"]!!.jsonObject
+            assertEquals("gate_blocked", error["code"]!!.jsonPrimitive.content, "error: $error")
+            val violations = error["detail"]!!.jsonObject["violations"]!!.jsonArray
             assertEquals(1, violations.size, "violations: $violations")
-            val entry = violations[0].jsonObject
-            assertEquals("test-manifest", entry["key"]!!.jsonPrimitive.content)
-            assertEquals("same_actor", entry["constraint"]!!.jsonPrimitive.content)
-            assertEquals("implementer", entry["conflictingSeat"]!!.jsonPrimitive.content)
         }
 
     // B1 (orchestrator review follow-up): the APPLIED complete_tree entry in WARN mode must carry
@@ -501,8 +501,9 @@ work_item_schemas:
             upsertNote(toolContext, item.id, "implementation-notes", "work", "impl", actorId = "same-agent")
             upsertNote(toolContext, item.id, "test-manifest", "work", "tm", actorId = "same-agent")
 
-            val r = completeTree(toolContext, item.id, trigger = "start")
-            assertTrue(r["applied"]!!.jsonPrimitive.boolean, "WARN must still apply the transition: $r")
+            upsertNote(toolContext, item.id, "review-checklist", "review", "rc", actorId = "agent-r")
+            val r = completeTree(toolContext, item.id)
+            assertEquals("applied", r["outcome"]!!.jsonPrimitive.content, "WARN must still apply the transition: $r")
             val violations = r["violations"]!!.jsonArray
             assertEquals(1, violations.size, "violations: $violations")
             val entry = violations[0].jsonObject
@@ -667,16 +668,17 @@ work_item_schemas:
             val ctItem = createItem(toolContext, root, "indep-gate")
             upsertNote(toolContext, ctItem.id, "implementation-notes", "work", "impl", actorId = "agent-s")
             upsertNote(toolContext, ctItem.id, "test-manifest", "work", "tm", actorId = "agent-n")
-            val ctApplied = completeTree(toolContext, ctItem.id, trigger = "start")
-            assertTrue(ctApplied["applied"]!!.jsonPrimitive.boolean)
+            upsertNote(toolContext, ctItem.id, "review-checklist", "review", "rc", actorId = "agent-r")
+            val ctApplied = completeTree(toolContext, ctItem.id)
+            assertEquals("applied", ctApplied["outcome"]!!.jsonPrimitive.content, "complete_tree applied: $ctApplied")
             assertFalse(ctApplied.containsKey("violations"), "complete_tree applied: $ctApplied")
 
             // complete_tree failure entry, unrelated to independence (unfilled notes): no
             // violations key either -- independence is never evaluated when N itself isn't FILLED.
             val failItem = createItem(toolContext, root, "indep-gate")
-            val ctFailed = completeTree(toolContext, failItem.id, trigger = "start")
-            assertFalse(ctFailed["applied"]!!.jsonPrimitive.boolean)
-            assertFalse(ctFailed.containsKey("violations"), "complete_tree failure: $ctFailed")
+            val ctFailed = completeTree(toolContext, failItem.id)
+            assertEquals("failed", ctFailed["outcome"]!!.jsonPrimitive.content, "complete_tree failure: $ctFailed")
+            assertFalse(ctFailed["error"]!!.jsonObject["detail"]!!.jsonObject.containsKey("violations"), "complete_tree failure: $ctFailed")
         }
 
     // F2 -- the primary `complete` trigger (test-plan S7(ii)): evaluates ALL phases, including a

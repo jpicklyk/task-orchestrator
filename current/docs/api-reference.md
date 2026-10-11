@@ -21,10 +21,8 @@ errors, per-root-config-unavailable failures, and internal errors.
 
 | Tool | Category | R/W | Description |
 |---|---|---|---|
-| `items_write` | Hierarchy & CRUD | Write | Create, update, or delete WorkItems (`ops[]`, per-element results) |
+| `items_write` | Hierarchy & CRUD | Write | Create, update, or delete WorkItems, create a whole tree, or complete one (`ops[]`, per-element results) |
 | `items_read` | Hierarchy & CRUD | Read | Get one item, list a filtered page, read a note schema, search items and notes, summarize the hierarchy, or find an item's relatives; orchestration profile adds `context` (gate state or health view), `next` (ranked pick-up candidates) and `blocked` (4.0 envelope) |
-| `create_work_tree` | Hierarchy & CRUD | Write | Atomically create root + children + deps + notes |
-| `complete_tree` | Hierarchy & CRUD | Write | Batch-complete descendants in topological order |
 | `notes_write` | Notes | Write | Upsert or delete notes on work items, in batches, with version guards (4.0 envelope) |
 | `notes_read` | Notes | Read | Get one note or list an item's notes (4.0 envelope) |
 | `deps_write` | Dependencies | Write | Create or delete dependency edges, single or by pattern (linear, fan_out, fan_in) (4.0 envelope) |
@@ -40,8 +38,10 @@ errors, per-root-config-unavailable failures, and internal errors.
 
 ### items_write
 
-**Purpose.** Create, update and delete WorkItems. One `ops[]` array of flat objects, each naming its op in `op`
-(`create`, `update`, `delete`). It is the 4.0 replacement of `manage_items`, and the same call is served over MCP and
+**Purpose.** Create, update and delete WorkItems, create a whole tree, or complete one. One `ops[]` array of flat
+objects, each naming its op in `op` (`create`, `update`, `delete`, and `create_tree` and `complete_tree` in the
+orchestration profile only). It is the 4.0 replacement of `manage_items`, `create_work_tree` and `complete_tree`, and the
+same call is served over MCP and
 as `POST /api/v1/ops/items_write` (the REST routes `POST /items`, `PATCH /items/{id}` and `DELETE /items/{id}` are
 gone). The request and response follow the batch envelope: `{ "ops": [...], "atomic"?: bool, "actor"?: {...} }`
 returns `data.results[i]` (`{ok:true, ...}` or `{ok:false, error}`), a `data.summary`, and `meta.reqId`. By default
@@ -59,6 +59,8 @@ and no reparent onto it (`invalid_transition`).
 | `create` | `title` and `type` (required); `parentId`, `description`, `summary`, `statusLabel`, `priority` (`high`, `medium` default, `low`), `complexity` (1-10), `requiresVerification`, `metadata`, `tags` (array), `traits` (array), `properties` (JSON object) | `{ok, id, version}` |
 | `update` | `id` (required), `expectedVersion`; any create field except that all are optional; `clear` | `{ok, id, version, cascade?}` |
 | `delete` | `id` (required), `recursive`, `expectedVersion` | `{ok, id, deleted, cascade?}` (`deleted` counts the item and its descendants) |
+| `create_tree` | `root` (required), `parentId`, `children`, `deps`, `notes`, `createNotes`, `docRef` (see [`create_tree`](#create_tree)) | `{ok, id, version, items, deps, notes}` |
+| `complete_tree` | exactly one of `rootId` and `itemIds`; `trigger`, `includeRoot` (see [`complete_tree`](#complete_tree)) | `{ok, id?, trigger, items, summary}` |
 
 **Update semantics.** An absent or `null` field keeps its stored value. `tags: []` and `traits: []` clear those
 lists. `clear` lists optional fields to set to null: `description`, `statusLabel`, `metadata`, `complexity`,
@@ -100,6 +102,91 @@ principal of the `item.created`, `item.updated`, `item.reparented` and `item.del
   ]
 }
 ```
+
+#### `create_tree`
+
+Creates a root with its children, the dependencies between them and their notes as ONE write unit: everything commits
+or nothing does (zero items, notes, dependencies, links and events; a referenced plan document stays PENDING). It
+replaces the 3.x `create_work_tree` tool. Orchestration profile only; capability `write-items`.
+
+| Field | Meaning |
+|---|---|
+| `root` (required) | The root. Create mode: `title` and `type` required, plus any `create` field except `parentId` (`priority`, `tags` and `traits` arrays, `summary`, `description`, `statusLabel`, `complexity`, `requiresVerification`, `metadata`, `properties`) and `noteAnchors`. Attach mode: `id` (UUID or 8+ hex prefix) names an existing item that becomes the root; no root row is written and the other root fields except `noteAnchors` are ignored. |
+| `parentId` | Create mode only: the new root's parent (root depth = parent depth + 1). Not allowed with `root.id`. |
+| `children` | `[{ref, title, type, parentRef?, ...}]`: `ref` is a unique local name (`root` is reserved), `parentRef` the parent's ref (default `root`), plus the same optional fields and `noteAnchors` as the root. Any order: children are written parent before child (`TopoOrder` over the `parentRef` edges, ties in request order). |
+| `deps` | `[{from, to, type?, unblockAt?}]` between refs (`root` included): `type` `blocks` (default) or `relates_to`, `unblockAt` `queue`, `work`, `review` or `terminal` (not with `relates_to`). |
+| `notes` | `[{itemRef, key, role, body?}]`: `role` `queue`, `work` or `review`. |
+| `createNotes` | `true`: a blank note for every key of each item's resolved schema that no explicit note or anchor writes. |
+| `docRef` | `{slug, rootId?}`: the PENDING plan document `noteAnchors` cut from; `rootId` defaults to (and must equal) the tree's own project root. A `rule/` slug is rejected. |
+| `noteAnchors` (on `root` and each child) | `[{noteKey, role, anchor}]`: the document section under the heading slugged `anchor` becomes that item's note. Requires `docRef`. |
+
+Note precedence on `(item, key)`: explicit `notes` win over `noteAnchors`, anchors win over `createNotes` blanks, and
+among explicit notes (and among anchors) the last one wins. Every note goes through the
+[`notes_write`](#notes_write) write policy; under `note_limits.mode: warn` an over-`maxLength` note carries `warning`.
+The notes record the caller's actor. Anchored notes get a `derived_from` link to the document; the root adopts the
+document as the unit's last write.
+
+Result: `{ok, id, version, items, deps, notes}`. `id`/`version` are the root's (created or attached). `items` is
+`[{ref, id, depth}]`, the root first (ref `root`), then the children in insertion order. `deps` is
+`[{id, fromRef, toRef, type, unblockAt?}]` in request order; `notes` is `[{itemRef, key, role, id, warning?}]`.
+Schema decorations (`schemaMatch`, `expectedNotes`) are not returned: read them with `items_read` `select: schema`.
+
+Check order, each before any write: (1) the request's shape (`invalid_request` with element pointers, all faults at
+once: `root.id` with `parentId`, a missing `root.title` / `root.type` in create mode, a reserved or repeated child
+`ref`, an unknown `parentRef`, a `parentRef` cycle on `/children`, an unknown dep or note ref, a self dependency,
+`unblockAt` with `relates_to`, `noteAnchors` without `docRef`, a `rule/` slug); (2) scope (below); (3) the plan:
+an undeclared or blank `type` (`schema_violation`, the item service's rule), a dependency cycle (`cycle_detected`, the
+path holds item ids, the message names the ref) or restatement (`duplicate`), a note policy rejection
+(`schema_violation`, `payload_too_large`, `note_too_long`), a missing document (`not_found`, kind `document`), an
+already-adopted document (`duplicate`, kind `document`), an anchor miss (`invalid_request` on
+`/root/noteAnchors/<j>/anchor` or `/children/<i>/noteAnchors/<j>/anchor`), a `docRef.rootId` mismatch
+(`invalid_request` on `/docRef/rootId`); (4) the writes: a closed parent is `invalid_transition`, a vanished parent
+`not_found`.
+
+**Scope.** The whole tree hangs under one anchor, which is the only check: `root.id` (attach) or `parentId` must be
+admitted; a top-level root create is `forbidden` under a root scope and, under a tag scope, needs a listed tag in
+`root.tags`. A `docRef.rootId` is never looked up: it is matched against the tree's own root, so a foreign or
+unknown id is the same `invalid_request` on `/docRef/rootId`.
+
+#### `complete_tree`
+
+Applies `complete` or `cancel` to a tree or an explicit list, item by item, through the same pipeline as `advance`
+`transition` (claim ownership, dependencies, note gate, leases, cascades, unblocks). Replaces the 3.x `complete_tree`
+tool. Orchestration profile only; capability `advance`.
+
+| Field | Meaning |
+|---|---|
+| `rootId` | The descendants of this item, then the item itself last (`includeRoot`, default `true`). |
+| `itemIds` | Exactly these items. Exactly one of `rootId` and `itemIds`; an empty list is `invalid_request`. |
+| `trigger` | `complete` (default) or `cancel` (bypasses the note gate, not ownership). |
+| `includeRoot` | With `rootId`: also the root. |
+
+Items run in blocking order: `TopoOrder` over the in-set blocking edges (ties in target order; items on a cycle last),
+then the root. Per item:
+
+- already `terminal`, or terminalized by a cascade earlier in this call: `{itemId, outcome: "skipped", reason:
+  "already_terminal"}`, never gate-checked, and its dependents still run. No `error` member: an already-done item is
+  not a failure.
+- an in-set blocker failed (directly or upstream): `{itemId, outcome: "skipped", reason: "upstream_failed",
+  blockedBy: [<failed in-set ids>]}`.
+- applied: `{itemId, outcome: "applied", previousRole, newRole, statusLabel?, cascades?, unblocked?, violations?}` in
+  the `advance` `transition` shapes.
+- rejected: `{itemId, outcome: "failed", error: {code, kind, message, detail?, fix?}}`, the same catalog error
+  `advance` `transition` returns for that item (`gate_blocked`, `dependency_unmet`, `not_claim_holder`,
+  `resource_unavailable`, `invalid_transition`, `unauthenticated`). Its in-set dependents are skipped, except after
+  `invalid_transition` (the item cannot take the trigger from its role), whose dependents still run.
+
+Result: `{ok, id?, trigger, items, summary: {total, applied, skipped, failed}}` (`id` is the `rootId` when given;
+`total` is the sum of the others). All applied transitions of the element commit together, in one write unit; a
+per-item rejection is data and never rolls them back. A store fault while applying an item, or a per-root config fault
+(`unavailable`), fails the whole element and rolls it back. Errors of the element itself: `not_found`,
+`ambiguous_id`, `forbidden`, `unavailable`.
+
+**Scope.** `rootId` and every `itemIds` entry are checked (under a restricted scope an unknown or ambiguous id is
+`forbidden`), and then every collected target: a tree that is not wholly admitted is `forbidden` and nothing runs.
+
+**Idempotency.** Standard: a keyed element replays its stored result (`replayed: true`), including its per-item
+failures; resend with a new key to retry the failed items.
 
 ---
 
@@ -383,288 +470,6 @@ a `tags` array, `limit` / `cursor` with exact `page.total`, and the shapes above
 
 ---
 
-### create_work_tree
-
-**4.0 write unit.** The whole tree is ONE unit over the write services: the items root-first through the item
-command service (every placement read from the just-inserted parent's row; a `terminal` parent under `auto` lifecycle,
-given as `parentId` or as the attach-mode `root.id`, rejects the whole call with `VALIDATION_ERROR`), then the
-dependencies, the notes and, last, the `docRef` adoption. Any failure leaves zero items, notes and dependencies, and
-the document stays PENDING.
-
-**Purpose.** Atomically create a root WorkItem, optional child items, optional dependency edges
-between them, and optional blank notes — all in a single call. Eliminates the round-trips required
-when calling `items_write`, `deps_write`, and `notes_write` separately.
-
-**Attach mode.** Pass `root.id` (UUID or hex prefix of an existing item) instead of `root.title` to
-attach children, deps, and notes directly to an existing item. When `root.id` is provided, `root.title`
-is optional (ignored if both are given). The existing item is NOT re-inserted; children are created
-under it at `existing.depth + 1`. Providing both `root.id` and `parentId` is rejected with `VALIDATION_ERROR`.
-
-**When to call.** Call when materializing a planned hierarchy — one atomic call instead of per-item create sequences.
-
-**Operations.** Single operation (no `operation` parameter).
-
-#### Key Parameters
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `root` | object | Yes | Create mode: `{ title (required), type (required), priority?, tags?, traits?, summary?, description?, requiresVerification?, noteAnchors? }`. Attach mode: `{ id? (UUID or hex prefix of existing item), title? (optional when id provided), priority?, tags?, traits?, summary?, description?, requiresVerification?, noteAnchors? }`. When `id` is present, `title` is optional and ignored. `noteAnchors` is documented below alongside `docRef`. |
-| `parentId` | string (UUID) | No | Existing parent; root depth = parent.depth + 1. Cannot be combined with `root.id`. |
-| `children` | array | No | Child item specs: `[{ ref, title, type (required), parentRef?, priority?, tags?, traits?, summary?, description?, requiresVerification?, noteAnchors? }]`. A spec without a `type`, or with an undeclared one (any schema configured), fails the whole call with `VALIDATION_ERROR` naming the offending ref (`root` or the child ref) and listing the available types; nothing is written. Attach mode does not re-validate the existing root's type. `ref` is a local name used to wire `deps`, `notes`, and other children's `parentRef`. `parentRef` (another child's `ref` or `"root"`, default `"root"`) sets the child's parent — nesting is expressed via `parentRef` only; a nested `children` key inside a child spec is rejected. |
-| `deps` | array | No | Dependency specs: `[{ from: ref, to: ref, type?: BLOCKS\|IS_BLOCKED_BY\|RELATES_TO, unblockAt?: queue\|work\|review\|terminal }]`. Use `"root"` to reference the root item. `IS_BLOCKED_BY` is an input alias: it is stored as `BLOCKS` with the refs swapped, and the response `dependencies` carry that stored form. A restated pair (for example `x BLOCKS y` plus `y IS_BLOCKED_BY x`) is rejected as a duplicate and a cycle as `Circular dependency detected involving ref ...`; nothing is written. |
-| `createNotes` | boolean | No | Auto-create blank notes for each item from its resolved schema (looked up by `type` first, then by `tags`). Default: false. |
-| `notes` | array | No | Notes to create with bodies: `[{ itemRef (required, "root" or child ref), key (required), role (required: queue\|work\|review), body? (defaults to empty string) }]`. Explicit notes win over `noteAnchors` AND `createNotes=true` blanks per `(itemRef, key)`. **Strict role enforcement:** when an explicit note's `key` is declared in the resolved schema for the target item, the note's `role` must equal the schema role; mismatch returns `VALIDATION_ERROR`. Off-schema keys and items without a schema are unconstrained. |
-| `docRef` | object | No | Materialize-from-document source: `{ rootId? (defaults to the created/attached root's own rootId — `rootItem.rootId ?: rootItem.id`; validated for consistency if given, UUID or hex prefix), slug (required; a slug starting with `rule/` is rejected — rule documents are served by the [`config`](#config) tool's `rules` op and adopting one would freeze it) }`. References a plan document written with [`docs_write`](#docs_write) `upsert`. Required whenever any item spec's `noteAnchors` is used; valid (adopts with zero sourced notes) even with none. |
-| `actor` | object | No | Actor claim `{ id, kind: orchestrator\|subagent\|user\|external, parent?, proof? }`. Used for idempotency keying AND propagated as the actor attribution on every persisted note (explicit, `noteAnchors`-sourced, and `createNotes=true` blanks alike). |
-| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). Requires `actor` to function. |
-
-**Note write policy.** Explicit `notes` and `noteAnchors`-sourced notes follow the same policy as [`notes_write`](#notes_write) (see its **Note write policy**). `role` may be given in any letter case (stored lowercase). Unlike `notes_write`, which fails one element at a time, a policy rejection here fails the WHOLE `create_work_tree` call: an over-cap body (65536 UTF-8 bytes), a schema-role mismatch, or - under `note_limits.mode: reject` - a body over the schema `maxLength` returns `VALIDATION_ERROR` with zero items created and the plan document not adopted. Under `note_limits.mode: warn` the call succeeds and the affected note's entry in the `notes` response array carries a `warning` field naming the limit and actual length; for a duplicate `(itemRef, key)` the warning follows the last-wins note. `createNotes=true` blanks are built from the schema entry with an empty body and do not go through the policy.
-
-`root.priority` and each `children[i].priority` must be one of `high`, `medium`, `low` (case-insensitive); a blank or absent value defaults to `medium`, the same rule `items_write` applies. An unrecognized non-blank value (e.g. `"urgent"`) is rejected with a validation error, not silently coerced to `medium`.
-
-Nesting depth is unbounded. The root item can be at any depth; each child's depth is its resolved parent's depth + 1 — root.depth + 1 for direct children (default `parentRef: "root"`), deeper when nested under another child via `parentRef`. In attach mode, children derive depth from the existing root's depth. `parentRef` cycles are rejected at validation; cycle protection is also enforced at the database level. Descendant traversal (e.g. cascade delete, re-parent depth recompute) is additionally bounded to 1000 levels and fails with a data error on a cycle or a subtree at/beyond the bound, instead of hanging or silently truncating; subtree search instead bounds-and-continues, excluding anything past the cap.
-
-#### Materialize-from-document (`docRef` + `noteAnchors`)
-
-`docRef` plus one or more item specs' `noteAnchors: [{ noteKey (required), role (required: queue|work|review), anchor (required) }]` source note bodies from a stashed [plan document](#docs_write) instead of inlining them. `noteAnchors` may appear on `root` and/or any `children` entry.
-
-**Anchor resolution.** Each anchor is sliced out of the document body by heading: a deterministic kebab-case slug per markdown heading (any level `#`–`######`), duplicates disambiguated with `-2`, `-3`, ... suffixes in document order. A section runs from its heading line through the line before the next heading of the same or higher level (or the end of the document) — sub-headings stay part of their parent's slice.
-
-**Atomicity.** Resolution and slicing happen before any database write; an anchor miss, an unresolved document, a `docRef.rootId` mismatch, or an already-adopted document fails the WHOLE call with `VALIDATION_ERROR`/`RESOURCE_NOT_FOUND` — no items, dependencies, or notes are created. On success, the document is marked adopted (`adopted_by_item_id` = the created/attached root's id) in the SAME database transaction as the item/dependency/note inserts, so a concurrent adoption race also rolls back the whole tree rather than double-materializing.
-
-**Precedence** on `(itemRef, key)` collision: explicit `notes` win over `noteAnchors`; `noteAnchors` win over `createNotes=true` blanks.
-
-**Example.**
-
-```json
-{
-  "root": {
-    "title": "Feature X",
-    "noteAnchors": [{ "noteKey": "feature-summary", "role": "queue", "anchor": "overview" }]
-  },
-  "parentId": "<project-root-uuid>",
-  "docRef": { "slug": "my-plan" },
-  "children": [
-    {
-      "ref": "t1",
-      "title": "Task 1",
-      "noteAnchors": [{ "noteKey": "task-scope", "role": "queue", "anchor": "task-1" }]
-    }
-  ]
-}
-```
-
-Without `docRef`, `create_work_tree` behavior is byte-identical to calls that predate this feature.
-
-**Example.**
-
-```json
-{
-  "root": { "title": "Authentication Feature", "priority": "high", "tags": "feature" },
-  "children": [
-    { "ref": "t1", "title": "Design login flow", "priority": "high" },
-    { "ref": "t2", "title": "Implement JWT handler", "priority": "high" },
-    { "ref": "t3", "title": "Write integration tests", "priority": "medium" }
-  ],
-  "deps": [
-    { "from": "t1", "to": "t2", "type": "BLOCKS" },
-    { "from": "t2", "to": "t3", "type": "BLOCKS" }
-  ],
-  "createNotes": false
-}
-```
-
-**Response.**
-
-```json
-{
-  "root": {
-    "id": "uuid", "title": "Authentication Feature", "role": "queue", "depth": 0, "tags": "feature",
-    "schemaMatch": true, "expectedNotes": [{ "key": "acceptance-criteria", "role": "queue", "required": true, "exists": false }]
-  },
-  "children": [
-    { "ref": "t1", "id": "uuid", "title": "Design login flow", "role": "queue", "depth": 1, "schemaMatch": false, "expectedNotes": [] },
-    { "ref": "t2", "id": "uuid", "title": "Implement JWT handler", "role": "queue", "depth": 1, "schemaMatch": false, "expectedNotes": [] }
-  ],
-  "dependencies": [
-    { "id": "uuid", "fromRef": "t1", "toRef": "t2", "type": "BLOCKS", "unblockAt": "work" }
-  ],
-  "notes": []
-}
-```
-
-`tags` on items and `unblockAt` on dependencies are included when set; when not set, the field is omitted (not null). `schemaMatch` and `expectedNotes` are always present; `expectedNotes` is `[]` when no schema matches. When `createNotes=true` and an item's resolved schema (matched by `type` first, then `tags`) declares notes, the `notes` array is populated with created note entries:
-
-```json
-"notes": [
-  { "itemRef": "t1", "key": "acceptance-criteria", "role": "queue", "id": "uuid" },
-  { "itemRef": "t1", "key": "done-criteria", "role": "work", "id": "uuid" }
-]
-```
-
-When `createNotes=false` (default) or no items match a schema, `notes` is `[]`.
-
-**Inline notes example.** Use the `notes` parameter to materialize a fully-populated graph in one call:
-
-```json
-{
-  "root": {"title": "Feature X"},
-  "children": [{"ref": "t1", "title": "Task 1"}],
-  "notes": [
-    {"itemRef": "root", "key": "feature-summary", "role": "queue", "body": "Full plan..."},
-    {"itemRef": "t1", "key": "task-scope", "role": "queue", "body": "Build the thing"}
-  ]
-}
-```
-
-When both `notes` and `createNotes: true` are provided, explicit `notes` entries win per `(itemRef, key)` — schema-required keys not covered by `notes` are added with empty bodies by `createNotes`, while explicit off-schema keys are persisted as-is.
-
-**Strict role enforcement.** If an explicit note's `key` matches a key declared in the resolved schema for its target item, the note's `role` MUST equal the schema's role. Mismatch returns `VALIDATION_ERROR` with a message naming the index, key, expected role, and submitted role. The DB enforces `UNIQUE(itemId, key)`, so allowing a role mismatch would silently leave the gate-required role unfilled and break later `advance_item` transitions. Off-schema keys (not declared by the schema) and items with no schema match remain unconstrained — they may use any valid role.
-
----
-
-### complete_tree
-
-**Purpose.** Batch-complete (or cancel) all descendants of a root item, or an explicit list of
-items, in topological dependency order. Each item is advanced through the SAME `AdvanceService`
-pipeline as `advance_item` — ownership check → resolve → validate dependencies → required-note
-gate → apply → cascade detection → unblock detection — run per item, one item at a time in
-topological order, so claim ownership and dependency validation apply here exactly as they do on a
-single `advance_item` call. (The resource-lease gate never fires here: `complete`/`cancel` always
-target TERMINAL, and leases are acquired only on work entry; any leases the item holds are released
-on the way out.) If required notes are missing
-(and the trigger doesn't bypass the gate — see below), that item fails and its downstream
-dependents within the set are skipped.
-
-**Ordering is blocker-first, direction-aware.** For an in-set `BLOCKS` edge (`A BLOCKS B`), `A` is
-ordered before `B`. Stored dependencies are always `BLOCKS` from the blocker to the blocked item
-(`IS_BLOCKED_BY` is an input alias, normalized on write), so this is the single blocker-first rule.
-Among items with no ordering constraint between them, the order of the target set is kept. `RELATES_TO` edges carry no blocking semantics: they impose no ordering constraint and never
-cause a dependent to be skipped. A blocker item **outside** the target set is not part of this
-in-set graph at all — it produces no ordering here; the in-set item that depends on it instead fails
-`AdvanceService`'s dependency-validation check (see "Dependency-validation-failure fields" below),
-and that failure skips its own in-set dependents same as a gate failure would.
-
-**When to call.** Call when closing out a finished hierarchy — one atomic call instead of per-item advance sequences.
-
-**Operations.** Single operation (no `operation` parameter).
-
-#### Key Parameters
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `rootId` | string (UUID) | Conditionally | Complete the root item and all its descendants (default). Use `includeRoot: false` to process only descendants. Mutually exclusive with `itemIds`. |
-| `itemIds` | array | Conditionally | Explicit list of item UUIDs to complete. Mutually exclusive with `rootId`. |
-| `trigger` | string | No | `complete` (default) or `cancel`. See gate enforcement note below. |
-| `includeRoot` | boolean | No | When using `rootId`, whether to include the root item itself (default: true). Ignored when `itemIds` is used. |
-| `actor` | object | No | Actor claim `{ id, kind: orchestrator\|subagent\|user\|external, parent?, proof? }`. Used with `requestId` as the idempotency key. |
-| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). Requires `actor` to function. |
-
-Exactly one of `rootId` or `itemIds` must be provided.
-
-**Gate enforcement and `trigger`:** When `trigger="complete"`, the required-note gate applies —
-items whose schema resolves (via `type`, tag match, or default fallback) must have all required
-notes filled before completing; items that fail gating are recorded as `gateErrors` and their
-dependents within the set are skipped. When `trigger="cancel"`, the **note gate** is bypassed — all
-items in the set are cancelled regardless of note state — but claim ownership is **not** bypassed
-by `cancel`; an item held by another agent's claim is still rejected the same way it would be under
-`complete`.
-
-**Example.**
-
-```json
-{ "rootId": "550e8400-e29b-41d4-a716-446655440000", "trigger": "complete" }
-```
-
-**Response.**
-
-```json
-{
-  "results": [
-    {
-      "itemId": "uuid", "title": "Design login flow", "applied": true, "trigger": "complete",
-      "statusLabel": "done", "previousRole": "review", "newRole": "terminal",
-      "cascadeEvents": [], "unblockedItems": []
-    },
-    { "itemId": "uuid", "title": "Implement handler", "applied": false, "gateErrors": ["missing: done-criteria"] },
-    { "itemId": "uuid", "title": "Write tests", "applied": false, "skipped": true, "skippedReason": "dependency gate failed" },
-    {
-      "itemId": "uuid", "title": "Deploy", "applied": false, "skipped": true,
-      "skippedReason": "Item is claimed by another agent", "errorCode": "not_claim_holder", "errorKind": "permanent"
-    },
-    {
-      "itemId": "uuid", "title": "Ship release notes", "applied": false,
-      "error": "Blocked by dependency", "blockers": [{ "fromItemId": "uuid", "currentRole": "queue", "requiredRole": "terminal" }]
-    }
-  ],
-  "summary": { "total": 5, "completed": 1, "skipped": 2, "gateFailures": 2 }
-}
-```
-
-`statusLabel` is included on successfully transitioned items when the item ends up with a status label (config-driven via `status_labels`; defaults: `"done"` for `complete`, `"cancelled"` for `cancel`); omitted otherwise.
-
-**Applied-entry fields (`applied: true`):** in addition to `itemId`, `title`, `trigger`, and
-`statusLabel`, a successfully-applied entry now carries `previousRole`, `newRole`, `cascadeEvents`,
-and `unblockedItems` — the same cascade/unblock-detection fields `advance_item` returns for a single
-transition, since every item advances through the identical `AdvanceService` pipeline. `cascadeEvents`
-is empty when nothing cascaded from this item's completion. An item whose completion was already
-implied by an earlier cascade in this same batch (e.g. completing a child cascaded the root to
-`TERMINAL` before the root's own entry in `itemIds`/`rootId` was processed) is reported as already
-terminal rather than re-applied — it is not double-counted and produces no duplicate audit row.
-
-**Independence (A2).** An applied entry (and each of its `cascadeEvents` entries) gains `violations`
-(array, same `{key, seat?, constraint, conflictingSeat?, waived?}` shape as `advance_item`'s
-`violations`) — present only when the list is non-empty (omitted, not `[]`, when independence
-checking applies but finds nothing, and also omitted when independence mode is `off` or the item's
-target schema declares no `independent_of`); populated in `warn` mode too, including on a plain
-(non-cascaded) `complete_tree` applied entry. A `GateBlocked` entry (`applied: false`, `gateErrors`
-present) also gains `violations` under the same non-empty-only rule alongside
-`gateErrors`/`missingNotes` — the item may be gate-failed by missing notes, a non-waived
-`reject`-mode violation, or both; either way this item's in-set dependents are skipped the same as
-any other gate failure. See
-[`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2)
-→ "Independence (A2)".
-
-**Rejected-entry fields (`applied: false`, ownership/policy rejection):** a rejection from claim
-ownership, policy, or the underlying `AdvanceService` apply step carries the SAME error shape
-`advance_item` uses — `skipped: true`, `skippedReason` set to the human-readable message, `errorCode`
-set to the `advance_item` error code (e.g. `"not_claim_holder"`, `"rejected_by_policy"`), plus
-whichever of `errorKind`, `errorCode`, `retryAfterMs`, `contendedItemId`, and `contendedResources`
-apply to that failure — see [Error Envelope](#error-envelope) for the full field set. These
-rejections skip in-set dependents exactly like a gate failure does.
-
-**Per-root config unavailable (`applied: false`, `errorCode: "config_unavailable"`):** when an
-item's per-root config cannot be read (a transient database error) inside its advance's unit of work,
-where the last-known-good fallback is disabled (see the [`config`](#config) tool's last-known-good note), that item's entry
-carries `skipped: true`, `errorKind: "transient"`, `errorCode: "config_unavailable"` — no
-`retryAfterMs` — and counts as a rejection (`skipped`, not `gateFailures`); its in-set dependents are
-skipped exactly like any other rejection. The rest of the batch (siblings, and items whose own root's
-config IS readable) is unaffected.
-
-**Dependency-validation-failure fields (`applied: false`, no `skipped` key):** an item rejected
-because a blocker outside the target set is still non-terminal (`AdvanceService`'s
-`ValidationFailed` outcome) reports `error` (a message string) and a `blockers` array — the same
-element shape `advance_item` uses for its `422 transition_blocked`/`details.blockers` — instead of
-`skipped`/`skippedReason`. It counts in `gateFailures`, not `skipped` (grouped with required-note
-gate failures so the two `summary` counters stay consistent — both represent "this item's own
-check failed", as opposed to `skipped`, which represents "an upstream failure in this batch reached
-this item"). Like a required-note gate failure, a dependency-validation failure skips its in-set
-dependents.
-
-**`skippedReason` values (entries that DO carry a `skipped` key):** Items can be skipped for:
-- `"dependency gate failed"` — a blocker item in the same target set failed its gate check or failed to apply, and this item is a downstream dependent.
-- `"Cannot transition"` (or a specific error message) — a **resolution failure**: the item itself could not be resolved for transition (e.g., it is already terminal or the role is incompatible with the trigger). Unlike every other non-gate rejection, a resolution failure does NOT skip this item's in-set dependents.
-- The human-readable message of an `advance_item` rejection (its code is in `errorCode` — see "Rejected-entry fields" above) — claim ownership or policy rejections; these DO skip in-set dependents.
-
-**`summary` fields:** `total` = completed + skipped + gateFailures. `completed` = items successfully transitioned. `skipped` = items skipped due to upstream gate/apply failures, ownership/policy rejections, or items already terminal. `gateFailures` = items that failed the required-note gate OR a dependency-validation check (a still-non-terminal blocker outside the target set); their downstream dependents are counted in `skipped`.
-
-**Audit attribution:** the top-level `actor` (see Key Parameters) is parsed once per call and
-threaded into every item's `AdvanceService.advance(...)` call, so each resulting role-transition
-audit row carries real actor attribution instead of a null actor. An actor that fails to parse
-fails the whole `complete_tree` call before any item is touched.
-
----
-
 ## Category: Notes
 
 ### notes_read
@@ -728,7 +533,7 @@ with `ok`, and `207 partial_failure` over REST when some elements failed). Both 
   `POST /api/v1/ops/notes_write` an element that sets it fails `invalid_request` (`/bodyFromFile`) and no
   file is read; REST callers send the text inline in `body`.
 - **Note write policy.** One service (`NoteCommandService`) applies the same policy to `notes_write`
-  and `create_work_tree` notes, in this order: (1) `role` is lowercased and must be `queue`, `work` or
+  and `items_write` `create_tree` notes, in this order: (1) `role` is lowercased and must be `queue`, `work` or
   `review`; (2) the body is capped at 65536 UTF-8 bytes in every `note_limits` mode
   (`payload_too_large`); (3) CRLF becomes LF (a lone CR is kept); (4) when the item's resolved schema
   declares the key, the role must equal the schema role (`schema_violation`); (5) the schema
@@ -1007,7 +812,7 @@ work (a write's or a preview's read unit, and every `config` op runs in one) nev
 closed with a transient `unavailable`; with a cold cache the same holds everywhere. This is distinct from an explicit
 absence (no config version, or a reset head), which evicts any cached entry and falls through to the server config. A
 head whose stored canonical form is missing or undecodable fails closed (`config_invalid`) and never falls through.
-`advance`, `complete_tree` and REST `GET /items/{id}/gate` read the item's config inside their unit the same way.
+`advance`, `items_write` `create_tree` and `complete_tree`, and the `items_read` `context` preview read the item's config inside their unit the same way.
 
 **Which sections a per-root document may carry.** Only a subset of top-level `configYaml` keys belong in a
 per-root document; any other key is rejected, so a push is never silently partial:
@@ -1089,7 +894,7 @@ on every select that names one document and an optional filter on `list`. A `roo
 
 - `version` and `ifVersion` together are `invalid_request`; a missing document or version is `not_found`. Versions are integers, 1 for the first write.
 - `contentHash` is the SHA-256 hex of the LF-normalized body's UTF-8 bytes. For a `rule` document it is the `rulesVersion` that the [`config`](#config) tool's `rules` op reports.
-- `list` leaves archived documents out unless `includeArchived` is true. `adoptedBy` is the item that adopted a plan (`create_work_tree` with a `docRef`); it is omitted when the caller's scope does not admit that item.
+- `list` leaves archived documents out unless `includeArchived` is true. `adoptedBy` is the item that adopted a plan (`items_write` `create_tree` with a `docRef`); it is omitted when the caller's scope does not admit that item.
 - `links` returns the links the document makes (`references` parsed from `[[slug]]` in its body, `attached`, `adopted_by`) and, with `incoming`, the links that point at it (a `derived_from` note, another document's reference). A link end is `{kind, id}` with `kind` `item`, `note` or `document`; a reference to a document that does not exist yet has no `to` and carries `toRef`. A link whose item or note end is outside the caller's scope, or no longer exists, is left out before paging and is not counted in `page.total`.
 - `actor` on a version is shown only to a caller allowed to see attribution (the same rule as `notes_read`).
 - Paging follows the envelope's list rules (amendment U22).
@@ -1150,40 +955,19 @@ scope on `rootId`; a forbidden element is never executed and records no event.
 ```
 
 `manage_plan_documents` and the REST `/roots/{rootId}/plans` routes are removed. A plan's 3.x `status` (`pending` / `adopted`) is now `adoptedBy` on a
-document, and a write over an adopted plan answers `duplicate` instead of the 3.x conflict. `create_work_tree` with a `docRef` still adopts a stashed plan.
+document, and a write over an adopted plan answers `duplicate` instead of the 3.x conflict. `items_write` `create_tree` with a `docRef` still adopts a stashed plan.
 
 ---
 
 ## Idempotency
 
-The mutating 3.x tools `create_work_tree` and `complete_tree` support `requestId: UUID` for idempotency. The 4.0 write tools (`items_write`, `notes_write`, `deps_write`, `advance`) take no `requestId`: each `ops[]` element may carry an `idempotencyKey` (needs an `actor`), recorded per `(principal, tool, key)` with the same 24-hour record and replay rules; see [items_write](#items_write), [notes_write](#notes_write), [deps_write](#deps_write) and [advance](#advance).
-
-**`requestId` is optional.** `create_work_tree` and `complete_tree` serve both orchestrator-mode (single dispatcher, no idempotency needed) and fleet-mode (idempotency desired) callers. Omitting `requestId` (or the `actor` that identifies the principal) skips idempotency entirely — execution is exactly as before. When present, `requestId` must be a valid UUID — a malformed value is rejected at validation (see Constraints below), not silently ignored.
-
-**How it works.** With a `requestId` and a trusted `actor`, the server keys the call (element `0`: both tools are atomic or single calls) as `"<requestId>:<index>"` under the tool and operation (`mcp.<tool>[.<operation>]`). The element runs in one transaction together with its record, so a record exists only if the element's effects committed. A record lives for 24 hours, is stored in the database (it survives restarts and is shared by every server process on it), and is scoped to the trusted principal id: the actor id after the server's actor policy is applied, which is the self-reported id when the actor is unverified, and always under `degraded_mode_policy: accept-self-reported` (see below).
-
-- **Same key, same element → replayed.** The stored result is returned with `"replayed": true` on that element (`data.replayed: true` for an atomic or single-element tool) and the element is **not** re-executed. Batch counts are recomputed from the element results.
-- **Same key, different element → `idempotency_mismatch`.** The element fails with `errorCode` `idempotency_mismatch` and nothing is executed. The comparison is a SHA-256 of the canonical request (sorted keys, no whitespace); the shared call parameters count too, and an `actor.proof` does not.
-- **Config-derived decorations are recomputed, never stored:** `schemaMatch` and `expectedNotes` on a created item reflect the config at replay time.
-
-**What is recorded.** Only a result that committed, and a payload rejection that depends on the payload alone (an element that is not a JSON object), is recorded. A failure that depends on state or is transient — `gate_blocked`, a missing item, a config or database fault, any other validation failure — rolls the element back and is **not** recorded, so a retry with the same `requestId` runs it again. This is the retry rule: **a stored success replays for 24 hours; a state or transient failure re-executes on retry with the same `requestId`.** (`complete_tree` is recorded only when every item succeeded; a batch whose elements partly failed re-runs just those on retry because the elements that succeeded replay.)
-
-**Constraints:**
-- For `create_work_tree` and `complete_tree`, the top-level `actor.id` is the principal. (Implementation note: these tools extract actor from the request-level field, not per-item fields.)
-- `create_work_tree` and `complete_tree` are atomic or single calls: element `0` is the whole call. `complete_tree` opens a unit per item, so concurrent callers with the same key may both run; the call converges because already-terminal items are skipped.
-- A non-UUID `requestId` string is rejected at validation on every one of these tools. There is no silent-ignore path.
-
-**Usage.** Generate a fresh UUID per logical operation:
-
-```json
-{
-  "root": { "type": "task", "title": "Write tests" },
-  "actor": { "id": "agent-1", "kind": "subagent" },
-  "requestId": "e3b0c442-98fc-1c14-9afb-f4c8996fb924"
-}
-```
-
-Retry the same call with the same `requestId` whenever the outcome is unknown or a transient failure came back: elements that already succeeded replay, the rest run again. Use a **new** `requestId` for a different payload.
+The write tools (`items_write`, `notes_write`, `deps_write`, `advance`) take no `requestId`: each `ops[]` element may
+carry an `idempotencyKey` (needs an `actor`), recorded per `(principal, tool, key)` for 24 hours. A repeated key with
+the same element replays the stored result with `replayed: true`; the same key with a different element is
+`idempotency_mismatch`. Only an element that committed is recorded, so a failed element re-runs on retry with the same
+key. `items_write` `create_tree` and `complete_tree` follow this rule like every other op: one element is one unit and
+one record (the 3.x `requestId` of `create_work_tree` and `complete_tree` left with those tools). See
+[items_write](#items_write), [notes_write](#notes_write), [deps_write](#deps_write) and [advance](#advance).
 
 ---
 
@@ -1217,7 +1001,7 @@ error catalog code that classifies the failure; the 3.x `code` strings and messa
 }
 ```
 
-A per-transition failure of `advance_item` (and a per-item failure of `complete_tree`) puts the same
+A per-transition failure of `advance_item` puts the same
 fields on the element, with `errorCode`/`errorKind` in place of `code`/`kind`, and adds `retryAfterMs`
 or `contendedItemId` where they apply:
 
@@ -1234,8 +1018,7 @@ or `contendedItemId` where they apply:
 }
 ```
 
-**Per-element failure entries.** A failed element of a batch call (every `complete_tree` item that was
-not applied, including a skipped dependent and an already-terminal item) carries `errorCode` and
+**Per-element failure entries.** A failed element of a batch call carries `errorCode` and
 `errorKind` next to `error`. `errorCode` is the error catalog's wire code (`invalid_request`,
 `not_found`, `ambiguous_id`, `version_conflict`, `duplicate`, `cycle_detected`, `idempotency_mismatch`,
 `note_too_long`, `payload_too_large`, `invalid_transition`, `dependency_unmet`, `internal`, ...); an
@@ -1295,13 +1078,13 @@ root to serve instead — see the [`config`](#config) tool's last-known-good not
 cache this falls back to. A read made inside a unit of work (an advance, and the `canAdvance` preview)
 has no fallback, so there it fails even when the cache is warm. `retryAfterMs` is null, per the
 `transient` kind's own-backoff rule.
-`advance_item` reports this per transition (the rest of a batch continues) and `complete_tree`
-reports it per item (`skipped: true`, outcome `REJECTED`, in-set dependents skipped); `notes_write`
+`advance_item` reports this per transition (the rest of a batch continues), `items_write` `complete_tree`
+fails its whole element (`unavailable`, every applied transition of it rolled back); `notes_write`
 reports it per element - an element whose schema/note-limits-mode resolution hits this error fails
 alone with the envelope code `unavailable` (`retryAfterMs`) and nothing stored for it, while the other
 elements of a non-atomic batch commit normally; every other tool
 fails the whole call with this envelope. A read failure resolving a RESPONSE-ONLY decoration
-(e.g. `advance_item`'s `dispatch`, `create_item`/`create_work_tree`'s `schemaMatch`/`expectedNotes`,
+(e.g. `advance_item`'s `dispatch`, `create_item`'s `schemaMatch`/`expectedNotes`,
 or `availableTraits`) on an already-committed write is never
 reported as a failure of that write — the decoration is simply omitted and a WARN is logged instead.
 

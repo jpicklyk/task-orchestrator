@@ -3,12 +3,13 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
+import io.github.jpicklyk.mcptask.current.test.itemsWrite
+import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
@@ -34,10 +35,11 @@ import kotlin.test.assertTrue
  * [io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapterTest] rather than silently
  * under- or over-counting here.
  *
- * The lifecycle: create_work_tree (root + 2 children + a blocking dep) -> get_context
- * health-check -> get_context item -> advance start (gated FAILURE — queue note unfilled) ->
+ * The lifecycle: a tree fixture (root + 2 children + a blocking dep, through the 4.0 `items_write` `create_tree`, not
+ * measured here: Q21 retired the 3.x `create_work_tree` this call used to measure) -> items_read context
+ * health view -> items_read context item -> advance start (gated FAILURE — queue note unfilled) ->
  * fill the queue note -> advance start (-> work) -> fill both work notes -> advance start (-> review) ->
- * fill the review note -> advance start (-> terminal) -> get_next_item.
+ * fill the review note -> advance start (-> terminal) -> items_read next.
  * The note fills are fixture writes (`putNote`): the note tools are budgeted by their own tests.
  * The note schema (1 queue + 2 work + 1 review notes, each with guidance text) mirrors a
  * realistic feature-task schema, per the "Reference for the flow (Python original, for shapes
@@ -46,7 +48,7 @@ import kotlin.test.assertTrue
  * BUDGET PHILOSOPHY: per-call ceilings below are measured-in-this-repo * 1.15, rounded up to
  * the nearest 50 (same policy as ToolTokenBudgetTest — see that file for the full rationale
  * on when it's OK to raise a ceiling vs. when a failure means "fix the bloat instead"). The
- * four `assertTrue(... < N ...)` hard caps are a second, independent guard: they pin the
+ * two `assertTrue(... < N ...)` hard caps are a second, independent guard: they pin the
  * *original pre-slimming* sizes from the token-efficiency audit as regression sentinels, so a
  * revert of that work fails loudly even if someone also loosened the per-call ceiling table.
  */
@@ -56,7 +58,6 @@ class LifecycleResponseBudgetTest {
 
     private lateinit var context: ToolExecutionContext
 
-    private val createWorkTreeTool = CreateWorkTreeTool()
     private val contextProbe = ItemContextProbe("context")
     private val advanceItemTool = AdvanceItemTool()
     private val nextProbe = ItemContextProbe("next")
@@ -189,7 +190,6 @@ class LifecycleResponseBudgetTest {
     // ──────────────────────────────────────────────
     private val perCallCeilings: Map<String, Int> =
         mapOf(
-            "create_work_tree" to 2400,
             "items_read(context health)" to 500,
             "items_read(context item t1)" to 950,
             "advance_item(start, gated FAILURE)" to 650,
@@ -202,9 +202,10 @@ class LifecycleResponseBudgetTest {
     @Test
     fun `full item lifecycle response sizes stay within budget`(): Unit =
         runBlocking {
-            // ── 1. create_work_tree: root (container) + 2 feature-task children + blocking dep ──
+            // ── 1. fixture: root (container) + 2 feature-task children + blocking dep (items_write create_tree) ──
             val createParams =
                 buildJsonObject {
+                    put("op", JsonPrimitive("create_tree"))
                     put(
                         "root",
                         buildJsonObject {
@@ -240,29 +241,19 @@ class LifecycleResponseBudgetTest {
                         buildJsonArray {
                             add(
                                 buildJsonObject {
-                                    put("from", JsonPrimitive("t2"))
-                                    put("to", JsonPrimitive("t1"))
-                                    put("type", JsonPrimitive("IS_BLOCKED_BY"))
+                                    put("from", JsonPrimitive("t1"))
+                                    put("to", JsonPrimitive("t2"))
+                                    put("type", JsonPrimitive("blocks"))
                                 }
                             )
                         }
                     )
                     put("createNotes", JsonPrimitive(true))
-                    put("actor", actor())
-                    put(
-                        "requestId",
-                        JsonPrimitive(
-                            java.util.UUID
-                                .randomUUID()
-                                .toString()
-                        )
-                    )
                 }
-            val createResult = measureCall("create_work_tree", createWorkTreeTool, createParams)
-            val createData = createResult["data"] as JsonObject
-            val childrenArr = createData["children"]!!.jsonArray
+            val created = context.itemsWrite(createParams, actor = actor()).okResult(0)
             val t1Id =
-                childrenArr
+                created["items"]!!
+                    .jsonArray
                     .first { it.jsonObject["ref"]!!.jsonPrimitive.content == "t1" }
                     .jsonObject["id"]!!
                     .jsonPrimitive.content
@@ -363,11 +354,6 @@ class LifecycleResponseBudgetTest {
             }
 
             // ── Hard-cap regression sentinels: original (pre-token-efficiency-work) sizes ──
-            assertTrue(
-                measured["create_work_tree"]!! < 3000,
-                "create_work_tree response is ${measured["create_work_tree"]} chars, " +
-                    "regressed toward the pre-slimming size (was 8,861 chars)"
-            )
             assertTrue(
                 measured["items_read(context item t1)"]!! < 1500,
                 "items_read(context item) response is ${measured["items_read(context item t1)"]} chars, " +
