@@ -17,12 +17,18 @@ set -euo pipefail
 base="${1:-}"
 head="${2:-}"
 
-if [ "$base" != "release/4.0" ]; then
+# An exempt call still drains stdin, so the writer (git diff in CI, under pipefail) never gets SIGPIPE.
+drain_and_pass() {
+  cat >/dev/null || true
   exit 0
+}
+
+if [ "$base" != "release/4.0" ]; then
+  drain_and_pass
 fi
 
 if [[ "$head" =~ ^4\.0/sync-main-[^[:space:]]+$ ]]; then
-  exit 0
+  drain_and_pass
 fi
 
 frozen=()
