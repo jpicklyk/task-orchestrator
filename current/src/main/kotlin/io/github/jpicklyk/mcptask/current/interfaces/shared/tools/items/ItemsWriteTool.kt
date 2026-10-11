@@ -16,7 +16,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
-import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.PersistenceFaults
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import kotlinx.serialization.SerialName

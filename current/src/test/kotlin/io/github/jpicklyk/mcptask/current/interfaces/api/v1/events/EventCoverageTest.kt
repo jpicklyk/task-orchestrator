@@ -1140,6 +1140,7 @@ class EventCoverageTest {
                     "query_rules" to arrayOf("operation" to JsonPrimitive("list"), "rootId" to JsonPrimitive(root.id.toString())),
                     "notes_read" to emptyArray(),
                     "deps_read" to emptyArray(),
+                    "items_read" to emptyArray(),
                 )
             assertEquals(READ_ONLY_TOOLS, reads.keys, "every read-only tool is exercised with VALID arguments, never a bare call")
             for ((name, params) in reads) {
@@ -1147,6 +1148,7 @@ class EventCoverageTest {
                     when (name) {
                         "notes_read" -> rig.ctx.listNotesVia(child.id)
                         "deps_read" -> rig.ctx.callTool("deps_read", depsList(child.id))
+                        "items_read" -> rig.ctx.callTool("items_read", itemsGet(child.id))
                         else -> rig.call(tools.getValue(name), *params)
                     }
                 assertTrue(
@@ -1205,6 +1207,7 @@ class EventCoverageTest {
                 "query_rules",
                 "notes_read",
                 "deps_read",
+                "items_read",
             )
 
         /** An `advance` call starting [id] (queue -> work). */
@@ -1249,6 +1252,13 @@ class EventCoverageTest {
             buildJsonObject {
                 put("select", "list")
                 put("item", item.toString())
+            }
+
+        /** An `items_read` get of [item]. */
+        fun itemsGet(item: UUID): JsonObject =
+            buildJsonObject {
+                put("select", "get")
+                put("itemId", item.toString())
             }
     }
 }
