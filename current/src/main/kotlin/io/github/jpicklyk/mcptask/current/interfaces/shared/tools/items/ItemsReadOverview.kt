@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidFields
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
@@ -50,6 +51,7 @@ object ItemsReadOverview {
         SelectSpec.Single<Request, JsonObject>(
             name = "overview",
             doc = "A hierarchy summary: global, one item's children (itemId) or an anchor's children (anchorId).",
+            profile = ToolProfile.KNOWLEDGE,
             request = serializer<Request>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.INVALID_CURSOR),
             handler = handler@{ env, ctx, req ->

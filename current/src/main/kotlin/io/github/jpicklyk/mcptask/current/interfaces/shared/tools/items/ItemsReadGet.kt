@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTarget
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -37,6 +38,7 @@ object ItemsReadGet {
         SelectSpec.Single<Request, JsonObject>(
             name = "get",
             doc = "One item by id: the full view; fields adds timestamps or ancestors; ifVersion short-circuits an unchanged item.",
+            profile = ToolProfile.KNOWLEDGE,
             request = serializer<Request>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN),
             handler = { env, ctx, req ->

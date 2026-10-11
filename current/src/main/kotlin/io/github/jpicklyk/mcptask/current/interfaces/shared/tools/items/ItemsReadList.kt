@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidFields
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
@@ -65,6 +66,7 @@ object ItemsReadList {
         SelectSpec.Paged<Request, JsonObject>(
             name = "list",
             doc = "A filtered, sorted page of the items the caller may see, as compact views with an exact total.",
+            profile = ToolProfile.KNOWLEDGE,
             request = serializer<Request>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.INVALID_CURSOR),
             handler = handler@{ env, ctx, req ->
