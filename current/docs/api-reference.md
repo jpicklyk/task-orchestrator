@@ -22,12 +22,11 @@ errors, per-root-config-unavailable failures, and internal errors.
 | Tool | Category | R/W | Description |
 |---|---|---|---|
 | `manage_items` | Hierarchy & CRUD | Write | Create, update, or delete WorkItems |
-| `query_items` | Hierarchy & CRUD | Read | Get, search, or overview WorkItems |
+| `items_read` | Hierarchy & CRUD | Read | Get one item, list a filtered page, read a note schema, search items and notes, or summarize the hierarchy (4.0 envelope) |
 | `create_work_tree` | Hierarchy & CRUD | Write | Atomically create root + children + deps + notes |
 | `complete_tree` | Hierarchy & CRUD | Write | Batch-complete descendants in topological order |
 | `notes_write` | Notes | Write | Upsert or delete notes on work items, in batches, with version guards (4.0 envelope) |
 | `notes_read` | Notes | Read | Get one note or list an item's notes (4.0 envelope) |
-| `query_notes` | Notes | Read | FTS5-search note bodies |
 | `deps_write` | Dependencies | Write | Create or delete dependency edges, single or by pattern (linear, fan_out, fan_in) (4.0 envelope) |
 | `deps_read` | Dependencies | Read | List an item's edges by direction, or walk its blocking graph in topological order (4.0 envelope) |
 | `advance` | Workflow | Write | Phase transitions (cascade and gate enforcement) and claim ownership: ops `transition`, `claim`, `release`, `heartbeat` |
@@ -201,311 +200,130 @@ the update moved the item and that re-evaluated its old parent (see **Parent rul
 }
 ```
 
-`expectedNotes` is always present — an empty array when no schema resolves — and is keys-only: `key`, `role`, `required`, `exists` (no `description`/`guidance`/`skill`). The boolean `schemaMatch` indicates whether a note schema was resolved for the item (via `type`, tag match, or default fallback). Resolve full note text via `query_items(operation="schema", itemId=...)` (see below). Check `expectedNotes` immediately after creation to know which notes to fill before calling `advance_item(trigger="start")`. When the config defines traits, the create response also includes a top-level `availableTraits` string array naming the trait values accepted by the `traits` parameter (omitted when no traits are configured). Both full item responses (from `get`) and minimal responses (from `search` and `overview`) include `type` when it is non-null.
+`expectedNotes` is always present — an empty array when no schema resolves — and is keys-only: `key`, `role`, `required`, `exists` (no `description`/`guidance`/`skill`). The boolean `schemaMatch` indicates whether a note schema was resolved for the item (via `type`, tag match, or default fallback). Resolve full note text via `items_read(select="schema", itemId=..., fields=["guidance"])` (see below). Check `expectedNotes` immediately after creation to know which notes to fill before calling `advance_item(trigger="start")`. When the config defines traits, the create response also includes a top-level `availableTraits` string array naming the trait values accepted by the `traits` parameter (omitted when no traits are configured). Every `items_read` item view includes `type` when it is non-null.
 
 ---
 
-### query_items
+### items_read
 
-**Purpose.** Read-only queries for WorkItems: full fetch by ID, FTS5 full-text search with ranked
-snippets, filtered list search, or hierarchical overview.
+**Purpose.** Read work items: `get` one item, `list` a filtered page, read the note `schema` of a type or
+an item, full-text `search` over item content and note bodies, or an `overview` of the hierarchy. A 4.0
+envelope tool: a request is `select` plus that select's fields, and every answer is the response envelope
+(`ok`, `data` or `error`, `meta.reqId`). The same tool is served over MCP and over REST
+`POST /api/v1/ops/items_read`; `GET /items/{id}` and `GET /items/{id}/children` are thin translations to
+it (see `api-rest.md` section 9). `items_read` replaces `query_items` (`get`, `search`, `overview`,
+`schema`) and the note search of `query_notes`. Each field is documented once in the tool's own schema
+(`describe: true`).
 
-**Operations.** `get`, `search`, `overview`, `schema`
+**Selects.** `get`, `list`, `schema`, `search`, `overview`. Every select needs the `READ` capability and
+honors the caller's root and tag scope.
 
-> **BREAKING change (v3.8+):** The old LIKE-based `query` parameter (top-level on `operation=search`)
-> has been removed. All text search now goes through the FTS5-backed `search` operation with the
-> `query` field. See **FTS5 search mode** below.
+| Select | Fields | Answer (`data`) |
+|---|---|---|
+| `get` | `itemId`, `fields?`, `ifVersion?` | the full item view; with `ifVersion` equal to the stored version, `{unchanged: true, version}` |
+| `list` | `parentId?`, `ancestorId?`, `depth?`, `role?`, `priority?`, `tags?`, `traits?`, `type?`, `claimStatus?`, `createdAfter?`, `createdBefore?`, `modifiedAfter?`, `modifiedBefore?`, `roleChangedAfter?`, `roleChangedBefore?`, `sort?`, `order?`, `limit?`, `cursor?`, `fields?` | `{items: [compact view], page}` |
+| `schema` | exactly one of `type` / `itemId`; `rootId?` (with `type` only); `fields?` | the resolved schema view, or `{schemaFree: true}` |
+| `search` | `query`, `kinds?`, `matchMode?`, `itemId?`, `ancestorId?`, `role?`, `tags?`, `traits?`, `snippet?`, `explain?`, `limit?`, `cursor?` | `{items: [hit], page}` |
+| `overview` | `itemId?` or `anchorId?` (not both), `excludeTerminal?`, `includeChildren?` (global only), `limit?`, `cursor?` | global `{items, page}`; scoped `{item, childCounts, items, page}`; anchored `{anchor: {id, title}, items, page}` |
 
-#### Key Parameters — get
+**Ids.** Every id field takes a full UUID or 8 to 32 hex characters of one. A prefix that matches more than
+one item is `ambiguous_id`; no match is `not_found`. Under a restricted scope an id that matches nothing
+the caller may see is `forbidden`, never `not_found`, so scope is no existence oracle, and an ambiguous
+prefix lists only the candidates the scope admits. A target id (`get`, `schema`, the overview `itemId` and
+`anchorId`, `rootId`) outside the scope is `forbidden`. A filter id (`list` `parentId` / `ancestorId`,
+`search` `itemId` / `ancestorId`) is not scope-checked: an out-of-scope subtree simply selects nothing.
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `operation` | string | Yes | `"get"` |
-| `itemId` | string (UUID or 4+ char prefix) | Yes | Item to fetch |
-| `includeAncestors` | boolean | No | When true, each result includes an `ancestors` array (default: false) |
-| `includeTimestamps` | boolean | No | When true, includes `createdAt`, `modifiedAt`, `roleChangedAt` (default: false — absent otherwise) |
+**Item views.** One renderer serves every select. Lean defaults: a null, an empty string, an empty array and
+`requiresVerification: false` are omitted; `version` is always present; `tags` is an array (the stored
+comma-separated list split and trimmed); claim identity is never rendered.
 
-#### Key Parameters — search (FTS5 mode, when `query` is provided)
+- Full view (`get`, the scoped overview's `item`): `id`, `parentId`, `rootId` as full UUIDs, then `type`,
+  `title`, `summary`, `description`, `role`, `statusLabel`, `previousRole`, `priority`, `complexity`,
+  `depth`, `tags`, `traits`, `metadata`, `properties`, `requiresVerification`, `version`, `diagnostics`.
+- Compact view (`list` entries, overview entries, `ancestors`): `id` and `parentId` as 8-hex short ids,
+  `type`, `title`, `role`, `statusLabel`, `priority`, `depth`, `tags`, `traits`, `version`.
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `operation` | string | Yes | `"search"` |
-| `query` | string | Yes | FTS5 search terms — multiple words produce implicit AND. Special characters are auto-escaped; pass plain terms. Control characters (other than ASCII whitespace) are rejected with `VALIDATION_ERROR`. |
-| `scope` | object | No | Structural scope: `ancestorId` (UUID — subtree), `itemId` (UUID — single item), `tags` (string[] — OR-match), `role` (string — exact work-item role: queue/work/review/terminal/blocked) |
-| `matchMode` | string | No | `"auto"` (default — trigram+text tables fused via RRF), `"substring"` (trigram only, requires ≥3-char tokens), `"text"` (porter+unicode61, stemming) |
-| `snippet` | boolean | No | Include ~32-token snippet with `<mark>…</mark>` highlights (default: true) |
-| `explain` | boolean | No | Include raw FTS5 scores per hit for ranking debug (default: false) |
-| `limit` | integer | No | Max hits (default: 20, max: 100; a larger value is rejected with `VALIDATION_ERROR`, not capped) |
-| `offset` | integer | No | Skip N hits for pagination (default: 0) |
+**`fields`.** Opt-in members; a name a select does not accept is `invalid_request` on `/fields`.
+`get`: `createdAt`, `modifiedAt`, `roleChangedAt`, `ancestors`. `list`: the same plus `summary`.
+`schema`: `guidance` (per-note `guidance` is stripped unless asked for). `ancestors` is the compact chain,
+root-first: a root-scoped caller sees nothing above the first scope root in the chain, and a tag-scoped
+caller sees only ancestors carrying an allowed tag.
 
-#### Key Parameters — search (list mode, when `query` is absent)
+**Filters.** `tags` matches items with at least one of the listed tags (case-insensitive); `traits` matches
+items with at least one of the listed traits (exact). Date bounds are inclusive ISO 8601 instants; an
+inverted pair is `invalid_request`. `list` sorts by `sort` (`title`, `priority`, `complexity`, `createdAt`,
+`modifiedAt`; default `createdAt`) in `order` (`asc`, `desc`; default `desc`); the 3.x aliases are gone.
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `operation` | string | Yes | `"search"` |
-| `parentId` | string (UUID) | No | Filter by parent |
-| `ancestorId` | string (UUID or 4+ char prefix) | No | List mode only: limit to items in this item's subtree (any depth, inclusive). Mirrors `scope.ancestorId`'s semantics but for list-mode filtering; omitted = unscoped, byte-identical to prior behavior. Not used in FTS mode — use `scope.ancestorId` there. |
-| `depth` | integer | No | Filter by depth level |
-| `role` | string | No | Filter by role: `queue`, `work`, `review`, `blocked`, `terminal` |
-| `priority` | string | No | Filter: `high`, `medium`, `low` |
-| `tags` | string | No | Comma-separated tags filter (OR logic) |
-| `type` | string | No | Filter by item type (exact match) |
-| `createdAfter` | string (ISO 8601) | No | Timestamp lower bound |
-| `createdBefore` | string (ISO 8601) | No | Timestamp upper bound |
-| `modifiedAfter` | string (ISO 8601) | No | Modification lower bound |
-| `modifiedBefore` | string (ISO 8601) | No | Modification upper bound |
-| `roleChangedAfter` | string (ISO 8601) | No | Items whose role changed after this time |
-| `roleChangedBefore` | string (ISO 8601) | No | Items whose role changed before this time |
-| `sortBy` | string | No | One of: `title`, `priority`, `complexity`, `createdAt`, `modifiedAt` |
-| `sortOrder` | string | No | `asc` or `desc` (default: `desc`) |
-| `limit` | integer | No | Max results (default: 50, max: 100) |
-| `offset` | integer | No | Skip N items for pagination (default: 0) |
-| `includeAncestors` | boolean | No | Include `ancestors` array on each item (default: false) |
-| `claimStatus` | string | No | Filter by claim state: `claimed`, `unclaimed`, or `expired`. When provided, a boolean `isClaimed` is added to each result. `claimedBy` identity is never exposed here — use `get_context(itemId)` for full details. |
+**Paging.** `list`, `search` and `overview` page with `limit` and `cursor`. `list` and `overview`: `limit`
+1 to 200, default 50. `search`: 1 to 100, default 20. A `limit` outside its range is `invalid_request`; a
+`cursor` that does not decode is `invalid_cursor`. `page` is `{total, truncated, capped?, next?}` and
+follows the envelope's list rules (amendment U22): `total` is the full count on every page, `truncated` is
+true exactly when entries exist after this page, and `next` (an opaque cursor) is present exactly when
+`truncated`, so following `next` until it is absent always terminates. A `list` page and its `total` are
+read in one read unit, with the scope applied before paging.
 
-#### Key Parameters — overview
+**`get`.** The scope check runs before any `not_found` or `ifVersion` answer. `ifVersion` lets a client
+holding a version skip the body: when it equals the stored version the answer is
+`{unchanged: true, version}`.
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `operation` | string | Yes | `"overview"` |
-| `itemId` | string (UUID) | No | Scope overview to a specific item (scoped mode); omit for global root overview. Mutually exclusive with `anchorId`. |
-| `anchorId` | string (UUID or 4+ char prefix) | No | Anchored mode: renders this item's DIRECT CHILDREN as the roots set, each with a full-subtree role-count roll-up. Mutually exclusive with `itemId` — supplying both is a validation error. |
-| `includeChildren` | boolean | No | Include direct children on each root item (global mode only, default: false) |
-| `limit` | integer | No | Max root items (default: 50; global and anchored modes only) |
-| `offset` | integer | No | Skip N root items for pagination (default: 0; global and anchored modes only — scoped overview always returns all direct children, unpaginated) |
-| `excludeTerminal` | boolean | No | Default false. Global mode: drop terminal-role roots from `items` at the SQL level before their children/counts are even fetched, and `total`/`truncated` reflect the filtered set (roots themselves are not retained even when they still have non-terminal descendants). When `includeChildren` is also set, each root's `children` array applies the same retention rule as anchored/scoped modes below. Anchored and scoped modes: drop terminal-role items from the `items`/`children` array, **except** a terminal-role item that still has non-terminal descendants, which is retained (it represents active work parked under a done container). The scoped parent is always returned regardless of its own role, and `childCounts` stays unfiltered. |
+**`schema`.** The `type` path resolves the base schema of that type, layered over `rootId`'s per-root config
+when given (the `schema_resolution` mode decides the order; global-only when the root has no pushed
+config). The `itemId` path resolves the item's fully trait-merged schema over its own `rootId`. The view is
+`{type, configFingerprint, configSource, notes: [{key, role, required, description, guidance?, skill?,
+maxLength?, seat?, independentOf?}], dispatch?, resources?, seats?, dispatchBySeat?, features}`. Seats,
+dispatch and the type-path vs item-path difference are described in
+[`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension).
+No matching schema is not an error: the answer is `{schemaFree: true}`. Giving both or neither of `type`
+and `itemId`, or `rootId` without `type`, is `invalid_request`.
 
-Global and anchored overview reject `limit < 1` with the same validation error as `search`'s
-limit floor (`"limit must be at least 1"`). Scoped overview (`itemId` set) ignores `limit`
-entirely, unchanged.
+**Server feature advertisement.** `features` lists the optional-response capabilities this server can serve
+(`seats`, `dispatchBySeat`, `independent_of`, `rules`), unconditionally, whatever the resolved config
+declares, so a client can tell an old server from a config that declares no seats. `features` also appears
+on REST `GET /api/v1/info` and the `.well-known` service descriptor (see `api-rest.md`). `rules` advertises
+per-root rule text served by [`query_rules`](#query_rules) and `GET /api/v1/roots/{rootId}/rules[/{key}]`.
 
-#### Key Parameters — schema
+**`search`.** Ranked full-text hits through the shared search service. `kinds` picks the content: `item`
+(title, summary, description) and/or `note` (bodies); default both, fused in one ranking; an empty `kinds`
+is `invalid_request`. `query` terms must all match and are matched literally (special characters are
+escaped); a query the search core rejects (for example a control character other than ASCII whitespace) is
+`invalid_request` on `/query`. `matchMode` is `auto` (default: the trigram and the stemmed tables fused by
+RRF), `substring` (trigram only, terms of 3 or more characters) or `text` (stemmed). `itemId` keeps only
+that item's own content; `ancestorId` its subtree; `role`, `tags` and `traits` filter on the item that owns
+the content. The caller's scope filters candidates before ranking and capping, so a restricted token gets a
+full page of in-scope hits. A hit is `{kind, itemId, noteKey?, title?, field, snippet?, score, matchedIn,
+explain?}`: `kind` is `item` or `note`, `itemId` is the 8-hex short id, `noteKey` is set on note hits,
+`title` is the owning item's title, `field` is the field holding the match (`title` or `summary`, `title`
+when both do, `body` for a note), `snippet` (default on) carries `<mark>` highlights, `score` is the fused
+RRF value (higher is more relevant), and `explain` (default off) adds `{trigramRank?, textRank?, rrfK}`.
+`page.total` is the size of the capped hit list (at most 100); `page.capped` is true when more matches
+existed than the cap: refine the query or narrow the filters.
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `operation` | string | Yes | `"schema"` |
-| `type` | string | Exactly one of `type`/`itemId` | Schema type identifier — direct lookup in `work_item_schemas` |
-| `itemId` | string (UUID or 4+ char prefix) | Exactly one of `type`/`itemId` | Resolves the item's schema via the standard type-first/tag-fallback/trait-merge logic, layered per-root-then-global using the item's own `rootId` |
-| `rootId` | string (UUID or 4+ char prefix) | No | schema operation with `type` only: project root WorkItem UUID or hex prefix (4+ chars). Resolves `type` over that root's per-root config and the global config in the order its schema_resolution mode sets (absent/legacy: per-root type -> per-root "default" -> global type -> global "default"; layered: per-root type -> global type -> per-root "default" -> global "default"; isolated: per-root only). Global-only when the root has no pushed config. Ignored when `itemId` is used instead (the item's own rootId is applied automatically). |
+**`overview`.** Three modes:
 
-**Response (schema).**
+- Global (no id): the parentless items the caller may see, newest first, each a compact view with direct
+  `childCounts` and `claimSummary` (`{active, expired, unclaimed}`, counts only, over its direct children);
+  `includeChildren` adds each entry's direct `children`, with the same enrichment.
+- Scoped (`itemId`): the item's full view in `item`, its direct `childCounts`, and a page of its children.
+- Anchored (`anchorId`): `anchor: {id, title}` and a page of the anchor's children, each with
+  full-subtree role counts (descendants at any depth).
 
-```json
-{
-  "type": "feature-implementation",
-  "configFingerprint": "a1b2c3d4",
-  "configSource": "global",
-  "notes": [
-    { "key": "feature-summary", "role": "queue", "required": true, "description": "...", "guidance": "...", "skill": "spec-quality", "maxLength": 4000 },
-    { "key": "implementation-notes", "role": "work", "required": true, "description": "..." }
-  ],
-  "dispatch": {
-    "work": { "agent": "task-orchestrator:implementer", "effort": "medium" },
-    "review": { "agent": "task-orchestrator:reviewer", "effort": "high" }
-  },
-  "resources": [
-    { "key": "staging-db", "mode": "exclusive", "ttlSeconds": 1800 }
-  ],
-  "seats": [
-    { "name": "planner", "phase": "queue" },
-    { "name": "implementer", "phase": "work", "enters": true },
-    { "name": "extractor", "phase": "work", "after": ["implementer"] }
-  ],
-  "dispatchBySeat": {
-    "work": {
-      "implementer": { "agent": "task-orchestrator:implementer" },
-      "extractor": { "model": "sonnet", "effort": "low" }
-    }
-  },
-  "features": ["seats", "dispatchBySeat", "independent_of", "rules"]
-}
-```
-
-This is the **only** place that returns full note text (`description`, `guidance`, `skill`, `maxLength`) in one shot for an entire schema. Use it to resolve the keys-only `expectedNotes` and the reference-only `guidanceKey`/`skillPointer` fields returned elsewhere. `guidance`, `skill`, and `maxLength` are omitted per-entry when unset. `configFingerprint` reports the fingerprint of whichever config layer actually supplied the schema (per-root or global) and is `null` when unavailable; cache schema responses per fingerprint to avoid re-fetching unchanged config. `configSource` is `"per-root"` when a per-root pushed config supplied the schema (via `rootId` on the `type` path, or the item's own `rootId` on the `itemId` path) and `"global"` otherwise. Errors with `RESOURCE_NOT_FOUND` when no schema matches the given `type` or the item is schema-free.
-
-`dispatch` (object, optional) is `{"queue"|"work"|"review": {agent?, model?, effort?}}` — one entry per phase with a resolved profile, from the `dispatch` trait dimension (see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension) → "Dispatch (Trait Dimension)"). Omitted entirely (never `{}`) when no resolved trait declares a profile for any phase. The `itemId` path resolves each phase from the item's per-item `traits` first, then its type's `default_traits` (the same item-first order as every other trait dimension); the `type` path has no item, so it resolves from `default_traits` only. `resources` (array, optional) is `[{key, mode, ttlSeconds?}]`, the trait-declared shared-resource requirements — omitted entirely (never `[]`) when none resolve.
-
-**Seats (A1).** Each `notes[]` entry gains a `seat` field (string, or JSON `null` when unowned) whenever the resolved schema is seat-aware (declares `seats:` on itself or a merged trait, after trait merging) — omitted entirely for a seat-less schema, never emitted as `null` on one. An entry with a non-empty `independent_of` also gains `independentOf` (array of seat names), independent of seat-awareness. `seats` (array, optional) is `[{name, phase, enters?, after?, readsExclude?}]`, in merged order (base schema seats, then surviving trait seats — see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension) → "Seats"); `enters` appears only when `true`, `after`/`readsExclude` only when non-empty. `dispatchBySeat` (object, optional) is `{"queue"|"work"|"review": {<seat>: {agent?, model?, effort?}}}`, phases in that order, each phase present only when at least one of its seats has a resolved profile. Both `seats` and `dispatchBySeat` are omitted entirely (never `[]`/`{}`) for a seat-less schema. `features` (array) is **always** present — see "Server feature advertisement" below.
-
-**Type path vs. item path.** The `type` path (`type=...`, no `itemId`) returns only the BASE schema's `notes`/`seats` — no trait merging, the same as its pre-A1 note behaviour — so its `seat`/`independentOf`/`seats` reflect the type's own declared seats only; its `dispatch`/`dispatchBySeat` are still resolved from the type's `default_traits` over those base seats (there is no item, so no per-item `traits` layer applies). The `itemId` path returns the fully trait-merged schema — base schema notes and seats plus surviving `default_traits` and per-item `traits` — so its `notes`/`seats`/`dispatchBySeat` can include seats and notes contributed by traits that never appear on the `type` path. See `ItemSchemaView.buildTypeSchemaJson` vs `buildItemSchemaJson` (`application/service/ItemSchemaView.kt`).
-
-**Server feature advertisement.** `features` lists server-wide optional-response capabilities this server version can serve — currently `["seats", "dispatchBySeat", "independent_of", "rules"]` — **unconditionally**, regardless of whether the resolved config actually declares any `seats:`/`independent_of:`. This lets a client distinguish an old server (which never emits `seat`/`seats`/`dispatchBySeat`/`missingBySeat`/`violations` at all) from a new server whose current config simply declares no seats or independence requirements. `features` also appears on REST `GET /api/v1/info` and the `.well-known` service descriptor (see `api-rest.md`). Only enforced/served facets are advertised — `independent_of` was parsed and served but not enforced in A1; A2 (the independence attestation gate) now enforces it, so `"independent_of"` joined the advertised list (see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2) → "Independence (A2)"). `"rules"` advertises per-root rule text served by [`query_rules`](#query_rules) and `GET /api/v1/roots/{rootId}/rules[/{key}]` (A3) — a single capability check for MCP and REST-only clients alike.
-
-**Examples.**
+`childCounts` is `{role: n}` with zero roles omitted. `excludeTerminal` drops terminal items that have no
+open work below them; a terminal item with a non-terminal descendant is kept. Under a restricted scope
+every list and count covers only items the caller may see. `includeChildren` with `itemId` or `anchorId`,
+or `itemId` with `anchorId`, is `invalid_request`.
 
 ```json
-// Fetch single item with ancestor breadcrumbs
-{ "operation": "get", "itemId": "550e8400-e29b-41d4-a716-446655440001", "includeAncestors": true }
-
-// FTS5 full-text search — find items mentioning "OAuth"
-{ "operation": "search", "query": "OAuth flow", "limit": 10 }
-
-// FTS5 search scoped to a feature subtree
-{ "operation": "search", "query": "database migration", "scope": { "ancestorId": "550e8400-e29b-41d4-a716-446655440000" } }
-
-// List-mode search with role/priority filter (no query)
-{ "operation": "search", "role": "work", "priority": "high", "limit": 20, "offset": 0 }
-
-// Scoped overview of a feature's children
-{ "operation": "overview", "itemId": "550e8400-e29b-41d4-a716-446655440000" }
+{ "select": "get", "itemId": "550e8400", "fields": ["ancestors"], "ifVersion": 7 }
+{ "select": "list", "ancestorId": "550e8400", "role": "work", "tags": ["backend"], "limit": 20 }
+{ "select": "schema", "type": "feature-task", "rootId": "a1b2c3d4", "fields": ["guidance"] }
+{ "select": "search", "query": "OAuth flow", "kinds": ["note"], "ancestorId": "550e8400" }
+{ "select": "overview", "anchorId": "550e8400", "excludeTerminal": true }
 ```
 
-**Response (search — FTS5 mode).**
-
-```json
-{
-  "hits": [
-    {
-      "kind": "item",
-      "itemId": "550e8400-e29b-41d4-a716-446655440001",
-      "title": "Implement OAuth flow for the API gateway",
-      "field": "title",
-      "snippet": "Implement <mark>OAuth</mark> <mark>flow</mark> for…",
-      "score": 0.0325,
-      "matchedIn": ["trigram", "text"],
-      "explain": { "trigramRank": -8.1, "textRank": -6.4, "rrfK": 60 }
-    }
-  ],
-  "totalHits": 5,
-  "nextOffset": 10,
-  "truncated": false
-}
-```
-
-`snippet` is included by default; `explain` appears only when `explain=true` (default false). `score` is the descending RRF fused value (higher = more relevant). `title` is the item's title (omitted if the item could not be read). `field` names the field that actually contains a match — `title` or `summary`, `title` when both do — and `snippet` is taken from that field.
-
-**Pagination contract.** Every page is a slice of one deterministic, totally ordered list: a fixed
-200-row candidate window is fetched from each FTS5 table regardless of `offset`, fused by RRF into a
-single order (score descending, then hit kind, then ascending by the underlying item/note id), then capped
-at 100 entries before the `offset`/`limit` slice is taken. Consequently:
-- `totalHits` is the size of that capped, fused list — it is identical on every page of the same
-  query (it is **not** the raw database match count), and is **at most 100**.
-- Pages never overlap or skip entries for a stable DB state: paging with `offset`/`limit` walks the
-  same ordered list every time, unlike the previous offset-dependent window.
-- An `offset` at or beyond `totalHits` returns an empty `hits` array with `nextOffset: null`.
-- `truncated` is `true` when more than 100 matches existed before the cap was applied — this can now
-  be `true` on page 1. Treat it as the signal to refine the query or add `scope` filters, not as a
-  property of any individual page.
-- Because the list is deterministic but not a snapshot, a write between two page fetches can still
-  shift which rows are included — the ordering guarantee is per-query-execution, not transactional
-  across requests.
-
-**Response (search — list mode, when `query` is absent).**
-
-```json
-{
-  "items": [
-    { "id": "uuid", "parentId": "uuid", "title": "...", "role": "work", "priority": "high", "depth": 1 }
-  ],
-  "total": 42,
-  "returned": 20,
-  "limit": 20,
-  "offset": 0
-}
-```
-
-List mode returns minimal fields (`id`, `parentId`, `title`, `role`, `statusLabel`, `priority`, `depth`, `tags`, `type`). Nullable fields are omitted when null.
-Use `get` for full item JSON including `description` and `summary`; on `get`, `createdAt`, `modifiedAt`, and `roleChangedAt` are opt-in via `includeTimestamps` (absent by default). List-mode results never include timestamps.
-
-`total` is the raw SQL match count, `returned` is `items.length`. Every matching row is returned, including a stored row that fails domain validation (e.g. a corrupt legacy row): the row mapper never drops one, and a WARN log identifies it. `skipped` is therefore always 0 and is omitted. Invariant: `total = returned + notFetched`, where `notFetched` is any rows beyond `limit`/`offset` never queried.
-
-When `claimStatus` filter is provided, each result item includes an additional `isClaimed` boolean:
-
-```json
-{
-  "items": [
-    { "id": "uuid", "title": "...", "role": "queue", "priority": "high", "depth": 1, "isClaimed": true }
-  ],
-  "total": 5,
-  "returned": 5,
-  "limit": 50,
-  "offset": 0
-}
-```
-
-`isClaimed` is `true` when the item has a live (non-expired) claim at the time of the query. `claimedBy` identity is never included in search results — use `get_context(itemId)` for full claim diagnostics.
-
-**Response (overview — scoped mode, with `itemId`).**
-
-```json
-{
-  "item": { "id": "uuid", "title": "Auth Feature", "role": "work", "priority": "high", "depth": 1, ... },
-  "childCounts": { "queue": 2, "work": 1, "review": 0, "blocked": 0, "terminal": 1 },
-  "children": [
-    {
-      "id": "uuid", "parentId": "uuid", "title": "Design login flow", "role": "terminal", "priority": "high", "depth": 2,
-      "childCounts": { "queue": 0, "work": 0, "review": 0, "blocked": 0, "terminal": 0 }
-    }
-  ]
-}
-```
-
-Scoped overview returns the full item JSON in `item`, a count per role in `childCounts`, and a minimal JSON list of direct children in `children` (using `toMinimalJson` fields, each also enriched with its own `childCounts` and optional `traits` — same enrichment as global-mode `includeChildren`). `childCounts` on the parent is always the full, unfiltered role breakdown, even when `excludeTerminal` hides some of those children from the `children` array below it.
-
-**Response (overview — global mode, no `itemId`).**
-
-Global overview returns root items with the same minimal fields as search, plus `childCounts`, optional `traits`, and `claimSummary` per root item. When `includeChildren` is true, each root includes a `children` array where each child has the minimal fields plus its own `childCounts` and optional `traits`. Root items are ordered newest-`createdAt`-first (ties broken by `id` for stable pagination). `limit` defaults to 50 (same default as list-mode search); `offset` pages through roots beyond the first page, same convention as list-mode search.
-
-When `excludeTerminal` is true, terminal-role roots are filtered at the SQL level before pagination — they never appear in `items`, their `children`/`childCounts`/`claimSummary` are never fetched, and `total`/`truncated` are computed against the filtered (non-terminal) set rather than the unconditional root count.
-
-```json
-{
-  "items": [
-    {
-      "id": "uuid", "title": "Auth Feature", "role": "work", "priority": "high", "depth": 0,
-      "tags": "backend", "type": "feature-implementation",
-      "traits": ["needs-migration-review"],
-      "childCounts": { "queue": 2, "work": 1, "review": 0, "blocked": 0, "terminal": 1 },
-      "claimSummary": { "active": 1, "expired": 0, "unclaimed": 2 },
-      "children": [
-        {
-          "id": "uuid", "parentId": "uuid", "title": "Design login flow", "role": "work",
-          "priority": "high", "depth": 1, "tags": "backend", "type": "feature-task",
-          "childCounts": { "queue": 0, "work": 0, "review": 0, "blocked": 0, "terminal": 0 }
-        }
-      ]
-    }
-  ],
-  "total": 55,
-  "truncated": true,
-  "offset": 0
-}
-```
-
-Nullable fields (`parentId`, `statusLabel`, `tags`, `type`) are omitted when null. `traits` is omitted when the item has no traits (never an empty array). `children` is only present when `includeChildren` is true.
-
-`total` is the **true count of matching root items** (via a dedicated `COUNT` query) — the unconditional root count when `excludeTerminal` is false/omitted, or the count of non-terminal roots when `excludeTerminal` is true. Either way it is independent of `limit`/`offset` and is **not** the size of the `items` array. `offset` echoes the request's `offset` (0 if omitted). `truncated` is `true` when `offset + items.length < total` (more pages remain), which is broader than FTS search's `truncated` (that flag fires only at the FTS hit cap). A root row that fails domain validation is returned like any other (never dropped), so `skipped` is always 0 and omitted; a WARN log identifies the row so it can be repaired.
-
-`claimSummary` counts are scoped to the direct children of each root item. `active` = live non-expired claims; `expired` = claims past TTL; `unclaimed` = items with no claim record. `claimedBy` identity is never included at this level.
-
-**Response (overview — anchored mode, with `anchorId`).**
-
-```json
-{
-  "anchor": { "id": "uuid", "title": "Q3 Platform Project" },
-  "items": [
-    {
-      "id": "uuid", "parentId": "uuid", "title": "Auth Feature", "role": "work",
-      "priority": "high", "depth": 1, "tags": "backend", "type": "feature-implementation",
-      "traits": ["needs-migration-review"],
-      "childCounts": { "queue": 2, "work": 1, "review": 0, "blocked": 0, "terminal": 1 }
-    }
-  ],
-  "total": 6,
-  "truncated": false,
-  "offset": 0
-}
-```
-
-Anchored overview renders `anchorId`'s **direct children** as the roots set (instead of true
-depth-0 items) — the project-dashboard entry point when `anchorId` is a project/feature anchor.
-The `anchor` envelope names the item whose children are being rendered. Each item uses the same
-minimal fields as global overview, but its `childCounts` is a **full-subtree** role roll-up
-(descendants at any depth), not the direct-children-only breakdown that global/scoped overview use
-— this is the key semantic difference from scoped overview (`itemId`), which returns direct
-childCounts. `claimSummary` and `includeChildren` are not supported in anchored mode (kept to one
-repository call per child). `total`/`truncated`/`offset`/`excludeTerminal` follow the same
-conventions as global mode, applied to the anchor's direct-children set rather than true roots.
+`query_items` and `query_notes` are removed. Their `offset` paging, `includeAncestors` and
+`includeTimestamps` flags, comma-separated `tags` filter, `sortBy` / `sortOrder` names and the
+`RESOURCE_NOT_FOUND` for a schema-free item have no direct form: use `cursor`, `fields`, a `tags` array,
+`sort` / `order` and `schemaFree`.
 
 ---
 
@@ -885,66 +703,6 @@ replacement, and its `itemContext` guidance block is gone: read the next require
 
 ---
 
-### query_notes
-
-**Purpose.** Read-only FTS5 full-text search across note bodies. Its `get` and `list` operations are
-removed: read a note by key or list an item's notes with [`notes_read`](#notes_read). This 3.x tool
-goes away when search moves to the 4.0 item read tool.
-
-**Operations.** `search`
-
-#### Key Parameters - search (FTS5)
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `operation` | string | Yes | `"search"` |
-| `query` | string | Yes | FTS5 search terms - multiple words produce implicit AND. Pass plain terms; special characters are auto-escaped. Control characters (other than ASCII whitespace) are rejected with `VALIDATION_ERROR`. |
-| `scope` | object | No | `itemId` (UUID - single item's notes), `ancestorId` (UUID - subtree of items). `role` and `tags` are not supported: a non-null value is rejected with `VALIDATION_ERROR` (an explicit `null` counts as absent). To filter by note role use `notes_read` `list` instead. |
-| `matchMode` | string | No | `"auto"` (default), `"substring"`, `"text"` - same semantics as `query_items.search` |
-| `snippet` | boolean | No | Include ~32-token snippet with highlights (default: true). Markdown preserved. |
-| `explain` | boolean | No | Include raw FTS5 ranks per hit (default: false) |
-| `limit` | integer | No | Max hits (default: 20, max: 100; a larger value is rejected with `VALIDATION_ERROR`, not capped) |
-| `offset` | integer | No | Skip N hits for pagination (default: 0) |
-
-**Examples.**
-
-```json
-// FTS5 search across all note bodies for "authentication"
-{ "operation": "search", "query": "authentication token", "limit": 10 }
-
-// FTS5 search scoped to a feature's subtree
-{ "operation": "search", "query": "migration strategy", "scope": { "ancestorId": "550e8400-e29b-41d4-a716-446655440000" } }
-```
-
-**Response (search — FTS5 mode).**
-
-```json
-{
-  "hits": [
-    {
-      "kind": "note",
-      "itemId": "550e8400-e29b-41d4-a716-446655440001",
-      "title": "Implement OAuth flow for the API gateway",
-      "noteKey": "implementation-notes",
-      "field": "body",
-      "snippet": "The <mark>authentication</mark> <mark>token</mark> is stored…",
-      "score": 0.0164,
-      "matchedIn": ["trigram", "text"]
-    }
-  ],
-  "totalHits": 3,
-  "nextOffset": null,
-  "truncated": false
-}
-```
-
-`kind` is always `"note"` for note hits. `noteKey` is the note's key within its item; `title` is the
-owning item's title (omitted if the item could not be read). `field` is always `"body"` (notes have a
-single body field). Score interpretation and `truncated` semantics are
-the same as `query_items.search`.
-
----
-
 ## Category: Dependencies
 
 ### deps_read
@@ -1029,7 +787,7 @@ capability (`manage-dependencies`); `delete` is destructive.
 
 `manage_dependencies` and `query_dependencies` are removed. Their `counts`, `includeItemInfo` and
 `limit`/`offset` have no replacement: use `page.total`, the `direction` and `type` filters, and
-`query_items` for titles.
+`items_read` for titles.
 
 ---
 
@@ -1249,7 +1007,7 @@ When `mode` is omitted, the mode is inferred from which parameters are present (
 
 (`guidanceKey` and `skillPointer` are omitted here because the current phase, `work`, has no missing required notes — `done-criteria` is optional and still unfilled, but only required notes drive `guidanceKey`/`skillPointer`. `dispatch` here is the **work**-phase profile, matching `role: "work"` — an implementer profile, since `get_context` only ever reports the item's current-role profile.)
 
-`guidanceKey` (string, optional) names the first unfilled required note with guidance for the **current** role. Omitted when no schema matches, no required notes exist, or all are filled. Resolve the full guidance text via `query_items(operation="schema", itemId=...)`.
+`guidanceKey` (string, optional) names the first unfilled required note with guidance for the **current** role. Omitted when no schema matches, no required notes exist, or all are filled. Resolve the full guidance text via `items_read(select="schema", itemId=..., fields=["guidance"])`.
 
 `skillPointer` (string, optional): Skill name to invoke for the first unfilled required note. Omitted when no skill is configured or all required notes are filled. Derived from the `skill` field on the first unfilled required note in the schema.
 
@@ -1259,9 +1017,9 @@ When `mode` is omitted, the mode is inferred from which parameters are present (
 
 `gateStatus.canAdvance` is the policy evaluation `advance_item(trigger="start")` would run on the item right now, claim ownership excluded: it is `false` when the transition table rejects `start` (a `terminal` or `blocked` item), a blocking dependency is unmet, a required note for the current phase is unfilled (or a `reject`-mode independence violation blocks), or an exclusive resource the item declares is held by another item. `gateStatus.blockedBy` (string, optional) names that gate — `"table"`, `"dependency"`, `"note"` or `"lease"` — and is present only when `canAdvance` is `false` and the item is not terminal. The preview reads the item's config, notes and blockers in one read unit, so a store or per-root config read fault there fails the `get_context` call (transient `config_unavailable` for a config fault) rather than rendering an empty `missing` list.
 
-Each entry in the `schema` array is keys-only: `key`, `role`, `required`, `exists`, `filled`, plus `seat` (A1) whenever the resolved schema is seat-aware — omitted entirely for a seat-less schema. Resolve `description`/`guidance`/`skill` for any entry via `query_items(operation="schema", itemId=...)`.
+Each entry in the `schema` array is keys-only: `key`, `role`, `required`, `exists`, `filled`, plus `seat` (A1) whenever the resolved schema is seat-aware — omitted entirely for a seat-less schema. Resolve `description`/`guidance`/`skill` for any entry via `items_read(select="schema", itemId=..., fields=["guidance"])`.
 
-**Seats (A1).** `gateStatus.missingBySeat` (object, optional) buckets `missing`'s keys by owning seat — `{<seat>: [keys], ..., "unowned": [keys]}`, non-empty buckets only, in merged-seat order with `unowned` always last — present whenever the resolved schema is seat-aware AND the item is not `TERMINAL` (an empty object `{}` when the schema is seat-aware but nothing is missing); omitted entirely for a seat-less schema or a terminal item. Top-level `seats` (array, optional) and `dispatchBySeat` (object, optional, **flat** — `{<seat>: {agent?, model?, effort?}}`, unlike the per-phase-nested shape `query_items(operation="schema")` returns) cover the item's **current phase only** — same seat-declaration and dispatch-resolution rules as `query_items(operation="schema")`'s `seats`/`dispatchBySeat` fields (see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension) → "Seats"), both omitted entirely (never `[]`/`{}`) when the current phase declares no seats. All seat fields are absent for a `TERMINAL` item and for any seat-less schema — a seat-less config's `get_context` response is byte-identical to a pre-A1 server.
+**Seats (A1).** `gateStatus.missingBySeat` (object, optional) buckets `missing`'s keys by owning seat — `{<seat>: [keys], ..., "unowned": [keys]}`, non-empty buckets only, in merged-seat order with `unowned` always last — present whenever the resolved schema is seat-aware AND the item is not `TERMINAL` (an empty object `{}` when the schema is seat-aware but nothing is missing); omitted entirely for a seat-less schema or a terminal item. Top-level `seats` (array, optional) and `dispatchBySeat` (object, optional, **flat** — `{<seat>: {agent?, model?, effort?}}`, unlike the per-phase-nested shape `items_read(select="schema")` returns) cover the item's **current phase only** — same seat-declaration and dispatch-resolution rules as `items_read(select="schema")`'s `seats`/`dispatchBySeat` fields (see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension) → "Seats"), both omitted entirely (never `[]`/`{}`) when the current phase declares no seats. All seat fields are absent for a `TERMINAL` item and for any seat-less schema — a seat-less config's `get_context` response is byte-identical to a pre-A1 server.
 
 **Independence (A2).** `gateStatus.violations` (array, optional) reports A2 independence-attestation findings for the item's CURRENT phase — present (possibly `[]`) whenever independence `mode` is not `off` and the resolved schema declares `independent_of` somewhere; omitted entirely (not `null`) otherwise, including for a `TERMINAL` item. Each entry is `{key, seat?, constraint, conflictingSeat?, waived?}` — actor-free by construction, never an actor id, proof, or claim — see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2) → "Independence (A2)" for the constraint kinds (`same_actor`/`missing_actor`/`unverified`), the `independence: temporal-only` waiver, and honest limits. `canAdvance` already accounts for a `reject`-mode block from a non-waived violation (`blockedBy: "note"`), the same way it accounts for missing required notes.
 
@@ -1342,7 +1100,7 @@ exclusive/advisory modeling guidance and the full guarantees statement.
 
 `claimSummary` in health-check mode: `active` = items with live non-expired claims globally; `expired` = items whose claim TTL has elapsed. Counts only — no identity exposed. Omitted if the claim count query fails.
 
-`unclaimed` is deliberately excluded from the health-check `claimSummary` (too noisy). Use `query_items(operation="overview")` for per-root-item `claimSummary` including `unclaimed`.
+`unclaimed` is deliberately excluded from the health-check `claimSummary` (too noisy). Use `items_read(select="overview")` for per-root-item `claimSummary` including `unclaimed`.
 
 ---
 
@@ -1903,7 +1661,7 @@ parameter — plan documents have no per-note attribution model to stamp.
 **Purpose.** Read-only surface for git-tracked rule text -- client-neutral operating rules (the
 blind-authorship protocol, commit discipline, forbidden test patterns, review scoping, and so on)
 stashed as `rule/<key>` [plan documents](#manage_plan_documents) via `manage_plan_documents` and
-served here verbatim. `query_rules` never inlines rule text into `query_items(operation="schema")`
+served here verbatim. `query_rules` never inlines rule text into `items_read(select="schema")`
 -- that surface stays pointer-only: a note-schema entry's `skill` field names a rule key, and the
 caller resolves the actual text through this tool. Both operations converge on the same
 `RuleService` the REST `rules` routes use (see [api-rest.md](./api-rest.md) section 19a) -- one
