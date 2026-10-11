@@ -38,7 +38,7 @@ import kotlin.test.assertTrue
 /**
  * Independent tests for the Q2b `type` rule at the service seam (item 2c67eeca): scenarios S1-S6 and S10 of the frozen
  * test-plan, plus adversarial probes. Everything runs through the real production composition ([EventLogRig]) over a
- * real SQLite file; the per-root layer is pushed with the project-config store exactly as `manage_project_config` does.
+ * real SQLite file; the per-root layer is pushed with the project-config store exactly as the `config` tool's push does.
  *
  * Oracles (frozen in the queue phase, none read from the implementation): task-scope AC1 (missing type on create: always
  * rejected, `schema_violation`, message `type is required` plus `; available types: a, b` only when the effective set is

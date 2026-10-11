@@ -126,6 +126,14 @@ class McpCallLogTest {
                     )
                 }
             },
+            // A 3.x-shaped read (an `operation` argument): every MCP-served 3.x read tool is gone, and the 4.0 tools run through
+            // McpOperationAdapter, which logs no per-call MDC line, so S2 exercises McpToolAdapter through this fixture.
+            probeTool("p10_list") {
+                buildJsonObject {
+                    put("status", "success")
+                    put("data", buildJsonObject { put("items", buildJsonArray { }) })
+                }
+            },
             probeTool("p10_boom") { throw IllegalStateException("kaboom") },
             probeTool("p10_cancel") { throw CancellationException("cancelled from inside") }
         )
@@ -155,7 +163,8 @@ class McpCallLogTest {
         runBlocking {
             rig = EventLogRig.build(db.db, dir, EventLogRig.GATED_CONFIG)
             writer = CallLogWriter(rig.composition.unitOfWork, SqliteCallLogStore(db.databaseManager), flushInterval = 1.hours)
-            val pair = connect(McpToolAdapter(callLog = writer), buildMcpTools() + legacyWorkflowTools() + extraTools)
+            val pair =
+                connect(McpToolAdapter(callLog = writer), buildMcpTools() + legacyWorkflowTools() + extraTools)
             client = pair.first
             server = pair.second
         }
@@ -181,6 +190,18 @@ class McpCallLogTest {
                 arguments(JsonObject(mapOf(*args)))
             }
         )
+
+    /** A `config` call's `ops` argument holding one `rules` list element for [rootId]. */
+    private fun rulesList(rootId: String): Pair<String, JsonElement> =
+        "ops" to
+            buildJsonArray {
+                add(
+                    buildJsonObject {
+                        put("op", "rules")
+                        put("rootId", rootId)
+                    }
+                )
+            }
 
     private fun reqIdOf(result: CallToolResult): String? =
         result.meta
@@ -250,14 +271,14 @@ class McpCallLogTest {
             val capture = LogCapture().attach(McpToolAdapter::class.java.name)
             val args = arrayOf("operation" to jstr("list"), "rootId" to jstr(rig.seed("S2 read").id.toString()))
             val before = Instant.now()
-            val result = call("query_rules", *args)
+            val result = call("p10_list", *args)
             val after = Instant.now()
             capture.detach()
 
             val reqId = assertNotNull(reqIdOf(result), "_meta.reqId must be present: ${result.meta}")
             assertTrue(ReqId.isValid(reqId), "reqId must be 8 Crockford characters: $reqId")
 
-            val mdc = capture.events.lastOrNull { it.mdc["tool"] == "query_rules" }
+            val mdc = capture.events.lastOrNull { it.mdc["tool"] == "p10_list" }
             assertNotNull(mdc, "the adapter logs its tool-call line inside the call's MDC scope")
             assertEquals(reqId, mdc.mdc["reqId"], "MDC reqId equals _meta.reqId (A1)")
             assertTrue(
@@ -270,7 +291,7 @@ class McpCallLogTest {
             val row = all.single()
             assertEquals(reqId, row["req_id"])
             assertEquals("mcp", row["surface"])
-            assertEquals("query_rules", row["tool"])
+            assertEquals("p10_list", row["tool"])
             assertEquals("list", row["operation"])
             assertEquals("ok", row["outcome"])
             assertNull(row["error_code"])
@@ -297,7 +318,7 @@ class McpCallLogTest {
     fun `S2 concurrent calls get distinct reqIds and one row each`() =
         runBlocking {
             val seeded = jstr(rig.seed("S2 concurrent").id.toString())
-            val results = (1..80).map { async { call("query_rules", "operation" to jstr("list"), "rootId" to seeded) } }.awaitAll()
+            val results = (1..80).map { async { call("config", rulesList(seeded.jsonPrimitive.content)) } }.awaitAll()
             val ids = results.map { assertNotNull(reqIdOf(it)) }
             assertEquals(80, ids.toSet().size, "every call has its own reqId")
             assertTrue(ids.all { ReqId.isValid(it) })
@@ -571,9 +592,9 @@ class McpCallLogTest {
         runBlocking {
             val results =
                 listOf(
-                    call("query_rules", "operation" to jstr("list"), "rootId" to jstr(rig.seed("A2 read").id.toString())),
-                    call("query_rules", "operation" to jstr("not-an-operation")),
-                    call("query_rules")
+                    call("config", rulesList(rig.seed("A2 read").id.toString())),
+                    call("config", "ops" to buildJsonArray { add(buildJsonObject { put("op", "not-an-operation") }) }),
+                    call("config")
                 )
             assertTrue(results.any { it.isError == true }, "fixture: at least one of the calls must fail")
             assertTrue(results.any { it.isError != true }, "fixture: at least one of the calls must succeed")

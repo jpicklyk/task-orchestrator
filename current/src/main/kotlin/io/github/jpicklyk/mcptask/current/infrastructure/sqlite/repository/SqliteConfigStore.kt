@@ -111,7 +111,12 @@ class SqliteConfigStore(
 
             if (head != null && headVersion != null) {
                 if (rejectSuperseded && root != null && classify(root, append.fingerprint, head) == FingerprintRelation.SUPERSEDED) {
-                    return@writeTx ConfigAppendOutcome.Superseded(head.version, headVersion.createdAt)
+                    val matched =
+                        ConfigVersionsTable
+                            .select(ConfigVersionsTable.version.max())
+                            .where { scopeMatch(scope, root) and (ConfigVersionsTable.fingerprint eq append.fingerprint) }
+                            .single()[ConfigVersionsTable.version.max()] ?: 0
+                    return@writeTx ConfigAppendOutcome.Superseded(head.version, headVersion.createdAt, matched)
                 }
                 if ((expectedVersion != null && expectedVersion != head.version) ||
                     (expectedFingerprint != null && expectedFingerprint != head.fingerprint)
