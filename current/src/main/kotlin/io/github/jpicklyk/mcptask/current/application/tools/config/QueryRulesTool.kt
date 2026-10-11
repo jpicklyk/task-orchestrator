@@ -13,7 +13,7 @@ import java.util.UUID
 /**
  * MCP tool for reading git-tracked rule text -- client-neutral operating rules (blind-authorship
  * protocol, commit discipline, forbidden test patterns, review scoping, and so on) stashed as
- * `rule/<key>` plan documents via `manage_plan_documents` and served here READ-ONLY.
+ * `rule/<key>` plan documents via `docs_write` and served here READ-ONLY.
  *
  * Never inlines rule text into `query_items`'s `schema` operation -- that surface stays
  * pointer-only (a note schema entry's `skill` field names a rule key; the caller resolves the

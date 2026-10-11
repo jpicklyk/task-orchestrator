@@ -28,7 +28,7 @@ private val ruleRoutesLogger = LoggerFactory.getLogger("RuleRoutes")
  * Registers the per-root rule-text READ routes under `/api/v1/roots/{rootId}/rules` -- the REST
  * counterpart of the MCP `query_rules` tool's direct (`rootId`+`key`) lookup. Both surfaces
  * converge on the same [RuleService], itself a read-only view over the `rule/<key>` plan documents
- * `manage_plan_documents`/`PlanDocumentService` write.
+ * `docs_write`/`PlanDocumentService` write.
  *
  * Endpoints:
  * - `GET /roots/{rootId}/rules/{key}` -- one rule's body + `rulesVersion`
@@ -46,7 +46,7 @@ private val ruleRoutesLogger = LoggerFactory.getLogger("RuleRoutes")
  * exists, `{key}` route only ([RuleGetResult.RuleNotFound], 404) -> 200.
  *
  * **REST-only:** registered on the authenticated `/api/v1` pipeline only, never reachable on the
- * unauthenticated `/mcp` transport -- same as [planDocumentRoutes].
+ * unauthenticated `/mcp` transport -- same as the other `/api/v1` resource routes.
  *
  * No item-mode (skill-pointer) lookup on REST: that mode resolves an item's effective config,
  * which REST routes never read (see the A3 task-scope-addendum's corrections).
