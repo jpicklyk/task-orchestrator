@@ -181,9 +181,9 @@ Each token grants a set of additive capabilities:
 | Capability | Config string | Grants access to |
 |------------|--------------|-----------------|
 | `READ` | `read` | All GET endpoints under `/api/v1/` |
-| `WRITE_ITEMS` | `write-items` | `items_write` ops through `POST /ops/items_write` (create, update, delete) |
+| `WRITE_ITEMS` | `write-items` | `items_write` ops through `POST /ops/items_write` (create, update, delete, and `create_tree` in the orchestration profile) |
 | `WRITE_NOTES` | `write-notes` | `POST /ops/notes_write` ops `upsert` and `delete` (checked per op by the dispatcher, section 20a) |
-| `ADVANCE` | `advance` | The `advance` tool's ops (`transition`, `claim`, `release`, `heartbeat`) through `POST /ops/advance` (section 20a) |
+| `ADVANCE` | `advance` | The `advance` tool's ops (`transition`, `claim`, `release`, `heartbeat`) through `POST /ops/advance`, and `items_write` `complete_tree` (orchestration profile) through `POST /ops/items_write` (section 20a) |
 | `MANAGE_DEPENDENCIES` | `manage-dependencies` | `POST /ops/deps_write` ops `create`, `delete`, `linear`, `fan_out` and `fan_in` (checked per op by the dispatcher, section 20a) |
 | `WRITE_CONFIG` | `write-config` | `PUT /roots/{rootId}/config`, `DELETE /roots/{rootId}/config`, `POST /roots/{rootId}/config/rollback`, `POST /ops/docs_write` ops `upsert`, `archive`, `unarchive`, `delete`, `attach` and `detach` (checked per op by the dispatcher, section 20a) |
 | `ADMIN` | `admin` | Implies all of the above; unlocks attribution fields in responses |
@@ -882,7 +882,10 @@ is `403 forbidden`. Errors: `400 invalid_request` / `invalid_cursor`, `403 forbi
 
 Item creates, updates and deletes are no longer separate routes: `POST /items`, `PATCH /items/{id}` and
 `DELETE /items/{id}` never succeed or write: they answer a client error (`404` or `405`). Use the `items_write` tool, `POST /api/v1/ops/items_write` (§20a), with
-`ops[]` elements `create`, `update` and `delete`; the fields, the optimistic lock (`expectedVersion`, replacing
+`ops[]` elements `create`, `update` and `delete`, and in the orchestration profile only (amendment U23) `create_tree`
+(a root with its children, dependencies and notes as one write unit; capability `write-items`) and `complete_tree`
+(complete or cancel a tree or an id list through the `advance` pipeline; capability `advance`), which replace the 3.x
+`create_work_tree` and `complete_tree` MCP tools (neither had a REST route); the fields, the optimistic lock (`expectedVersion`, replacing
 `If-Match`), the soft delete rules (`recursive`), the scope checks and the errors are in
 [`api-reference.md`](./api-reference.md#items_write). Write elements take an `idempotencyKey` in place of the
 `Idempotency-Key` header.
