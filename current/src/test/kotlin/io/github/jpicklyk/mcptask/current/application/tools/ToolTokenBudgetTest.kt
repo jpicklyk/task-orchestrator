@@ -69,7 +69,6 @@ class ToolTokenBudgetTest {
         mapOf(
             "create_work_tree" to 5100, // was 3080; measured 4408 after docRef/noteAnchors (materialize-from-document)
             "get_next_item" to 3150, // was 2500; T2.3 added the `ancestorId` scope parameter
-            "manage_items" to 2950, // was 2520; measured 2526 after items[].id -> itemId / ids -> itemIds (de711807)
             "get_context" to 2650, // was 1909; T2.3 added the `ancestorId` scope parameter
             "complete_tree" to 2500, // was 2100; measured 2171 after the AdvanceService pipeline semantics (3e455253)
             "get_blocked_items" to 1250, // was 830; T2.3 added the `ancestorId` scope parameter
@@ -86,9 +85,9 @@ class ToolTokenBudgetTest {
      * tools (the CRUD/query surface) were deliberately left untouched — they trigger on obvious
      * need, and over-prompting tools that already trigger correctly causes overtriggering.
      * 49_200 after Q11; Q12 -4_635 (manage_dependencies 2_585, query_dependencies 2_050);
-     * Q13 -5_700 (advance_item 3_150, claim_item 2_550).
+     * Q13 -5_700 (advance_item 3_150, claim_item 2_550); Q18 -2_950 (manage_items).
      */
-    private val totalCeiling = 27_600 // Q19 33_300 (query_items, query_notes removed; measured 28_919) - Q13 5_700
+    private val totalCeiling = 24_650 // Q19 33_300 (query_items, query_notes removed; measured 28_919) - Q13 5_700 - Q18 2_950
 
     // explicitNulls = false mirrors the compact-wire-shape convention already used elsewhere
     // in this codebase (see EventRoutes.kt / ItemWriteRoutes.kt / NoteWriteRoutes.kt) — a

@@ -118,6 +118,7 @@ class EventRecorder(
                 is UUID -> JsonPrimitive(value.toString())
                 is Enum<*> -> JsonPrimitive(value.name.lowercase())
                 is Collection<*> -> JsonArray(value.map { toJson(it) })
+                is Map<*, *> -> JsonObject(value.entries.associate { (k, v) -> k.toString() to toJson(v) })
                 else -> JsonPrimitive(value.toString())
             }
 
