@@ -22,7 +22,7 @@ import kotlin.test.assertTrue
  *  - ConfigStore: append, fillCanonical
  *  - PlanDocumentStore: stash, markAdopted
  *  - DocumentStore: insert, updateCurrent, appendVersion, setArchived, delete
- *  - LinkStore: insert, deleteTouching
+ *  - LinkStore: insert, deleteTouching, deleteFrom, deleteByIds, resolve, unresolveTo
  * on a receiver that is one of those stores. A receiver is recognised two ways: an accessor chain
  * (`provider.workItemRepository().create(...)`, however the chain is wrapped across lines) or a name declared with a store
  * type (`repo: WorkItemRepository`, `val notes = provider.noteRepository()`). The scan is zero-tolerance (no baseline).
@@ -46,7 +46,7 @@ class StoreWriteConfinementTest {
         CONFIG(setOf("append", "fillCanonical")),
         PLAN(setOf("stash", "markAdopted")),
         DOCUMENT(setOf("insert", "updateCurrent", "appendVersion", "setArchived", "delete")),
-        LINK(setOf("insert", "deleteTouching"))
+        LINK(setOf("insert", "deleteTouching", "deleteFrom", "deleteByIds", "resolve", "unresolveTo"))
     }
 
     companion object {

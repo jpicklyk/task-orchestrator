@@ -15,10 +15,13 @@ import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.update
+import java.util.UUID
 
 /**
  * SQLite implementation of [LinkStore] over [LinksTable].
@@ -99,6 +102,71 @@ class SqliteLinkStore(
                 ((LinksTable.fromKind eq kind) and (LinksTable.fromId eq ref.id)) or
                     ((LinksTable.toKind eq kind) and (LinksTable.toId eq ref.id))
             }
+        }
+
+    override suspend fun deleteFrom(
+        ref: EntityRef,
+        relation: LinkRelation?
+    ): Int =
+        databaseManager.writeTx("LinkStore.deleteFrom") {
+            val kind = ref.kind.toDbValue()
+            LinksTable.deleteWhere {
+                val from = (LinksTable.fromKind eq kind) and (LinksTable.fromId eq ref.id)
+                if (relation == null) from else from and (LinksTable.relation eq relation.toDbValue())
+            }
+        }
+
+    override suspend fun deleteByIds(ids: Collection<UUID>): Int {
+        if (ids.isEmpty()) return 0
+        return databaseManager.writeTx("LinkStore.deleteByIds") {
+            ids.distinct().chunked(SQL_IN_CHUNK_SIZE).sumOf { chunk -> LinksTable.deleteWhere { LinksTable.id inList chunk } }
+        }
+    }
+
+    override suspend fun findDangling(
+        rootItemId: UUID,
+        toRefs: Collection<String>
+    ): List<Link> {
+        if (toRefs.isEmpty()) return emptyList()
+        return databaseManager.readTx {
+            toRefs
+                .distinct()
+                .chunked(SQL_IN_CHUNK_SIZE)
+                .flatMap { chunk ->
+                    LinksTable
+                        .selectAll()
+                        .where {
+                            (LinksTable.rootItemId eq rootItemId) and
+                                LinksTable.toId.isNull() and
+                                (LinksTable.toRef inList chunk)
+                        }.map(::toLink)
+                }.sortedBy { it.createdAt }
+        }
+    }
+
+    override suspend fun resolve(
+        id: UUID,
+        target: EntityRef
+    ): Boolean =
+        databaseManager.writeTx("LinkStore.resolve") {
+            LinksTable.update({ (LinksTable.id eq id) and LinksTable.toId.isNull() }) {
+                it[toKind] = target.kind.toDbValue()
+                it[toId] = target.id
+            } == 1
+        }
+
+    override suspend fun unresolveTo(ref: EntityRef): Int =
+        databaseManager.writeTx("LinkStore.unresolveTo") {
+            val kind = ref.kind.toDbValue()
+            val deleted =
+                LinksTable.deleteWhere {
+                    (LinksTable.toKind eq kind) and (LinksTable.toId eq ref.id) and LinksTable.toRef.isNull()
+                }
+            val dangled =
+                LinksTable.update({ (LinksTable.toKind eq kind) and (LinksTable.toId eq ref.id) }) {
+                    it[toId] = null
+                }
+            deleted + dangled
         }
 
     private fun toLink(row: ResultRow): Link {
