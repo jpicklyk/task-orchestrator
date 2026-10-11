@@ -11,15 +11,15 @@
           "schema",
           "search",
           "overview",
+          "related",
           "context",
           "next",
-          "blocked",
-          "related"
+          "blocked"
         ]
       },
       "itemId": {
         "type": "string",
-        "description": "Item id (UUID or 8-32 hex). get, schema: the item. search: only its own content. overview: list its children. related: the item to find relatives of. [select: get, schema, search, overview, context, related]"
+        "description": "Item id (UUID or 8-32 hex). get, schema: the item. search: only its own content. overview: list its children. related: the item to find relatives of. [select: get, schema, search, overview, related, context]"
       },
       "fields": {
         "type": "array",
@@ -142,11 +142,11 @@
       },
       "limit": {
         "type": "integer",
-        "description": "Page size. list, overview: default 50, max 200. search: default 20, max 100. related: default 10, max 50. [select: list, search, overview, context, next, blocked, related]"
+        "description": "Page size. list, overview: default 50, max 200. search: default 20, max 100. related: default 10, max 50. [select: list, search, overview, related, context, next, blocked]"
       },
       "cursor": {
         "type": "string",
-        "description": "The page.next of the previous page; absent for the first page. [select: list, search, overview, context, next, blocked, related]"
+        "description": "The page.next of the previous page; absent for the first page. [select: list, search, overview, related, context, next, blocked]"
       },
       "rootId": {
         "type": "string",
@@ -197,6 +197,10 @@
         "type": "boolean",
         "description": "Global only: add each item's children; default false. [select: overview]"
       },
+      "acrossRoots": {
+        "type": "boolean",
+        "description": "Look beyond the item's own root (every signal); default false. The caller's scope still applies. [select: related]"
+      },
       "complexityMax": {
         "type": "integer",
         "description": "Only items with a complexity of at most this (1-10); items without one are excluded. [select: next]"
@@ -213,10 +217,6 @@
       "includeClaimed": {
         "type": "boolean",
         "description": "Also list items under an active claim, each with isClaimed; default false. [select: next]"
-      },
-      "acrossRoots": {
-        "type": "boolean",
-        "description": "Look beyond the item's own root (every signal); default false. The caller's scope still applies. [select: related]"
       },
       "describe": {
         "type": "boolean",

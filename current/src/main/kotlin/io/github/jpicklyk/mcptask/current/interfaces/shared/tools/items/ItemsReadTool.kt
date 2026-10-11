@@ -64,10 +64,10 @@ object ItemsReadTool {
                 ItemsReadSchema.select,
                 ItemsReadSearch.select,
                 ItemsReadOverview.select,
+                ItemsReadRelated.select,
                 ItemsReadContext.select,
                 ItemsReadNext.select,
                 ItemsReadBlocked.select,
-                ItemsReadRelated.select,
             )
         )
 }
