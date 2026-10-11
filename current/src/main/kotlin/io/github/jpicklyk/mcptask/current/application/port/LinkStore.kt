@@ -7,7 +7,7 @@ import java.util.UUID
 
 /**
  * Persists polymorphic links (`links`). Link ends carry no foreign key: a link outlives the entities it names, and
- * only a root delete removes it by cascade. A plain persistence port: it records no events.
+ * only a root delete removes it by cascade; an item-delete cascade removes the links it orphans explicitly. A plain persistence port: it records no events.
  */
 interface LinkStore {
     /** Inserts [link] as given and returns it. A resolved duplicate (same ends and relation) is a unique violation. */
@@ -44,6 +44,24 @@ interface LinkStore {
     suspend fun deleteFrom(
         ref: EntityRef,
         relation: LinkRelation? = null
+    ): Int
+
+    /**
+     * Deletes every link (all relations) whose SOURCE is one of [refs], in batched statements matched on (kind, id)
+     * only, never on `root_item_id`. Empty [refs] runs no query. Returns the number deleted.
+     */
+    @StoreWrite
+    suspend fun deleteFromAny(refs: Collection<EntityRef>): Int
+
+    /**
+     * Deletes the RESOLVED links whose TARGET is one of [refs] and whose relation is not in [keep], in batched
+     * statements matched on (kind, id) only. Dangling links (no target id) are never touched. Empty [refs] runs no
+     * query. Returns the number deleted.
+     */
+    @StoreWrite
+    suspend fun deleteToAny(
+        refs: Collection<EntityRef>,
+        keep: Set<LinkRelation>
     ): Int
 
     /** Deletes the links with the given [ids] in batched statements. Empty [ids] runs no query. Returns the number deleted. */

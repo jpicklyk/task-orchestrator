@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
 import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
+import io.github.jpicklyk.mcptask.current.application.support.toDomainError
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
@@ -23,6 +24,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Note
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import java.util.UUID
 
@@ -165,6 +167,9 @@ object NoteHandlers {
                         detail = ErrorDetail.Unavailable(CONFIG_RETRY_MS)
                     )
                 )
+            } catch (e: PerRootConfigInvalidException) {
+                // The head config cannot be loaded (fail closed): nothing was stored.
+                return Outcome.Err(e.toDomainError())
             }
         return when (written) {
             is Outcome.Err -> written

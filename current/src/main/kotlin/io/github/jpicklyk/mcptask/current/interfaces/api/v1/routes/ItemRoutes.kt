@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -237,6 +238,9 @@ fun Route.itemGateRoutes(
                     withConfigSession { transitionPreview.inspect(item, Trigger.User.START) }
                 } catch (e: PerRootConfigUnavailableException) {
                     call.respondError(LegacyRestCode.CONFIG_UNAVAILABLE, e.message)
+                    return@get
+                } catch (e: PerRootConfigInvalidException) {
+                    call.respondError(LegacyRestCode.CONFIG_INVALID, e.message)
                     return@get
                 }
 

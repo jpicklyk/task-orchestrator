@@ -19,7 +19,7 @@ enum class PlanDocumentStatus {
     ADOPTED,
     ;
 
-    /** Lowercase wire form (`pending` / `adopted`), as reported by `manage_plan_documents` and the REST plan routes. */
+    /** Lowercase wire form (`pending` / `adopted`), as reported by the 3.x plan-document facade. */
     fun toDbValue(): String = name.lowercase()
 
     companion object {
@@ -70,7 +70,7 @@ data class PlanDocument(
 
 /**
  * Metadata-only projection of a [PlanDocument] — every field except [PlanDocument.body]. Used by
- * list endpoints (REST `GET /roots/{rootId}/plans`, MCP `manage_plan_documents` `list`) so scanning
+ * list reads so scanning
  * a root's documents never pays for reading every document's full TEXT body.
  */
 data class PlanDocumentSummary(

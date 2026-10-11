@@ -1,0 +1,75 @@
+{
+  "name": "docs_read",
+  "inputSchema": {
+    "properties": {
+      "select": {
+        "type": "string",
+        "description": "Which read to run. A field marked [select: ...] applies only to the selects named.",
+        "enum": [
+          "get",
+          "list",
+          "history",
+          "links"
+        ]
+      },
+      "rootId": {
+        "type": "string",
+        "description": "Id of the depth-0 project root that owns the document: a full UUID or 8 to 32 hex characters."
+      },
+      "kind": {
+        "type": "string",
+        "description": "Document kind: plan, rule or page. On list it is optional and filters.",
+        "enum": [
+          "plan",
+          "rule",
+          "page"
+        ]
+      },
+      "slug": {
+        "type": "string",
+        "description": "Document slug, unique per (root, kind). [select: get, history, links]"
+      },
+      "version": {
+        "type": "integer",
+        "description": "Read this stored version (at least 1) instead of the current one. Not together with ifVersion. [select: get]"
+      },
+      "ifVersion": {
+        "type": "integer",
+        "description": "The version the caller already holds (at least 1). When it equals the current version the answer is {unchanged: true, version} with no body. [select: get]"
+      },
+      "includeArchived": {
+        "type": "boolean",
+        "description": "Include archived documents. Default false. [select: list]"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Page size, 1 to 200 (default 50). [select: list, history, links]"
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Opaque cursor from the previous page's page.next. [select: list, history, links]"
+      },
+      "direction": {
+        "type": "string",
+        "description": "outgoing = links the document makes, incoming = links that point at it. Default all. [select: links]",
+        "enum": [
+          "outgoing",
+          "incoming",
+          "all"
+        ]
+      },
+      "describe": {
+        "type": "boolean",
+        "description": "true: return the operations, their parameters and errors instead of running the tool."
+      }
+    },
+    "type": "object"
+  },
+  "description": "Read the versioned documents of a project root. select: get (one document or one stored version), list (metadata only), history (versions) or links (what the document links to and what links to it). Call with describe:true for each operation's parameters and errors.",
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

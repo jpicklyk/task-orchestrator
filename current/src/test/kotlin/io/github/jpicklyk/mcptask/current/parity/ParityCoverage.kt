@@ -363,12 +363,14 @@ object ItemsReadParityScenarios {
  * scenarios (or a reasoned [ScopeExempt]) here, or `ParityCoverageGuardTest` fails. `notes_read` / `notes_write` (Q11) are the
  * first production tools; their scenarios live in `NotesParityCatalog` (they need notes seeded beforehand) and run in
  * `NotesParityTest`. `deps_read` / `deps_write` (Q12) follow in `DepsParityScenarios`, run in `DepsParityTest`; `items_read`
- * (Q19) in [ItemsReadParityScenarios], run in `ItemsReadParityTest`.
+ * (Q19) in [ItemsReadParityScenarios], run in `ItemsReadParityTest`; `docs_read` / `docs_write` (Q25) are in
+ * `DocsParityScenarios`, run in `DocsParityTest`.
  */
 object ProductionParity {
     val scenarios: List<ParityScenario> =
         ItemsWriteParity.scenarios + NotesParityCatalog.scenarios + DepsParityScenarios.scenarios + AdvanceParityScenarios.all +
-            ItemsReadParityScenarios.scenarios
+            ItemsReadParityScenarios.scenarios + DocsParityScenarios.scenarios
     val exemptions: List<ScopeExempt> =
-        NotesParityCatalog.exemptions + DepsParityScenarios.exemptions + ItemsReadParityScenarios.exemptions
+        NotesParityCatalog.exemptions + DepsParityScenarios.exemptions + ItemsReadParityScenarios.exemptions +
+            DocsParityScenarios.exemptions
 }

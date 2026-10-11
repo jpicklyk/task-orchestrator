@@ -91,6 +91,8 @@ data class AppConfig(
     val schemaModeRaw: String? = null,
     /** `FTS_INTEGRITY` (`startup` default | `off`) -- whether startup runs the FTS5 integrity check ([FtsIntegrityMode]). */
     val ftsIntegrity: FtsIntegrityMode = FtsIntegrityMode.STARTUP,
+    /** `RESOURCE_LEASES_ENFORCED` -- the lease kill switch, read ONCE at startup (restart to change). Default true; false skips the lease gate and acquisition on every advance. */
+    val resourceLeasesEnforced: Boolean = true,
     // ---- REST API: SSE / events ----
     val apiAllowQueryTokenForSse: Boolean,
     val apiSseAuthCheckIntervalSeconds: Int,
@@ -150,6 +152,7 @@ data class AppConfig(
                 ignoredUseFlywaySet = env("USE_FLYWAY") != null,
                 schemaModeRaw = env("SCHEMA_MODE"),
                 ftsIntegrity = FtsIntegrityMode.parse(env("FTS_INTEGRITY")),
+                resourceLeasesEnforced = EnvBoolean.parse("RESOURCE_LEASES_ENFORCED", env("RESOURCE_LEASES_ENFORCED"), true),
                 // REST API SSE / events.
                 apiAllowQueryTokenForSse =
                     EnvBoolean.parse("API_ALLOW_QUERY_TOKEN_FOR_SSE", env("API_ALLOW_QUERY_TOKEN_FOR_SSE"), false),
@@ -175,9 +178,8 @@ data class AppConfig(
 
         /**
          * Resolves the directory that contains the `.taskorchestrator/` config folder, applying the
-         * canonical `AGENT_CONFIG_DIR → user.dir` fallback. Preserves the behavior previously
-         * duplicated in [YamlWorkItemSchemaService.resolveDefaultConfigPath] and
-         * [DefaultJwksKeySetProvider].
+         * canonical `AGENT_CONFIG_DIR → user.dir` fallback. The composition root builds the base
+         * directory ONCE from this and hands it to every consumer.
          */
         fun resolveConfigBaseDir(agentConfigDir: String?): String = agentConfigDir ?: System.getProperty("user.dir")
 

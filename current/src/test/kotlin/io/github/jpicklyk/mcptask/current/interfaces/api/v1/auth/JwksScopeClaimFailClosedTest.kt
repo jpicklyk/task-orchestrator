@@ -11,14 +11,14 @@ import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
+import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.CacheState
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
@@ -381,11 +381,11 @@ class JwksScopeClaimFailClosedTest {
             serverName = "jwks-scope-fail-closed-test",
             serverVersion = "1.0.0",
             actorAuthEnabled = false,
-            noteSchemaService = NoOpNoteSchemaService,
+            serverConfig = ServerConfigSource { null },
             toolContext =
                 ToolExecutionContext(
                     repositoryProvider,
-                    statusLabelService = YamlStatusLabelService(),
+                    statusLabelService = NoOpStatusLabelService,
                     perRootConfigService = PerRootConfigService(repositoryProvider.configStore()),
                     unitOfWork = db.unitOfWork()
                 ),

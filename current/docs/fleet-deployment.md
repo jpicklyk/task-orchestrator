@@ -46,8 +46,8 @@ process that silently logged an error and kept running.
 
 **The global `.taskorchestrator/config.yaml` fails startup, closed, if it is broken.** If the file
 at `AGENT_CONFIG_DIR/.taskorchestrator/config.yaml` exists but cannot be read, is not valid YAML,
-or its top-level document is not a mapping, both the note-schema loader and the
-`actor_authentication:` loader throw before the object graph finishes wiring — the exception
+or its top-level document is not a mapping, the shared file loader throws before the object graph
+finishes wiring — the exception
 propagates out of `ServerComposition.build()` and `CurrentMcpServer.run()`, so the process exits
 non-zero **before** the readiness marker is ever written and before any transport binds. The same
 applies to a present, non-null field that fails to parse under `actor_authentication:` (an
@@ -62,6 +62,40 @@ now fails startup. Per-project config pushed via `manage_project_config` / `PUT
 /api/v1/roots/{rootId}/config` is unaffected — only the single, server-wide global file is on this
 fail-closed path. One key in that file is exempt: a malformed `status_labels:` block (display-only
 labels) still falls back to the default labels with a WARN.
+
+**The file is imported into the database at every boot; the runtime reads only the stored copy.**
+After the lenient load above, the every-boot data step `server-config-import` (phase `CONFIG_IMPORT`)
+parses the file **strictly** (the same rules a per-root push is held to) and appends it as a
+`file-import` config version, byte for byte, with the same fingerprint 3.x reported for the file. From
+then on schemas, traits, the resource registry, status labels and note limits are read from the stored
+head on every request, never from the file: editing the file without a restart changes nothing, and a
+version another process appends to a shared volume is served on the next read.
+
+- An identical file appends nothing. An absent, empty or comment-only file imports nothing and never
+  resets a stored head.
+- **Last booting process wins on a shared volume.** Two processes mounting different files onto one
+  database alternate `file-import` versions at their boots (history shows each); use per-project
+  config (multi-project setup, `manage_project_config`) instead of differing mounts.
+- A file with no `project.rootId` becomes the **server** config. A file that sets `project.rootId` is
+  imported as that depth-0 root's config instead; the root must exist in this database, and such a file
+  must not carry `resources:` (the resource registry is server-only: drop `project.rootId` to declare
+  one).
+- **A `project.rootId` that cannot be honored fails startup, including on a fresh volume.** If the
+  mounted global config carries a `project.rootId` that is malformed (not a UUID), unknown in this
+  database, or not a depth-0 item, startup fails as `DATA_STEPS` (`project.rootId <uuid> is not a
+  project root (depth 0) in this database`, or `/project/rootId: must be a UUID`), and an ERROR log line
+  names the remedy. Remedy: remove `project.rootId` from the mounted global config (it then becomes
+  the server config), or create or import that root first. A workspace config written by `/init` carries
+  `project.rootId`, so do not mount it as the global file on a new volume.
+- **Legacy 3.x keys boot with warnings.** Top-level `schema_resolution`, `orchestration`,
+  `retrospective` and `actor_attribution` (plugin sections a 3.x global file carried) are accepted at
+  boot, each recorded as a stored warning that `GET /api/v1/info` returns as `configWarnings`; a push
+  of the same text is still rejected. `actor_authentication:` stays read from the file (never imported
+  or validated here).
+- **Any other strict error, or a file over 128 KiB, fails startup** as `DATA_STEPS` with one
+  `path: reason` line per error, before any transport binds or the readiness marker is written.
+- A stored head that cannot be loaded (no canonical form, undecodable) fails closed: tools and routes
+  answer `config_invalid` (REST 422), never "no config" and never the 3.x global fall-through.
 
 **Data steps.** After Flyway migrates and before any background service or transport starts, the
 server runs its registered data steps: idempotent, code-level upgrade steps that Flyway SQL cannot
@@ -287,7 +321,7 @@ API_ALLOW_UNAUTHENTICATED=true
 | `API_ALLOW_QUERY_TOKEN_FOR_SSE` | SSE + browser | `false` | Allow `?token=` auth for SSE (browser EventSource workaround). |
 | `API_SSE_AUTH_CHECK_INTERVAL_SECONDS` | SSE in use | `30` | Interval for token-expiry checks on open SSE connections. |
 | `API_REDACT_NOTE_ATTRIBUTION` | always | `true` | When `true`, non-admin callers see no `actor`/`verification` on notes/transitions. |
-| `RESOURCE_LEASES_ENFORCED` | always (`EnvBoolean`) | `true` | Deployment-wide kill switch for the resource-lease gate (see Resource Leasing below). `false`/`0`/`no` disable it; `true`/`1`/`yes` or unset leave it on; matching is case-insensitive and trimmed; any other value logs a WARN and enforcement stays on. Disables **acquisition only**; releases always run regardless. `AdvanceService` is constructed fresh per `advance_item`/`POST .../advance` invocation and reads this var each time — but since a running process's environment cannot change mid-process, and a container's environment changes only when the container is recreated, flipping this var takes effect only after the process or container restarts. |
+| `RESOURCE_LEASES_ENFORCED` | always (`EnvBoolean`) | `true` | Deployment-wide kill switch for the resource-lease gate (see Resource Leasing below). `false`/`0`/`no` disable it; `true`/`1`/`yes` or unset leave it on; matching is case-insensitive and trimmed; any other value logs a WARN and enforcement stays on. Disables **acquisition only**; releases always run regardless. Read **once at startup** into the typed `AppConfig` snapshot (restart-required); no runtime code reads the environment. |
 
 ### Bearer token secret file
 
@@ -326,7 +360,7 @@ The hook is **fail-open and opt-in** — it no-ops silently (exit 0) unless an A
 
 Set these per-workspace (e.g. in `.claude/settings.json`'s `env` block, or the shell environment). Against a bearer/jwks server the token needs only `write-config` for its own root — not `admin` (add `read` if the same token also serves the SubagentStop phase guard below). Against an unauthenticated server, no token is needed at all. Either way the server must have `API_ENABLED=true`. If the API is unreachable or returns an error, the hook logs a one-line note and continues; it never blocks session start.
 
-**Rule sync.** After the config sync above, the same hook pushes this workspace's git-tracked `.taskorchestrator/rules/*.md` files into the per-root rule store, replacing the one-time manual `manage_plan_documents` stash. It calls `GET /api/v1/roots/{rootId}/rules` to read each rule's current `rulesVersion`, then `PUT`s only the keys whose local SHA-256 hash (of the CRLF-normalized body) differs from — or is entirely absent from — that listing, to `PUT /api/v1/roots/{rootId}/plans/rule%2F<key>` (the literal `%2F` is required — the plan route takes one path segment). Changed rules push concurrently, each under the hook's existing 2000ms per-request timeout; the SessionStart entry's own timeout is 10s to give a first push of many rules room to finish. Because this step adds a `GET .../rules` call, **the token now also needs `read`** in addition to `write-config` (an unauthenticated server needs nothing extra). The rule sync is fail-open independently of the config sync above: an absent `rules/` dir is a silent no-op, and any other error (unreachable API, a non-200 `GET rules`, an individual `PUT` failure) is folded into the same one-line note rather than affecting the config-sync outcome or the exit code.
+**Rule sync.** After the config sync above, the same hook pushes this workspace's git-tracked `.taskorchestrator/rules/*.md` files into the per-root rule store, replacing the one-time manual rule stash. It calls `GET /api/v1/roots/{rootId}/rules` to read each rule's current `rulesVersion`, then `PUT`s only the keys whose local SHA-256 hash (of the CRLF-normalized body) differs from — or is entirely absent from — that listing, to `PUT /api/v1/roots/{rootId}/plans/rule%2F<key>` (the literal `%2F` is required — the plan route takes one path segment). **4.0 note:** that route is removed on a 4.0 server (rules are `docs_write` `upsert` with `kind` `rule`, over `POST /api/v1/ops/docs_write`, which needs the same `write-config` capability); the hook moves to the new tool in the plugin work, and until then rule sync against a 4.0 server reports the failed `PUT` in its one-line note. Changed rules push concurrently, each under the hook's existing 2000ms per-request timeout; the SessionStart entry's own timeout is 10s to give a first push of many rules room to finish. Because this step adds a `GET .../rules` call, **the token now also needs `read`** in addition to `write-config` (an unauthenticated server needs nothing extra). The rule sync is fail-open independently of the config sync above: an absent `rules/` dir is a silent no-op, and any other error (unreachable API, a non-200 `GET rules`, an individual `PUT` failure) is folded into the same one-line note rather than affecting the config-sync outcome or the exit code.
 
 **Staleness semantics (last-known-good on a read error).** "Hot-reloaded, no restart" above describes
 the happy path — a per-root config read failing with a transient database error is a distinct case
@@ -344,8 +378,8 @@ Error Envelope and [api-rest.md](api-rest.md) §6 for the exact shapes. This is 
 back to when the DB itself is transiently unreachable.
 
 **HTTP-first policy.** New plugin-side infrastructure features — `config-sync.mjs`, SSE event
-streaming, the `plan-capture.mjs` hook (which stashes an approved plan as a `plan_document` via
-`PUT /roots/{rootId}/plans/{slug}`), and the SubagentStop phase guard below — are built HTTP-only, each fail-opening to a silent no-op when
+streaming, the `plan-capture.mjs` hook (which stashes an approved plan as a plan document; the
+`PUT /roots/{rootId}/plans/{slug}` route it uses is removed in 4.0 in favour of `POST /ops/docs_write`), and the SubagentStop phase guard below — are built HTTP-only, each fail-opening to a silent no-op when
 no API URL resolves (the `TASK_ORCHESTRATOR_API_URL` env var, then a project-level or the user-level `client.json`, in that order; the project-level file is honoured only as a bare loopback origin). STDIO deployments keep full MCP tool
 functionality but do not gain these convenience features; STDIO is positioned as the local/evaluation
 transport, while a persistent HTTP daemon with the REST API enabled is the recommended path for
@@ -752,7 +786,7 @@ The provider supports three sources; configure exactly one (more than one fails 
 
 - `oidc_discovery` — fetches the discovery document, extracts `jwks_uri` (and `issuer`, unless explicitly configured)
 - `jwks_uri` — fetched directly
-- `jwks_path` — local file, resolved relative to `AGENT_CONFIG_DIR` or `user.dir`
+- `jwks_path` — local file, resolved relative to the agent config base directory (`AGENT_CONFIG_DIR`, else `user.dir`), which `AppConfig` resolves once at startup
 
 
 **`oidc_discovery` and `jwks_uri` must use `https`.** A configured `oidc_discovery` or `jwks_uri` value, and a `jwks_uri` discovered from an OIDC discovery document, are all validated at load time (or, for the discovered value, at fetch time): `https` is always accepted, and plaintext `http` is accepted only when `allow_insecure_url: true` is also set AND the URL's host is a literal loopback address (`localhost`, `127.x.x.x`, `::1` — no DNS resolution, so a host that merely resolves to loopback is still rejected). Any other case — `http` without the opt-in, `http` to a non-loopback host, or a non-http(s) scheme (`file`, `ftp`, ...) — fails startup with an `IllegalArgumentException` naming the offending config key; a discovered `jwks_uri` that breaks the rule is refused at fetch time instead (no keys are fetched, and verification reports `UNAVAILABLE`). `jwks_path` (a local file) and `did:web` DID-trust mode are unaffected — this rule only governs sources fetched over the network. This mirrors the REST API's `API_JWKS_URL` / `API_JWKS_ALLOW_INSECURE_URL` contract (see the `API_JWKS_URL` row in the REST API environment-variable table above), but the actor-authentication key is `allow_insecure_url` under `actor_authentication.verifier:`, not an environment variable.
@@ -1166,9 +1200,11 @@ releases keep running regardless, so no lease is ever stranded by flipping the s
 an emergency valve if the gate itself is suspected of misbehaving (e.g. falsely rejecting every WORK
 entry) — it degrades the deployment to rung-1/rung-2 behavior (the audit field and the lease table
 both still exist and are still readable/force-releasable via REST) without requiring a config edit.
-It does, however, need a process/container restart to take effect: the var is read fresh on every
-advance call, but the environment itself only changes when the process or container is recreated.
-Re-enable the same way, by unsetting the var (or setting it to `true`/`1`/`yes`) and restarting.
+It does, however, need a process/container restart to take effect: the var is read once at startup
+(`AppConfig.resourceLeasesEnforced`), so a running process never sees a change. Accepted values are
+`true`/`1`/`yes` (enforced) and `false`/`0`/`no` (disabled), case-insensitive and trimmed; anything else
+logs a WARN and keeps enforcement on. Re-enable the same way, by unsetting the var (or setting it to
+`true`/`1`/`yes`) and restarting.
 
 ---
 

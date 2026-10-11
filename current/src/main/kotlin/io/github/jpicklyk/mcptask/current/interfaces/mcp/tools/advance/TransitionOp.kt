@@ -11,16 +11,19 @@ import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValid
 import io.github.jpicklyk.mcptask.current.application.service.buildDispatchProfileJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
+import io.github.jpicklyk.mcptask.current.application.support.toDomainError
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.omitOnConfigUnavailable
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.invalidField
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -45,6 +48,7 @@ internal val transitionOp =
             "Move one item between phases with a trigger (start, complete, block, hold, resume, cancel, reopen). " +
                 "Gates, dependencies, claim ownership and resource leases apply; the result lists cascaded parents, " +
                 "unblocked items and what the next phase expects.",
+        profile = ToolProfile.ORCHESTRATION,
         capability = ApiCapability.ADVANCE,
         request = serializer<TransitionRequest>(),
         errors =
@@ -103,6 +107,8 @@ private suspend fun WriteScope.runTransition(
             }
         } catch (e: PerRootConfigUnavailableException) {
             return Outcome.Err(AdvanceSupport.configUnavailable(e.message))
+        } catch (e: PerRootConfigInvalidException) {
+            return Outcome.Err(e.toDomainError())
         }
 
     return when (outcome) {

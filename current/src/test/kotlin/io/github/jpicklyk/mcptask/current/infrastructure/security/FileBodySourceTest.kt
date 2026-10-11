@@ -1,19 +1,21 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.security
 
+import io.github.jpicklyk.mcptask.current.application.api.CallContext
+import io.github.jpicklyk.mcptask.current.application.api.IdRef
+import io.github.jpicklyk.mcptask.current.application.api.docs.DocHandlers
+import io.github.jpicklyk.mcptask.current.application.api.docs.DocKind
+import io.github.jpicklyk.mcptask.current.application.api.docs.DocUpsertRequest
+import io.github.jpicklyk.mcptask.current.application.api.docs.DocWriteOutcome
 import io.github.jpicklyk.mcptask.current.application.port.BodySource
+import io.github.jpicklyk.mcptask.current.application.port.CallLogRecord
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -287,78 +289,80 @@ class FileBodySourceTest {
         assertFalse("OUTSIDE-SECRET" in escape.message, escape.message)
     }
 
-    // ------------------------------------------------------------------ S15 manage_plan_documents consumer
+    // ------------------------------------------------------------------ S15 docs_write consumer
 
     private suspend fun stash(
-        tool: ManagePlanDocumentsTool,
         context: ToolExecutionContext,
         rootId: String,
         slug: String,
         file: String
-    ): JsonObject =
-        tool.execute(
-            JsonObject(
-                mapOf<String, JsonElement>(
-                    "operation" to JsonPrimitive("stash"),
-                    "rootId" to JsonPrimitive(rootId),
-                    "slug" to JsonPrimitive(slug),
-                    "bodyFromFile" to JsonPrimitive(file)
-                )
-            ),
-            context
-        ) as JsonObject
+    ): Outcome<DocWriteOutcome> =
+        context.unitOfWork.write("FileBodySourceTest.stash") {
+            DocHandlers.upsert(
+                this,
+                context,
+                CallContext(reqId = "test", surface = CallLogRecord.SURFACE_MCP, principal = null),
+                DocUpsertRequest(rootId = IdRef(rootId), kind = DocKind.PLAN, slug = slug, bodyFromFile = file)
+            )
+        }
 
-    private fun JsonObject.succeeded(): Boolean = getValue("success").jsonPrimitive.boolean
+    private fun Outcome<DocWriteOutcome>.succeeded(): Boolean = this is Outcome.Ok
+
+    private suspend fun planBody(
+        rootId: java.util.UUID,
+        slug: String
+    ): String? =
+        db
+            .repositoryProvider()
+            .documentStore()
+            .get(rootId, DocumentKind.PLAN, slug)
+            ?.body
 
     @Test
-    fun `S15 the plan stash reads bodyFromFile via the context bodySource with CRLF, containment and the cap`(): Unit =
+    fun `S15 the docs_write upsert reads bodyFromFile via the context bodySource with CRLF, containment and the cap`(): Unit =
         runBlocking {
-            val tool = ManagePlanDocumentsTool()
             val context = ToolExecutionContext(db.repositoryProvider(), unitOfWork = db.unitOfWork(), bodySource = FileBodySource(root))
             val planRoot = db.repositoryProvider().workItemRepository().create(WorkItem(title = "Plan root", type = "project"))
-            val plans = db.repositoryProvider().planDocumentRepository()
             write("plan.md", "# P\r\nline\r\n")
             write("plan-at-cap.md", "p".repeat(65536))
             write("plan-over-cap.md", "p".repeat(65537))
 
-            val ok = stash(tool, context, planRoot.id.toString(), "via-file", "plan.md")
-            assertTrue(ok.succeeded(), "the stash must succeed: $ok")
-            assertEquals("# P\nline\n", plans.get(planRoot.id, "via-file")?.body)
+            val ok = stash(context, planRoot.id.toString(), "via-file", "plan.md")
+            assertTrue(ok.succeeded(), "the upsert must succeed: $ok")
+            assertEquals("# P\nline\n", planBody(planRoot.id, "via-file"))
 
-            val atCap = stash(tool, context, planRoot.id.toString(), "at-cap", "plan-at-cap.md")
+            val atCap = stash(context, planRoot.id.toString(), "at-cap", "plan-at-cap.md")
             assertTrue(atCap.succeeded(), "control: exactly the cap is accepted: $atCap")
-            assertEquals(65536, plans.get(planRoot.id, "at-cap")?.body?.length)
+            assertEquals(65536, planBody(planRoot.id, "at-cap")?.length)
 
-            val escape = stash(tool, context, planRoot.id.toString(), "escape", "../outside.txt")
+            val escape = stash(context, planRoot.id.toString(), "escape", "../outside.txt")
             assertFalse(escape.succeeded(), "an escape must fail: $escape")
-            assertNull(plans.get(planRoot.id, "escape"), "nothing is stored for an escape")
+            assertNull(planBody(planRoot.id, "escape"), "nothing is stored for an escape")
             assertFalse("OUTSIDE-SECRET" in escape.toString(), "the outside text never comes back: $escape")
             assertFalse(
                 root.toString().replace('\\', '/') in escape.toString().replace('\\', '/'),
                 "the root path never comes back: $escape"
             )
 
-            val over = stash(tool, context, planRoot.id.toString(), "over", "plan-over-cap.md")
+            val over = stash(context, planRoot.id.toString(), "over", "plan-over-cap.md")
             assertFalse(over.succeeded(), "a file over the cap must fail: $over")
-            assertNull(plans.get(planRoot.id, "over"), "nothing is stored for an over-cap file")
+            assertNull(planBody(planRoot.id, "over"), "nothing is stored for an over-cap file")
         }
 
     @Test
-    fun `S15 a context without a bodySource refuses bodyFromFile for plan documents`(): Unit =
+    fun `S15 a context without a bodySource refuses bodyFromFile for documents`(): Unit =
         runBlocking {
-            val tool = ManagePlanDocumentsTool()
             val enabled = ToolExecutionContext(db.repositoryProvider(), unitOfWork = db.unitOfWork(), bodySource = FileBodySource(root))
             val disabled = ToolExecutionContext(db.repositoryProvider(), unitOfWork = db.unitOfWork())
             val planRoot = db.repositoryProvider().workItemRepository().create(WorkItem(title = "Plan root", type = "project"))
-            val plans = db.repositoryProvider().planDocumentRepository()
             write("plan.md", "# plan\n")
 
-            val refused = stash(tool, disabled, planRoot.id.toString(), "refused", "plan.md")
+            val refused = stash(disabled, planRoot.id.toString(), "refused", "plan.md")
             assertFalse(refused.succeeded(), "DISABLED must refuse: $refused")
-            assertNull(plans.get(planRoot.id, "refused"))
+            assertNull(planBody(planRoot.id, "refused"))
 
-            val control = stash(tool, enabled, planRoot.id.toString(), "accepted", "plan.md")
-            assertTrue(control.succeeded(), "control: the same call through an enabled context stores the plan: $control")
-            assertEquals("# plan\n", plans.get(planRoot.id, "accepted")?.body)
+            val control = stash(enabled, planRoot.id.toString(), "accepted", "plan.md")
+            assertTrue(control.succeeded(), "control: the same call through an enabled context stores the document: $control")
+            assertEquals("# plan\n", planBody(planRoot.id, "accepted"))
         }
 }
