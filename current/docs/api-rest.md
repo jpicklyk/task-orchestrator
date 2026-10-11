@@ -439,7 +439,8 @@ The host is data only: nothing branches on it and responses do not change. It is
 Whichever value is chosen is normalized the same way: control characters are dropped, the text is trimmed and
 lowercased, and it is capped at 64 code points (a surrogate pair is never split, and trailing whitespace at the cut is
 trimmed). A value that is empty after normalization counts as absent, so a blank `X-Client-Host` falls through to the
-`User-Agent`. `X-Client-Host` is in the default `CORS_ALLOWED_HEADERS`, so browser clients can send it cross-origin.
+`User-Agent`. `X-Client-Host` is in the default `CORS_ALLOWED_HEADERS`, so browser clients can send it cross-origin. The value is
+self-reported and unauthenticated: it labels telemetry only and is never used for authorization, scoping or identity.
 MCP calls take their host from the client's `initialize` `clientInfo.name` instead.
 
 ## 7. Pagination

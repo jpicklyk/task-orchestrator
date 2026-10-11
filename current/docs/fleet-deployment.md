@@ -202,7 +202,8 @@ whether the id was verified. On REST rows it holds the authenticated API princip
 The `host` column of a row, and of every `events` row the call writes, names the client application. On MCP rows it is
 the client's `initialize` `clientInfo.name`, read per session, so clients sharing one server keep separate hosts (null when
 the client sent no name). On REST rows it is the `X-Client-Host` request header, else the first `User-Agent` product token,
-else `rest`. The value is normalized (control characters dropped, trimmed, lowercased, capped at 64 code points). See
+else `rest`. The value is normalized (control characters dropped, trimmed, lowercased, capped at 64 code points). Both are self-reported by the client and unauthenticated: `host` labels telemetry only and is
+never used for authorization, scoping or identity. See
 [api-rest.md](api-rest.md) section 6a. `X-Client-Host` is in the default `CORS_ALLOWED_HEADERS`; a deployment that
 overrides that variable must add the header itself for browser clients to send it.
 
