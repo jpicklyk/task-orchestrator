@@ -1,9 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
@@ -64,8 +61,8 @@ class WriteRouteAuthInvariantTest {
             cacheTtlSeconds = 300,
         )
 
-    /** Installs ONLY the write routes under test (S16 exercises writes exclusively -- no read
-     * routes are needed) in jwks mode, with [verifier] wired directly into [ApiBearerAuth]. */
+    /** Installs ONLY [ApiBearerAuth] in jwks mode (S16 asserts the auth plugin 401s before routing; the REST item
+     * write routes are gone since Q13/Q18), with [verifier] wired directly into [ApiBearerAuth]. */
     private fun Application.wireJwksWriteApp(
         repo: DefaultRepositoryProvider,
         verifier: JwksApiVerifier,
@@ -79,19 +76,6 @@ class WriteRouteAuthInvariantTest {
                     authConfig = jwksAuthConfig()
                     jwksVerifier = verifier
                 }
-                val toolContext =
-                    ToolExecutionContext(
-                        repo,
-                        perRootConfigService = PerRootConfigService(repo.configStore()),
-                        unitOfWork = db.unitOfWork()
-                    )
-                itemWriteRoutes(
-                    repo,
-                    degradedModePolicy,
-                    IdempotencyService(db.unitOfWork()),
-                    toolContext.advanceServiceFactory(),
-                    db.unitOfWork(),
-                )
             }
         }
     }

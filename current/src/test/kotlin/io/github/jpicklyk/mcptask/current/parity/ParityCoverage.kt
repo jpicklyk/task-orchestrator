@@ -148,6 +148,7 @@ object ParityCoverage {
  * `NotesParityTest`. `deps_read` / `deps_write` (Q12) follow in `DepsParityScenarios`, run in `DepsParityTest`.
  */
 object ProductionParity {
-    val scenarios: List<ParityScenario> = ItemsWriteParity.scenarios + NotesParityCatalog.scenarios + DepsParityScenarios.scenarios
+    val scenarios: List<ParityScenario> =
+        ItemsWriteParity.scenarios + NotesParityCatalog.scenarios + DepsParityScenarios.scenarios + AdvanceParityScenarios.all
     val exemptions: List<ScopeExempt> = NotesParityCatalog.exemptions + DepsParityScenarios.exemptions
 }

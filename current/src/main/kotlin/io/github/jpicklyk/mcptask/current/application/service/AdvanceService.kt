@@ -652,7 +652,14 @@ class AdvanceService(
                             targetRole = Role.WORK,
                             contendedResources = result.keys,
                             retryAfterMs = result.retryAfterMs,
-                            error = AdvanceErrors.contended(item.id, result.keys, result.retryAfterMs)
+                            error =
+                                AdvanceErrors.contended(
+                                    item.id,
+                                    result.keys.mapNotNull { key ->
+                                        loaded.requirements.firstOrNull { it.key == key }?.let { ResourceRef(key, it.mode.wire) }
+                                    },
+                                    result.retryAfterMs
+                                )
                         )
                     )
             }
@@ -1247,20 +1254,23 @@ internal object AdvanceErrors {
             fixArgs = mapOf("itemId" to item.id.toString(), "trigger" to trigger.wire, "fromRole" to item.role.toJsonString())
         )
 
+    /**
+     * The `resource_unavailable` error for [resources], each with its declared requirement mode. An empty list is a
+     * defect of the caller (a contention names at least one resource), reported as `internal`, never as a made-up key.
+     */
     fun contended(
         itemId: UUID,
-        keys: List<String>,
+        resources: List<ResourceRef>,
         retryAfterMs: Long?
     ): DomainError =
-        DomainError(
-            code = ErrorCode.RESOURCE_UNAVAILABLE,
-            message = "Resource(s) currently held by another work item: ${keys.joinToString()}",
-            detail =
-                ErrorDetail.ResourceUnavailable(
-                    itemId,
-                    keys.ifEmpty { listOf("unknown") }.map { ResourceRef(it, "exclusive") },
-                    retryAfterMs
-                ),
-            fixArgs = mapOf("itemId" to itemId.toString())
-        )
+        if (resources.isEmpty()) {
+            DomainError(ErrorCode.INTERNAL, "A lease contention named no resource for item $itemId")
+        } else {
+            DomainError(
+                code = ErrorCode.RESOURCE_UNAVAILABLE,
+                message = "Resource(s) currently held by another work item: ${resources.joinToString { it.name }}",
+                detail = ErrorDetail.ResourceUnavailable(itemId, resources, retryAfterMs),
+                fixArgs = mapOf("itemId" to itemId.toString())
+            )
+        }
 }

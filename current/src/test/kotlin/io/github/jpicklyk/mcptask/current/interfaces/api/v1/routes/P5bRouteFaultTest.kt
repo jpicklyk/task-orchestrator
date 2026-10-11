@@ -1,30 +1,12 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
-import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.domain.error.VersionConflictException
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
-import io.ktor.serialization.kotlinx.json.json
-import io.ktor.server.application.Application
-import io.ktor.server.application.install
-import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.server.routing.route
-import io.ktor.server.routing.routing
-import io.ktor.server.sse.SSE
 import io.ktor.server.testing.testApplication
-import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -75,55 +57,7 @@ class P5bRouteFaultTest {
             }
         }
 
-    private fun etag(item: WorkItem) = "\"v${item.version}-${item.modifiedAt.toEpochMilli()}\""
-
     private fun errorOf(body: String) = Json.parseToJsonElement(body).jsonObject
-
-    // ---------------------------------------------------------------- S5
-    // ---------------------------------------------------------------- S4
-    private class ConflictOnUpdateRepository(
-        private val delegate: WorkItemRepository
-    ) : WorkItemRepository by delegate {
-        override suspend fun update(item: WorkItem): WorkItem? = throw VersionConflictException(item.id, item.version, item.version + 1)
-    }
-
-    private class ConflictProvider(
-        private val delegate: RepositoryProvider
-    ) : RepositoryProvider by delegate {
-        private val conflicting = ConflictOnUpdateRepository(delegate.workItemRepository())
-
-        override fun workItemRepository(): WorkItemRepository = conflicting
-    }
-
-    private fun Application.conflictApp(
-        provider: RepositoryProvider,
-        unitOfWork: UnitOfWork
-    ) {
-        val authConfig = makeWriteAuthConfig()
-        install(ContentNegotiation) { json(McpJson) }
-        install(SSE)
-        routing {
-            route("/api/v1") {
-                install(ApiBearerAuth) {
-                    this.authConfig = authConfig
-                    tokenEntries =
-                        authConfig.tokens.mapValues { (_, principal) -> BearerTokenStore.TokenEntry(principal, expiresAt = null) }
-                }
-                itemRoutes(provider)
-                itemWriteRoutes(
-                    provider,
-                    DegradedModePolicy.ACCEPT_CACHED,
-                    IdempotencyService(unitOfWork),
-                    ToolExecutionContext(
-                        provider,
-                        statusLabelService = NoOpStatusLabelService,
-                        unitOfWork = unitOfWork
-                    ).advanceServiceFactory(),
-                    unitOfWork
-                )
-            }
-        }
-    }
 
     // ---------------------------------------------------------------- S9
     @Test

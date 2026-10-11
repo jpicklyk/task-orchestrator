@@ -182,7 +182,7 @@ Each token grants a set of additive capabilities:
 | `READ` | `read` | All GET endpoints under `/api/v1/` |
 | `WRITE_ITEMS` | `write-items` | `items_write` ops through `POST /ops/items_write` (create, update, delete) |
 | `WRITE_NOTES` | `write-notes` | `POST /ops/notes_write` ops `upsert` and `delete` (checked per op by the dispatcher, section 20a) |
-| `ADVANCE` | `advance` | `POST /items/{id}/advance` |
+| `ADVANCE` | `advance` | The `advance` tool's ops (`transition`, `claim`, `release`, `heartbeat`) through `POST /ops/advance` (section 20a) |
 | `MANAGE_DEPENDENCIES` | `manage-dependencies` | `POST /ops/deps_write` ops `create`, `delete`, `linear`, `fan_out` and `fan_in` (checked per op by the dispatcher, section 20a) |
 | `WRITE_CONFIG` | `write-config` | `PUT /roots/{rootId}/config`, `DELETE /roots/{rootId}/config`, `POST /roots/{rootId}/config/rollback`, `PUT /roots/{rootId}/plans/{slug}` |
 | `ADMIN` | `admin` | Implies all of the above; unlocks attribution fields in responses |
@@ -307,21 +307,13 @@ byte-identical content produces the same fingerprint/ETag as an LF, BOM-less che
 
 ## 5. Idempotency
 
-`POST /items/{id}/advance` supports idempotency via the `Idempotency-Key` header (`items_write`, `notes_write` and `deps_write` elements use `idempotencyKey` instead, section 20a):
+No REST route takes the 3.x `Idempotency-Key` header any more: `POST /items/{id}/advance` (moved to the `advance` tool) and
+`POST /items`, `PATCH /items/{id}` and `DELETE /items/{id}` (moved to `items_write`) were its last users. The 4.0 write
+tools served at `POST /api/v1/ops/{tool}` (`items_write`, `notes_write`, `deps_write`, `advance`) take a per-element
+`idempotencyKey` instead, recorded per `(principal, tool, key)` for 24 hours (section 20a); an `Idempotency-Key` header on
+`/ops` is `400 invalid_request`.
 
-```
-Idempotency-Key: <UUID>
-```
-
-- Must be a valid UUID
-- Malformed key → `400 validation_error`
-- The write and its record commit in the same transaction, so a record exists only if the effects committed. Records are durable (they survive a restart and are shared by every process on the database) and live for 24 hours, scoped to the caller and the route (`rest.<METHOD> <route template>`).
-- **Replay.** A retry with the same key and the same request (method, path, `If-Match`, canonical body) returns the stored response (status, body and `ETag`) verbatim with the header `Idempotent-Replayed: true`, without re-executing. ETag pre-conditions were evaluated on the first call and are not re-evaluated against the now-mutated resource.
-- **Mismatch.** The same key with a different request is `409 idempotency_mismatch`; nothing is executed. The body is compared canonically (key order and whitespace do not matter), so a retry must send the same content.
-- **What is recorded.** Only a 2xx response and a pure payload rejection (a `400 validation_error` for a malformed body or value) are recorded. A response that depends on state or is transient (`404`, `403`, `409`, `412`, `500`, `503`) rolls the write back and is **not** recorded, so a retry with the same key runs again.
-- Concurrent requests with the same key serialize on the database writer: the first executes, the others replay its result.
-- The same record store backs the MCP tools (`requestId`, keyed per element — see `api-reference.md`); a REST key is `"<uuid>:0"` under the REST route, so the two surfaces never collide.
-- Every write route now bounds its body read to a fixed byte limit BEFORE buffering it: a `Content-Length` over the limit is rejected with `413 payload_too_large` before any bytes are touched, and a chunked/understated-`Content-Length` body is caught by a channel read capped at `limit + 1` bytes, so an oversized body is never buffered in full either way. `POST /items/{id}/advance` has a 1 MiB limit (previously unbounded); `PUT /roots/{rootId}/config` (128 KiB) and `PUT /roots/{rootId}/plans/{slug}` (64 KiB) keep their existing numeric limits, now enforced at the same pre-buffer point instead of after a full read. See §6 for the `payload_too_large` error shape.
+- Every write route bounds its body read to a fixed byte limit BEFORE buffering it: a `Content-Length` over the limit is rejected with `413 payload_too_large` before any bytes are touched, and a chunked/understated-`Content-Length` body is caught by a channel read capped at `limit + 1` bytes, so an oversized body is never buffered in full either way. `POST /api/v1/ops/{tool}` has a 1 MiB limit (its `payload_too_large` is an envelope error, section 20a); `PUT /roots/{rootId}/config` (128 KiB) and `PUT /roots/{rootId}/plans/{slug}` (64 KiB) keep their existing numeric limits, enforced at the same pre-buffer point. See §6 for the legacy `payload_too_large` error shape.
 
 ---
 
@@ -360,22 +352,16 @@ other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability
 | `not_found` | 404 | Item, note, or dependency not found |
 | `rule_not_found` | 404 | `GET /roots/{rootId}/rules/{key}` (§19a): the root resolves and is depth-0, but no `rule/<key>` plan document exists there — distinct from `not_found`, which covers an unknown `{rootId}` itself |
 | `scope_forbidden` | 403 | Item exists but is outside the caller's scope (see §3) |
-| `idempotency_mismatch` | 409 | An `Idempotency-Key` was reused with a different request (see §5) |
-| `unsupported_media_type` | 415 | A non-JSON `Content-Type` on `POST /items/{id}/advance` (see §5) |
 | `etag_mismatch` | 412 | `If-Match` header does not match current ETag |
-| `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /items/{id}/advance` has a 1 MiB limit; `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB, except a `{slug}` starting with `rule/` (e.g. `rule%2Fcommit-discipline`), which is capped tighter at 16384 bytes (16 KiB) — the single enforcement point `query_rules`/§19a rely on, so those read surfaces never re-check size themselves (see §18, §19, §19a). |
+| `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB, except a `{slug}` starting with `rule/` (e.g. `rule%2Fcommit-discipline`), which is capped tighter at 16384 bytes (16 KiB) — the single enforcement point `query_rules`/§19a rely on, so those read surfaces never re-check size themselves (see §18, §19, §19a). |
 | `invalid_request` | 401 | `error_description` body. Missing `Authorization` header, a non-Bearer scheme, or an empty Bearer credential (also the SSE pre-flight when no header or allowed `?token=` is presented). Carries `WWW-Authenticate: Bearer error="invalid_request"`. |
 | `invalid_token` | 401 | `error_description` body. Unknown, expired, or otherwise invalid token (bearer or JWKS). Carries `WWW-Authenticate: Bearer error="invalid_token"`. |
 | `verification_failed` | 401 | Not currently reachable via REST — a JWT passing `ApiBearerAuth` is always `VERIFIED`, which every `degradedModePolicy` trusts. Reserved for the same audit-policy check used by MCP tool calls, where a self-reported actor under a degraded JWKS result can still be rejected. |
-| `insufficient_capability` | 403 | Caller's token lacks a capability required by the request itself (distinct from `scope_forbidden`'s root-scope check) — e.g. a non-ADMIN caller sets `overrideResourceLeases: true` on `POST /items/{id}/advance`, or calls `DELETE /api/v1/resources/leases/{key}` without `ADMIN` |
+| `insufficient_capability` | 403 | Caller's token lacks a capability required by the request itself (distinct from `scope_forbidden`'s root-scope check) — e.g. a caller without `ADMIN` calls a legacy route that needs it (the lease admin routes answer the envelope `forbidden` instead, see section 14) |
 | `insufficient_scope` | 403 | `error_description` body. A generic `requireCapability` check failed for the plugin's configured capability; (SSE-specific) a `GET /api/v1/events` connection presents a valid token that lacks the `read` capability (see §21); (SSE-specific) a `GET /api/v1/events` connection carries a `tags_include` scope but the route has no `WorkItemRepository` wired to filter by it -- fail-closed rather than serving an unfiltered stream; or (SSE-specific) a root-scoped principal's `?root=` values do not intersect its token's `scope.rootIds` -- the requested roots are entirely outside scope (see §21) |
-| `gate_blocked` | 422 | `POST /items/{id}/advance`: a required-note gate rejected the transition; `details.missingNotes` lists the unfilled notes (and `details.missingBySeat` when the schema is seat-aware) |
-| `transition_blocked` | 422 | `POST /items/{id}/advance`: a blocking dependency (or a `credentialRefs` rule) rejected the transition; `details.blockers` lists them |
-| `transition_failed` | 422 | `POST /items/{id}/advance`: no transition exists for the trigger from the item's current role, or the write failed. The gate and dependency rejections above have their own codes; this one carries no `details` |
-| `not_claim_holder` | 409 | Not reachable on REST today (ownership is not enforced on this surface); reserved for the same claim check MCP applies |
+| `not_claim_holder` | 403 | Not an `ErrorDto` route error: the `advance` tool (`POST /ops/advance`, section 20a) returns it in its envelope for a `transition` on an item another actor holds, or a `release`/`heartbeat` of an item the caller does not hold. Claim ownership applies on REST as on MCP since 4.0 |
 | `internal` | 500 | An exception escaped a `/api/v1` route. The message is always `Internal server error`: the exception text is logged at ERROR and never returned. Produced by the REST safety net (see below) |
-| `resource_unavailable` | 409 | Resource-lease gate contention on `POST /items/{id}/advance` into WORK — transient, retryable. Carries a `Retry-After` header and `details.contendedResources`/`details.retryAfterMs`. Never discloses the current holder. |
-| `config_unavailable` | 503 | Per-root config read failed (a transient database error) and there was no last-known-good cached config to serve for that root — transient, retryable; the caller applies its own backoff (no `Retry-After` header). Returned by `POST /items/{id}/advance`, `GET /items/{id}/gate` (see §9, §10), and `GET /roots/{rootId}/config/effective` (see §18). REST and the MCP tools now read per-root config through the same `EffectiveConfigResolver`/last-known-good cache (one shared instance, built once in `ServerComposition`) — a transient DB error on one surface is absorbed by a cache warmed by the other, so this error is rarer than it was when each surface kept its own cache. Exception: `POST /items/{id}/advance` reads the item's config (and every cascade target's) inside the advance's unit of work and `GET /items/{id}/gate` inside its preview's read unit; a unit has no last-known-good fallback, so on those two routes a read fault answers `config_unavailable` even when the cache is warm. |
+| `config_unavailable` | 503 | Per-root config read failed (a transient database error) and there was no last-known-good cached config to serve for that root — transient, retryable; the caller applies its own backoff (no `Retry-After` header). Returned by `GET /items/{id}/gate` (see §9, §10) and `GET /roots/{rootId}/config/effective` (see §18). REST and the MCP tools now read per-root config through the same `EffectiveConfigResolver`/last-known-good cache (one shared instance, built once in `ServerComposition`) — a transient DB error on one surface is absorbed by a cache warmed by the other, so this error is rarer than it was when each surface kept its own cache. Exception: `GET /items/{id}/gate` reads inside its preview's read unit; a unit has no last-known-good fallback, so on that route (and in the `advance` tool, which answers `unavailable` with `retryAfterMs` 1000 per element) a read fault answers `config_unavailable` even when the cache is warm. |
 | `db_error` | 500 | A store fault: a read route responds `Database query failed` (or the route's own read text), a write route its existing text (e.g. `Failed to create item`). A store fault on a read is never reported as `404 not_found`; `404` means only that the row does not exist. |
 
 **One mapper, one safety net.** Every `ErrorDto` body is built by one mapper (`LegacyRestErrorMapper`): each
@@ -608,7 +594,7 @@ defaulting to `"terminal"` when unset — never a raw possibly-null passthrough.
 `phase` is the item's CURRENT role, lowercased. `missing` is the required-note KEY strings (schema
 order) still unfilled for `phase` — plain strings, never `{key, description, ...}` objects.
 
-`canAdvance` is "`POST /items/{id}/advance` with `start` would be allowed right now", claim ownership
+`canAdvance` is "the `advance` tool's `transition` op with `start` would be allowed right now", claim ownership
 excluded: the same transition-policy evaluation the advance runs. It is `false` when the transition
 table rejects `start` (terminal or blocked item), a blocking dependency is unmet, a current-phase
 required note is unfilled (or a `reject`-mode violation blocks), or an exclusive resource the item
@@ -939,58 +925,10 @@ body:
 ```
 `rules` is ordered by `key` ascending.
 
-### ResourceLeaseDto (see §14)
+### Resource lease items (see section 14)
 
-```json
-{
-  "resourceKey": "staging-db",
-  "holderItemId": "<uuid>",
-  "acquiredByActorId": "agent-worker-42",  // ADMIN callers only — omitted (not null) otherwise
-  "acquiredAt": "ISO-8601",
-  "expiresAt": "ISO-8601",
-  "originalAcquiredAt": "ISO-8601"
-}
-```
-
-`acquiredByActorId` is present only when the caller has `ADMIN` capability; non-admin `READ` callers
-receive the object without this field at all (server-wide `explicitNulls=false` — omitted, not
-serialized as `null`). `holderItemId` (the exclusivity subject — see §14) is visible to any `READ`
-caller; it carries no more information than an item ID already readable via `GET /items/{id}`.
-
-### ResourceLeaseListResponseDto
-
-```json
-{ "leases": [<ResourceLeaseDto>] }
-```
-
-### ResourceLeaseReleaseResponseDto
-
-```json
-{ "resourceKey": "staging-db", "releasedCount": 1 }
-```
-
-### ResourceLeaseIntervalDto (see §14)
-
-```json
-{
-  "resourceKey": "staging-db",
-  "holderItemId": "<uuid>",
-  "acquiredByActorId": "agent-worker-42",  // ADMIN callers only — omitted (not null) otherwise
-  "acquiredAt": "ISO-8601",
-  "expiresAt": "ISO-8601",
-  "releasedAt": "ISO-8601",                // null (omitted) while the interval is still open
-  "releaseReason": "released",             // "released" | "expired" | "force_released"; null while open
-  "releasedByActorId": "admin-token-id"    // ADMIN callers only; null for a passive "expired" close
-}
-```
-
-One row per lease hold INTERVAL, not per lease event — append-only, never pruned in v1. See §14.
-
-### ResourceLeaseHistoryResponseDto
-
-```json
-{ "intervals": [<ResourceLeaseIntervalDto>] }
-```
+The lease admin routes answer the response envelope, so there are no lease DTO classes: a list item is the
+plain JSON object described in section 14 (ISO-8601 instants).
 
 ### SSE / ApiEvent
 
@@ -1158,186 +1096,14 @@ Item creates, updates and deletes are no longer separate routes: `POST /items`, 
 [`api-reference.md`](./api-reference.md#items_write). Write elements take an `idempotencyKey` in place of the
 `Idempotency-Key` header.
 
-### POST /items/{id}/advance
+### Advancing items (moved)
 
-Trigger a role transition. Requires `ADVANCE`. Supports `Idempotency-Key` header (see [section 5](#5-idempotency)).
-
-This route runs the **same advance pipeline as the MCP `advance_item` tool**, unified behind `AdvanceService`: ONE transaction in which the transition policy evaluates the transition table, **blocking dependencies**, the **required-note gate** and the **resource-lease gate** (claim ownership is not enforced on REST), then the role change, its audit row and event, the lease acquire/release, and every cascade commit together or not at all; unblocked downstream items are then reported.
-
-**Request body:**
-```json
-{
-  "trigger": "start|complete|block|hold|resume|cancel|reopen",
-  "credentialRefs": ["vault:prod-db-password"],     // optional; audit labels, never secret values
-  "overrideResourceLeases": false                    // optional; ADMIN-only, see below
-}
-```
-
-`credentialRefs`: opaque audit labels for credentials/resources this transition consumed — max 8
-entries, each 1-128 chars matching `^[a-z0-9][a-z0-9\-_./]*$`. Validated with the identical
-`CredentialRefValidation` object the MCP `advance_item` tool uses, so the two surfaces reject the
-same inputs. **Closed-set rule:** once the target item declares at least one resource via its traits'
-`resources:` (registry state alone does not trigger this), each supplied ref must name a
-declared/registered key
-— an unrecognized ref is rejected with `400 validation_error` naming the ref and the known-key list.
-Items with no declared resources are unaffected (an open, format-only check, unchanged from rung 1).
-Declared exclusive/advisory keys are auto-recorded into `consumedCredentials` on work entry — you do
-not need to repeat them.
-
-`overrideResourceLeases`: **ADMIN-only.** When `true`, skips the resource-lease gate for this
-transition entirely — no lease is taken, the gate is bypassed, not satisfied. A non-admin caller
-setting this field to `true` gets **`403 insufficient_capability`**, checked before the item is even
-loaded — the flag is never silently ignored. A successful override is WARN-logged (principal token
-id, item id, trigger) and the persisted transition's `summary` is stamped `"(resource leases
-overridden)"`. Omitted, `null`, or `false` are indistinguishable — the gate stays enforced.
-
-**Claimed-item behavior:** The REST API bypasses MCP claim ownership — a claimed item advances successfully even if a different MCP agent holds the claim. A WARN is emitted to the server log (`API_WARN_ON_CLAIMED_ADVANCE=false` to suppress). The response does NOT disclose `claimedBy` (tiered-disclosure principle). If this (or any) transition lands the item in TERMINAL, its claim fields (`claimedBy`/`claimedAt`/`claimExpiresAt`/`originalClaimedAt`) are cleared as part of the same transition — a subsequent `reopen` always starts the item unclaimed.
-
-**Note-gate enforcement:** When the item's schema declares required notes, the gate is enforced exactly as in MCP — a `start` requires the current phase's required notes; a `complete` requires all required notes across every phase. An advance that leaves a required note unfilled is **rejected with `422 gate_blocked`** (it no longer silently advances). The missing notes are returned in `details.missingNotes`.
-
-**Resource-lease gate — the ownership/lease asymmetry.** REST bypasses MCP claim *ownership* for
-every caller unconditionally (see above), but it does **not** bypass the resource-lease gate the
-same way: leases stay enforced for every REST caller by default, and only an explicit ADMIN
-`overrideResourceLeases: true` opts out. The rationale: a claim is one agent's own bookkeeping, which
-an operator may reasonably overrule; a lease protects a shared *external* resource, which operator
-authority over the item does not make safe to double-acquire. This is the single most surprising
-behavior on this route — read it twice if you're building an operator dashboard.
-
-Entry into WORK is gated on **both** the `start` and `resume` triggers (`resume` re-enters WORK from
-BLOCKED and re-resolves/re-acquires leases against config as it stands at resume time — it is not
-exempt just because the note gate's `start`/`complete` check is). `complete`, `cancel`, `block`,
-`hold`, and `reopen` never acquire; every trigger that leaves WORK releases held leases inside the
-same transition. A lease-store fault while acquiring or releasing fails the whole advance with
-`422 transition_failed` and nothing is persisted.
-
-**Contention response (`409 resource_unavailable`):**
-```json
-{
-  "error": "resource_unavailable",
-  "message": "Cannot enter work phase: resource(s) currently held by another work item: staging-db",
-  "details": {
-    "targetRole": "work",
-    "contendedResources": ["staging-db"],
-    "retryAfterMs": 30000
-  }
-}
-```
-`retryAfterMs` is the time until the soonest contended lease expires. A `Retry-After` response
-header accompanies the body — whole seconds, **rounded up** from `retryAfterMs` with a floor of 1, so a client never retries before the lease can possibly have
-expired. `CORS_EXPOSE_HEADERS` includes `Retry-After` and `X-Req-Id` by default (see `fleet-deployment.md`) so
-browser-based dashboards behind CORS can read it directly; `details.retryAfterMs` is present as a
-fallback regardless. **No holder identity is ever disclosed** on this path — neither the holding
-item's id nor its actor. Use `GET /api/v1/resources/leases` (§14, `ADMIN` capability for actor
-identity) to diagnose a stuck lease, or `get_context(itemId=...)` on the MCP side.
-
-An item that declares no resources (no `resources:` trait, whether or not a registry exists) can
-never produce `resource_unavailable` — the gate short-circuits before any lease-repository query, so
-non-adopters see byte-identical behavior to the feature's absence.
-
-**Known REST/MCP parity gap:** a start-cascade suppressed by resource contention is recorded in
-`cascadeEvents` with `"applied": false` (same as a gate-blocked cascade), but — unlike the MCP
-surface, which adds `resourceBlocked`/`contendedResources` to the cascade JSON — the REST
-`CascadeEventDto` does not yet carry those fields. A REST caller currently cannot distinguish a
-resource-suppressed cascade from any other unapplied one by field alone; this is flagged as a small
-additive follow-up, not a blocking gap (the child item's own transition still fully succeeds either
-way).
-
-`CascadeEventDto` still carries `error` (string, optional, omitted when null), but it is never
-populated: cascades commit in the same transaction as the child, so a cascade apply fault fails the
-whole advance with `422 transition_failed` (the child's transition is rolled back too).
-
-`CascadeEventDto` also carries `roleBlocked` (boolean, default `false`) — a terminal cascade
-suppressed because the parent is `blocked` — and `dependencyBlocked` (boolean, default `false`)
-plus `blockers` (array of `{fromItemId, currentRole, requiredRole}`, non-null only when
-`dependencyBlocked`; `currentRole` is `"unknown"` for an unreadable blocker) — a terminal, start or
-reopen cascade suppressed by an unmet blocking dependency on the parent. Both apply to
-cancel-originated cascades too. Start and reopen cascades do not happen at all for a parent whose
-lifecycle is `manual` or `permanent`.
-
-**Response `200 OK`:** `AdvanceResponseDto`
-```json
-{
-  "itemId": "<uuid>",
-  "previousRole": "queue",
-  "newRole": "work",
-  "trigger": "start",
-  "statusLabel": "string|null",
-  "violations": [
-    { "key": "test-manifest", "seat": "test-author", "constraint": "same_actor", "conflictingSeat": "implementer" }
-  ],
-  "cascadeEvents": [
-    {
-      "itemId": "<uuid>",
-      "title": "Parent",
-      "previousRole": "work",
-      "targetRole": "terminal",
-      "applied": true,
-      "statusLabel": "done"
-    }
-  ],
-  "unblockedItems": [
-    { "itemId": "<uuid>", "title": "Downstream" }
-  ],
-  "expectedNotes": [
-    { "key": "implementation-notes", "role": "work", "required": true, "description": "...", "exists": false }
-  ]
-}
-```
-
-The `cascadeEvents`, `unblockedItems`, and `expectedNotes` fields are **additive** — they were added when the REST and MCP advance paths were unified. A gate-blocked cascade carries `"applied": false`, `"gateBlocked": true`, and a `missingNotes` array; a role-suppressed one carries `"roleBlocked": true`, and a dependency-suppressed one `"dependencyBlocked": true` plus a `blockers` array.
-
-`violations` (array, optional, A2) — on the top-level response and on each `cascadeEvents` entry — reports independence-attestation findings for that transition's target schema, `IndependenceViolationDto` objects mirroring `GateStatusDto.violations` above, but under a stricter presence rule: present ONLY when the list is non-empty. It is omitted (not `[]`) both when independence checking applies but finds nothing, and when independence mode is `off` or the target schema declares no `independent_of`. Populated in `warn` mode too, whenever there is something to report (a `warn`-mode transition still applies and still reports what it found).
-
-**Responses:**
-- `200 OK` → `AdvanceResponseDto`
-- `400 validation_error` — invalid trigger string, or a `credentialRefs` entry fails format/closed-set validation
-- `403 insufficient_capability` — `overrideResourceLeases: true` sent by a non-ADMIN caller
-- `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
-- `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the body is read
-- `409 resource_unavailable` — resource-lease gate contention; `Retry-After` header + `details.contendedResources`/`details.retryAfterMs` (see above)
-- `409 not_claim_holder` — pre-existing, defensive-only on this route (REST bypasses claim ownership by default — see "Claimed-item behavior" above); not expected to occur in normal REST usage
-- `422 gate_blocked` — a required-note gate failed; `details.missingNotes` lists the unfilled required notes, and `details.missingBySeat` (A1, optional) buckets those keys by owning seat when the target schema is seat-aware
-- `422 transition_blocked` — a dependency blocker prevents the transition; `details.blockers` lists the blocking edges
-- `422 transition_failed` — invalid state transition, or a persistence fault anywhere in the advance
-  (including a cascade or a lease release); nothing was applied
-- `503 config_unavailable` — the item's per-root config could not be read inside the advance's unit
-  of work, where the last-known-good fallback is disabled (see §6); transient, no `Retry-After`
-  header — the transition was NOT applied (a cascade parent whose own root's config cannot be read is
-  skipped instead; the transition still commits)
-
-**Gate-rejection example (`422`):**
-```json
-{
-  "error": "gate_blocked",
-  "message": "Gate check failed: required notes not filled for queue phase: spec",
-  "details": {
-    "targetRole": "work",
-    "missingNotes": [
-      { "key": "spec", "description": "Problem statement and approach", "guidance": "..." }
-    ],
-    "missingBySeat": { "planner": ["spec"] },
-    "violations": [
-      { "key": "test-manifest", "seat": "test-author", "constraint": "same_actor", "conflictingSeat": "implementer" }
-    ]
-  }
-}
-```
-
-`details.missingBySeat` (object, optional, A1) appears immediately after `details.missingNotes` —
-same shape, ordering, and omission rule as `GateStatusDto.missingBySeat` above
-(`{<seat>: [keys], ..., "unowned": [keys]}`, non-empty buckets only, `unowned` last): present only
-when the target schema is seat-aware, omitted entirely for a seat-less schema.
-
-`details.violations` (array, optional, A2) appears after `details.missingBySeat` — same shape as
-`GateStatusDto.violations`, but the same non-empty-only presence rule as `AdvanceResponseDto.violations`
-above (present only when the list is non-empty; omitted, not `[]`, when independence mode is `off`,
-the target schema declares no `independent_of`, or the check applies and finds nothing). A
-`gate_blocked` rejection can be caused by missing required notes, by a non-waived independence
-violation in `reject` mode, or both; `details.violations` reports whichever independence findings
-exist regardless of which condition actually triggered the 422 (it is also present, non-empty, when
-the block was violations-only — an empty `missingNotes` alongside a populated `violations`).
-
-The `hasReviewPhase` is resolved from the item's schema (type + tags + traits) to match `AdvanceItemTool` behavior — an advance from `work` goes to `review` when the schema has a review phase, or directly to `terminal` when it does not.
+`POST /items/{id}/advance` was removed in 4.0. Phase transitions and claim ownership are the `advance` tool, called
+over MCP or `POST /api/v1/ops/advance` (section 20a) with the `advance` capability. Its ops are `transition`,
+`claim`, `release` and `heartbeat`; see the `advance` section of `api-reference.md` for the element shapes and error codes.
+Unlike the removed route, `transition` enforces claim ownership on REST exactly as on MCP (an item claimed by another actor is
+`not_claim_holder`), resource leases are always enforced (there is no override flag), and every answer is the response
+envelope. `DELETE /resources/leases/{key}` (section 14) is the recovery path for a stuck lease.
 
 ---
 
@@ -1419,42 +1185,44 @@ Fields, answers and error codes are described in `api-reference.md` -> `deps_rea
 
 ## 14. Endpoints — Resource Leases
 
-Server-wide primitive backing the resource-lease gate on `POST /items/{id}/advance` (§10) and the
+Server-wide primitive backing the resource-lease gate of the `advance` tool's `transition` op and the
 `resources:` trait dimension (see `config-format.md`). **Cross-project, not per-root** — unlike
 every other `/api/v1` resource in this document, these routes carry no `rootId` scoping; a lease key
 is a server-wide namespace (see the "global-wins" registry precedence note in `config-format.md`).
+
+All three routes answer the **response envelope** (`ok`, `data`/`error`, `meta.reqId`), with the status of the error code.
+A token lacking the needed capability gets `forbidden` (`detail.scope = "capability"`, `detail.required` the capability name).
+A `401` from the authentication plugin keeps the legacy body.
 
 ### GET /api/v1/resources/leases
 
 Lists all currently active (unexpired) resource leases. Requires `READ`.
 
-**Response `200 OK`:** `ResourceLeaseListResponseDto` → `{ "leases": [<ResourceLeaseDto>] }`.
-`acquiredByActorId` is present per-entry only for callers with `ADMIN` capability — non-admin `READ`
-callers see every other field (including `holderItemId`, which is not considered sensitive; see
-`ResourceLeaseDto` in §8). No pagination — lease cardinality is bounded by design (one row per
-declared resource key per active holder, TTL-bounded), not a user-facing high-cardinality collection.
+**Response `200 OK`:** a list page. `data.items` is ordered by (`resourceKey`, `holderItemId`) and each item is
+`{resourceKey, holderItemId, acquiredByActorId?, acquiredAt, expiresAt, originalAcquiredAt}`; `data.page` is
+`{total, truncated: false}` with `total == items.length`. `acquiredByActorId` is present only for callers with
+`ADMIN` capability (omitted, never `null`, for others). No cursor: lease cardinality is bounded by design (one row per
+declared resource key per active holder, TTL-bounded).
 
 ### DELETE /api/v1/resources/leases/{key}
 
 Force-releases the active lease(s) held on `{key}`. Requires `ADMIN`. This is the operator recovery
 path for a crashed holder — it turns "wait out the TTL (up to 24h) or disable enforcement
-server-wide" into a one-call fix.
+server-wide" into a one-call fix, and it is the only one now that the advance `overrideResourceLeases` flag is gone.
 
 **Path parameter:** `{key}` — validated against `^[a-z0-9][a-z0-9\-_./]*$`, max 128 chars, checked
 **before** any repository access.
 
 **Responses:**
-- `200 OK` → `ResourceLeaseReleaseResponseDto` → `{ "resourceKey": "...", "releasedCount": 1 }`
-- `400 validation_error` — `{key}` fails the pattern/length check
-- `403 insufficient_capability` — caller lacks `ADMIN`
-- `404 not_found` — no active lease exists on `{key}` (idempotent-safe: a repeat call after a
-  successful release returns `404`, not a second `200`)
-- `500 db_error` — repository failure
+- `200 OK` → `{"ok": true, "data": {"resourceKey": "...", "releasedCount": 1}, "meta": {...}}`
+- `400 invalid_request` — `{key}` fails the pattern/length check (field `key`)
+- `403 forbidden` — caller lacks `ADMIN` (`scope: capability`, `required: admin`)
+- `404 not_found` — no active lease exists on `{key}` (`detail.kind = "lease"`, `detail.id` the key; a repeat call
+  after a successful release returns `404`, not a second `200`)
 
 Every successful force-release is WARN-logged with the acting principal's token id, the key, and the
 released count — sufficient to attribute the action to a specific bearer token from server logs
-alone, without needing to correlate against the response body. The acting principal's token id is
-also threaded through to `released_by_actor_id` on the closed history interval(s) — see below.
+alone. The acting principal's token id is also threaded through to `released_by_actor_id` on the closed history interval(s).
 
 ### GET /api/v1/resources/leases/history
 
@@ -1463,19 +1231,19 @@ already been released, stolen, or force-released, which `GET /resources/leases` 
 only) cannot. Requires `READ`.
 
 **Query parameters** (all optional):
-- `key` — restrict to one resource key. Same validation as `{key}` on the DELETE route above (400
-  `validation_error` on mismatch).
+- `key` — restrict to one resource key. Same validation as `{key}` on the DELETE route above (`invalid_request`, field `key`).
 - `at` — an ISO-8601 instant. When present, returns every interval held at that instant (per
-  `acquiredAt <= at < coalesce(releasedAt, expiresAt)`), open or closed. **400 `validation_error`**
-  if the value does not parse as an instant. When absent, returns the most recent intervals
-  (open or closed), newest-first by `acquiredAt`.
-- `limit` — max rows, default `100`, clamped to `[1, 500]`. Applied in SQL after the newest-first ordering (for both the `at` and the no-`at` views), so a large history is never loaded to be truncated.
+  `acquiredAt <= at < coalesce(releasedAt, expiresAt)`), open or closed; an unparsable value is `invalid_request`
+  on field `at`. When absent, returns the most recent intervals (open or closed), newest-first by `acquiredAt`.
+- `limit` — max rows, an integer from `1` to `200`, default `50` (any other value is `invalid_request` on field `limit`).
+  Applied in SQL after the newest-first ordering, so a large history is never loaded to be truncated.
 
 A lease is active while its expiry is strictly after "now": an expiry equal to now is expired, so a release at exactly the expiry instant records `expired`. All lease timestamps are canonical UTC text from the server's one bound clock.
 
-**Response `200 OK`:** `ResourceLeaseHistoryResponseDto` → `{ "intervals": [<ResourceLeaseIntervalDto>] }`.
-`acquiredByActorId` / `releasedByActorId` are present per-entry only for callers with `ADMIN`
-capability — same inline redaction rule `GET /resources/leases` applies to `acquiredByActorId`.
+**Response `200 OK`:** a list page; each item is `{resourceKey, holderItemId, acquiredByActorId?, acquiredAt, expiresAt,
+releasedAt?, releaseReason?, releasedByActorId?}` (`releaseReason` is `released`, `expired` or `force_released`; the
+last three are absent while the interval is open), `page.total == items.length`. `acquiredByActorId` / `releasedByActorId`
+are present only for `ADMIN` callers.
 
 No pruning/retention in v1 — the table is append-only and grows with lease-event cardinality
 (documented, accepted behavior; see `current/src/main/resources/db/migration/sqlite/V16__Resource_Lease_History.sql`).
@@ -1790,7 +1558,7 @@ Requires `READ`.
 **Authorization/validation order:** `READ` capability → parse `{rootId}` as a UUID (`400
 bad_request` on failure) → `ApiScope.rootIds` scope check (`403 scope_forbidden`) → root WorkItem
 exists (`404 not_found`) → root is depth-0 (`422 validation_error`) → exactly one per-root config
-read, wrapped in the same `config_unavailable` 503 envelope `POST /items/{id}/advance` and `GET
+read, wrapped in the same `config_unavailable` 503 envelope `GET
 /items/{id}/gate` use (see §6, §9, §10) — see §4/§5's note above on the shared REST/MCP cache.
 
 **Responses:**
@@ -2172,9 +1940,9 @@ Both `sync.lost` and `auth.expired` are **control events** — they always bypas
 
 **`item.updated` note:** since 4.0 an update that changes no field emits nothing, and a role change that also edits other fields emits only `item.advanced`.
 
-**`item.advanced` note:** This event is the projection of the transition row a role change records (via `advance_item`, `complete_tree`, `POST /items/{id}/advance`, including cascaded parent transitions). It carries the `newRole` field. This is distinct from `item.updated` -- a role change emits `item.advanced` (not `item.updated`).
+**`item.advanced` note:** This event is the projection of the transition row a role change records (via the `advance` tool, `complete_tree`, including cascaded parent transitions). It carries the `newRole` field. This is distinct from `item.updated` -- a role change emits `item.advanced` (not `item.updated`).
 
-**Claim/release note:** A successful claim or release through the MCP `claim_item` tool (its `claims` and `releases` arrays) emits `item.updated` for the claimed/released item -- and, for a claim that auto-releases the agent's other held items, one additional `item.updated` per auto-released item. A transition that ends a held claim (for example completing a claimed item) also emits `item.updated` for that item since 4.0.
+**Claim/release note:** A successful claim or release through the `advance` tool's `claim` and `release` ops (MCP or `POST /ops/advance`) emits `item.updated` for the claimed/released item -- and, for a claim that auto-releases the agent's other held items, one additional `item.updated` per auto-released item. A transition that ends a held claim (for example completing a claimed item) also emits `item.updated` for that item since 4.0.
 
 **Bulk-write note:** `create_work_tree` emits `item.created` for each newly created item (root first; an attach-mode pre-existing root emits nothing), then `dependency.added` per edge and `note.upserted` per note, all after the enclosing transaction commits -- a rolled-back tree emits nothing. Deleting all of an item's notes at once emits one `note.deleted` per note (since 4.0; was one per call); removing all of an item's dependencies emits one `dependency.removed` per edge. Deleting an item also emits one `note.deleted` per note and one `dependency.removed` per edge the database cascade removes, before the `item.deleted`.
 
@@ -2229,10 +1997,10 @@ caller capability tier, or admin status, because there is no attribution-bearing
 This graph does NOT reflect:
 - Runtime gate enforcement (note gates — required notes that must be filled before `start` succeeds)
 - Dependency blockers (an item blocked by an unsatisfied dependency cannot advance)
-- Claim ownership (MCP callers without claim ownership are blocked; REST API callers bypass claim ownership)
+- Claim ownership (a transition on an item another actor holds is `not_claim_holder`, on MCP and `POST /ops/advance` alike)
 - Per-item lifecycle exceptions
 
-Dashboard UI: do not use the status graph to pre-compute which buttons to enable. Always call `POST /items/{id}/advance` and surface the `422` error if the transition is blocked at runtime — `gate_blocked` (unfilled required note), `transition_blocked` (dependency blocker), or `transition_failed` (invalid state).
+Dashboard UI: do not use the status graph to pre-compute which buttons to enable. Always call the `advance` tool's `transition` op and surface its error if the transition is blocked at runtime — `gate_blocked` (unfilled required note), `dependency_unmet` (dependency blocker), or `invalid_transition` (invalid state), each a `409`.
 
 The `"<previousRole>"` sentinel in `blocked.resume` is a literal string — resolve it from the live item's `previousRole` field.
 

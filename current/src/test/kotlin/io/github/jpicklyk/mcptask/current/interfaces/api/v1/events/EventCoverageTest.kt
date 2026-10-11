@@ -1080,23 +1080,12 @@ class EventCoverageTest {
             val other = rig.seed("S17 other", root)
             val treeRoot = rig.seed("S17 tree root")
             val depTarget = rig.seed("S17 dep target", root)
-            val actor =
-                buildJsonObject {
-                    put("id", "s17-agent")
-                    put("kind", "subagent")
-                }
             val perTool: Map<String, Array<Pair<String, JsonElement>>> =
                 mapOf(
                     "items_write" to emptyArray(),
                     "notes_write" to emptyArray(),
                     "deps_write" to emptyArray(),
-                    "advance_item" to advance(other.id, "start"),
-                    "claim_item" to
-                        arrayOf(
-                            "claims" to buildJsonArray { add(buildJsonObject { put("itemId", child.id.toString()) }) },
-                            "actor" to actor,
-                            "requestId" to JsonPrimitive(UUID.randomUUID().toString()),
-                        ),
+                    "advance" to emptyArray(),
                     "complete_tree" to arrayOf("rootId" to JsonPrimitive(treeRoot.id.toString()), "trigger" to JsonPrimitive("complete")),
                     "create_work_tree" to
                         arrayOf(
@@ -1128,6 +1117,7 @@ class EventCoverageTest {
                             "items_write" -> rig.itemsWrite(createOp("S17 created"))
                             "notes_write" -> rig.ctx.upsertNoteVia(child.id, "k", "work", "b")
                             "deps_write" -> rig.ctx.callTool("deps_write", depsCreate(child.id, depTarget.id))
+                            "advance" -> rig.ctx.callTool("advance", advanceStart(other.id))
                             else -> rig.call(tools.getValue(name), *params)
                         }
                     }
@@ -1200,8 +1190,7 @@ class EventCoverageTest {
                 "items_write" to setOf("item.created"),
                 "notes_write" to setOf("note.upserted"),
                 "deps_write" to setOf("dependency.added"),
-                "advance_item" to setOf("item.transitioned"),
-                "claim_item" to setOf("claim.acquired"),
+                "advance" to setOf("item.transitioned"),
                 "complete_tree" to setOf("item.transitioned"),
                 "create_work_tree" to setOf("item.created"),
                 "manage_project_config" to setOf("config.version_created"),
@@ -1221,6 +1210,23 @@ class EventCoverageTest {
                 "notes_read",
                 "deps_read",
             )
+
+        /** An `advance` call starting [id] (queue -> work). */
+        fun advanceStart(id: UUID): JsonObject =
+            buildJsonObject {
+                put(
+                    "ops",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("op", "transition")
+                                put("itemId", id.toString())
+                                put("trigger", "start")
+                            }
+                        )
+                    }
+                )
+            }
 
         /** A `deps_write` call creating one BLOCKS edge [from] -> [to]. */
         fun depsCreate(

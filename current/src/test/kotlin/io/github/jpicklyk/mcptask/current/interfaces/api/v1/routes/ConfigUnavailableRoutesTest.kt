@@ -3,17 +3,11 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
-import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.getFingerprint
@@ -21,21 +15,9 @@ import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.get
 import io.ktor.client.request.header
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
-import io.ktor.serialization.kotlinx.json.json
-import io.ktor.server.application.Application
-import io.ktor.server.application.install
-import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.server.routing.route
-import io.ktor.server.routing.routing
-import io.ktor.server.sse.SSE
 import io.ktor.server.testing.testApplication
-import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -61,46 +43,6 @@ import kotlin.test.assertTrue
 class ConfigUnavailableRoutesTest {
     @RegisterExtension
     val db = SqliteTestDatabase.perMethod()
-
-    @Test
-    fun `S10 - POST items id advance returns 503 config_unavailable when the per-root config read fails cold`() =
-        testApplication {
-            val sqlite = db.repositoryProvider()
-            val (root, item) =
-                runBlocking {
-                    val r = sqlite.workItemRepository().create(WorkItem(title = "Root S10", depth = 0))!!
-                    val i =
-                        sqlite
-                            .workItemRepository()
-                            .create(
-                                WorkItem(title = "Child S10", role = Role.QUEUE, parentId = r.id, rootId = r.id, depth = 1)
-                            )!!
-                    r to i
-                }
-            val failable = FailableProjectConfigRepository(sqlite.configStore())
-            failable.failFingerprint = true
-            val provider = FailableRepositoryProvider(sqlite, failable)
-            application { configureAdvanceApp(provider, NoSchemaWorkItemSchemaService, unitOfWork = db.unitOfWork()) }
-
-            val response =
-                client.post("/api/v1/items/${item.id}/advance") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"trigger":"start"}""")
-                }
-
-            assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
-            val body = response.bodyAsText()
-            assertTrue(body.contains("config_unavailable"), "body: $body")
-
-            val persisted = runBlocking { sqlite.workItemRepository().getById(item.id)!! }
-            assertEquals(Role.QUEUE, persisted.role, "role must be unchanged when the advance is rejected for config_unavailable")
-            assertEquals(
-                null,
-                response.headers["Retry-After"],
-                "D6: no Retry-After on a config_unavailable 503 (only SHEDDING carries retryAfterMs)"
-            )
-        }
 
     @Test
     fun `S11 - GET items id gate returns 503 config_unavailable when the per-root config read fails cold`() =
@@ -179,37 +121,3 @@ private class FailableRepositoryProvider(
 
 /** No global schema for any type — mirrors the test-plan harness's "Global: no T, no default". */
 private val NoSchemaWorkItemSchemaService: ConfigDocument = ConfigDocument.EMPTY
-
-/** Registers only [itemWriteRoutes], mirroring [AdvanceRouteResourceLeaseTest]'s `configureLeaseTestApp`. */
-private fun Application.configureAdvanceApp(
-    provider: RepositoryProvider,
-    schemaService: ConfigDocument,
-    unitOfWork: UnitOfWork
-) {
-    install(ContentNegotiation) { json(McpJson) }
-    install(SSE)
-    val authConfig = makeWriteAuthConfig()
-    routing {
-        route("/api/v1") {
-            install(ApiBearerAuth) {
-                this.authConfig = authConfig
-                tokenEntries = authConfig.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) }
-            }
-            itemWriteRoutes(
-                provider,
-                DegradedModePolicy.ACCEPT_CACHED,
-                IdempotencyService(unitOfWork),
-                PerRootConfigService(provider.configStore()).let { perRoot ->
-                    ToolExecutionContext(
-                        provider,
-                        statusLabelService = NoOpStatusLabelService,
-                        perRootConfigService = perRoot,
-                        configResolver = TestConfigResolver.resolver(schemaService, perRoot),
-                        unitOfWork = unitOfWork
-                    ).advanceServiceFactory()
-                },
-                unitOfWork,
-            )
-        }
-    }
-}

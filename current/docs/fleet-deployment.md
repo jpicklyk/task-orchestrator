@@ -6,7 +6,7 @@ For single-agent or local-dev setups, the defaults are appropriate and this guid
 
 **Companion docs:**
 - [REST API Reference](api-rest.md) — HTTP endpoint docs, DTOs, error codes, SSE
-- [API Reference — `claim_item`](api-reference.md#claim_item) — tool spec: parameters, outcome codes, examples
+- [API Reference — `advance`](api-reference.md#advance) — tool spec: ops, claim semantics, error codes
 - [Workflow Guide §10 — Claim Mechanism](workflow-guide.md#10-claim-mechanism-for-multi-agent-fleets) — agent-side lifecycle, heartbeat pattern, discovery
 - [Workflow Guide §11 — Resource Leasing](workflow-guide.md#11-resource-leasing) — agent-side model: exclusive vs advisory, contention/retry, guarantees vs non-guarantees
 - This guide — operator-side: identity policy, capacity, disclosure, observability, resource-lease TTL/runbook
@@ -224,7 +224,7 @@ The REST API layer (`API_ENABLED=true`) is a **separate authentication layer** f
 | Layer | What it authenticates | Governs |
 |-------|----------------------|---------|
 | **REST API auth** (`API_AUTH_MODE`) | HTTP callers (dashboards, CI systems, operators) using bearer tokens or JWTs | Access to `/api/v1/*` endpoints — which HTTP clients can read/write the work-item graph via REST |
-| **MCP actor authentication** (`actor_authentication:`) | MCP agent identity — verifies the `actor.proof` JWT on MCP tool calls (`claim_item`, `advance_item`, etc.) | Claim ownership enforcement and audit attribution on MCP agent writes |
+| **MCP actor authentication** (`actor_authentication:`) | MCP agent identity — verifies the `actor.proof` JWT on MCP tool calls (the `advance` tool, `notes_write`, etc.) | Claim ownership enforcement and audit attribution on MCP agent writes |
 
 A REST API caller with `write-items` capability can create and patch items; it does NOT need (and does NOT have) an MCP agent identity. An MCP agent with a verified `did:web` identity can claim and advance items; it does NOT use REST API bearer tokens.
 
@@ -287,7 +287,6 @@ API_ALLOW_UNAUTHENTICATED=true
 | `API_ALLOW_QUERY_TOKEN_FOR_SSE` | SSE + browser | `false` | Allow `?token=` auth for SSE (browser EventSource workaround). |
 | `API_SSE_AUTH_CHECK_INTERVAL_SECONDS` | SSE in use | `30` | Interval for token-expiry checks on open SSE connections. |
 | `API_REDACT_NOTE_ATTRIBUTION` | always | `true` | When `true`, non-admin callers see no `actor`/`verification` on notes/transitions. |
-| `API_WARN_ON_CLAIMED_ADVANCE` | always | `true` | Log WARN when API caller advances a claimed item. |
 | `RESOURCE_LEASES_ENFORCED` | always (`EnvBoolean`) | `true` | Deployment-wide kill switch for the resource-lease gate (see Resource Leasing below). `false`/`0`/`no` disable it; `true`/`1`/`yes` or unset leave it on; matching is case-insensitive and trimmed; any other value logs a WARN and enforcement stays on. Disables **acquisition only**; releases always run regardless. `AdvanceService` is constructed fresh per `advance_item`/`POST .../advance` invocation and reads this var each time — but since a running process's environment cannot change mid-process, and a container's environment changes only when the container is recreated, flipping this var takes effect only after the process or container restarts. |
 
 ### Bearer token secret file
@@ -337,9 +336,9 @@ evicting it, and logs a WARN naming the root and the error. Last-known-good has 
 next successful read refreshes it — and is held per service instance, so MCP and each REST route
 maintain their own independent cache. A root this instance has never successfully read before (a
 cold cache, e.g. right after a restart, before any request has resolved that root's config) has
-nothing to serve on a read error and fails closed: `advance_item`/`complete_tree` report a transient
-`config_unavailable` outcome per item, other MCP tools fail the whole call, and the REST `advance`
-and `gate` routes respond `503 config_unavailable` — see [api-reference.md](api-reference.md)'s
+nothing to serve on a read error and fails closed: the `advance` tool fails the element with `unavailable` (`retryAfterMs` 1000) and `complete_tree` reports a transient
+`config_unavailable` outcome per item, other MCP tools fail the whole call, and the REST
+`gate` route responds `503 config_unavailable` — see [api-reference.md](api-reference.md)'s
 Error Envelope and [api-rest.md](api-rest.md) §6 for the exact shapes. This is orthogonal to
 `config-sync.mjs` above: the hook pushes a NEW config version; last-known-good is what a READ falls
 back to when the DB itself is transiently unreachable.
@@ -517,7 +516,7 @@ Valid values (case-insensitive): `accept-cached`, `accept-self-reported`, `rejec
 |---|---|---|
 | `accept-cached` | *(default)* Verified `actor.id` from JWT when stale JWKS cache was used (`UNAVAILABLE` status + stale cache). Self-reported `actor.id` for all other non-verified outcomes — with a WARN log (verifier, reason, actor id; never the proof) when the outcome is `REJECTED` (verification was attempted and actively failed), and a WARN when JWKS was unreachable with no usable cache; `ABSENT`/`UNCHECKED` fall back silently. A one-time startup WARN is also logged when a real `jwks` verifier is configured under this policy. | Single-org deployments; JWKS endpoint occasionally unreachable |
 | `accept-self-reported` | Always use self-reported `actor.id` from the caller, regardless of verification result. Equivalent to v3.2 implicit behavior. | Local dev; no JWKS; explicitly documented opt-out of identity guarantees |
-| `reject` | Reject any operation requiring verified identity when the actor is not fully verified. `claim_item` returns `rejected_by_policy`. `advance_item` on claimed items fails. | Cross-org `did:web` deployments; high-assurance environments |
+| `reject` | Reject any operation requiring verified identity when the actor is not fully verified. The `advance` tool's `claim`, `release` and `heartbeat` ops return `unauthenticated`; a `transition` on a claimed item fails. | Cross-org `did:web` deployments; high-assurance environments |
 
 ### Cross-Org `did:web` Deployments
 
@@ -679,7 +678,7 @@ The four stages below correspond to increasing identity-enforcement strictness. 
 
 | Stage | Config | Server behavior |
 |---|---|---|
-| **0 — Default orchestration** | `degraded_mode_policy` default, hook-side `enabled` false or absent | `claim_item` works but is optional. `advance_item` does not enforce ownership of unclaimed items. No actor required. |
+| **0 — Default orchestration** | `degraded_mode_policy` default, hook-side `enabled` false or absent | The `advance` tool's `claim` op works but is optional. A `transition` does not enforce ownership of unclaimed items. No actor required. |
 | **1 — Actor authentication on, self-reported identity** | Hook-side `actor_authentication.enabled: true` (client config, not read by the server), `degraded_mode_policy: accept-self-reported`, no `verifier` | The plugin hook requires an actor on writes. Claim ownership is not gated by `enabled`: the server enforces it whenever the item is claimed, and a call carrying no actor at all on a claimed item is also rejected. Identity is self-reported — caller-supplied `actor.id` is trusted unconditionally. |
 | **2 — Verifier configured, fallback permitted** | + `verifier: { type: jwks, ... }`, `degraded_mode_policy: accept-cached` | When `actor.proof` is present and JWKS is reachable, the JWT `sub` becomes the trusted identity. When JWKS is briefly unreachable, the stale-cache fallback serves. A `REJECTED` verification (bad signature, wrong issuer/audience, etc.) or an unreachable JWKS with no usable cache both fall back to self-reported `actor.id` with a WARN log; `ABSENT`/`UNCHECKED` fall back silently. |
 | **3 — Verification required** | + `degraded_mode_policy: reject` | Operations requiring verified identity are rejected if verification status is not `VERIFIED`. Unclaimed items remain accessible to unverified actors so existing default-mode clients are not broken — only claim and advance-on-claimed flows are gated. |
@@ -1076,8 +1075,8 @@ The server intentionally restricts where `claimedBy` identity is visible. This d
 | Surface | Claim data exposed |
 |---|---|
 | `get_context(itemId)` | Full claim detail: `claimedBy`, `claimedAt`, `claimExpiresAt`, `originalClaimedAt`, `isExpired` |
-| `claim_item` success response | Own claim metadata only: `claimedBy`, `claimedAt`, `claimExpiresAt`, `originalClaimedAt` |
-| `claim_item` `already_claimed` failure | `retryAfterMs` only — competing agent identity never disclosed |
+| `advance` `claim` op success result | Own claim metadata only: `claimedAt`, `expiresAt`, `originalClaimedAt` |
+| `advance` `claim` op `claim_held` error | `expiresAt` and `retryAfterMs` only — competing agent identity never disclosed |
 | `get_next_item(includeClaimed=true)` | `isClaimed: boolean` per item only — no identity |
 | `query_items(search, claimStatus=...)` | `isClaimed: boolean` per item only — no identity |
 | `query_items(overview, global)` | `claimSummary: { active, expired, unclaimed }` per root — counts only |
@@ -1141,9 +1140,9 @@ curl -X DELETE https://orchestrator.internal:3001/api/v1/resources/leases/stagin
   -H "Authorization: Bearer <admin-token>"
 ```
 
-Requires `ADMIN` capability. Responses: `200` with `{ resourceKey, releasedCount }` on success;
-`404 not_found` if no active lease exists on that key (idempotent-safe — a repeat call after a
-successful release 404s rather than double-counting); `400 validation_error` if `{key}` fails the
+Requires `ADMIN` capability. Responses (all response envelopes): `200` with `data: { resourceKey, releasedCount }` on success;
+`404 not_found` (detail kind `lease`) if no active lease exists on that key (idempotent-safe — a repeat call after a
+successful release 404s rather than double-counting); `400 invalid_request` if `{key}` fails the
 `^[a-z0-9][a-z0-9\-_./]*$` / 128-char check. Every successful force-release is WARN-logged with the
 acting principal's token id — check server logs to attribute the override after the fact. The same
 token id is also threaded through to `releasedByActorId` on the closed `resource_lease_history`

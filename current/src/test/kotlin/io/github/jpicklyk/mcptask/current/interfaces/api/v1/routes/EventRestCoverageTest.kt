@@ -29,7 +29,6 @@ import io.ktor.server.application.install
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -101,44 +100,7 @@ class EventRestCoverageTest {
         }
     }
 
-    private fun idOf(body: String): String = Regex(""""id":"([0-9a-fA-F-]{36})"""").find(body)!!.groupValues[1]
-
     private fun apiActor() = "api:$WRITE_TOKEN_ID"
-
-    // ---------------------------------------------------------------------------------------------
-    // Items
-    // ---------------------------------------------------------------------------------------------
-
-    @Test
-    fun `REST advance into a refused gate returns 422 and records exactly one transition rejected, then succeeds with a transition row`(
-        @TempDir dir: Path,
-    ): Unit =
-        testApplication {
-            val rig = EventLogRig.build(db.db, dir, EventLogRig.GATED_CONFIG)
-            application { configureProductionApp(rig.composition) }
-            val item = rig.seed("rest gated", tags = EventLogRig.GATED_TAG)
-
-            val refused = client.send("POST", "/items/${item.id}/advance", """{"trigger":"start"}""")
-
-            assertEquals(HttpStatusCode.UnprocessableEntity, refused.status, refused.bodyAsText())
-            val rows = rig.rows()
-            assertEquals(listOf("transition.rejected"), rows.types(), "$rows")
-            assertEquals("gate_blocked", rows.single().str("code"))
-            assertEquals(
-                listOf("spec"),
-                rows
-                    .single()
-                    .payload()["missingKeys"]!!
-                    .jsonArray
-                    .map { it.jsonPrimitive.content }
-            )
-
-            rig.raw.noteRepository().upsert(Note(itemId = item.id, key = "spec", role = "queue", body = "filled"))
-            val mark = rig.maxSeq()
-            val accepted = client.send("POST", "/items/${item.id}/advance", """{"trigger":"start"}""")
-            assertEquals(HttpStatusCode.OK, accepted.status, accepted.bodyAsText())
-            assertEquals(listOf("item.transitioned"), rig.rowsAfter(mark).types(), "control: an accepted advance records a transition")
-        }
 
     // ---------------------------------------------------------------------------------------------
     // Notes -- the carry-in gap

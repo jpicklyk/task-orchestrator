@@ -243,7 +243,7 @@ internal object WalScenarios {
         assertEquals(WAL_T, won.item.claimedAt)
         assertEquals(WAL_T.plusSeconds(CLAIM_TTL.toLong()), won.item.claimExpiresAt)
         results.filterIndexed { i, _ -> i != winnerIdx }.forEach {
-            assertEquals(ClaimResult.AlreadyClaimed(item.id, CLAIM_RETRY_MS), it)
+            assertEquals(ClaimResult.AlreadyClaimed(item.id, WAL_T.plusSeconds(CLAIM_TTL.toLong()), CLAIM_RETRY_MS), it)
         }
         val rows = fx.rig.rowsAfter(mark)
         assertEquals(1, rows.count { it.type == "claim.acquired" }, "$rows")
@@ -313,7 +313,7 @@ internal object WalScenarios {
         when (val rb = results[1]) {
             is ClaimResult.Success -> assertEquals(b, d.reload(x).claimedBy, "B claimed X after A let it go")
             is ClaimResult.AlreadyClaimed -> {
-                assertEquals(ClaimResult.AlreadyClaimed(x.id, CLAIM_RETRY_MS), rb)
+                assertEquals(ClaimResult.AlreadyClaimed(x.id, WAL_T.plusSeconds(CLAIM_TTL.toLong()), CLAIM_RETRY_MS), rb)
                 assertNull(d.reload(x).claimedBy, "B was refused, then A released X")
             }
             else -> error("unexpected result for B: $rb")

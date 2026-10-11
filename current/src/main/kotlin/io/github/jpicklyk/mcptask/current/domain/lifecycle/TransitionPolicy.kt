@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.Blocker
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
+import io.github.jpicklyk.mcptask.current.domain.error.GateViolation
 import io.github.jpicklyk.mcptask.current.domain.error.MissingNote
 import io.github.jpicklyk.mcptask.current.domain.error.ResourceRef
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockerEvaluator
@@ -14,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger.User
 import io.github.jpicklyk.mcptask.current.domain.model.IndependenceMode
 import io.github.jpicklyk.mcptask.current.domain.model.IndependenceViolation
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import java.util.UUID
 
@@ -192,11 +194,15 @@ object StandardGates {
                 null
             } else {
                 val item = input.snapshot.item
-                val detailMissing =
-                    if (eval.missing.isNotEmpty()) {
-                        eval.missing.map { MissingNote(it.key, it.role.wire(), it.seat) }
+                val detailMissing = eval.missing.map { MissingNote(it.key, it.role.wire(), it.seat) }
+                val blocking =
+                    if (input.snapshot.independence?.mode == IndependenceMode.REJECT) {
+                        eval.violations
+                            .orEmpty()
+                            .filter { !it.waived }
+                            .map { gateViolation(it) }
                     } else {
-                        independenceMissing(input.snapshot, eval.violations.orEmpty())
+                        emptyList()
                     }
                 Decision.Reject(
                     GateId.NOTE,
@@ -208,7 +214,7 @@ object StandardGates {
                             } else {
                                 "Item ${item.id} has blocking independence violations."
                             },
-                        detail = ErrorDetail.GateBlocked(item.id, item.role.wire(), detailMissing),
+                        detail = ErrorDetail.GateBlocked(item.id, item.role.wire(), detailMissing, blocking.ifEmpty { null }),
                         fixArgs = mapOf("itemId" to item.id.toString())
                     ),
                     RejectContext.Notes(eval.missing, eval.violations)
@@ -232,7 +238,10 @@ object StandardGates {
                         detail =
                             ErrorDetail.ResourceUnavailable(
                                 id,
-                                lease.heldElsewhere.map { ResourceRef(it, EXCLUSIVE) },
+                                lease.heldElsewhere.map { key ->
+                                    // Only exclusive requirements are ever held elsewhere; the loader records each key's mode.
+                                    ResourceRef(key, (lease.heldModes[key] ?: ResourceMode.EXCLUSIVE).wire)
+                                },
                                 lease.retryAfterMs
                             ),
                         fixArgs = mapOf("itemId" to id.toString())
@@ -247,24 +256,14 @@ object StandardGates {
     /** Blocker role reported for an unreadable blocker. */
     const val UNKNOWN_ROLE: String = "unknown"
 
-    private const val EXCLUSIVE: String = "exclusive"
-
     /**
-     * An independence-only block: GateBlocked requires a non-empty `missing`, so report the
-     * declaring notes of the blocking (non-waived) violations, deduplicated in finding order. The
-     * role comes from the required-note list when the key is there, else the item's current role.
+     * The `independence` gate violation of a blocking finding: `<key>: <constraint> conflicts with seat <conflictingSeat>`
+     * (the seat part is omitted when the finding names none). Seats only, never an actor.
      */
-    private fun independenceMissing(
-        snapshot: TransitionSnapshot,
-        violations: List<IndependenceViolation>
-    ): List<MissingNote> =
-        violations
-            .filter { !it.waived }
-            .distinctBy { it.key }
-            .map { v ->
-                val role = snapshot.requiredNotes?.firstOrNull { it.key == v.key }?.role ?: snapshot.item.role
-                MissingNote(v.key, role.wire(), v.seat)
-            }
+    private fun gateViolation(v: IndependenceViolation): GateViolation {
+        val seat = v.conflictingSeat?.let { " conflicts with seat $it" }.orEmpty()
+        return GateViolation("independence", "${v.key}: ${v.constraint.toJsonString()}$seat")
+    }
 }
 
 internal fun invalidTransition(
