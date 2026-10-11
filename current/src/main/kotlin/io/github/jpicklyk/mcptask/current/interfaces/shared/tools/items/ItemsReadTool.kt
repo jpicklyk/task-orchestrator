@@ -51,7 +51,7 @@ object ItemsReadTool {
     /** Select enumeration only; every field documents itself (doc single-source policy). */
     const val DESCRIPTION =
         "Read work items. Selects: get (one item), list (a filtered page), schema (the note schema of a type or an " +
-            "item), search (full text over item and note content), overview (a hierarchy summary)."
+            "item), search (full text over item, note and document content), overview (a hierarchy summary)."
 
     val spec: SelectToolSpec =
         SelectToolSpec(
@@ -202,6 +202,9 @@ enum class KindWire(
 
     @SerialName("note")
     NOTE(Corpus.NOTE),
+
+    @SerialName("document")
+    DOCUMENT(Corpus.DOCUMENT),
 }
 
 // ---- shared select helpers ------------------------------------------------------------------------------

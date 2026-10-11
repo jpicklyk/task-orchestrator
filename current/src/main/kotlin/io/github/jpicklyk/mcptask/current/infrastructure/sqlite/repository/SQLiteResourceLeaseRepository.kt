@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 
+import io.github.jpicklyk.mcptask.current.application.port.ClaimWrite
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.port.LeaseReleaseResult
@@ -57,6 +58,7 @@ class SQLiteResourceLeaseRepository(
      */
     private val maxHoldersPerKey = 1
 
+    @ClaimWrite
     override suspend fun acquireAll(
         holderItemId: UUID,
         actorId: String?,
@@ -300,6 +302,7 @@ class SQLiteResourceLeaseRepository(
         }
     }
 
+    @ClaimWrite
     override suspend fun releaseAllForItem(holderItemId: UUID): LeaseReleaseResult {
         val nowText = UtcTimestamp.format(clock.unitNow())
         return databaseManager.writeTx("LeaseStore.releaseAllForItem") {
@@ -322,6 +325,7 @@ class SQLiteResourceLeaseRepository(
         }
     }
 
+    @ClaimWrite
     override suspend fun releaseAllForItems(holderItemIds: Set<UUID>): LeaseReleaseResult {
         if (holderItemIds.isEmpty()) return LeaseReleaseResult.Success(0)
         val nowText = UtcTimestamp.format(clock.unitNow())
@@ -349,6 +353,7 @@ class SQLiteResourceLeaseRepository(
         }
     }
 
+    @ClaimWrite
     override suspend fun forceReleaseByKey(
         resourceKey: String,
         actorId: String?

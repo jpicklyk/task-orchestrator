@@ -47,9 +47,12 @@ enum class SearchMatchMode {
 /**
  * A single ranked match returned by a search call.
  *
- * @property kind        "item" for work-item hits, "note" for note body hits.
- * @property itemId      UUID of the owning work item.
+ * @property kind        "item" for work-item hits, "note" for note body hits, "document" for document hits.
+ * @property itemId      UUID of the owning work item (the root item for a document hit).
  * @property noteKey     Note key (only present when [kind] == "note").
+ * @property documentKind The document kind, `plan`, `rule` or `page` (only present when [kind] == "document").
+ * @property slug        The document slug (only present when [kind] == "document"); with [itemId] and
+ *   [documentKind] it addresses the document.
  * @property field       The field that contains a match ("title", "summary", or "body"); title wins
  *   when both item fields match.
  * @property snippet     ~32-token excerpt of [field] with `<mark>…</mark>` delimiters.
@@ -57,13 +60,15 @@ enum class SearchMatchMode {
  * @property matchedIn   Which analyzer(s) contributed to this hit ("trigram", "text").
  * @property trigramRank Raw rank from the substring analyzer (lower is better; null if not matched).
  * @property textRank    Raw rank from the stemmed analyzer (lower is better; null if not matched).
- * @property title       Title of the owning work item (the item's own title for an item hit); null
- *   when the item could not be read.
+ * @property title       Title of the owning work item (the item's own title for an item hit); for a document
+ *   hit the document's own title. Null when the item could not be read or the document has none.
  */
 data class SearchHit(
     val kind: String,
     val itemId: UUID,
     val noteKey: String? = null,
+    val documentKind: String? = null,
+    val slug: String? = null,
     val field: String,
     val snippet: String,
     val score: Double,

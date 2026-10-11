@@ -12,6 +12,8 @@ import java.util.UUID
  * @property primary The candidate whose field and snippet represent the document: when both analyzers matched it,
  *   the one with the lower raw rank, the substring analyzer on a tie. This compares ranks across two indexes, so it
  *   is a presentation heuristic only (inherited from 3.x); it never affects [score] or order.
+ * @property primaryAnalyzer The analyzer whose list supplied [primary]; its field and snippet are built against that
+ *   analyzer's index.
  * @property score The RRF fused score.
  * @property trigramRank Raw rank from the substring analyzer, null when it did not match.
  * @property textRank Raw rank from the stemmed analyzer, null when it did not match.
@@ -20,6 +22,7 @@ import java.util.UUID
 data class RankedHit(
     val corpus: Corpus,
     val primary: Candidate,
+    val primaryAnalyzer: Analyzer,
     val score: Double,
     val trigramRank: Double?,
     val textRank: Double?,
@@ -75,15 +78,16 @@ object Ranker {
             .map { (key, matched) ->
                 val trigram = matched[Analyzer.SUBSTRING]
                 val text = matched[Analyzer.STEMMED]
-                val primary =
+                val primaryAnalyzer =
                     when {
-                        trigram != null && text != null -> if (trigram.rank <= text.rank) trigram else text
-                        trigram != null -> trigram
-                        else -> text!!
+                        trigram != null && text != null -> if (trigram.rank <= text.rank) Analyzer.SUBSTRING else Analyzer.STEMMED
+                        trigram != null -> Analyzer.SUBSTRING
+                        else -> Analyzer.STEMMED
                     }
                 RankedHit(
                     corpus = key.corpus,
-                    primary = primary,
+                    primary = matched.getValue(primaryAnalyzer),
+                    primaryAnalyzer = primaryAnalyzer,
                     score = scores.getValue(key),
                     trigramRank = trigram?.rank,
                     textRank = text?.rank,

@@ -22,10 +22,13 @@ interface ItemStore {
 
     suspend fun getById(id: UUID): WorkItem?
 
+    @StoreWrite
     suspend fun create(item: WorkItem): WorkItem
 
+    @StoreWrite
     suspend fun update(item: WorkItem): WorkItem?
 
+    @StoreWrite
     suspend fun delete(id: UUID): Boolean
 
     suspend fun findByParent(
@@ -137,6 +140,7 @@ interface ItemStore {
     /**
      * Delete multiple items by ID in one query. Returns the number of rows deleted.
      */
+    @StoreWrite
     suspend fun deleteAll(ids: Set<UUID>): Int
 
     /**

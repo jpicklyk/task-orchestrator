@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
@@ -9,23 +8,21 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.orFail
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.patchOf
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.str
 import io.github.jpicklyk.mcptask.current.test.P11Driver
 import io.github.jpicklyk.mcptask.current.test.P11_BASE_YAML
 import io.github.jpicklyk.mcptask.current.test.breakConfigReads
 import io.github.jpicklyk.mcptask.current.test.configFaultFixture
 import io.github.jpicklyk.mcptask.current.test.createCommand
+import io.github.jpicklyk.mcptask.current.test.createOp
+import io.github.jpicklyk.mcptask.current.test.errorAt
+import io.github.jpicklyk.mcptask.current.test.itemsWrite
 import io.github.jpicklyk.mcptask.current.test.rawCount
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.upsert
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.int
-import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -437,25 +434,13 @@ class ItemTypeRuleTest {
             val d = P11Driver(EventLogRig.build(db.db, dir, P11_BASE_YAML))
             val f = d.configFaultFixture()
 
-            fun createParams() =
-                arrayOf(
-                    "operation" to str("create"),
-                    "items" to
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("title", "child")
-                                    put("type", "test-item")
-                                    put("parentId", f.root.id.toString())
-                                },
-                            )
-                        },
-                )
-
-            val control = d.rig.callOk(ManageItemsTool(), *createParams())
+            val control = d.rig.itemsWrite(createOp("child", f.root.id))
             assertEquals(
                 1,
-                control["data"]!!.jsonObject["created"]!!.jsonPrimitive.int,
+                control["data"]!!
+                    .jsonObject["summary"]!!
+                    .jsonObject["ok"]!!
+                    .jsonPrimitive.int,
                 "control: the same create succeeds while config is readable"
             )
 
@@ -463,14 +448,11 @@ class ItemTypeRuleTest {
             val items = rawCount(d.jdbcUrl, "SELECT COUNT(*) FROM work_items")
             val seq = d.rig.maxSeq()
 
-            val result = d.rig.call(ManageItemsTool(), *createParams())
+            val result = d.rig.itemsWrite(createOp("child", f.root.id))
 
-            val data = result["data"]!!.jsonObject
-            assertEquals(0, data["created"]!!.jsonPrimitive.int, "$result")
-            assertEquals(1, data["failed"]!!.jsonPrimitive.int, "$result")
-            val failure = data["failures"]!!.jsonArray[0].jsonObject
-            assertEquals("config_unavailable", failure["errorCode"]!!.jsonPrimitive.content, "$result")
-            assertEquals("transient", failure["errorKind"]!!.jsonPrimitive.content, "$result")
+            val failure = result.errorAt(0)
+            assertEquals("unavailable", failure["code"]!!.jsonPrimitive.content, "$result")
+            assertEquals("shedding", failure["kind"]!!.jsonPrimitive.content, "$result")
             assertEquals(items, rawCount(d.jdbcUrl, "SELECT COUNT(*) FROM work_items"), "the faulted create wrote no row")
             assertEquals(seq, d.rig.maxSeq(), "the faulted create recorded no event")
         }

@@ -14,7 +14,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkT
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.QueryRulesTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepException
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -42,7 +41,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.effectiveConfigRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemWriteRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteResourceRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.planDocumentRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.projectConfigRoutes
@@ -588,8 +586,6 @@ internal fun productionServerCapabilities(): ServerCapabilities =
  */
 internal fun buildMcpTools(): List<ToolDefinition> =
     listOf(
-        // Phase 1: CRUD
-        ManageItemsTool(),
         // Phase 3: Compound operations
         CompleteTreeTool(),
         CreateWorkTreeTool(),
@@ -748,15 +744,6 @@ internal fun Application.installRestApiRoutes(
             )
             // Phase 4: config/schema-discovery + status-graph
             configRoutes(noteSchemaService)
-            // Phase 5: write API — items, notes, dependencies
-            itemWriteRoutes(
-                effectiveProvider,
-                degradedModePolicy,
-                toolContext.idempotency,
-                toolContext.unitOfWork,
-                toolContext.itemCommandService,
-                clock = toolContext.clock,
-            )
             // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete —
             // converges on the same ConfigService the manage_project_config MCP tool uses.
             projectConfigRoutes(

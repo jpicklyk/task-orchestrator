@@ -56,6 +56,7 @@ interface ConfigStore {
      * Identical content (fingerprint == head.fingerprint) returns Applied(head, appended=false) and writes nothing.
      * `scope = SERVER` throws [IllegalArgumentException] until the server-scope writer lands.
      */
+    @StoreWrite
     suspend fun append(
         scope: ConfigScope,
         rootId: UUID?,
@@ -72,6 +73,7 @@ interface ConfigStore {
     ): FingerprintRelation
 
     /** The only in-place write: NULL -> value. Returns false when the row is missing or already filled. */
+    @StoreWrite
     suspend fun fillCanonical(
         id: UUID,
         canonicalJson: String,

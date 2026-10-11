@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.port.LinkStore
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentAdoptOutcome
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStashOutcome
 import io.github.jpicklyk.mcptask.current.application.port.PlanDocumentStore
+import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.domain.model.Document
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentVersion
@@ -40,6 +41,7 @@ class DocumentBackedPlanDocumentStore(
     private val documents: DocumentStore,
     private val links: LinkStore
 ) : PlanDocumentStore {
+    @StoreWrite
     override suspend fun stash(
         rootItemId: UUID,
         slug: String,
@@ -126,6 +128,7 @@ class DocumentBackedPlanDocumentStore(
             .sortedBy { it.slug }
     }
 
+    @StoreWrite
     override suspend fun markAdopted(
         rootItemId: UUID,
         slug: String,

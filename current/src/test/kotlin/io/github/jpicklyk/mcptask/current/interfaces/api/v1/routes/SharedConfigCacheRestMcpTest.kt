@@ -2,10 +2,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.IdempotencyService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
-import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
@@ -67,20 +65,13 @@ class SharedConfigCacheRestMcpTest {
                 description: "shared cache test note"
         """.trimIndent()
 
-    /** Registers effectiveConfigRoutes and itemWriteRoutes over the SAME [ctx], mirroring O1's shared wiring. */
+    /** Registers effectiveConfigRoutes over the SAME [ctx], mirroring O1's shared wiring. */
     private fun Application.configureSharedApp(
         provider: RepositoryProvider,
         ctx: ToolExecutionContext,
     ) {
         configureTestApp(makeWriteAuthConfig()) {
             effectiveConfigRoutes(provider, ctx.configResolver)
-            itemWriteRoutes(
-                provider,
-                DegradedModePolicy.ACCEPT_CACHED,
-                IdempotencyService(ctx.unitOfWork),
-                ctx.advanceServiceFactory(),
-                ctx.unitOfWork
-            )
         }
     }
 
@@ -124,7 +115,7 @@ class SharedConfigCacheRestMcpTest {
     // ----------------------------------------------------------------------------------------------------
 
     @Test
-    fun `S5 - after a warm context read, a read failure makes the context select answer unavailable while a non-unit read is still cached`() =
+    fun `S5 - after a warm context read, a read failure makes the context select unavailable while a non-unit read is still cached`() =
         testApplication {
             val sqlite = db.repositoryProvider()
             val failable = FailableProjectConfigRepository(sqlite.configStore())

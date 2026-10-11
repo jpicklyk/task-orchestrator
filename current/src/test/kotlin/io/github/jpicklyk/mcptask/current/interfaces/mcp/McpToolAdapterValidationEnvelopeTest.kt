@@ -9,7 +9,9 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
+import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.test.seedItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
@@ -21,9 +23,11 @@ import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -315,32 +319,21 @@ class McpToolAdapterValidationEnvelopeTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S8 - real manage_items delete with a non-boolean recursive maps to VALIDATION_ERROR naming the parameter`(): Unit =
+    fun `S8 - real manage_project_config push with a non-boolean force maps to VALIDATION_ERROR naming the parameter`(): Unit =
         runBlocking {
-            adapter.registerToolWithServer(server, ManageItemsTool(), dummyContext)
+            adapter.registerToolWithServer(server, ManageProjectConfigTool(YamlConfigDocumentParser), dummyContext)
 
-            val createResult =
-                client.callTool(
-                    name = "manage_items",
-                    arguments =
-                        mapOf(
-                            "operation" to "create",
-                            "items" to listOf(mapOf("title" to "S8 item", "type" to "test-item"))
-                        )
-                )
-            assertTrue(createResult.isError != true, "Setup precondition: item creation must succeed, got: ${createResult.content}")
-            val createdItems =
-                assertNotNull(createResult.structuredContent, "Success response must carry structuredContent")["items"]!!.jsonArray
-            val itemId = createdItems[0].jsonObject["id"]!!.jsonPrimitive.content
+            val itemId = seedItem(dummyContext, buildJsonObject { put("title", JsonPrimitive("S8 item")) })
 
             val queryResult =
                 client.callTool(
-                    name = "manage_items",
+                    name = "manage_project_config",
                     arguments =
                         mapOf(
-                            "operation" to "delete",
-                            "itemIds" to listOf(itemId),
-                            "recursive" to 42
+                            "operation" to "push",
+                            "rootId" to itemId,
+                            "configYaml" to "work_item_schemas: {}",
+                            "force" to 42
                         )
                 )
 
@@ -354,14 +347,14 @@ class McpToolAdapterValidationEnvelopeTest {
                     ?.jsonPrimitive
                     ?.content
                     .orEmpty()
-                    .contains("recursive"),
+                    .contains("force"),
                 "Error message should name the offending parameter: ${error["message"]}"
             )
 
             val textContent = queryResult.content.filterIsInstance<TextContent>()
             assertTrue(textContent.isNotEmpty())
             assertTrue(
-                textContent[0].text.startsWith("Validation error in 'manage_items':"),
+                textContent[0].text.startsWith("Validation error in 'manage_project_config':"),
                 "Expected a validation-error prefix, not an Internal error, got: ${textContent[0].text}"
             )
         }
