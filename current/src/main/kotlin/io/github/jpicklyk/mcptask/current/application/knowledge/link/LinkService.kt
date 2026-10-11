@@ -110,6 +110,23 @@ class LinkService(
     }
 
     /**
+     * Cleans up after an item-delete cascade removed [itemIds] and, through the notes foreign key, [noteIds]: every
+     * link sourced from a removed note or item is deleted (all relations), and so is every resolved link INTO a
+     * removed item except [LinkRelation.ADOPTED_BY] (an adoption outlives the adopting item). Matches on (kind, id)
+     * only, so links stamped with another root are cleaned too. Joins the ambient unit; records no event.
+     */
+    suspend fun onItemsDeleted(
+        itemIds: Collection<UUID>,
+        noteIds: Collection<UUID>,
+    ) {
+        if (itemIds.isEmpty() && noteIds.isEmpty()) return
+        val links = repositoryProvider.linkStore()
+        val items = itemIds.map { EntityRef(RefKind.ITEM, it) }
+        links.deleteFromAny(noteIds.map { EntityRef(RefKind.NOTE, it) } + items)
+        links.deleteToAny(items, keep = setOf(LinkRelation.ADOPTED_BY))
+    }
+
+    /**
      * Records that note [noteId] was cut from the PLAN document [slug] of [rootId] at [anchor]: a `derived_from` link
      * note -> document with text `plan:<slug>`. Replaces an earlier `derived_from` link of the note. Does nothing when
      * the document does not exist.

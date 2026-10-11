@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
@@ -129,7 +130,8 @@ data class ItemDeleteResult(
  *   like a child completion ([AdvanceService.cascadeInUnit]), in the same unit.
  * - **Events** are recorded here, through the unit's sink: `item.created`, `item.updated`, two `item.reparented`
  *   rows per move, `item.deleted`, and the `note.deleted` / `dependency.removed` rows (cause `cascade`) a delete's
- *   foreign-key cascade implies.
+ *   foreign-key cascade implies. The same delete also removes, through [LinkService.onItemsDeleted], the links the removed
+ *   notes and items were the source of and the resolved links into the removed items (except `adopted_by`); no event.
  *
  * A [PerRootConfigUnavailableException] (resolving a TERMINAL parent's lifecycle) rolls the unit back and is
  * rethrown for the caller's `config_unavailable` mapping; one on a cascade target skips that cascade only.
@@ -146,6 +148,7 @@ class ItemCommandService(
     // provider hands out (a provider that wraps it, such as a fault-injecting test double, sees every call).
     private val items get() = repositoryProvider.workItemRepository()
     private val hierarchy get() = repositoryProvider.workItemRepository()
+    private val links = LinkService(repositoryProvider, unitOfWork)
 
     /** Creates one item in its own write unit (joining an ambient one). */
     suspend fun create(cmd: ItemCreateCommand): Outcome<WorkItem> = guarded(CREATE_OP) { createBody(cmd) }
@@ -453,7 +456,9 @@ class ItemCommandService(
                 for (levelIds in descendantLevelsDeepestFirst(itemId, descendants)) {
                     val levelItems = levelIds.mapNotNull { byId[it] }
                     try {
-                        val rows = cascadeRows(levelItems)
+                        val noteIds = ArrayList<UUID>()
+                        val rows = cascadeRows(levelItems, noteIds)
+                        links.onItemsDeleted(levelIds, noteIds)
                         val deleted = items.deleteAll(levelIds)
                         if (deleted > 0) events.record(rows)
                         descendantsDeleted += deleted
@@ -469,9 +474,11 @@ class ItemCommandService(
         if (released is Outcome.Err) {
             return fault("Failed to release resource leases for '$itemId': ${LegacyFaults.message(released.error)}")
         }
-        val rows = cascadeRows(listOf(root))
+        val rootNoteIds = ArrayList<UUID>()
+        val rows = cascadeRows(listOf(root), rootNoteIds)
         val deleted =
             try {
+                links.onItemsDeleted(listOf(itemId), rootNoteIds)
                 items.delete(itemId)
             } catch (e: Exception) {
                 e.rethrowIfCancellation()
@@ -496,7 +503,10 @@ class ItemCommandService(
      * `item.deleted` per item. All carry the item's pre-delete root; an edge is recorded once, under the first deleted
      * item that references it.
      */
-    private suspend fun cascadeRows(doomed: List<WorkItem>): List<DomainEvent> {
+    private suspend fun cascadeRows(
+        doomed: List<WorkItem>,
+        noteIdsOut: MutableCollection<UUID>? = null
+    ): List<DomainEvent> {
         if (doomed.isEmpty()) return emptyList()
         val roots = doomed.associate { it.id to eventRootOf(it, hierarchy) }
         // Chunked: a level of a large subtree can exceed the bound-variable limit of one IN list (the edge query
@@ -512,7 +522,10 @@ class ItemCommandService(
         val out = mutableListOf<DomainEvent>()
         for (item in doomed) {
             val root = roots.getValue(item.id)
-            for (note in notesByItem[item.id].orEmpty()) out += noteDeletedEvent(note, root, DeleteCause.CASCADE)
+            for (note in notesByItem[item.id].orEmpty()) {
+                noteIdsOut?.add(note.id)
+                out += noteDeletedEvent(note, root, DeleteCause.CASCADE)
+            }
             for (edge in edgesByItem[item.id].orEmpty()) {
                 if (seenEdges.add(edge.id)) out += dependencyRemovedEvent(edge, root, DeleteCause.CASCADE)
             }
