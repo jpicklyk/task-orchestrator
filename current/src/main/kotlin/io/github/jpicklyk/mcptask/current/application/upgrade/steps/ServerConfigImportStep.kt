@@ -53,7 +53,17 @@ class ServerConfigImportStep(
             is ConfigImportResult.Invalid -> reject(result.errors.joinToString("; ") { render(it) })
             is ConfigImportResult.ParseError -> reject(result.detail)
             is ConfigImportResult.RootNotFound ->
-                reject("project.rootId ${result.rootId} is not a project root (depth 0) in this database")
+                {
+                    // The exception text is a frozen contract (asserted verbatim); the remedy rides on its own ERROR line.
+                    logger.error(
+                        "server-config-import: {} sets project.rootId {}, which is not a project root (depth 0) in this " +
+                            "database. Remedy: remove project.rootId from the mounted global config, or create or import " +
+                            "that root first.",
+                        file.description,
+                        result.rootId,
+                    )
+                    reject("project.rootId ${result.rootId} is not a project root (depth 0) in this database")
+                }
             is ConfigImportResult.TooLarge -> reject("file is ${result.sizeBytes} bytes, over the ${result.maxBytes} byte limit")
         }
     }

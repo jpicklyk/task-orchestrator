@@ -80,6 +80,13 @@ version another process appends to a shared volume is served on the next read.
   imported as that depth-0 root's config instead; the root must exist in this database, and such a file
   must not carry `resources:` (the resource registry is server-only: drop `project.rootId` to declare
   one).
+- **A `project.rootId` that cannot be honored fails startup, including on a fresh volume.** If the
+  mounted global config carries a `project.rootId` that is malformed (not a UUID), unknown in this
+  database, or not a depth-0 item, startup fails as `DATA_STEPS` (`project.rootId <uuid> is not a
+  project root (depth 0) in this database`, or `/project/rootId: must be a UUID`), and an ERROR log line
+  names the remedy. Remedy: remove `project.rootId` from the mounted global config (it then becomes
+  the server config), or create or import that root first. A workspace config written by `/init` carries
+  `project.rootId`, so do not mount it as the global file on a new volume.
 - **Legacy 3.x keys boot with warnings.** Top-level `schema_resolution`, `orchestration`,
   `retrospective` and `actor_attribution` (plugin sections a 3.x global file carried) are accepted at
   boot, each recorded as a stored warning that `GET /api/v1/info` returns as `configWarnings`; a push

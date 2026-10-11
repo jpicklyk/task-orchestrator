@@ -18,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.UnitResult
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadFault
 import io.github.jpicklyk.mcptask.current.application.support.legacyReadOrNull
+import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.application.telemetry.currentCallTelemetry
@@ -30,6 +31,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersion
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersionSource
 import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.UUID
@@ -526,12 +528,16 @@ class ConfigService(
     }
 
     /** The server-scope head version, or null when there is none or its head is a reset. */
-    suspend fun serverHead(): ConfigVersion? {
-        val store = repositoryProvider.configStore()
-        val head = store.head(ConfigScope.SERVER, null) ?: return null
-        if (head.source == ConfigVersionSource.RESET) return null
-        return store.version(head.versionId)
-    }
+    suspend fun serverHead(): ConfigVersion? =
+        try {
+            val store = repositoryProvider.configStore()
+            val head = store.head(ConfigScope.SERVER, null)
+            if (head == null || head.source == ConfigVersionSource.RESET) null else store.version(head.versionId)
+        } catch (e: Exception) {
+            e.rethrowIfCancellation()
+            // Same split as the per-root path: a store read fault is transient config_unavailable, never untyped.
+            throw PerRootConfigUnavailableException(null, "Server config is temporarily unavailable (read failed)", e)
+        }
 
     private fun createdEvent(version: ConfigVersion): DomainEvent.ConfigVersionCreated =
         DomainEvent.ConfigVersionCreated(

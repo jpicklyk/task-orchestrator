@@ -10,6 +10,8 @@ import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigVersion
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
@@ -217,8 +219,10 @@ fun Route.projectConfigRoutes(
                 // db_error (fail-closed), never as a silently skipped precondition.
                 val precondition = parseIfMatch(call.request.headers[HttpHeaders.IfMatch]?.trim())
 
-                when (
-                    val result =
+                // Validation reads the DB server config head: an unreadable head is a typed fault, never `internal`
+                // (AC6): unloadable -> 422 config_invalid (permanent), store outage with no LKG -> 503 config_unavailable.
+                val pushResult =
+                    try {
                         service.push(
                             rootId,
                             configYaml,
@@ -226,7 +230,14 @@ fun Route.projectConfigRoutes(
                             expectedVersion = precondition.expectedVersion,
                             expectedFingerprint = precondition.expectedFingerprint,
                         )
-                ) {
+                    } catch (e: PerRootConfigInvalidException) {
+                        call.respondError(LegacyRestCode.CONFIG_INVALID, e.message)
+                        return@put
+                    } catch (e: PerRootConfigUnavailableException) {
+                        call.respondError(LegacyRestCode.CONFIG_UNAVAILABLE, e.message)
+                        return@put
+                    }
+                when (val result = pushResult) {
                     is ConfigPushResult.Success -> {
                         call.response.header(HttpHeaders.ETag, configEtag(result.version))
                         call.respond(

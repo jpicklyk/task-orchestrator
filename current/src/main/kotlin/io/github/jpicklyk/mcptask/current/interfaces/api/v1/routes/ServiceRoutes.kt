@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.application.config.ServerFeatures
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
@@ -52,6 +53,9 @@ fun Route.serviceRoutes(
                 configService?.serverHead()?.warnings ?: emptyList()
             } catch (e: PerRootConfigUnavailableException) {
                 call.respondError(LegacyRestCode.CONFIG_UNAVAILABLE, e.message)
+                return@get
+            } catch (e: PerRootConfigInvalidException) {
+                call.respondError(LegacyRestCode.CONFIG_INVALID, e.message)
                 return@get
             }
 
