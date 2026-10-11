@@ -289,7 +289,7 @@ omitted from `blockers` while its item stays listed.
 claimSummary: {active, expired, unclaimed}}` over the whole scope or, with `ancestorId`, that subtree. One `limit`
 (default 50, max 200) and `cursor` page `active` (role `work` and `review`, longest in the role first) and `blocked`
 together. `blocked` is the same set as the `blocked` select (role `blocked`, or open with an unsatisfied
-dependency; each entry has `blockType`, no blocker detail). `stalled` holds the active items on the page whose
+dependency; each entry has `blockType`, no blocker detail); the 3.x health check counted role `blocked` only. `stalled` holds the active items on the page whose
 resolved schema has unfilled required notes for their role: `{id, title, role, missing[], guidanceKey?,
 skillPointer?}`. `fields: ["ancestors"]` adds ancestors to `active` and `blocked` entries. The 3.x session-resume
 mode (`since`, `recentTransitions`) has no form here: the REST `GET /transitions` route serves recent transitions

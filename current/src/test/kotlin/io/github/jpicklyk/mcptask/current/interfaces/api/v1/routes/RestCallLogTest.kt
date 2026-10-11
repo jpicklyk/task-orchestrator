@@ -411,7 +411,7 @@ class RestCallLogTest {
                     header("mcp-session-id", sessionId)
                     contentType(ContentType.Application.Json)
                     setBody(
-                        """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"manage_items","arguments":{"operation":"create","items":[{"title":"s16","type":"test-item"}]}}}"""
+                        """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"create_work_tree","arguments":{"root":{"title":"s16","type":"test-item"}}}}"""
                     )
                 }
             val payload =
@@ -439,7 +439,7 @@ class RestCallLogTest {
             val mcp = rows.filter { it["surface"] == "mcp" }
             assertEquals(1, mcp.size, "only the tools/call is an MCP call_log row: $rows")
             assertEquals(reqId, mcp.single()["req_id"])
-            assertEquals("manage_items", mcp.single()["tool"])
+            assertEquals("create_work_tree", mcp.single()["tool"])
             assertEquals(
                 0,
                 rows.count { it["surface"] == "rest" },
