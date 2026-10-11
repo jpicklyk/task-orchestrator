@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.knowledge.searc
 import io.github.jpicklyk.mcptask.current.application.port.Analyzer
 import io.github.jpicklyk.mcptask.current.application.port.Candidate
 import io.github.jpicklyk.mcptask.current.application.port.Corpus
+import io.github.jpicklyk.mcptask.current.application.port.DocumentHitMeta
 import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.application.port.ScopeFilter
 import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
@@ -53,20 +54,45 @@ class SqliteSearchEngine(
     ): List<Candidate> {
         if (window < 1) return emptyList()
         if (filter.rootIds != null && filter.rootIds.isEmpty()) return emptyList()
+        require(corpus.itemFacets || !filter.hasItemFacets()) {
+            "role, tags and traits do not apply to the ${corpus.kind} corpus"
+        }
         val descriptor = CorpusDescriptor.of(corpus)
         val statement = buildStatement(descriptor, Fts5QueryRenderer.render(query), analyzer, filter, window)
         return databaseManager.readTx {
             rawQuery(statement.sql, statement.args) { rs ->
                 val out = mutableListOf<Candidate>()
                 while (rs.next()) {
-                    // Select order: 1=rank, 2=doc_id, 3=owner_id, 4=note_key, 5.. = one snippet per field column.
+                    // Select order: 1=rank, 2=doc_id, 3=owner_id, 4=note_key, then one snippet per field column, then
+                    // the descriptor's extra columns.
                     val rank = (rs.getObject(1) as Number).toDouble()
                     val id = uuidOf(rs.getObject(2)!!)
                     val owner = uuidOf(rs.getObject(3)!!)
                     val noteKey = if (descriptor.noteKeyColumn != null) rs.getString(4) ?: "" else null
                     val snippets = descriptor.fields.indices.map { rs.getString(5 + it) ?: "" }
                     val (field, snippet) = matchedField(descriptor, snippets)
-                    out += Candidate(id = id, ownerItemId = owner, noteKey = noteKey, rank = rank, field = field, snippet = snippet)
+                    val extra = 5 + descriptor.fields.size
+                    val document =
+                        if (corpus == Corpus.DOCUMENT) {
+                            DocumentHitMeta(
+                                kind = rs.getString(extra) ?: "",
+                                slug = rs.getString(extra + 1) ?: "",
+                                title = rs.getString(extra + 2),
+                                version = (rs.getObject(extra + 3) as Number).toInt(),
+                            )
+                        } else {
+                            null
+                        }
+                    out +=
+                        Candidate(
+                            id = id,
+                            ownerItemId = owner,
+                            noteKey = noteKey,
+                            rank = rank,
+                            field = field,
+                            snippet = snippet,
+                            document = document,
+                        )
                 }
                 out
             }
@@ -83,6 +109,8 @@ class SqliteSearchEngine(
                 .associate { it[WorkItemsTable.id].value to it[WorkItemsTable.title] }
         }
     }
+
+    private fun ScopeFilter.hasItemFacets(): Boolean = !roles.isNullOrEmpty() || !tagsAny.isNullOrEmpty() || !traitsAny.isNullOrEmpty()
 
     /** One rendered statement and its positional arguments, in placeholder order. */
     internal data class Statement(
@@ -134,6 +162,7 @@ class SqliteSearchEngine(
             val ctes = mutableListOf<String>()
             val cteArgs = mutableListOf<Pair<ColumnType<*>, Any?>>()
             val where = mutableListOf("$table MATCH ?")
+            where += descriptor.fixedPredicates
             val whereArgs = mutableListOf<Pair<ColumnType<*>, Any?>>(textType to matchExpression)
 
             fun subtreeCte(
@@ -231,12 +260,13 @@ class SqliteSearchEngine(
                 descriptor.fields.joinToString(",\n") {
                     "snippet($table, ${it.index}, '$OPEN', '$CLOSE', '$ELLIPSIS', $SNIPPET_TOKENS)"
                 }
+            val extraSelect = descriptor.extraColumns.joinToString("") { ", $it" }
             val with = if (ctes.isEmpty()) "" else "WITH RECURSIVE " + ctes.joinToString(",\n")
             val sql =
                 """
                 $with
                 SELECT ft.rank, ${descriptor.idColumn} AS doc_id, $owner AS owner_id, $noteKey AS note_key,
-                $snippets
+                $snippets$extraSelect
                 FROM $table ft
                 ${descriptor.baseJoin}
                 $itemJoin

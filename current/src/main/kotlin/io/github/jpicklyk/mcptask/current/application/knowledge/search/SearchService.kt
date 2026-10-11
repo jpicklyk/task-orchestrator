@@ -14,7 +14,9 @@ import io.github.jpicklyk.mcptask.current.application.port.SearchResult
 import io.github.jpicklyk.mcptask.current.application.port.TextQuery
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallResultCounts
+import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallSearchHitMix
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallSearchShape
+import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallTargetVersion
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import java.security.MessageDigest
 import java.util.Locale
@@ -24,7 +26,10 @@ import java.util.UUID
  * One search call.
  *
  * @property query The raw user text; split into literal terms by [QueryTokenizer].
- * @property corpora What to search: one or more corpora, queried in the same read unit and fused once (non-empty).
+ * @property corpora What to search: one or more corpora, queried in the same read unit and fused once. Null means
+ *   every corpus the filters apply to: all of them when no role, tags or traits filter is set, otherwise only the
+ *   corpora with [Corpus.itemFacets]. An explicit set must be non-empty and, when it names a corpus without item
+ *   facets, must not be paired with a role, tags or traits filter.
  * @property matchMode Which analyzer(s) to query: AUTO = both, fused.
  * @property itemId Only content owned by this item.
  * @property ancestorId Only content owned by this item's subtree (itself included).
@@ -37,7 +42,7 @@ import java.util.UUID
  */
 data class SearchRequest(
     val query: String,
-    val corpora: Set<Corpus>,
+    val corpora: Set<Corpus>? = null,
     val matchMode: SearchMatchMode = SearchMatchMode.AUTO,
     val itemId: UUID? = null,
     val ancestorId: UUID? = null,
@@ -56,7 +61,9 @@ data class SearchRequest(
 
 /** A search request the service refuses; the message is safe to return to the caller. */
 class SearchValidationException(
-    message: String
+    message: String,
+    /** The request field the refusal is about; `query` when it concerns the search as a whole. */
+    val field: String = "query"
 ) : IllegalArgumentException(message)
 
 /**
@@ -71,7 +78,8 @@ class SearchValidationException(
  * offset, a total order, the cap before the slice, so `totalHits` is the same on every page.
  *
  * Telemetry: the call's `request_shape` gains a hash of the normalized terms, the term count and the match mode;
- * its result count is `totalHits`. The query text itself is never recorded.
+ * its result count is `totalHits`, its `hitsByKind` is the per-kind count of the capped list, and each document hit on
+ * the returned page records its id and version as a target version. The query text itself is never recorded.
  */
 class SearchService(
     private val index: SearchIndex,
@@ -85,10 +93,14 @@ class SearchService(
      *   query with no term of at least [QueryTokenizer.SUBSTRING_MIN_TERM_LENGTH] characters.
      */
     suspend fun search(request: SearchRequest): SearchResult {
-        if (request.corpora.isEmpty()) throw SearchValidationException(EMPTY_CORPORA_MESSAGE)
+        if (request.corpora != null && request.corpora.isEmpty()) throw SearchValidationException(EMPTY_CORPORA_MESSAGE)
         if (request.limit < 1) throw SearchValidationException("limit must be at least 1")
         if (request.limit > MAX_FTS_RESULTS) throw SearchValidationException(limitTooLargeMessage(request.limit))
         if (request.offset < 0) throw SearchValidationException("offset must be non-negative")
+        val roles = request.roles?.takeIf { it.isNotEmpty() }
+        val tags = request.tags?.takeIf { it.isNotEmpty() }
+        val traits = request.traits?.takeIf { it.isNotEmpty() }
+        val searched = searchedCorpora(request.corpora, roles != null, tags != null, traits != null)
 
         QueryTokenizer.controlCharacterViolation(request.query)?.let { throw SearchValidationException(it) }
 
@@ -105,19 +117,17 @@ class SearchService(
                 itemId = request.itemId,
                 ancestorId = request.ancestorId,
                 rootIds = request.access.rootIds,
-                roles = request.roles?.takeIf { it.isNotEmpty() },
-                tagsAny = request.tags?.takeIf { it.isNotEmpty() },
-                traitsAny = request.traits?.takeIf { it.isNotEmpty() },
+                roles = roles,
+                tagsAny = tags,
+                traitsAny = traits,
                 principalTagsAny = request.access.tagsInclude.takeIf { it.isNotEmpty() },
             )
-        // A stable corpus order (declaration order), whatever order the caller's set iterates in.
-        val corpora = Corpus.entries.filter { it in request.corpora }
         val snapshot =
             unitOfWork.read {
                 // Every (corpus, analyzer) list is retrieved in this one read unit and fused ONCE, so hits of
                 // different corpora share one ranking, one cap and one page.
                 val lists = LinkedHashMap<Corpus, Map<Analyzer, List<Candidate>>>()
-                for (corpus in corpora) {
+                for (corpus in searched) {
                     val perAnalyzer = LinkedHashMap<Analyzer, List<Candidate>>()
                     for (analyzer in analyzers(request.matchMode)) {
                         perAnalyzer[analyzer] = index.candidates(corpus, textQuery, analyzer, filter, FTS_CANDIDATE_ROWS)
@@ -131,32 +141,39 @@ class SearchService(
                 val truncated = ranked.size > MAX_FTS_RESULTS
                 val capped = if (truncated) ranked.take(MAX_FTS_RESULTS) else ranked
                 val page = capped.drop(request.offset).take(request.limit)
-                val titles =
-                    if (page.isEmpty()) {
-                        emptyMap()
-                    } else {
-                        index.titles(page.mapTo(LinkedHashSet()) { it.primary.ownerItemId })
-                    }
-                SearchSnapshot(page, capped.size, truncated, titles)
+                // A document hit carries its own title; only item and note hits need their owning item's.
+                val titleOwners =
+                    page.filter { it.primary.document == null }.mapTo(LinkedHashSet()) { it.primary.ownerItemId }
+                val titles = if (titleOwners.isEmpty()) emptyMap() else index.titles(titleOwners)
+                val countsByCorpus = capped.groupingBy { it.corpus }.eachCount()
+                val mix = LinkedHashMap<String, Int>()
+                for (corpus in searched) mix[corpus.kind] = countsByCorpus[corpus] ?: 0
+                SearchSnapshot(page, capped.size, truncated, titles, mix)
             }
         val page = snapshot.page
         val totalHits = snapshot.totalHits
         val truncated = snapshot.truncated
         val titles = snapshot.titles
         recordCallResultCounts(totalHits, null)
+        recordCallSearchHitMix(snapshot.hitsByKind)
         val hits =
             page.map { hit ->
+                val document = hit.primary.document
+                // The version each returned document was read at, so a later read of it can be joined to this search.
+                if (document != null) recordCallTargetVersion(hit.primary.id, document.version.toLong())
                 SearchHit(
                     kind = hit.corpus.kind,
                     itemId = hit.primary.ownerItemId,
                     noteKey = hit.primary.noteKey,
+                    documentKind = document?.kind,
+                    slug = document?.slug,
                     field = hit.primary.field,
                     snippet = hit.primary.snippet,
                     score = hit.score,
                     matchedIn = hit.matchedIn,
                     trigramRank = hit.trigramRank,
                     textRank = hit.textRank,
-                    title = titles[hit.primary.ownerItemId],
+                    title = if (document != null) document.title else titles[hit.primary.ownerItemId],
                 )
             }
         val nextOffset = if (request.offset + request.limit < totalHits) request.offset + request.limit else null
@@ -168,7 +185,42 @@ class SearchService(
         val totalHits: Int,
         val truncated: Boolean,
         val titles: Map<UUID, String>,
+        val hitsByKind: Map<String, Int>,
     )
+
+    /**
+     * The corpora to query, in declaration order whatever order the caller's set iterates in.
+     *
+     * @throws SearchValidationException when [requested] names a corpus without item facets and a role, tags or
+     *   traits filter is set (the first offending field in that order); thrown before anything is read or recorded.
+     */
+    private fun searchedCorpora(
+        requested: Set<Corpus>?,
+        hasRoles: Boolean,
+        hasTags: Boolean,
+        hasTraits: Boolean,
+    ): List<Corpus> {
+        val hasItemFacets = hasRoles || hasTags || hasTraits
+        if (requested == null) return Corpus.entries.filter { it.itemFacets || !hasItemFacets }
+        val facetless = requested.filter { !it.itemFacets }
+        if (facetless.isNotEmpty()) {
+            val field =
+                when {
+                    hasRoles -> "role"
+                    hasTags -> "tags"
+                    hasTraits -> "traits"
+                    else -> null
+                }
+            if (field != null) {
+                val kinds = facetless.joinToString(", ") { it.kind }
+                throw SearchValidationException(
+                    "$field applies to item and note content only; remove it or drop $kinds from kinds",
+                    field,
+                )
+            }
+        }
+        return Corpus.entries.filter { it in requested }
+    }
 
     companion object {
         const val EMPTY_QUERY_MESSAGE = "Search query is empty. Provide at least one search term."

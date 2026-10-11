@@ -3,15 +3,26 @@ package io.github.jpicklyk.mcptask.current.application.port
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import java.util.UUID
 
-/** The searchable bodies of text. Each corpus is one kind of hit (`item` or `note`). */
+/**
+ * The searchable bodies of text. Each corpus is one kind of hit (`item`, `note` or `document`).
+ *
+ * @property kind The hit kind on the wire.
+ * @property itemFacets Whether the item-describing filters (role, tags, traits) apply to this corpus. They describe
+ *   a work item, so they are honored only where the hit IS an item or belongs to one as a note; a corpus with
+ *   `false` rejects them rather than ignoring them.
+ */
 enum class Corpus(
-    val kind: String
+    val kind: String,
+    val itemFacets: Boolean,
 ) {
     /** Work-item title, summary and description. */
-    ITEM("item"),
+    ITEM("item", true),
 
     /** Note bodies; every hit is owned by the note's work item. */
-    NOTE("note"),
+    NOTE("note", true),
+
+    /** Document title and body (plan, rule and page documents); every hit is owned by the document's root item. */
+    DOCUMENT("document", false),
 }
 
 /**
@@ -40,7 +51,7 @@ data class TextQuery(
 
 /**
  * Structural filters applied to the item that owns each candidate (the item itself for [Corpus.ITEM], the note's
- * item for [Corpus.NOTE]), all combined with AND and applied BEFORE the candidate window is taken.
+ * item for [Corpus.NOTE], the document's root item for [Corpus.DOCUMENT]), all combined with AND and applied BEFORE the candidate window is taken.
  *
  * @property itemId Only content owned by this item.
  * @property ancestorId Only content owned by this item or its descendants (bounded walk).
@@ -76,8 +87,10 @@ data class ScopeFilter(
  *   the choice `Ranker` makes of which matched candidate supplies a fused hit's `field` and `snippet` (lower raw
  *   rank, substring on a tie), a presentation heuristic inherited from 3.x that never affects score or order.
  * @property field The field that actually contains a match (`title`/`summary`/`description` for items, `body` for
- *   notes); when several do, the first in the corpus's field order (title, then summary, then description).
+ *   notes, `title`/`body` for documents); when several do, the first in the corpus's field order (title, then summary, then description).
  * @property snippet A short excerpt of [field] with `<mark>`/`</mark>` around the matched text.
+ * @property document What addresses and versions the hit; non-null exactly for [Corpus.DOCUMENT] (where [id] is the
+ *   document id, [ownerItemId] its root item and [noteKey] null).
  */
 data class Candidate(
     val id: UUID,
@@ -86,6 +99,22 @@ data class Candidate(
     val rank: Double,
     val field: String,
     val snippet: String,
+    val document: DocumentHitMeta? = null,
+)
+
+/**
+ * The document-only facts of a [Candidate], read in the same statement as the match.
+ *
+ * @property kind The document kind (`plan`, `rule`, `page`).
+ * @property slug The slug, unique per (root, kind).
+ * @property title The document title, null when it has none.
+ * @property version The document version the match was read at.
+ */
+data class DocumentHitMeta(
+    val kind: String,
+    val slug: String,
+    val title: String?,
+    val version: Int,
 )
 
 /**
@@ -96,6 +125,9 @@ interface SearchIndex {
     /**
      * The best [window] matches for [query] in [corpus] under [analyzer], in rank order (best first), restricted by
      * [filter] before the window is taken.
+     *
+     * Archived documents are never candidates. A corpus whose [Corpus.itemFacets] is false rejects a filter that sets
+     * roles, tags or traits with [IllegalArgumentException]; it never ignores one silently.
      */
     suspend fun candidates(
         corpus: Corpus,

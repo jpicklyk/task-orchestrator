@@ -24,6 +24,10 @@ internal data class FieldColumn(
  * @property fields The indexed columns in precedence order: when several match, the first is reported.
  * @property ownerItemJoin Joins the owning `work_items` row as `wi` when a filter needs its columns; null when
  *   [baseJoin] already provides `wi`.
+ * @property fixedPredicates Predicates always applied, whatever the caller's filter (for example, archived rows are
+ *   never searched).
+ * @property extraColumns Columns selected after the snippets, read into the corpus's own hit facts in the same
+ *   statement.
  */
 internal data class CorpusDescriptor(
     val corpus: Corpus,
@@ -34,6 +38,8 @@ internal data class CorpusDescriptor(
     val noteKeyColumn: String?,
     val fields: List<FieldColumn>,
     val ownerItemJoin: String?,
+    val fixedPredicates: List<String> = emptyList(),
+    val extraColumns: List<String> = emptyList(),
 ) {
     fun table(analyzer: Analyzer): String = tables.getValue(analyzer)
 
@@ -64,10 +70,30 @@ internal data class CorpusDescriptor(
                 ownerItemJoin = "JOIN work_items wi ON wi.id = n.work_item_id",
             )
 
+        /**
+         * Document title and body (V24 `documents_fts_*`, columns title=0, body=1, content rowid `doc_rowid`), owned by
+         * the document's root item. Archived documents are never searched; kind, slug, title and version come back
+         * with the match.
+         */
+        val DOCUMENT =
+            CorpusDescriptor(
+                corpus = Corpus.DOCUMENT,
+                tables = mapOf(Analyzer.SUBSTRING to "documents_fts_trigram", Analyzer.STEMMED to "documents_fts_text"),
+                baseJoin = "JOIN documents d ON d.doc_rowid = ft.rowid",
+                idColumn = "d.id",
+                ownerColumn = "d.root_item_id",
+                noteKeyColumn = null,
+                fields = listOf(FieldColumn(0, "title"), FieldColumn(1, "body")),
+                ownerItemJoin = "JOIN work_items wi ON wi.id = d.root_item_id",
+                fixedPredicates = listOf("d.archived_at IS NULL"),
+                extraColumns = listOf("d.kind", "d.slug", "d.title", "d.version"),
+            )
+
         fun of(corpus: Corpus): CorpusDescriptor =
             when (corpus) {
                 Corpus.ITEM -> ITEM
                 Corpus.NOTE -> NOTE
+                Corpus.DOCUMENT -> DOCUMENT
             }
     }
 }
