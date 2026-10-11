@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository
 import io.github.jpicklyk.mcptask.current.application.port.NoteRef
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.NoteSummary
+import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
@@ -136,17 +137,20 @@ class SQLiteNoteRepository(
         return mapRowToNote(row)
     }
 
+    @StoreWrite
     override suspend fun upsert(note: Note): Note =
         databaseManager.writeTx("NoteStore.upsert") {
             upsertRow(note)
         }
 
+    @StoreWrite
     override suspend fun delete(id: UUID): Boolean =
         databaseManager.writeTx("NoteStore.delete") {
             val deletedCount = NotesTable.deleteWhere { NotesTable.id eq id }
             deletedCount > 0
         }
 
+    @StoreWrite
     override suspend fun deleteByItemId(itemId: UUID): Int =
         databaseManager.writeTx("NoteStore.deleteByItemId") {
             val deletedCount = NotesTable.deleteWhere { NotesTable.itemId eq itemId }

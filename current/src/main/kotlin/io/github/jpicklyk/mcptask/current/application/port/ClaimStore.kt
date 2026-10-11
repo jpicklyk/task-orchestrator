@@ -98,6 +98,7 @@ interface ClaimStore {
      * @param ttlSeconds Number of seconds until the claim expires (default 900).
      * @return [ClaimResult.Success] with the updated item, or a failure variant.
      */
+    @ClaimWrite
     suspend fun claim(
         itemId: UUID,
         agentId: String,
@@ -115,6 +116,7 @@ interface ClaimStore {
      * @param agentId The agent releasing the claim (must be the current holder).
      * @return [ReleaseResult.Success] with the updated item, or a failure variant.
      */
+    @ClaimWrite
     suspend fun release(
         itemId: UUID,
         agentId: String
@@ -125,6 +127,7 @@ interface ClaimStore {
      * whether the item exists. Used where a claim must not outlive the item's state, e.g. when an
      * item enters or leaves a terminal role. Does not bump `version`.
      */
+    @ClaimWrite
     suspend fun clear(itemId: UUID): Boolean
 
     /**

@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.knowledge.document
 
 import io.github.jpicklyk.mcptask.current.application.port.DocumentStore
+import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.domain.model.Document
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentSummary
@@ -112,6 +113,7 @@ class SqliteDocumentStore(
         }
     }
 
+    @StoreWrite
     override suspend fun insert(document: Document): Document =
         databaseManager.writeTx("DocumentStore.insert") {
             DocumentsTable.insert {
@@ -134,6 +136,7 @@ class SqliteDocumentStore(
                 .let(::toDocument)
         }
 
+    @StoreWrite
     override suspend fun updateCurrent(
         id: UUID,
         expectedVersion: Int,
@@ -154,6 +157,7 @@ class SqliteDocumentStore(
             updated == 1
         }
 
+    @StoreWrite
     override suspend fun appendVersion(version: DocumentVersion) {
         databaseManager.writeTx("DocumentStore.appendVersion") {
             DocumentVersionsTable.insert {
@@ -189,6 +193,7 @@ class SqliteDocumentStore(
                 ?.let(::toVersion)
         }
 
+    @StoreWrite
     override suspend fun setArchived(
         id: UUID,
         at: Instant?
@@ -199,6 +204,7 @@ class SqliteDocumentStore(
             } == 1
         }
 
+    @StoreWrite
     override suspend fun delete(id: UUID): Boolean =
         databaseManager.writeTx("DocumentStore.delete") {
             // History first and explicitly: the FK cascade only runs on a connection with foreign_keys=ON.
