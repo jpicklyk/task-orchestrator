@@ -73,7 +73,7 @@ lists. `clear` lists optional fields to set to null: `description`, `statusLabel
 
 **Delete semantics.** A parent without `recursive: true` fails `invalid_request` with a violation on `recursive`
 whose `received` is the child count; nothing is deleted. `recursive: true` deletes the whole subtree, deepest first,
-in one unit. Notes and dependency edges go with their items. `expectedVersion` guards the item itself.
+in one unit. Notes and dependency edges go with their items, as do the links the removed notes and items were the source of and the resolved links into the removed items (an `adopted_by` link is kept). `expectedVersion` guards the item itself.
 
 **Cascade.** A reparent away from, or a delete under, a parent re-evaluates that old parent like a child
 completion. `cascade` (omitted when empty) lists `{itemId, from, to, applied, reason?}`; `reason` is the catalog code

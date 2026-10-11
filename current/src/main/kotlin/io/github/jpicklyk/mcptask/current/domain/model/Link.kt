@@ -56,7 +56,7 @@ enum class LinkRelation(
  * A directed, polymorphic edge between two entities of one root.
  *
  * Link ends carry no foreign key: a link is provenance and outlives the entity it names (a deleted adopter stays
- * named by its `adopted_by` link). Exactly one of [to] and [toRef] is normally set: [to] when the target resolved to
+ * named by its `adopted_by` link; an item-delete cascade removes the links it orphans, except `adopted_by`). Exactly one of [to] and [toRef] is normally set: [to] when the target resolved to
  * an entity, [toRef] (the unresolved target text) while it is dangling.
  *
  * @property rootItemId The project root the link belongs to; deleting the root deletes the link.

@@ -182,7 +182,7 @@ object StartupIntegrity {
 
     /**
      * WARN-only: links whose resolved target (`to_id`) names no row of its `to_kind` table. Links are provenance and
-     * outlive their targets (a deleted adopter stays named), so this only reports them.
+     * outlive their targets (a deleted adopter stays named; an item-delete cascade removes the other links it orphans), so this only reports them.
      */
     fun reportDanglingLinks(connection: Connection) {
         report(

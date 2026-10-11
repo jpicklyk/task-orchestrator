@@ -87,7 +87,11 @@ internal class WriteConfinementTest {
                 Confined("ConfigStore", STORE_WRITE, setOf("append", "fillCanonical")),
                 Confined("PlanDocumentStore", STORE_WRITE, setOf("stash", "markAdopted")),
                 Confined("DocumentStore", STORE_WRITE, setOf("insert", "updateCurrent", "appendVersion", "setArchived", "delete")),
-                Confined("LinkStore", STORE_WRITE, setOf("insert", "deleteFrom", "deleteByIds", "resolve", "unresolveTo")),
+                Confined(
+                    "LinkStore",
+                    STORE_WRITE,
+                    setOf("insert", "deleteFrom", "deleteFromAny", "deleteToAny", "deleteByIds", "resolve", "unresolveTo")
+                ),
                 Confined("ClaimStore", CLAIM_WRITE, setOf("claim", "release", "clear")),
                 Confined("LeaseStore", CLAIM_WRITE, setOf("acquireAll", "releaseAllForItem", "releaseAllForItems", "forceReleaseByKey"))
             )
