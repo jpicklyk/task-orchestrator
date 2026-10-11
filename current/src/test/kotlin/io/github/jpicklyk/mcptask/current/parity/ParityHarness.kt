@@ -1,18 +1,16 @@
 package io.github.jpicklyk.mcptask.current.parity
 
-import io.github.jpicklyk.mcptask.current.application.api.CallPrincipal
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.toAccessScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildToolDispatcher
@@ -128,14 +126,10 @@ internal fun parityAuthConfig(token: ParityToken): ApiAuthConfig.Bearer =
     ApiAuthConfig.Bearer(tokens = mapOf(HashBytes(sha256(token.raw)) to token.principal()))
 
 /** The [CallAccess] an MCP leg runs under so it carries the REST leg's identity (principal, scope, capabilities). */
-internal fun parityAccess(token: ParityToken): CallAccess {
-    val principal = token.principal()
-    return CallAccess(
-        principal = CallPrincipal(ApiAuditBridge.toActorClaim(principal), ApiAuditBridge.toVerificationResult(principal)),
-        scope = principal.toAccessScope(),
-        capabilities = principal.capabilities
-    )
-}
+internal fun parityAccess(token: ParityToken): CallAccess =
+    // The same builder the REST route uses, with the default redaction (API_REDACT_NOTE_ATTRIBUTION on): both legs
+    // then agree on whether note attribution is visible.
+    token.principal().toCallAccess(redactNoteAttribution = true)
 
 internal class McpResult(
     val isError: Boolean,

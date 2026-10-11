@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
-import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.support.UnitResult
 import io.github.jpicklyk.mcptask.current.application.support.writeUnit
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
@@ -34,7 +33,13 @@ data class NoteUpsertCommand(
     val body: String,
     val actorClaim: ActorClaim?,
     val verification: VerificationResult?,
-    val bodyFromFile: String? = null
+    val bodyFromFile: String? = null,
+    /**
+     * Optimistic-concurrency guard, mirroring `DocumentService`: null writes unconditionally; 0 means "must create"
+     * (the note must not exist); n means the note's current version must equal n. Anything else is
+     * `version_conflict` and nothing is written. Negative values are the caller's `invalid_request`.
+     */
+    val expectedVersion: Long? = null
 )
 
 /** A note that passed the write policy: the normalized [role] and [body], plus any soft-limit [warning]. */
@@ -54,7 +59,7 @@ data class NoteLengthWarning(
     fun message(): String = "body length $actualLength exceeds maxLength $maxLength for key '$key'"
 }
 
-/** The stored note, whether this write created it, and any soft-limit [warning]. */
+/** The stored note ([Note.version] included), whether this write created it, and any soft-limit [warning]. */
 data class NoteWriteResult(
     val note: Note,
     val created: Boolean,
@@ -62,8 +67,7 @@ data class NoteWriteResult(
 )
 
 /**
- * The single owner of the note write policy, shared by `manage_notes`, the REST note routes and
- * `create_work_tree`. JSON-free and transport-free: callers map the returned [DomainError] codes to
+ * The single owner of the note write policy, shared by `notes_write` and `create_work_tree`. JSON-free and transport-free: callers map the returned [DomainError] codes to
  * their own wire shapes.
  *
  * Policy, in this order: role normalization (locale-invariant lowercase, no trim; must be
@@ -172,6 +176,9 @@ class NoteCommandService(
                         )
                     }
                 val existing = noteRepo.findByItemIdAndKey(cmd.itemId, cmd.key)
+                cmd.expectedVersion?.let { expected ->
+                    versionMismatch(cmd.itemId, cmd.key, existing, expected)?.let { return@writeUnit UnitResult.Rollback(Outcome.Err(it)) }
+                }
                 val note =
                     try {
                         Note(
@@ -197,57 +204,54 @@ class NoteCommandService(
         return result
     }
 
-    /** Deletes the note [id]; `Ok(false)` when it does not exist. */
-    suspend fun deleteById(id: UUID): Outcome<Boolean> =
-        writeOutcomeOf("NoteCommandService.deleteById") {
-            val noteRepo = repositoryProvider.noteRepository()
-            val note = noteRepo.getById(id)
-            val deleted = noteRepo.delete(id)
-            if (deleted && note != null) events.record(noteDeletedEvent(note, rootOfItem(note.itemId), DeleteCause.EXPLICIT))
-            deleted
-        }
-
-    /** Deletes the note `(itemId, key)`, returning it, or `Ok(null)` when it does not exist. */
-    suspend fun deleteByKey(
+    /**
+     * Deletes the note `(itemId, key)` and returns it. The item must exist (`not_found` kind item) and so must the note
+     * (`not_found` kind note, id `<itemId>/<key>`). A non-null [expectedVersion] must equal the note's current version
+     * (`version_conflict` otherwise, the note kept); the compare shares the delete's write unit.
+     */
+    suspend fun delete(
         itemId: UUID,
-        key: String
-    ): Outcome<Note?> =
-        writeOutcomeOf("NoteCommandService.deleteByKey") {
+        key: String,
+        expectedVersion: Long? = null
+    ): Outcome<Note> =
+        unitOfWork.writeUnit<Outcome<Note>>("NoteCommandService.delete", onFault = { Outcome.Err(it) }) {
+            val workItems = repositoryProvider.workItemRepository()
+            val item =
+                workItems.getById(itemId)
+                    ?: return@writeUnit UnitResult.Rollback(
+                        Outcome.Err(notFound(EntityKind.ITEM, itemId.toString(), "WorkItem '$itemId' not found"))
+                    )
             val noteRepo = repositoryProvider.noteRepository()
-            val existing = noteRepo.findByItemIdAndKey(itemId, key)
-            if (existing != null && noteRepo.delete(existing.id)) {
-                events.record(noteDeletedEvent(existing, rootOfItem(existing.itemId), DeleteCause.EXPLICIT))
+            val existing =
+                noteRepo.findByItemIdAndKey(itemId, key)
+                    ?: return@writeUnit UnitResult.Rollback(
+                        Outcome.Err(notFound(EntityKind.NOTE, noteRef(itemId, key), "Note '$key' not found on item $itemId"))
+                    )
+            expectedVersion?.let { expected ->
+                versionMismatch(itemId, key, existing, expected)?.let { return@writeUnit UnitResult.Rollback(Outcome.Err(it)) }
             }
-            existing
+            noteRepo.delete(existing.id)
+            events.record(noteDeletedEvent(existing, eventRootOf(item, workItems), DeleteCause.EXPLICIT))
+            UnitResult.Commit(Outcome.Ok(existing))
         }
 
-    /** Deletes every note on [itemId], returning how many were removed. */
-    suspend fun deleteAllForItem(itemId: UUID): Outcome<Int> =
-        writeOutcomeOf("NoteCommandService.deleteAllForItem") {
-            val noteRepo = repositoryProvider.noteRepository()
-            val notes = noteRepo.findByItemId(itemId)
-            val count = noteRepo.deleteByItemId(itemId)
-            if (count > 0 && notes.isNotEmpty()) {
-                val root = rootOfItem(itemId)
-                events.record(notes.map { noteDeletedEvent(it, root, DeleteCause.EXPLICIT) })
-            }
-            count
-        }
-
-    /** The root of the item [itemId] as it is NOW ([eventRootOf]; its own id when it cannot be resolved). */
-    private suspend fun rootOfItem(itemId: UUID): UUID {
-        val repo = repositoryProvider.workItemRepository()
-        val item = repo.getById(itemId) ?: return eventRootOf(itemId, repo)
-        return eventRootOf(item, repo)
+    /** The `version_conflict` of a write guarded by [expected] against [existing], or null when the guard holds. */
+    private fun versionMismatch(
+        itemId: UUID,
+        key: String,
+        existing: Note?,
+        expected: Long
+    ): DomainError? {
+        val actual = existing?.version ?: 0L
+        if (expected == actual) return null
+        val id = existing?.id?.toString() ?: noteRef(itemId, key)
+        return DomainError(
+            code = ErrorCode.VERSION_CONFLICT,
+            message = "Note '$key' is at version $actual, not $expected.",
+            detail = ErrorDetail.VersionConflict(EntityKind.NOTE, id, expected, actual),
+            fixArgs = mapOf("kind" to "note", "id" to id, "actual" to actual.toString())
+        )
     }
-
-    private suspend fun <T> writeOutcomeOf(
-        op: String,
-        block: suspend WriteScope.() -> T
-    ): Outcome<T> =
-        unitOfWork.writeUnit<Outcome<T>>(op, onFault = { Outcome.Err(it) }) {
-            UnitResult.Commit(Outcome.Ok(block()))
-        }
 
     private fun invalidRequest(
         field: String,
@@ -273,6 +277,12 @@ class NoteCommandService(
         )
 
     companion object {
+        /** The id a keyed note without a row reports in `not_found` and `version_conflict`: `<itemId>/<key>`. */
+        fun noteRef(
+            itemId: UUID,
+            key: String
+        ): String = "$itemId/$key"
+
         /** Absolute cap on a note body's UTF-8 size, measured on the raw body, in every `note_limits` mode. */
         const val MAX_NOTE_BODY_BYTES = 65536
 

@@ -1,10 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
+import io.github.jpicklyk.mcptask.current.test.envelopeOk
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -26,7 +27,7 @@ import kotlin.test.assertTrue
 /**
  * r1 follow-up tests for item 947f0230.
  *
- * F1: the `note.upserted` payload key `bodyFromFile` carries the caller-supplied path string for a manage_notes
+ * F1: the `note.upserted` payload key `bodyFromFile` carries the caller-supplied path string for a notes_write
  * bodyFromFile upsert (never the file's text) and is present-as-null for an inline body. Oracle: the r1 declaration
  * (key always present; value is the supplied path; null for inline; file contents never recorded).
  *
@@ -41,26 +42,6 @@ class ItemCommandServiceR1Test {
     @RegisterExtension
     val db = SqliteTestDatabase.perMethod()
 
-    private fun upsertParams(
-        itemId: String,
-        key: String,
-        field: String,
-        value: String,
-    ) = arrayOf(
-        "operation" to JsonPrimitive("upsert"),
-        "notes" to
-            buildJsonArray {
-                add(
-                    buildJsonObject {
-                        put("itemId", itemId)
-                        put("key", key)
-                        put("role", "work")
-                        put(field, value)
-                    },
-                )
-            },
-    )
-
     @Test
     fun `F1 a bodyFromFile upsert records the supplied path and never the file text`(
         @TempDir dir: Path,
@@ -73,10 +54,9 @@ class ItemCommandServiceR1Test {
 
             val (_, rows) =
                 rig.written {
-                    rig.callOk(
-                        ManageNotesTool(agentConfigBaseDir = dir),
-                        *upsertParams(item.id.toString(), "from-file", "bodyFromFile", "note.txt"),
-                    )
+                    val answer =
+                        rig.ctx.upsertNoteVia(item.id, "from-file", body = null, extra = mapOf("bodyFromFile" to JsonPrimitive("note.txt")))
+                    assertTrue(envelopeOk(answer), "notes_write must succeed: $answer")
                 }
 
             val row = rows.single { it.type == "note.upserted" }
@@ -102,10 +82,8 @@ class ItemCommandServiceR1Test {
 
             val (_, rows) =
                 rig.written {
-                    rig.callOk(
-                        ManageNotesTool(agentConfigBaseDir = dir),
-                        *upsertParams(item.id.toString(), "inline", "body", "inline text"),
-                    )
+                    val answer = rig.ctx.upsertNoteVia(item.id, "inline", body = "inline text")
+                    assertTrue(envelopeOk(answer), "notes_write must succeed: $answer")
                 }
 
             val row = rows.single { it.type == "note.upserted" }

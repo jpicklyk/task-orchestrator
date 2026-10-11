@@ -72,10 +72,9 @@ class ToolTokenBudgetTest {
             "get_next_item" to 3150, // was 2500; T2.3 added the `ancestorId` scope parameter
             "manage_dependencies" to 2585,
             "manage_items" to 2950, // was 2520; measured 2526 after items[].id -> itemId / ids -> itemIds (de711807)
-            "query_notes" to 2386,
+            "query_notes" to 2100, // was 2386; search only since Q11 moved get/list to notes_read, measured 1787
             "get_context" to 2650, // was 1909; T2.3 added the `ancestorId` scope parameter
             "claim_item" to 2550, // was 2100; +when-to-call trigger sentence, measured 2181
-            "manage_notes" to 2057,
             "complete_tree" to 2500, // was 2100; measured 2171 after the AdvanceService pipeline semantics (3e455253)
             "query_dependencies" to 2050, // was 1708; +333 chars, limit/offset params + graph.truncated (6e2d8fc2)
             "advance_item" to 3150, // was 2650; +when-to-call trigger sentence, measured 2701
@@ -93,7 +92,7 @@ class ToolTokenBudgetTest {
      * tools (the CRUD/query surface) were deliberately left untouched — they trigger on obvious
      * need, and over-prompting tools that already trigger correctly causes overtriggering.
      */
-    private val totalCeiling = 50_450 // was 48_850; +1_600 for the new query_rules ceiling (measured 1384, A3 840e700a)
+    private val totalCeiling = 49_200 // was 50_450; Q11 removed manage_notes and the note get/list of query_notes, measured total 42_758
 
     // explicitNulls = false mirrors the compact-wire-shape convention already used elsewhere
     // in this codebase (see EventRoutes.kt / ItemWriteRoutes.kt / NoteWriteRoutes.kt) — a

@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
+import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -583,20 +584,7 @@ class NoteCommandServiceTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `deleteById removes an existing note and reports false for an unknown id`(): Unit =
-        runBlocking {
-            val item = persist(plainItem())
-            val repos = db.repositoryProvider()
-            val note = repos.noteRepository().upsert(Note(itemId = item.id, key = "gone", role = "work", body = "b"))
-            val svc = service()
-
-            assertEquals(true, svc.deleteById(note.id).ok())
-            assertNull(repos.noteRepository().findByItemIdAndKey(item.id, "gone"))
-            assertEquals(false, svc.deleteById(UUID.randomUUID()).ok())
-        }
-
-    @Test
-    fun `deleteByKey returns the deleted note and null when the key is absent`(): Unit =
+    fun `delete returns the deleted note and is NOT_FOUND when the key is absent`(): Unit =
         runBlocking {
             val item = persist(plainItem())
             val repos = db.repositoryProvider()
@@ -604,29 +592,132 @@ class NoteCommandServiceTest {
             repos.noteRepository().upsert(Note(itemId = item.id, key = "b", role = "work", body = "B"))
             val svc = service()
 
-            val deleted = svc.deleteByKey(item.id, "a").ok()
-            assertNotNull(deleted)
+            val deleted = svc.delete(item.id, "a").ok()
             assertEquals("a", deleted.key)
             assertNull(repos.noteRepository().findByItemIdAndKey(item.id, "a"))
             assertNotNull(repos.noteRepository().findByItemIdAndKey(item.id, "b"), "only the named key is deleted")
-            assertNull(svc.deleteByKey(item.id, "a").ok(), "second delete finds nothing")
-            assertNull(svc.deleteByKey(item.id, "A").ok(), "keys are case-sensitive")
+
+            val again = svc.delete(item.id, "a").err()
+            assertEquals(ErrorCode.NOT_FOUND, again.code)
+            assertEquals(ErrorDetail.NotFound(EntityKind.NOTE, "${item.id}/a"), again.detail)
+            assertEquals(ErrorCode.NOT_FOUND, svc.delete(item.id, "A").err().code, "keys are case-sensitive")
+            val noItem = svc.delete(UUID(0, 1), "a").err()
+            assertEquals(ErrorDetail.NotFound(EntityKind.ITEM, UUID(0, 1).toString()), noItem.detail)
         }
 
     @Test
-    fun `deleteAllForItem returns the count and removes only that item's notes`(): Unit =
+    fun `delete honours expectedVersion and keeps the note on a conflict`(): Unit =
         runBlocking {
-            val one = persist(WorkItem(title = "one"))
-            val other = persist(WorkItem(title = "other"))
+            val item = persist(plainItem())
             val repos = db.repositoryProvider()
-            repos.noteRepository().upsert(Note(itemId = one.id, key = "a", role = "work", body = "A"))
-            repos.noteRepository().upsert(Note(itemId = one.id, key = "b", role = "queue", body = "B"))
-            repos.noteRepository().upsert(Note(itemId = other.id, key = "a", role = "work", body = "A"))
+            repos.noteRepository().upsert(Note(itemId = item.id, key = "a", role = "work", body = "A"))
             val svc = service()
 
-            assertEquals(2, svc.deleteAllForItem(one.id).ok())
-            assertTrue(repos.noteRepository().findByItemId(one.id).isEmpty())
-            assertEquals(1, repos.noteRepository().findByItemId(other.id).size)
-            assertEquals(0, svc.deleteAllForItem(one.id).ok())
+            val conflict = svc.delete(item.id, "a", expectedVersion = 5).err()
+            assertEquals(ErrorCode.VERSION_CONFLICT, conflict.code)
+            assertNotNull(repos.noteRepository().findByItemIdAndKey(item.id, "a"), "a stale delete leaves the note")
+
+            assertEquals("a", svc.delete(item.id, "a", expectedVersion = 1).ok().key)
+            assertNull(repos.noteRepository().findByItemIdAndKey(item.id, "a"))
+        }
+
+    // ---------------------------------------------------------------------------------------------
+    // note version (V28): 1 on create, +1 per upsert, expectedVersion as a compare-and-set
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    fun `version is 1 on create and goes up by one on every upsert including an identical body`(): Unit =
+        runBlocking {
+            val item = persist(plainItem())
+            val svc = service()
+
+            fun cmd(
+                body: String,
+                expected: Long? = null
+            ) = NoteUpsertCommand(item.id, "k", "work", body, null, null, expectedVersion = expected)
+
+            assertEquals(
+                1L,
+                svc
+                    .upsert(cmd("one"))
+                    .ok()
+                    .note.version
+            )
+            assertEquals(
+                2L,
+                svc
+                    .upsert(cmd("one"))
+                    .ok()
+                    .note.version
+            )
+            assertEquals(
+                3L,
+                svc
+                    .upsert(cmd("two"))
+                    .ok()
+                    .note.version
+            )
+            assertEquals(
+                3L,
+                db
+                    .repositoryProvider()
+                    .noteRepository()
+                    .findByItemIdAndKey(item.id, "k")!!
+                    .version
+            )
+        }
+
+    @Test
+    fun `expectedVersion is null unconditional, 0 must create, n must match`(): Unit =
+        runBlocking {
+            val item = persist(plainItem())
+            val svc = service()
+
+            fun cmd(expected: Long?) = NoteUpsertCommand(item.id, "k", "work", "b", null, null, expectedVersion = expected)
+
+            // 0 on a missing note creates; n on a missing note conflicts with actual 0
+            val missing = svc.upsert(cmd(3)).err()
+            assertEquals(ErrorCode.VERSION_CONFLICT, missing.code)
+            assertEquals(ErrorDetail.VersionConflict(EntityKind.NOTE, "${item.id}/k", 3, 0), missing.detail)
+            assertEquals(
+                1L,
+                svc
+                    .upsert(cmd(0))
+                    .ok()
+                    .note.version
+            )
+
+            // 0 on an existing note conflicts; the right n wins and bumps; a stale n conflicts and writes nothing
+            val existing = svc.upsert(cmd(0)).err()
+            assertEquals(
+                ErrorDetail.VersionConflict(
+                    EntityKind.NOTE,
+                    db
+                        .repositoryProvider()
+                        .noteRepository()
+                        .findByItemIdAndKey(item.id, "k")!!
+                        .id
+                        .toString(),
+                    0,
+                    1
+                ),
+                existing.detail
+            )
+            assertEquals(
+                2L,
+                svc
+                    .upsert(cmd(1))
+                    .ok()
+                    .note.version
+            )
+            assertEquals(ErrorCode.VERSION_CONFLICT, svc.upsert(cmd(1)).err().code)
+            assertEquals(
+                2L,
+                db
+                    .repositoryProvider()
+                    .noteRepository()
+                    .findByItemIdAndKey(item.id, "k")!!
+                    .version
+            )
         }
 }

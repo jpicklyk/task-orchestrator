@@ -5,12 +5,14 @@ import io.github.jpicklyk.mcptask.current.application.port.ScopeFilter
 import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions
 import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.callTool
+import io.github.jpicklyk.mcptask.current.test.envelopeOk
+import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -31,7 +33,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -39,7 +40,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -239,82 +239,46 @@ class QueryNotesScopeRoleContractTest {
         }
 
     // ──────────────────────────────────────────────
-    // S5 — regression guard: the TOP-LEVEL list `role` filter is untouched by the scope.role
-    // rejection. Real SQLite-backed repository, matching QueryNotesToolTest's convention, so this
-    // exercises the actual findByItemId(itemId, role) path rather than a mocked signature.
+    // S5 - regression guard: the role filter of the note list (notes_read list since Q11 moved the list out of
+    // query_notes) is a separate parameter from the search scope.role rejection. Real SQLite-backed repository.
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S5 - top-level list role filter is untouched by the scope role rejection`(): Unit =
+    fun `S5 - the notes_read list role filter is untouched by the scope role rejection`(): Unit =
         runBlocking {
             val context = ToolExecutionContext(db.repositoryProvider(), unitOfWork = db.unitOfWork())
-            val queryTool = QueryNotesTool()
-            val manageTool = ManageNotesTool()
 
-            val itemId =
-                ((context.workItemRepository().create(WorkItem(title = "S5 item")))!!).id.toString()
+            val itemId = ((context.workItemRepository().create(WorkItem(title = "S5 item")))!!).id
 
-            suspend fun upsert(
-                key: String,
-                role: String
-            ) = manageTool.execute(
-                params(
-                    "operation" to JsonPrimitive("upsert"),
-                    "notes" to
-                        JsonArray(
-                            listOf(
-                                buildJsonObject {
-                                    put("itemId", JsonPrimitive(itemId))
-                                    put("key", JsonPrimitive(key))
-                                    put("role", JsonPrimitive(role))
-                                }
-                            )
-                        )
-                ),
-                context
-            )
-
-            upsert("plan", "queue")
-            upsert("approach", "work")
+            context.putNote(itemId, "plan", "queue")
+            context.putNote(itemId, "approach", "work")
 
             val filtered =
-                queryTool.execute(
-                    params(
-                        "operation" to JsonPrimitive("list"),
-                        "itemId" to JsonPrimitive(itemId),
-                        "role" to JsonPrimitive("work")
-                    ),
-                    context
-                ) as JsonObject
+                context.callTool(
+                    "notes_read",
+                    buildJsonObject {
+                        put("select", JsonPrimitive("list"))
+                        put("itemId", JsonPrimitive(itemId.toString()))
+                        put("role", JsonPrimitive("work"))
+                    }
+                )
 
-            assertTrue(filtered["success"]!!.jsonPrimitive.boolean)
-            val filteredData = filtered["data"] as JsonObject
-            assertEquals(1, filteredData["total"]!!.jsonPrimitive.int)
-            assertEquals(
-                "work",
-                filteredData["notes"]!!
-                    .jsonArray[0]
-                    .jsonObject["role"]!!
-                    .jsonPrimitive.content
-            )
+            assertTrue(envelopeOk(filtered), "$filtered")
+            val items = filtered["data"]!!.jsonObject["items"]!!.jsonArray
+            assertEquals(1, items.size)
+            assertEquals("work", items[0].jsonObject["role"]!!.jsonPrimitive.content)
 
-            // An invalid TOP-LEVEL role must still be rejected, as before: this is the declared `list` `role` filter,
-            // an entirely separate parameter from `scope.role`. validateParams() throws directly (the MCP adapter
-            // calls it before execute(); the tool's own execute() does not re-validate).
-            val ex =
-                assertFailsWith<ToolValidationException> {
-                    queryTool.validateParams(
-                        params(
-                            "operation" to JsonPrimitive("list"),
-                            "itemId" to JsonPrimitive(itemId),
-                            "role" to JsonPrimitive("bogus")
-                        )
-                    )
-                }
-            assertEquals(
-                "Invalid role: 'bogus'. Must be one of: queue, work, review",
-                ex.message
-            )
+            // An invalid role is still rejected, now as invalid_request on /role.
+            val bogus =
+                context.callTool(
+                    "notes_read",
+                    buildJsonObject {
+                        put("select", JsonPrimitive("list"))
+                        put("itemId", JsonPrimitive(itemId.toString()))
+                        put("role", JsonPrimitive("bogus"))
+                    }
+                )
+            assertEquals("invalid_request", bogus["error"]!!.jsonObject["code"]!!.jsonPrimitive.content)
         }
 
     // ──────────────────────────────────────────────

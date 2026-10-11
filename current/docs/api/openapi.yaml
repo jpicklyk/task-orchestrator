@@ -497,20 +497,6 @@ components:
           type: string
           nullable: true
 
-    NoteWriteDto:
-      type: object
-      required: [role, body]
-      properties:
-        role:
-          type: string
-          enum: [queue, work, review]
-        body:
-          type: string
-        properties:
-          type: object
-          nullable: true
-          description: Reserved for future use; silently ignored in v1
-
     DependencyCreateDto:
       type: object
       required: [fromItemId, toItemId, type]
@@ -2381,9 +2367,17 @@ paths:
 
   /items/{id}/notes:
     get:
-      summary: List notes for an item
+      summary: List notes for an item (notes_read list)
       operationId: listNotes
       tags: [notes]
+      description: |
+        A thin translation to `notes_read select=list`: the answer is the response envelope, byte-equal to
+        `POST /ops/notes_read` for the same arguments apart from `meta.reqId`. `data.items[]` are note summaries
+        `{id (8 hex characters), key, role, version, bodyLength, modifiedAt, actor?, verification?}` ordered by key
+        and never carry a body (read one with the single-note route). `actor` and `verification` are present only when
+        the caller may see attribution (an admin, or `API_REDACT_NOTE_ATTRIBUTION=false`); proof evidence is never
+        shown. `data.page` is `{total, truncated, next?}` with an opaque cursor; a page's `total` counts from its own
+        offset on. A query parameter other than the four below is `invalid_request` (400).
       parameters:
         - $ref: "#/components/parameters/itemId"
         - name: role
@@ -2391,140 +2385,112 @@ paths:
           schema:
             type: string
             enum: [queue, work, review]
-        - name: key
+        - name: keys
           in: query
+          description: Comma-separated note keys to keep.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Page size, 1 to 200 (default 50).
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          description: Opaque cursor from the previous page's `data.page.next`.
           schema:
             type: string
       responses:
         "200":
-          description: Notes list
+          description: Envelope with ok=true
+          headers:
+            X-Req-Id:
+              schema:
+                type: string
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/NoteDto"
+                $ref: "#/components/schemas/OpsEnvelope"
+        "400":
+          description: invalid_request, unknown_parameter or invalid_cursor envelope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Forbidden"
+          description: forbidden envelope (capability, root or tag scope)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
         "404":
-          $ref: "#/components/responses/NotFound"
+          description: not_found or ambiguous_id envelope for the item id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
 
   /items/{id}/notes/{key}:
     get:
-      summary: Get single note by key
+      summary: Get a single note by key (notes_read get)
       operationId: getNote
       tags: [notes]
+      description: |
+        A thin translation to `notes_read select=get`: the answer is the response envelope whose `data` is
+        `{id, key, role, version, body, modifiedAt, actor?, verification?}`. The `ETag` response header is `"v{version}"`;
+        an `If-None-Match` naming it (or `*`) answers 304 with no body. Writes have no resource route: use
+        `POST /ops/notes_write` (`upsert`, `delete`, each with an optional `expectedVersion`). The route takes no query
+        parameter.
       parameters:
         - $ref: "#/components/parameters/itemId"
         - $ref: "#/components/parameters/noteKey"
-      responses:
-        "200":
-          description: Note
-          headers:
-            ETag:
-              schema:
-                type: string
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/NoteDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-    put:
-      summary: Upsert a note
-      operationId: upsertNote
-      tags: [notes]
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-        - $ref: "#/components/parameters/noteKey"
-        - name: If-Match
+        - name: If-None-Match
           in: header
           schema:
             type: string
-          description: Optional on create; validated on update — mismatch -> 412
-        - $ref: "#/components/parameters/idempotencyKey"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/NoteWriteDto"
       responses:
-        "201":
-          description: Note created
-          headers:
-            ETag:
-              schema:
-                type: string
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/NoteDto"
         "200":
-          description: Note updated
+          description: Envelope with ok=true
           headers:
             ETag:
+              description: '"v{version}" of the note.'
+              schema:
+                type: string
+            X-Req-Id:
               schema:
                 type: string
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/NoteDto"
+                $ref: "#/components/schemas/OpsEnvelope"
+        "304":
+          description: The note is still at the version named by If-None-Match (empty body)
+          headers:
+            ETag:
+              schema:
+                type: string
+        "400":
+          description: invalid_request or unknown_parameter envelope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Forbidden"
+          description: forbidden envelope (capability, root or tag scope)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpsEnvelope"
         "404":
-          $ref: "#/components/responses/NotFound"
-        "412":
-          description: ETag mismatch on update
+          description: not_found envelope (item, or note with id "<itemUuid>/<key>") or ambiguous_id
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "409":
-          $ref: "#/components/responses/IdempotencyMismatch"
-        "413":
-          description: >-
-            Payload too large — body exceeds the shared 1 MiB write-body limit, enforced before
-            the body is buffered (Content-Length pre-check, then a capped channel read).
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "415":
-          description: >-
-            Unsupported media type — Content-Type is present and is not application/json (an
-            absent header is accepted as */*); checked before the Idempotency-Key header or body
-            is read.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-
-    delete:
-      summary: Delete a note
-      operationId: deleteNote
-      tags: [notes]
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-        - $ref: "#/components/parameters/noteKey"
-      responses:
-        "204":
-          description: Deleted
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
+                $ref: "#/components/schemas/OpsEnvelope"
 
   /items/{id}/dependencies:
     get:

@@ -217,7 +217,7 @@ class EventRestCoverageTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `REST note PUT records note upserted for create and update and DELETE returns 204 with note deleted`(
+    fun `REST notes_write records note upserted for create and update and note deleted for delete`(
         @TempDir dir: Path,
     ): Unit =
         testApplication {
@@ -225,10 +225,15 @@ class EventRestCoverageTest {
             application { configureProductionApp(rig.composition) }
             val item = rig.seed("rest note host")
 
-            val created = client.send("PUT", "/items/${item.id}/notes/k1", """{"role":"work","body":"hello"}""")
-            assertEquals(HttpStatusCode.Created, created.status, created.bodyAsText())
+            fun upsert(
+                role: String,
+                body: String
+            ) = """{"ops":[{"op":"upsert","itemId":"${item.id}","key":"k1","role":"$role","body":"$body"}]}"""
+
+            val created = client.send("POST", "/ops/notes_write", upsert("work", "hello"))
+            assertEquals(HttpStatusCode.OK, created.status, created.bodyAsText())
             val first = rig.rows()
-            assertEquals(listOf("note.upserted"), first.types(), "the REST PUT must reach the event log: $first")
+            assertEquals(listOf("note.upserted"), first.types(), "the REST notes_write must reach the event log: $first")
             val up = first.single()
             assertEquals(item.id.toString(), up.str("itemId"))
             assertEquals("k1", up.str("key"))
@@ -244,7 +249,7 @@ class EventRestCoverageTest {
             assertEquals(apiActor(), up.principalId)
 
             val mark = rig.maxSeq()
-            val updated = client.send("PUT", "/items/${item.id}/notes/k1", """{"role":"review","body":"hello world"}""")
+            val updated = client.send("POST", "/ops/notes_write", upsert("review", "hello world"))
             assertEquals(HttpStatusCode.OK, updated.status, updated.bodyAsText())
             val again = rig.rowsAfter(mark)
             assertEquals(listOf("note.upserted"), again.types())
@@ -260,8 +265,9 @@ class EventRestCoverageTest {
             assertEquals(up.entityId, again.single().entityId, "an update is the same note id")
 
             val markDelete = rig.maxSeq()
-            val deleted = client.send("DELETE", "/items/${item.id}/notes/k1")
-            assertEquals(HttpStatusCode.NoContent, deleted.status)
+            val deleted =
+                client.send("POST", "/ops/notes_write", """{"ops":[{"op":"delete","itemId":"${item.id}","key":"k1"}]}""")
+            assertEquals(HttpStatusCode.OK, deleted.status, deleted.bodyAsText())
             val gone = rig.rowsAfter(markDelete)
             assertEquals(listOf("note.deleted"), gone.types())
             assertEquals("explicit", gone.single().str("cause"))
@@ -270,7 +276,7 @@ class EventRestCoverageTest {
         }
 
     @Test
-    fun `REST note DELETE of a missing note is 404 and records nothing`(
+    fun `REST notes_write delete of a missing note fails the element and records nothing`(
         @TempDir dir: Path,
     ): Unit =
         testApplication {
@@ -280,11 +286,13 @@ class EventRestCoverageTest {
             // Control: the same route does record when the note exists.
             rig.raw.noteRepository().upsert(Note(itemId = item.id, key = "present", role = "work", body = "x"))
 
-            val missing = client.send("DELETE", "/items/${item.id}/notes/absent")
+            fun delete(key: String) = """{"ops":[{"op":"delete","itemId":"${item.id}","key":"$key"}]}"""
 
-            assertEquals(HttpStatusCode.NotFound, missing.status)
+            val missing = client.send("POST", "/ops/notes_write", delete("absent"))
+
+            assertTrue(missing.bodyAsText().contains("\"code\":\"not_found\""), "the missing note is not_found")
             assertEquals(emptyList(), rig.rows())
-            assertEquals(HttpStatusCode.NoContent, client.send("DELETE", "/items/${item.id}/notes/present").status)
+            assertEquals(HttpStatusCode.OK, client.send("POST", "/ops/notes_write", delete("present")).status)
             assertEquals(listOf("note.deleted"), rig.rows().types())
         }
 

@@ -9,7 +9,7 @@ import java.nio.file.Paths
  * Resolves a caller-supplied relative path strictly within a trusted base directory, rejecting
  * every known escape vector before the file is touched.
  *
- * Used by tools that accept a path parameter pointing at a file to read (e.g. `manage_notes`
+ * Used by tools that accept a path parameter pointing at a file to read (e.g. `notes_write`
  * `bodyFromFile`), where the base directory is a trusted root (such as the agent config root
  * resolved from `AGENT_CONFIG_DIR`) and the path itself comes from untrusted tool input.
  *
@@ -74,14 +74,14 @@ object PathContainment {
         val baseReal =
             try {
                 baseDir.toRealPath()
-            } catch (e: IOException) {
-                return Result.Rejected("agent config root is not accessible: ${e.message}")
+            } catch (_: IOException) {
+                return Result.Rejected("agent config root is not accessible")
             }
         val candidateReal =
             try {
                 lexicalCandidate.toRealPath()
-            } catch (e: IOException) {
-                return Result.Rejected("file not accessible: $requestedPath (${e.message})")
+            } catch (_: IOException) {
+                return Result.Rejected("file not accessible: $requestedPath")
             }
 
         if (!candidateReal.startsWith(baseReal)) {

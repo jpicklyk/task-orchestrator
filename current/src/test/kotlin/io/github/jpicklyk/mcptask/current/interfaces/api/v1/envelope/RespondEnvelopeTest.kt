@@ -92,7 +92,7 @@ class RespondEnvelopeTest {
                 }
                 get("/ops/unicode") {
                     val message = "Caf\u00e9 \u65e5\u672c\u8a9e \ud83d\ude00 \"quoted\""
-                    call.respondEnvelope(EnvelopeEncoder.error(DomainError(ErrorCode.INTERNAL, message), "reqid001"))
+                    call.respondEnvelope(EnvelopeEncoder.error(DomainError(ErrorCode.INVALID_CURSOR, message), "reqid001"))
                 }
             }
         }

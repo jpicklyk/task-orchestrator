@@ -1,0 +1,71 @@
+{
+  "name": "notes_write",
+  "inputSchema": {
+    "properties": {
+      "ops": {
+        "type": "array",
+        "description": "Write operations, one flat object per op, run in order. A field marked [ops: ...] applies only to the ops named.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "description": "The operation this element runs.",
+              "enum": [
+                "upsert",
+                "delete"
+              ]
+            },
+            "itemId": {
+              "type": "string",
+              "description": "Id of the work item that owns the note: a full UUID or 8 to 32 hex characters of one."
+            },
+            "key": {
+              "type": "string",
+              "description": "Note key, unique per item (1 to 200 characters, case-sensitive)."
+            },
+            "role": {
+              "type": "string",
+              "description": "Note role: queue, work or review (case-insensitive). [ops: upsert]"
+            },
+            "body": {
+              "type": "string",
+              "description": "Inline note text (may be empty). Exactly one of body and bodyFromFile is required. [ops: upsert]"
+            },
+            "bodyFromFile": {
+              "type": "string",
+              "description": "Server-side path whose text becomes the body. Exactly one of body and bodyFromFile is required. Resolved strictly inside the agent config root: no absolute path, no '..', no symlink out of it; a regular UTF-8 file of at most 65536 bytes; CRLF becomes LF. An idempotency replay does not re-read the file. [ops: upsert]"
+            },
+            "expectedVersion": {
+              "type": "integer",
+              "description": "Guard on the note's version: omit to write unconditionally, 0 to require that the note does not exist, n to require that its current version is n. Anything else is version_conflict and nothing is written."
+            },
+            "idempotencyKey": {
+              "type": "string",
+              "description": "Optional client key (1-128 chars, needs actor). Resending the same op with the same key returns the stored result."
+            }
+          },
+          "required": [
+            "op"
+          ]
+        }
+      },
+      "atomic": {
+        "type": "boolean",
+        "description": "true: the first failing op rolls back the whole batch. Default false: each op commits on its own."
+      },
+      "describe": {
+        "type": "boolean",
+        "description": "true: return the operations, their parameters and errors instead of running the tool."
+      }
+    },
+    "type": "object"
+  },
+  "description": "Create, replace or delete notes on work items, in batches. Every element commits on its own unless atomic is true. Call with describe:true for each operation's parameters and errors.",
+  "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false
+  }
+}

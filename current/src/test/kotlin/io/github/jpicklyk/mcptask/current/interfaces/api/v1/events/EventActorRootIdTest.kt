@@ -13,7 +13,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -29,16 +28,18 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
 import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
+import io.github.jpicklyk.mcptask.current.test.callTool
+import io.github.jpicklyk.mcptask.current.test.envelopeOk
 import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.testClaimService
+import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -202,7 +203,10 @@ class EventActorRootIdTest {
                 .value()
                 .note
 
-        suspend fun deleteNote(id: UUID) = ctx.noteCommandService.deleteById(id).value()
+        suspend fun deleteNote(id: UUID) {
+            val note = checkNotNull(ctx.noteRepository().getById(id)) { "no note $id to delete" }
+            ctx.noteCommandService.delete(note.itemId, note.key).value()
+        }
 
         suspend fun addDependency(dep: Dependency): Dependency =
             ctx.dependencyCommandService
@@ -774,32 +778,42 @@ class EventActorRootIdTest {
         }
 
     @Test
-    fun `S11c manage_notes delete with a top-level actor attributes note deleted`(): Unit =
+    fun `S11c notes_write delete with a top-level actor attributes note deleted`(): Unit =
         runBlocking {
             val bus = ApiEventBus()
             val provider = decorated(bus)
             val flow = bus.subscribe("s11c", emptySet(), lastEventId = null)
             val ctx = toolContext(bus)
             val item = provider.newRoot("X-s11c")
-            val saved = provider.upsertNote(note(item.id, "k-s11c"))
+            provider.upsertNote(note(item.id, "k-s11c"))
 
             val result =
-                ManageNotesTool().execute(
+                ctx.callTool(
+                    "notes_write",
                     buildJsonObject {
-                        put("operation", "delete")
-                        put("ids", JsonArray(listOf(JsonPrimitive(saved.id.toString()))))
                         put("actor", actorJson("agent-a"))
+                        put(
+                            "ops",
+                            buildJsonArray {
+                                add(
+                                    buildJsonObject {
+                                        put("op", "delete")
+                                        put("itemId", item.id.toString())
+                                        put("key", "k-s11c")
+                                    },
+                                )
+                            },
+                        )
                     },
-                    ctx,
                 )
-            assertToolSuccess(result)
+            assertTrue(envelopeOk(result), "notes_write must succeed: $result")
 
             val ev = bus.drainDelivered("s11c", flow).one(ApiEventType.NOTE_DELETED, item.id)
             assertEquals(dtoPlainA(), ev.actor)
         }
 
     @Test
-    fun `S11d manage_notes upsert with a top-level actor attributes note upserted`(): Unit =
+    fun `S11d notes_write upsert with a top-level actor attributes note upserted`(): Unit =
         runBlocking {
             val bus = ApiEventBus()
             val provider = decorated(bus)
@@ -807,28 +821,8 @@ class EventActorRootIdTest {
             val ctx = toolContext(bus)
             val item = provider.newRoot("X-s11d")
 
-            val result =
-                ManageNotesTool().execute(
-                    buildJsonObject {
-                        put("operation", "upsert")
-                        put(
-                            "notes",
-                            buildJsonArray {
-                                add(
-                                    buildJsonObject {
-                                        put("itemId", item.id.toString())
-                                        put("key", "k-s11d")
-                                        put("role", "work")
-                                        put("body", "b")
-                                    },
-                                )
-                            },
-                        )
-                        put("actor", actorJson("agent-a"))
-                    },
-                    ctx,
-                )
-            assertToolSuccess(result)
+            val result = ctx.upsertNoteVia(item.id, "k-s11d", "work", "b", actor = actorJson("agent-a"))
+            assertTrue(envelopeOk(result), "notes_write must succeed: $result")
 
             val ev = bus.drainDelivered("s11d", flow).one(ApiEventType.NOTE_UPSERTED, item.id)
             assertEquals(dtoPlainA(), ev.actor)

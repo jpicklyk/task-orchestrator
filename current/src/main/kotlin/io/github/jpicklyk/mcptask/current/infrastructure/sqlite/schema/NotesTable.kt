@@ -35,6 +35,9 @@ object NotesTable : IdTable<UUID>("notes") {
     val verificationVerifier = text("verification_verifier").nullable()
     val verificationReason = text("verification_reason").nullable()
 
+    /** V28: 1 on create, +1 on every successful upsert of an existing note (written by the note store). */
+    val version = long("version").default(1L)
+
     init {
         foreignKey(itemId to WorkItemsTable.id, onDelete = ReferenceOption.CASCADE)
         uniqueIndex(itemId, key)

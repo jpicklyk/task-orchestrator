@@ -5,19 +5,19 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
-import io.github.jpicklyk.mcptask.current.application.tools.notes.QueryNotesTool
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
+import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
+import java.util.UUID
 import kotlin.test.assertTrue
 
 /**
@@ -36,9 +36,9 @@ import kotlin.test.assertTrue
  *
  * The lifecycle: create_work_tree (root + 2 children + a blocking dep) -> get_context
  * health-check -> get_context item -> advance start (gated FAILURE — queue note unfilled) ->
- * manage_notes (fill queue note) -> advance start (-> work) -> manage_notes (fill both work
- * notes) -> advance start (-> review) -> manage_notes (fill review note) -> advance start
- * (-> terminal) -> get_next_item -> query_items overview -> query_items get -> query_notes list.
+ * fill the queue note -> advance start (-> work) -> fill both work notes -> advance start (-> review) ->
+ * fill the review note -> advance start (-> terminal) -> get_next_item -> query_items overview -> query_items get.
+ * The note fills are fixture writes (`putNote`): the note tools are budgeted by their own tests.
  * The note schema (1 queue + 2 work + 1 review notes, each with guidance text) mirrors a
  * realistic feature-task schema, per the "Reference for the flow (Python original, for shapes
  * only)" drive_workflow.py script this test's call sequence is modeled on.
@@ -59,10 +59,8 @@ class LifecycleResponseBudgetTest {
     private val createWorkTreeTool = CreateWorkTreeTool()
     private val getContextTool = GetContextTool()
     private val advanceItemTool = AdvanceItemTool()
-    private val manageNotesTool = ManageNotesTool()
     private val getNextItemTool = GetNextItemTool()
     private val queryItemsTool = QueryItemsTool()
-    private val queryNotesTool = QueryNotesTool()
 
     /** Insertion-ordered label -> measured response char count, populated by [measureCall]. */
     private val measured = linkedMapOf<String, Int>()
@@ -173,32 +171,6 @@ class LifecycleResponseBudgetTest {
         )
     }
 
-    // Note fills deliberately omit per-note `actor` — it's optional, and attaching it would
-    // pull in an `actor` + `verification` block (NoOpActorVerifier always stamps one; see
-    // ServerComposition.kt, this is the real deployed default, not a test artifact) on every
-    // note, which is attribution metadata orthogonal to what this test measures (lifecycle
-    // response-payload leanness). Keeping notes actor-free here isolates that measurement.
-    private fun upsertNoteParams(vararg notes: Triple<String, String, Pair<String, String>>) =
-        // Triple(itemId, key, Pair(role, body))
-        buildJsonObject {
-            put("operation", JsonPrimitive("upsert"))
-            put(
-                "notes",
-                buildJsonArray {
-                    notes.forEach { (itemId, key, roleAndBody) ->
-                        add(
-                            buildJsonObject {
-                                put("itemId", JsonPrimitive(itemId))
-                                put("key", JsonPrimitive(key))
-                                put("role", JsonPrimitive(roleAndBody.first))
-                                put("body", JsonPrimitive(roleAndBody.second))
-                            }
-                        )
-                    }
-                }
-            )
-        }
-
     // ──────────────────────────────────────────────
     // BUDGET PHILOSOPHY — see class doc. Update via the same process as ToolTokenBudgetTest.
     // ──────────────────────────────────────────────
@@ -208,16 +180,12 @@ class LifecycleResponseBudgetTest {
             "get_context(health-check)" to 200,
             "get_context(item t1)" to 750,
             "advance_item(start, gated FAILURE)" to 650,
-            "manage_notes(fill queue note)" to 400,
             "advance_item(start -> work)" to 850,
-            "manage_notes(fill work notes)" to 550,
             "advance_item(start -> review)" to 550,
-            "manage_notes(fill review note)" to 400,
             "advance_item(start -> terminal)" to 500,
             "get_next_item" to 350,
             "query_items(overview)" to 400,
             "query_items(get t1)" to 350,
-            "query_notes(list t1)" to 950,
         )
 
     @Test
@@ -305,63 +273,45 @@ class LifecycleResponseBudgetTest {
                 transitionParams(t1Id, "start")
             )
 
-            // ── 5. manage_notes: fill the required queue note ──
-            measureCall(
-                "manage_notes(fill queue note)",
-                manageNotesTool,
-                upsertNoteParams(
-                    Triple(
-                        t1Id,
-                        "task-scope",
-                        "queue" to
-                            "Build a CsvSerializer class in reports/serializers.py that converts ReportRow lists to " +
-                            "RFC-4180 CSV. Acceptance: given rows with commas/quotes/newlines, output round-trips " +
-                            "through csv.reader. Constraint: no new dependencies."
-                    )
-                )
+            // ── 5. fill the required queue note (fixture write: the note tools have their own budget) ──
+            context.putNote(
+                UUID.fromString(t1Id),
+                "task-scope",
+                "queue",
+                "Build a CsvSerializer class in reports/serializers.py that converts ReportRow lists to " +
+                    "RFC-4180 CSV. Acceptance: given rows with commas/quotes/newlines, output round-trips " +
+                    "through csv.reader. Constraint: no new dependencies."
             )
 
             // ── 6. advance start -> work ──
             measureCall("advance_item(start -> work)", advanceItemTool, transitionParams(t1Id, "start"))
 
-            // ── 7. manage_notes: fill both required work notes ──
-            measureCall(
-                "manage_notes(fill work notes)",
-                manageNotesTool,
-                upsertNoteParams(
-                    Triple(
-                        t1Id,
-                        "implementation-notes",
-                        "work" to
-                            "Implemented CsvSerializer with csv.writer + StringIO. Deviation: used csv module " +
-                            "dialect=excel rather than manual escaping. No API surprises."
-                    ),
-                    Triple(
-                        t1Id,
-                        "session-tracking",
-                        "work" to
-                            "Outcome: success. Files changed: reports/serializers.py, tests/test_csv.py. " +
-                            "Deviations: none. Friction: none. Test results: 8 pass."
-                    )
-                )
+            // ── 7. fill both required work notes ──
+            context.putNote(
+                UUID.fromString(t1Id),
+                "implementation-notes",
+                "work",
+                "Implemented CsvSerializer with csv.writer + StringIO. Deviation: used csv module " +
+                    "dialect=excel rather than manual escaping. No API surprises."
+            )
+            context.putNote(
+                UUID.fromString(t1Id),
+                "session-tracking",
+                "work",
+                "Outcome: success. Files changed: reports/serializers.py, tests/test_csv.py. " +
+                    "Deviations: none. Friction: none. Test results: 8 pass."
             )
 
             // ── 8. advance start -> review ──
             measureCall("advance_item(start -> review)", advanceItemTool, transitionParams(t1Id, "start"))
 
-            // ── 9. manage_notes: fill the required review note ──
-            measureCall(
-                "manage_notes(fill review note)",
-                manageNotesTool,
-                upsertNoteParams(
-                    Triple(
-                        t1Id,
-                        "review-checklist",
-                        "review" to
-                            "Scope alignment: matches task-scope. Tests: cover commas/quotes/newlines + round-trip. " +
-                            "No side effects outside reports/."
-                    )
-                )
+            // ── 9. fill the required review note ──
+            context.putNote(
+                UUID.fromString(t1Id),
+                "review-checklist",
+                "review",
+                "Scope alignment: matches task-scope. Tests: cover commas/quotes/newlines + round-trip. " +
+                    "No side effects outside reports/."
             )
 
             // ── 10. advance start -> terminal ──
@@ -387,16 +337,6 @@ class LifecycleResponseBudgetTest {
                 queryItemsTool,
                 buildJsonObject {
                     put("operation", JsonPrimitive("get"))
-                    put("itemId", JsonPrimitive(t1Id))
-                }
-            )
-
-            // ── 14. query_notes list t1 (default includeBody=false) ──
-            measureCall(
-                "query_notes(list t1)",
-                queryNotesTool,
-                buildJsonObject {
-                    put("operation", JsonPrimitive("list"))
                     put("itemId", JsonPrimitive(t1Id))
                 }
             )
@@ -443,11 +383,6 @@ class LifecycleResponseBudgetTest {
                 measured["advance_item(start -> work)"]!! < 1100,
                 "advance_item(start -> work) response is ${measured["advance_item(start -> work)"]} chars, " +
                     "regressed toward the pre-slimming size (was 2,153 chars)"
-            )
-            assertTrue(
-                measured["query_notes(list t1)"]!! < 900,
-                "query_notes(list) response is ${measured["query_notes(list t1)"]} chars, " +
-                    "regressed toward the pre-slimming size (was 2,002 chars with bodies)"
             )
         }
 }
