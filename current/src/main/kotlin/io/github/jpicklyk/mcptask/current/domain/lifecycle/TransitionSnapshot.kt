@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.domain.lifecycle
 import io.github.jpicklyk.mcptask.current.domain.graph.BlockingEdge
 import io.github.jpicklyk.mcptask.current.domain.model.IndependenceMode
 import io.github.jpicklyk.mcptask.current.domain.model.IndependenceViolation
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import java.util.UUID
 
@@ -63,13 +64,15 @@ data class OwnershipFacts(
 
 /**
  * Resource leases. [exclusiveKeys] are the keys the item declares; [heldElsewhere] the subset held
- * by another item right now; [retryAfterMs] the earliest expiry among those, when known.
+ * by another item right now; [retryAfterMs] the earliest expiry among those, when known. [heldModes] is the
+ * declared requirement mode of each [heldElsewhere] key, as the loader read it from the item's requirements.
  */
 data class LeaseFacts(
     val enforced: Boolean,
     val exclusiveKeys: List<String>,
     val heldElsewhere: List<String>,
-    val retryAfterMs: Long?
+    val retryAfterMs: Long?,
+    val heldModes: Map<String, ResourceMode> = emptyMap()
 ) {
     companion object {
         val NONE: LeaseFacts = LeaseFacts(enforced = false, exclusiveKeys = emptyList(), heldElsewhere = emptyList(), retryAfterMs = null)

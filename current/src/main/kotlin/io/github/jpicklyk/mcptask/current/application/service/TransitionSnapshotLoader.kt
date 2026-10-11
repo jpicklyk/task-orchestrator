@@ -166,7 +166,8 @@ class TransitionSnapshotLoader(
                         enforced = true,
                         exclusiveKeys = exclusiveKeys,
                         heldElsewhere = heldElsewhere.map { it.resourceKey }.distinct(),
-                        retryAfterMs = retryAfterMs
+                        retryAfterMs = retryAfterMs,
+                        heldModes = requirements.filter { it.key in exclusiveKeys }.associate { it.key to it.mode }
                     )
             }
         }

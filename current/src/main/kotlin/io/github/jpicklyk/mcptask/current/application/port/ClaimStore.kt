@@ -34,8 +34,10 @@ sealed class ClaimResult {
 
     data class AlreadyClaimed(
         val itemId: UUID,
-        /** Milliseconds until the existing claim expires; null if expiry could not be determined. */
-        val retryAfterMs: Long?
+        /** When the existing, active claim expires. An active claim always has an expiry. */
+        val expiresAt: Instant,
+        /** Milliseconds until the existing claim expires (at least 1): a backoff hint. */
+        val retryAfterMs: Long
     ) : ClaimResult()
 
     data class NotFound(

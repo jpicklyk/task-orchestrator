@@ -1,34 +1,21 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping
 
-import io.github.jpicklyk.mcptask.current.application.service.AdvanceResult
-import io.github.jpicklyk.mcptask.current.application.service.BlockerInfo
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.IndependenceViolation
 import io.github.jpicklyk.mcptask.current.domain.model.Note
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.AdvanceResponseDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.CascadeBlockerDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.CascadeEventDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependenciesDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependencyEdgeDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ExpectedNoteDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.IndependenceViolationDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.MissingNoteDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.NoteDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ProofEvidenceDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ResourceLeaseDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ResourceLeaseIntervalDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.RoleTransitionDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.UnblockedItemDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.VerificationDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.etagFor
 import kotlinx.serialization.json.Json
@@ -237,7 +224,7 @@ fun RoleTransition.toDto(): RoleTransitionDto =
     )
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AdvanceMapper — AdvanceService.AdvanceResult → AdvanceResponseDto
+// IndependenceViolation → IndependenceViolationDto (gate status)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -252,140 +239,4 @@ fun IndependenceViolation.toDto(): IndependenceViolationDto =
         constraint = constraint.toJsonString(),
         conflictingSeat = conflictingSeat,
         waived = if (waived) true else null,
-    )
-
-/**
- * Maps a domain violations list to its REST DTO list for every surface OTHER than `gateStatus`
- * (advance success `AdvanceResponseDto.violations`, cascade `CascadeEventDto.violations`): the
- * key is emitted only when the list is non-null AND non-empty, mirroring
- * [io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty].
- * `gateStatus`'s own mapping (a non-null empty list still serializes as `[]`) is unaffected --
- * this helper is never used there.
- */
-private fun List<IndependenceViolation>?.toDtoListOrOmit(): List<IndependenceViolationDto>? =
-    this?.takeIf { it.isNotEmpty() }?.map { it.toDto() }
-
-/** Maps a [NoteSchemaEntry] to a [MissingNoteDto] (gate-block detail). */
-fun NoteSchemaEntry.toMissingNoteDto(): MissingNoteDto =
-    MissingNoteDto(
-        key = key,
-        description = description,
-        guidance = guidance,
-        skill = skill,
-    )
-
-/**
- * Maps a successful [AdvanceResult] from the shared `AdvanceService` to the REST
- * [AdvanceResponseDto], including the additive cascade / unblock / expected-note parity fields.
- *
- * `expectedNotes` is built from the resolved schema filtered to the item's NEW role, with `exists`
- * computed against [existingNoteKeys] (the keys of notes currently attached to the item). When the
- * item is schema-free, `expectedNotes` is empty.
- *
- * Claim-holder identity is never disclosed — the DTO has no `claimedBy` field.
- *
- * @param existingNoteKeys keys of notes currently on the item, used to set `exists` on each expected note.
- */
-fun AdvanceResult.toDto(existingNoteKeys: Set<String>): AdvanceResponseDto {
-    val expectedNotes =
-        resolvedSchema
-            ?.notes
-            ?.filter { it.role == newRole }
-            ?.map { entry ->
-                ExpectedNoteDto(
-                    key = entry.key,
-                    role = entry.role.name.lowercase(),
-                    required = entry.required,
-                    description = entry.description,
-                    guidance = entry.guidance,
-                    skill = entry.skill,
-                    exists = entry.key in existingNoteKeys,
-                )
-            } ?: emptyList()
-
-    return AdvanceResponseDto(
-        itemId = itemId.toString(),
-        previousRole = previousRole.name.lowercase(),
-        newRole = newRole.name.lowercase(),
-        trigger = trigger,
-        statusLabel = statusLabel,
-        cascadeEvents =
-            cascadeEvents.map { event ->
-                CascadeEventDto(
-                    itemId = event.itemId.toString(),
-                    title = event.title,
-                    previousRole = event.previousRole.name.lowercase(),
-                    targetRole = event.targetRole.name.lowercase(),
-                    applied = event.applied,
-                    statusLabel = event.statusLabel,
-                    gateBlocked = event.gateBlocked,
-                    missingNotes =
-                        if (event.gateBlocked) {
-                            event.gateMissingNotes.map { it.toMissingNoteDto() }
-                        } else {
-                            null
-                        },
-                    roleBlocked = event.roleBlocked,
-                    dependencyBlocked = event.dependencyBlocked,
-                    blockers =
-                        if (event.dependencyBlocked) {
-                            event.blockers.map {
-                                CascadeBlockerDto(
-                                    fromItemId = it.fromItemId.toString(),
-                                    currentRole = it.currentRole?.name?.lowercase() ?: BlockerInfo.UNKNOWN_ROLE,
-                                    requiredRole = it.requiredRole,
-                                )
-                            }
-                        } else {
-                            null
-                        },
-                    error = event.error,
-                    violations = event.violations.toDtoListOrOmit(),
-                )
-            },
-        unblockedItems =
-            unblockedItems.map { UnblockedItemDto(itemId = it.itemId.toString(), title = it.title) },
-        expectedNotes = expectedNotes,
-        violations = violations.toDtoListOrOmit(),
-    )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ResourceLeaseMapper
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Maps a [ResourceLease] domain entity to a [ResourceLeaseDto].
- *
- * The caller is responsible for redacting `acquiredByActorId` for non-admin callers (see
- * `ResourceLeaseRoutes` — the route handler nulls it out before responding) — this function
- * always includes it when present.
- */
-fun ResourceLease.toDto(): ResourceLeaseDto =
-    ResourceLeaseDto(
-        resourceKey = resourceKey,
-        holderItemId = holderItemId.toString(),
-        acquiredByActorId = acquiredByActorId,
-        acquiredAt = acquiredAt.toString(),
-        expiresAt = expiresAt.toString(),
-        originalAcquiredAt = originalAcquiredAt.toString(),
-    )
-
-/**
- * Maps a [ResourceLeaseInterval] domain entity to a [ResourceLeaseIntervalDto].
- *
- * The caller is responsible for redacting `acquiredByActorId` / `releasedByActorId` for non-admin
- * callers (see `ResourceLeaseRoutes` — the route handler nulls them out before responding) — this
- * function always includes them when present.
- */
-fun ResourceLeaseInterval.toDto(): ResourceLeaseIntervalDto =
-    ResourceLeaseIntervalDto(
-        resourceKey = resourceKey,
-        holderItemId = holderItemId.toString(),
-        acquiredByActorId = acquiredByActorId,
-        acquiredAt = acquiredAt.toString(),
-        expiresAt = expiresAt.toString(),
-        releasedAt = releasedAt?.toString(),
-        releaseReason = releaseReason,
-        releasedByActorId = releasedByActorId,
     )

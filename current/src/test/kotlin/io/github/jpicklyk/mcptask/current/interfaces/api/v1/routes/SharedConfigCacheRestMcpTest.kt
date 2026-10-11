@@ -17,28 +17,18 @@ import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.get
 import io.ktor.client.request.header
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
 import io.ktor.server.application.Application
 import io.ktor.server.testing.testApplication
-import io.mockk.coVerify
-import io.mockk.spyk
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -136,88 +126,6 @@ class SharedConfigCacheRestMcpTest {
     // S4 - warm via MCP (GetContextTool), then a per-root failure: REST gate 503 / advance 503 (in-unit), effective config 200 (cache)
     // ──────────────────────────────────────────────
 
-    @Test
-    fun `S4 - after a warm MCP read, a read failure fails REST gate and advance closed (503) while a non-unit read is still cached`() =
-        testApplication {
-            val sqlite = db.repositoryProvider()
-            val failable = FailableProjectConfigRepository(sqlite.configStore())
-            val provider = FailableRepositoryProvider(sqlite, failable)
-            val ctx =
-                ToolExecutionContext(
-                    provider,
-                    perRootConfigService = PerRootConfigService(failable),
-                    unitOfWork = db.unitOfWork()
-                )
-
-            val item =
-                runBlocking {
-                    val root = sqlite.workItemRepository().create(WorkItem(title = "S4 root", depth = 0))!!
-                    sqlite.configStore().upsert(root.id, perRootYaml())
-                        ?: error("fixture: per-root config upsert failed")
-                    val i =
-                        sqlite
-                            .workItemRepository()
-                            .create(
-                                WorkItem(
-                                    title = "S4 item",
-                                    type = SCHEMA_TYPE,
-                                    role = Role.QUEUE,
-                                    parentId = root.id,
-                                    rootId = root.id,
-                                    depth = 1,
-                                ),
-                            )!!
-
-                    val warm = GetContextTool().execute(gateParams(i.id), ctx) as JsonObject
-                    assertTrue(warm["success"]!!.jsonPrimitive.boolean, "sanity: the warm MCP read must succeed before injecting failures")
-                    i
-                }
-
-            failable.failFingerprint = true
-            failable.failGet = true
-
-            application { configureSharedApp(provider, ctx) }
-
-            // H1: the gate resolves config inside its preview's read unit - no last-known-good, so a warm cache does not help.
-            val gateResponse = client.get("/api/v1/items/${item.id}/gate") { header("Authorization", "Bearer $TEST_TOKEN") }
-            assertEquals(
-                HttpStatusCode.ServiceUnavailable,
-                gateResponse.status,
-                "H1: the gate must fail closed even though the shared cache is warm",
-            )
-            assertTrue(gateResponse.bodyAsText().contains("config_unavailable"), gateResponse.bodyAsText())
-            assertNull(gateResponse.headers["Retry-After"], "D6: no Retry-After on a config_unavailable 503")
-
-            // H1: the advance resolves config inside its write unit - same fail-closed answer, and nothing is applied.
-            val advanceResponse =
-                client.post("/api/v1/items/${item.id}/advance") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"trigger":"start"}""")
-                }
-            assertEquals(
-                HttpStatusCode.ServiceUnavailable,
-                advanceResponse.status,
-                "H1: the advance must fail closed (503), not gate-block (422) from a cached schema",
-            )
-            assertTrue(advanceResponse.bodyAsText().contains("config_unavailable"), advanceResponse.bodyAsText())
-            assertNull(advanceResponse.headers["Retry-After"], "D6: no Retry-After on a config_unavailable 503")
-            assertEquals(Role.QUEUE, runBlocking { sqlite.workItemRepository().getById(item.id)!!.role }, "nothing was applied")
-
-            // The cache warmed by the MCP read is still the one shared cache: a read OUTSIDE any unit is served from it.
-            val effective =
-                client.get("/api/v1/roots/${item.rootId}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
-            assertEquals(
-                HttpStatusCode.OK,
-                effective.status,
-                "O1: a non-unit read must still be served from the cache the MCP read warmed: ${effective.bodyAsText()}",
-            )
-            assertTrue(
-                effective.bodyAsText().contains(SCHEMA_TYPE),
-                "the per-root type is visible from the cached layer: ${effective.bodyAsText()}"
-            )
-        }
-
     // ----------------------------------------------------------------------------------------------------
     // S5 - reverse: warm via REST gate, then a per-root failure; MCP get_context fails closed on the shared context
     // ----------------------------------------------------------------------------------------------------
@@ -275,98 +183,7 @@ class SharedConfigCacheRestMcpTest {
             assertTrue(effective.bodyAsText().contains(SCHEMA_TYPE), effective.bodyAsText())
         }
 
-    // ----------------------------------------------------------------------------------------------------
-    // S6 - control: cold cache, no warm anywhere; both routes still 503 config_unavailable
-    // ----------------------------------------------------------------------------------------------------
-    @Test
-    fun `S6 - with no warm read at all, a cold per-root failure yields 503 config_unavailable with no Retry-After on both routes`() =
-        testApplication {
-            val sqlite = db.repositoryProvider()
-            val failable = FailableProjectConfigRepository(sqlite.configStore())
-            failable.failFingerprint = true
-            failable.failGet = true
-            val provider = FailableRepositoryProvider(sqlite, failable)
-            val ctx =
-                ToolExecutionContext(
-                    provider,
-                    perRootConfigService = PerRootConfigService(failable),
-                    unitOfWork = db.unitOfWork()
-                )
-
-            val item =
-                runBlocking {
-                    val root = sqlite.workItemRepository().create(WorkItem(title = "S6 root", depth = 0))!!
-                    sqlite
-                        .workItemRepository()
-                        .create(
-                            WorkItem(
-                                title = "S6 item",
-                                type = SCHEMA_TYPE,
-                                role = Role.QUEUE,
-                                parentId = root.id,
-                                rootId = root.id,
-                                depth = 1,
-                            ),
-                        )!!
-                }
-
-            application { configureSharedApp(provider, ctx) }
-
-            val gateResponse = client.get("/api/v1/items/${item.id}/gate") { header("Authorization", "Bearer $TEST_TOKEN") }
-            assertEquals(HttpStatusCode.ServiceUnavailable, gateResponse.status)
-            assertTrue(gateResponse.bodyAsText().contains("config_unavailable"))
-            assertNull(gateResponse.headers["Retry-After"], "D6: no Retry-After on a config_unavailable 503")
-
-            val advanceResponse =
-                client.post("/api/v1/items/${item.id}/advance") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"trigger":"start"}""")
-                }
-            assertEquals(HttpStatusCode.ServiceUnavailable, advanceResponse.status)
-            assertTrue(advanceResponse.bodyAsText().contains("config_unavailable"))
-            assertNull(advanceResponse.headers["Retry-After"], "D6: no Retry-After on a config_unavailable 503")
-        }
-
     // ──────────────────────────────────────────────
     // S7 — one REST advance request performs exactly one underlying per-root read
     // ──────────────────────────────────────────────
-
-    @Test
-    fun `S7 - one POST advance for a rooted item with a config row performs exactly one underlying getFingerprint read`() =
-        testApplication {
-            val sqlite = db.repositoryProvider()
-            val spyConfigRepo = spyk(sqlite.configStore())
-            val provider = SpyRepositoryProvider(sqlite, spyConfigRepo)
-            val ctx =
-                ToolExecutionContext(
-                    provider,
-                    perRootConfigService = PerRootConfigService(spyConfigRepo),
-                    unitOfWork = db.unitOfWork()
-                )
-
-            val item =
-                runBlocking {
-                    val root = sqlite.workItemRepository().create(WorkItem(title = "S7 root", depth = 0))!!
-                    sqlite.configStore().upsert(root.id, "work_item_schemas:\n  default:\n    notes: []\n")
-                        ?: error("fixture: per-root config upsert failed")
-                    // Schema-free item type: the "start" transition must succeed with no gate
-                    // involvement, isolating this scenario to config reads alone.
-                    sqlite
-                        .workItemRepository()
-                        .create(WorkItem(title = "S7 item", role = Role.QUEUE, parentId = root.id, rootId = root.id, depth = 1))!!
-                }
-
-            application { configureSharedApp(provider, ctx) }
-
-            val response =
-                client.post("/api/v1/items/${item.id}/advance") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Application.Json)
-                    setBody("""{"trigger":"start"}""")
-                }
-            assertEquals(HttpStatusCode.OK, response.status, "sanity: a schema-free start must succeed")
-
-            coVerify(exactly = 1) { spyConfigRepo.head(ConfigScope.ROOT, item.rootId!!) }
-        }
 }

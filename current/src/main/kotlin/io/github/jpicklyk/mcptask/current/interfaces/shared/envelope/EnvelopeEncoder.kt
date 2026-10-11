@@ -210,6 +210,19 @@ object EnvelopeEncoder {
                             }
                         )
                     )
+                    if (!detail.violations.isNullOrEmpty()) {
+                        put(
+                            "violations",
+                            JsonArray(
+                                detail.violations.map { v ->
+                                    buildJsonObject {
+                                        put("gate", v.gate)
+                                        put("reason", v.reason)
+                                    }
+                                }
+                            )
+                        )
+                    }
                 }
                 is ErrorDetail.DependencyUnmet -> {
                     put("itemId", detail.itemId.toString())

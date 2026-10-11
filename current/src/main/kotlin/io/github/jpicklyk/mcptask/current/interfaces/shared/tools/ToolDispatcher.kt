@@ -365,14 +365,35 @@ class ToolDispatcher(
         val principalId = ctx.principal?.claim?.id ?: NO_PRINCIPAL
         val execution =
             withConfigSession {
-                batchRunner.run(spec.name, principalId, elements, atomic ?: false, spec.codec) { _, pending ->
+                batchRunner.run(spec.name, principalId, elements, atomic ?: false, spec.codec) { index, pending ->
                     when (pending) {
                         is Pending.Failed -> Outcome.Err(pending.error)
-                        is Pending.Bound -> pending.op.run.invoke(this, env, ctx)
+                        is Pending.Bound -> rootHandlerFields(pending.op.run.invoke(this, env, ctx), index)
                     }
                 }
             }
         return Dispatched(EnvelopeEncoder.batch(execution, reqId, spec.element), operation, batchSize)
+    }
+
+    /**
+     * Re-roots the field pointers a handler reported for its element: a pointer starting with `/` is relative to the
+     * element (`/ttlSeconds` becomes `/ops/<index>/ttlSeconds`). `/actor` names the call's top-level actor, not an
+     * element field, and keeps its pointer; a field without a leading `/` is left as the handler wrote it.
+     */
+    private fun <R> rootHandlerFields(
+        outcome: Outcome<R>,
+        index: Int
+    ): Outcome<R> {
+        val error = (outcome as? Outcome.Err)?.error ?: return outcome
+        val detail = error.detail as? ErrorDetail.InvalidRequest ?: return outcome
+        val at = "/$OPS/$index"
+        return Outcome.Err(
+            invalidFields(
+                detail.fields.map { f ->
+                    if (f.field.startsWith("/") && f.field != ACTOR_POINTER) f.copy(field = at + f.field) else f
+                }
+            )
+        )
     }
 
     /** The `forbidden` error of a caller lacking [required]; `required` is the kebab-case capability name. */
@@ -410,6 +431,9 @@ class ToolDispatcher(
         const val DESCRIBE = "describe"
         const val SELECT = "select"
         const val OPS = "ops"
+
+        /** The pointer of the call's top-level `actor`, which a handler may report as invalid (see [rootHandlerFields]). */
+        const val ACTOR_POINTER = "/actor"
         const val OP = "op"
         const val ATOMIC = "atomic"
         const val IDEMPOTENCY_KEY = "idempotencyKey"

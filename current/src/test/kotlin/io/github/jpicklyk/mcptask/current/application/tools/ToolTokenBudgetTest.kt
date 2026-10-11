@@ -73,9 +73,7 @@ class ToolTokenBudgetTest {
             "manage_items" to 2950, // was 2520; measured 2526 after items[].id -> itemId / ids -> itemIds (de711807)
             "query_notes" to 2100, // was 2386; search only since Q11 moved get/list to notes_read, measured 1787
             "get_context" to 2650, // was 1909; T2.3 added the `ancestorId` scope parameter
-            "claim_item" to 2550, // was 2100; +when-to-call trigger sentence, measured 2181
             "complete_tree" to 2500, // was 2100; measured 2171 after the AdvanceService pipeline semantics (3e455253)
-            "advance_item" to 3150, // was 2650; +when-to-call trigger sentence, measured 2701
             "get_blocked_items" to 1250, // was 830; T2.3 added the `ancestorId` scope parameter
             "get_next_status" to 650, // was 470; +when-to-call trigger sentence, measured 559
             "manage_project_config" to 3750, // was 3150; measured 3247 after `schemaWarnings` on push responses (40d755cc)
@@ -89,8 +87,10 @@ class ToolTokenBudgetTest {
      * trigger sentences were added to the 8 workflow/lifecycle tool descriptions. The other 8
      * tools (the CRUD/query surface) were deliberately left untouched — they trigger on obvious
      * need, and over-prompting tools that already trigger correctly causes overtriggering.
+     * 49_200 after Q11; Q12 -4_635 (manage_dependencies 2_585, query_dependencies 2_050);
+     * Q13 -5_700 (advance_item 3_150, claim_item 2_550).
      */
-    private val totalCeiling = 49_200 // was 50_450; Q11 removed manage_notes and the note get/list of query_notes, measured total 42_758
+    private val totalCeiling = 38_865
 
     // explicitNulls = false mirrors the compact-wire-shape convention already used elsewhere
     // in this codebase (see EventRoutes.kt / ItemWriteRoutes.kt / NoteWriteRoutes.kt) — a
