@@ -25,8 +25,8 @@ class ItemsReadParityTest {
     private val mine get() = ProductionParity.scenarios.filter { it.tool == "items_read" }
 
     @Test
-    fun `S7 the catalog holds a happy and a scope-forbidden scenario for each of the five selects`() {
-        val selects = setOf("get", "list", "schema", "search", "overview")
+    fun `S7 the catalog holds a happy and a scope-forbidden scenario for each of the six selects`() {
+        val selects = setOf("get", "list", "schema", "search", "overview", "related")
         for (kind in listOf(ParityKind.HAPPY, ParityKind.SCOPE_FORBIDDEN)) {
             assertEquals(selects, mine.filter { it.kind == kind }.map { it.member }.toSet(), "$kind scenarios by select")
         }

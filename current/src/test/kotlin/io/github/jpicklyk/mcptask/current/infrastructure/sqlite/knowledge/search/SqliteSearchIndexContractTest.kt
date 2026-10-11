@@ -1140,3 +1140,258 @@ class SearchServiceOnSqliteTest {
             assertEquals("note", hit.kind)
         }
 }
+
+/**
+ * Independent contract tests (test-author seat, item 630a826a) for what the `related` select added to the SQLite
+ * [SearchIndex] adapter: scenario S16 of the frozen test-plan (the `ANY` text operator next to the unchanged default `ALL`)
+ * and the tag-membership read `taggedItems`.
+ *
+ * Oracles (task-scope of 630a826a): `TextQuery` gains `op: TextOp = ALL (ALL|ANY; search unchanged)`; ALL keeps the existing
+ * contract that several terms are ANDed (the FTS5 conjunction), ANY ORs them (FTS5 `OR`), so a row matches when it holds at
+ * least one term; every term is still searched literally. Tags (item 1, TAGS): df counts in-scope items carrying a tag with
+ * the same case-insensitive element membership as the request tag filter of search, an element that merely contains the tag
+ * is not that tag, and the scope filter (roots, ancestor, principal tags) is applied inside the read.
+ *
+ * Fixture invariants: roots are stamped `root_id = id`, children inherit their parent's root, tags are lowercase
+ * `[a-z0-9-]` elements.
+ *
+ * Forbidden-construct declaration: none.
+ */
+class SqliteSearchIndexRelatedContractTest {
+    @RegisterExtension
+    @JvmField
+    val sqliteDb = SqliteTestDatabase.perMethod()
+
+    private val provider get() = sqliteDb.repositoryProvider()
+    private val index: SearchIndex get() = provider.searchIndex()
+
+    private suspend fun root(
+        title: String,
+        tags: String? = null,
+    ): WorkItem {
+        val created = assertNotNull(provider.workItemRepository().create(WorkItem(title = title, tags = tags, depth = 0)))
+        return assertNotNull(provider.workItemRepository().update(created.copy(rootId = created.id)))
+    }
+
+    private suspend fun child(
+        parent: WorkItem,
+        title: String,
+        tags: String? = null,
+    ): WorkItem =
+        assertNotNull(
+            provider.workItemRepository().create(
+                WorkItem(
+                    title = title,
+                    parentId = parent.id,
+                    depth = parent.depth + 1,
+                    rootId = parent.rootId ?: parent.id,
+                    tags = tags,
+                )
+            )
+        )
+
+    private suspend fun note(
+        owner: WorkItem,
+        body: String,
+    ): Note = assertNotNull(provider.noteRepository().upsert(Note(itemId = owner.id, key = "k", role = "work", body = body)))
+
+    private fun ids(vararg items: WorkItem): Set<UUID> = items.map { it.id }.toSet()
+
+    private suspend fun candidates(
+        corpus: Corpus,
+        terms: List<String>,
+        op: io.github.jpicklyk.mcptask.current.application.port.TextOp,
+        filter: ScopeFilter = ScopeFilter(),
+    ) = index.candidates(corpus, TextQuery(terms, op), Analyzer.STEMMED, filter, FTS_CANDIDATE_ROWS)
+
+    private suspend fun ownersOf(
+        corpus: Corpus,
+        terms: List<String>,
+        op: io.github.jpicklyk.mcptask.current.application.port.TextOp,
+        filter: ScopeFilter = ScopeFilter(),
+    ): Set<UUID> = candidates(corpus, terms, op, filter).map { it.ownerItemId }.toSet()
+
+    private val opAny = io.github.jpicklyk.mcptask.current.application.port.TextOp.ANY
+    private val opAll = io.github.jpicklyk.mcptask.current.application.port.TextOp.ALL
+
+    // ------------------------------------------------------------------ S16: ANY next to ALL
+
+    @Test
+    fun `S16 ANY matches an item holding any term and ALL only one holding every term`(): Unit =
+        runBlocking {
+            val both = root("zorvathalpha zorvathbeta together")
+            val onlyA = root("zorvathalpha stands alone")
+            val onlyB = root("zorvathbeta stands alone")
+            root("neither word appears here")
+
+            assertEquals(ids(both, onlyA, onlyB), ownersOf(Corpus.ITEM, listOf("zorvathalpha", "zorvathbeta"), opAny))
+            assertEquals(ids(both), ownersOf(Corpus.ITEM, listOf("zorvathalpha", "zorvathbeta"), opAll))
+        }
+
+    @Test
+    fun `S16 the default operator is ALL so a query built without an operator is unchanged`(): Unit =
+        runBlocking {
+            val both = root("zorvathalpha zorvathbeta together")
+            root("zorvathalpha stands alone")
+            root("zorvathbeta stands alone")
+
+            val implicit =
+                index
+                    .candidates(
+                        Corpus.ITEM,
+                        TextQuery(listOf("zorvathalpha", "zorvathbeta")),
+                        Analyzer.STEMMED,
+                        ScopeFilter(),
+                        FTS_CANDIDATE_ROWS
+                    ).map { it.ownerItemId }
+                    .toSet()
+
+            assertEquals(ids(both), implicit)
+        }
+
+    @Test
+    fun `S16 ANY with one term equals ALL with that term and ANY of nothing matching is empty`(): Unit =
+        runBlocking {
+            val a = root("zorvathalpha stands alone")
+            root("unrelated words")
+
+            assertEquals(ids(a), ownersOf(Corpus.ITEM, listOf("zorvathalpha"), opAny))
+            assertEquals(ownersOf(Corpus.ITEM, listOf("zorvathalpha"), opAll), ownersOf(Corpus.ITEM, listOf("zorvathalpha"), opAny))
+            assertTrue(candidates(Corpus.ITEM, listOf("absentone", "absenttwo"), opAny).isEmpty())
+        }
+
+    @Test
+    fun `S16 ANY works on the NOTE corpus and folds to the owning item`(): Unit =
+        runBlocking {
+            val top = root("Host root")
+            val h1 = child(top, "first host")
+            val h2 = child(top, "second host")
+            val h3 = child(top, "third host")
+            note(h1, "the zorvathalpha reading")
+            note(h2, "the zorvathbeta reading")
+            note(h3, "nothing relevant")
+
+            assertEquals(ids(h1, h2), ownersOf(Corpus.NOTE, listOf("zorvathalpha", "zorvathbeta"), opAny))
+            assertEquals(emptySet(), ownersOf(Corpus.NOTE, listOf("zorvathalpha", "zorvathbeta"), opAll))
+        }
+
+    @Test
+    fun `S16 ANY works on the DOCUMENT corpus`(): Unit =
+        runBlocking {
+            val host = root("Host root")
+            val documents =
+                io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService(
+                    provider,
+                    sqliteDb.unitOfWork()
+                )
+
+            suspend fun write(
+                slug: String,
+                body: String,
+            ): UUID =
+                when (
+                    val outcome =
+                        documents.write(host.id, io.github.jpicklyk.mcptask.current.domain.model.DocumentKind.PLAN, slug, body)
+                ) {
+                    is io.github.jpicklyk.mcptask.current.domain.error.Outcome.Ok -> outcome.value.id
+                    is io.github.jpicklyk.mcptask.current.domain.error.Outcome.Err -> kotlin.test.fail("fixture: ${outcome.error.message}")
+                }
+            val both = write("both", "zorvathalpha and zorvathbeta here")
+            val onlyA = write("only-a", "zorvathalpha only")
+            val onlyB = write("only-b", "zorvathbeta only")
+            write("none", "plain body")
+
+            val anyHits = candidates(Corpus.DOCUMENT, listOf("zorvathalpha", "zorvathbeta"), opAny).map { it.id }.toSet()
+            val allHits = candidates(Corpus.DOCUMENT, listOf("zorvathalpha", "zorvathbeta"), opAll).map { it.id }.toSet()
+
+            assertEquals(setOf(both, onlyA, onlyB), anyHits)
+            assertEquals(setOf(both), allHits)
+        }
+
+    @Test
+    fun `S16 ANY respects the scope filter`(): Unit =
+        runBlocking {
+            val rootA = root("Root A")
+            val rootB = root("Root B")
+            val inA = child(rootA, "zorvathalpha in A")
+            child(rootB, "zorvathbeta in B")
+
+            val terms = listOf("zorvathalpha", "zorvathbeta")
+            assertEquals(ids(inA), ownersOf(Corpus.ITEM, terms, opAny, ScopeFilter(ancestorId = rootA.id)))
+            assertEquals(ids(inA), ownersOf(Corpus.ITEM, terms, opAny, ScopeFilter(rootIds = setOf(rootA.id))))
+            assertEquals(2, ownersOf(Corpus.ITEM, terms, opAny).size, "control: unscoped sees both")
+        }
+
+    @Test
+    fun `S16 ANY searches an operator word literally`(): Unit =
+        runBlocking {
+            val literal = root("The NOT word")
+            root("ordinary title")
+
+            assertEquals(ids(literal), ownersOf(Corpus.ITEM, listOf("NOT", "absentzzz"), opAny))
+        }
+
+    @Test
+    fun `S16 ANY with a double quote in a term does not fail the query`(): Unit =
+        runBlocking {
+            val hit = root("say hi there")
+            root("ordinary title")
+
+            assertEquals(ids(hit), ownersOf(Corpus.ITEM, listOf("say\"hi", "absentzzz"), opAny))
+        }
+
+    // ------------------------------------------------------------------ taggedItems
+
+    @Test
+    fun `taggedItems returns the items carrying an element tag and not lookalikes`(): Unit =
+        runBlocking {
+            val top = root("Top")
+            val a = child(top, "A", tags = "tagq,other")
+            child(top, "B", tags = "tagq-x")
+            child(top, "C", tags = "xtagq")
+            val d = child(top, "D", tags = "tagq")
+            child(top, "E")
+
+            assertEquals(ids(a, d), index.taggedItems(listOf("tagq"), ScopeFilter()).keys)
+            assertEquals(
+                ids(a, d),
+                index.taggedItems(listOf("TAGQ"), ScopeFilter()).keys,
+                "membership is case-insensitive like the search tag filter"
+            )
+            assertEquals(emptySet(), index.taggedItems(emptyList(), ScopeFilter()).keys)
+            assertEquals(emptySet(), index.taggedItems(listOf("tagq-"), ScopeFilter()).keys, "no prefix matching")
+        }
+
+    @Test
+    fun `taggedItems is any of the given tags`(): Unit =
+        runBlocking {
+            val top = root("Top")
+            val a = child(top, "A", tags = "tagone")
+            val b = child(top, "B", tags = "tagtwo")
+            child(top, "C", tags = "tagthree")
+
+            assertEquals(ids(a, b), index.taggedItems(listOf("tagone", "tagtwo"), ScopeFilter()).keys)
+        }
+
+    @Test
+    fun `taggedItems applies the ancestor root and principal tag scope inside the read`(): Unit =
+        runBlocking {
+            val rootA = root("Root A")
+            val rootB = root("Root B")
+            val a1 = child(rootA, "A1", tags = "tagq,team")
+            child(rootA, "A2", tags = "tagq")
+            val b1 = child(rootB, "B1", tags = "tagq,team")
+
+            assertEquals(ids(a1, b1), index.taggedItems(listOf("tagq"), ScopeFilter(principalTagsAny = setOf("team"))).keys)
+            assertEquals(
+                ids(a1),
+                index.taggedItems(listOf("tagq"), ScopeFilter(ancestorId = rootA.id, principalTagsAny = setOf("team"))).keys
+            )
+            assertEquals(ids(b1), index.taggedItems(listOf("tagq"), ScopeFilter(rootIds = setOf(rootB.id))).keys)
+            assertEquals(
+                emptySet(),
+                index.taggedItems(listOf("tagq"), ScopeFilter(principalTagsAny = setOf("TEAM"))).keys,
+                "principal tags are exact and case sensitive"
+            )
+        }
+}

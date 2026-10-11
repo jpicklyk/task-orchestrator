@@ -31,6 +31,12 @@ interface LinkStore {
     ): List<Link>
 
     /**
+     * Every link, of any relation and resolved or dangling, whose SOURCE is one of [refs], in batched statements (one
+     * per ref kind and chunk, never one per ref), oldest first. Empty [refs] returns an empty list without a query.
+     */
+    suspend fun findFromAll(refs: Collection<EntityRef>): List<Link>
+
+    /**
      * Deletes the links whose source is [ref]: every relation when [relation] is null, else only that relation.
      * Returns the number deleted.
      */

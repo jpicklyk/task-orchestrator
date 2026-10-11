@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.port
 
+import io.github.jpicklyk.mcptask.current.domain.model.EntityRef
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import java.util.UUID
 
@@ -37,11 +38,24 @@ enum class Analyzer {
 }
 
 /**
- * The terms of one search, matched with AND semantics. A term is plain text: it carries no query syntax, so
- * operators, quotes and wildcards in a term are matched literally. The adapter owns any quoting its engine needs.
+ * How the terms of a [TextQuery] combine.
+ *
+ * - [ALL]: a row matches only when it contains every term (search).
+ * - [ANY]: a row matches when it contains at least one term (the `related` text signal).
+ */
+enum class TextOp {
+    ALL,
+    ANY,
+}
+
+/**
+ * The terms of one search, matched with [op] semantics (AND by default). A term is plain text: it carries no query
+ * syntax, so operators, quotes and wildcards in a term are matched literally. The adapter owns any quoting its engine
+ * needs.
  */
 data class TextQuery(
-    val terms: List<String>
+    val terms: List<String>,
+    val op: TextOp = TextOp.ALL,
 ) {
     init {
         require(terms.isNotEmpty()) { "a text query needs at least one term" }
@@ -176,4 +190,25 @@ interface SearchIndex {
 
     /** The title of each of [itemIds] that exists, in one read. Absent ids are omitted. */
     suspend fun titles(itemIds: Set<UUID>): Map<UUID, String>
+
+    /**
+     * At most [max] distinctive terms of [ref]'s own text, chosen by `SimilarTerms.extract`: an item's title,
+     * summary, description and every note body; a note's body; a document's title and body. An unknown ref, or one
+     * with no usable word, returns an empty list. The default (an index that cannot read entity text) returns none.
+     */
+    suspend fun similarTerms(
+        ref: EntityRef,
+        max: Int,
+    ): List<String> = emptyList()
+
+    /**
+     * The comma-separated `tags` value of every work item that carries at least one of [tags] (compared
+     * case-insensitively at element boundaries, the same membership the search `tagsAny` filter uses), further
+     * restricted by [filter] (the item is its own owner), in one statement with no window. Empty [tags] returns an
+     * empty map. The default (an index without item rows) returns none.
+     */
+    suspend fun taggedItems(
+        tags: List<String>,
+        filter: ScopeFilter,
+    ): Map<UUID, String?> = emptyMap()
 }

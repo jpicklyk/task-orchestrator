@@ -140,7 +140,7 @@ class McpOperationAdapter(
                     tool = spec.name,
                     operation = dispatched.operation,
                     targetIds = CallLogFields.targetIdsJson(arguments),
-                    requestShape = CallLogFields.requestShapeJson(arguments, telemetry.searchShape),
+                    requestShape = CallLogFields.requestShapeJson(arguments, telemetry.searchShape, telemetry.relatedSignals),
                     isError = !ok(body),
                     errorCode = CallLogFields.errorCode(body),
                     latencyMs = latencyMs,

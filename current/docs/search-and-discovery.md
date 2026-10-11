@@ -1,7 +1,8 @@
 # Search and Discovery
 
 This document explains the FTS5 full-text search available on `items_read` (`select: search`) over item
-content, note bodies and documents, and the graph-aware discovery on `deps_read`. For reference-level API
+content, note bodies and documents, the graph-aware discovery on `deps_read`, and the `related` select of
+`items_read`, which fuses dependencies, links, tags and text into one ranked list. For reference-level API
 documentation, see
 [`api-reference.md`](./api-reference.md). For ready-to-use workflow recipes, see
 [`workflow-guide.md`](./workflow-guide.md#full-text-search-fts5-recipes).
@@ -139,6 +140,33 @@ It answers **"who references this item?"** — useful for impact analysis, traci
 understanding blast radius before changing an item.
 
 The query uses the existing database index on `to_item_id` — no full table scan.
+
+---
+
+## Related
+
+`items_read` with `select: related` answers **"what else is this item connected to?"** in one call: the
+items and documents related to an item, ranked by four signals and fused with weighted RRF
+(`weight / (60 + position)` per signal, summed):
+
+| Signal | Weight | What it finds | Reasons |
+|---|---|---|---|
+| `edges` | 1.0 | Dependency counterparts, both directions (RELATES_TO first, then blocking) | `relates_to`, `blocks`, `blocked_by` |
+| `links` | 1.0 | Resolved links from the item or its notes, and links to the item; more link rows rank higher | `links_to`, `linked_from` |
+| `tags` | 0.5 | Items sharing a tag; a rarer tag (carried by fewer visible items) weighs more | `shared_tags:<n>` |
+| `text` | 0.5 | Up to 8 distinctive words of the item and its notes, any-term stemmed match over items, notes and documents | `text` |
+
+The text signal picks its words deterministically: split on anything that is not a letter or digit,
+lowercase, keep words of 3 or more characters that are not all digits and not common words, then the
+longest first (ties alphabetical). A note match counts as its owning item; the item itself never
+appears. By default every signal stays inside the item's root; `acrossRoots: true` lifts that bound only.
+The caller's scope applies before fusion and the cap of 50, as for search. `explain: true` adds each hit's
+per-signal positions, the weights and `rrfK`. The full contract is in
+[`api-reference.md`](./api-reference.md) (`items_read`, `related`).
+
+```json
+{ "select": "related", "itemId": "550e8400", "limit": 5 }
+```
 
 ---
 
