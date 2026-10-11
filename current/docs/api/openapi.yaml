@@ -1387,26 +1387,17 @@ components:
           description: >-
             Present on GET only, and only when ?fingerprint= was supplied — classifies that
             fingerprint against the root's stored fingerprint history.
-        ignoredSections:
-          type: array
-          nullable: true
-          items:
-            type: string
-          description: >-
-            Present on PUT only, and only when the pushed document has top-level keys not honored
-            by the per-root resolution layer (e.g. actor_authentication, which stays global-only).
-            Honored keys: work_item_schemas, note_schemas, traits, project, note_limits,
-            status_labels. Omitted entirely when empty.
         schemaWarnings:
           type: array
           nullable: true
           items:
             type: string
           description: >-
-            Present on PUT only, and only when YamlSchemaParser produced per-entry parse warnings
-            for the pushed document (e.g. a note schema entry with an invalid role value, which is
-            skipped rather than rejecting the whole push). The push still succeeds and the config
-            is still stored regardless of schemaWarnings. Omitted entirely when empty.
+            Present on PUT only, and only for advisory findings (a resource key declared by three
+            or more traits, a required note no declared seat owns). The push still succeeds and
+            the config is still stored regardless of schemaWarnings. Omitted entirely when empty.
+            The 3.x ignoredSections field was removed in 4.0: a key the per-root layer does not
+            honor is now rejected with 422 parse_error, not ignored.
         version:
           type: integer
           minimum: 1
@@ -3054,6 +3045,36 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /config/schema:
+    get:
+      summary: The JSON Schema every config document is validated against
+      operationId: getConfigSchema
+      tags: [config]
+      description: >-
+        The JSON Schema (draft 2020-12) for a config document, served byte for byte as
+        application/schema+json (not wrapped in an envelope). The ETag changes exactly when the
+        schema does.
+      parameters:
+        - name: If-None-Match
+          in: header
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The schema document
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/schema+json:
+              schema:
+                type: object
+        "304":
+          description: Not modified
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /config/status-graph:
     get:
       summary: Structural role-transition graph
@@ -3185,10 +3206,11 @@ paths:
         A byte-identical re-push appends nothing: 200 with the head's own version and
         appended=false.
 
-        On success, top-level keys in the parsed document not honored by the per-root resolution
-        layer (work_item_schemas, note_schemas, traits, project, note_limits, status_labels) are
-        reported in the response's ignoredSections array — e.g. actor_authentication, which stays
-        global-only.
+        Validation is strict (4.0): the document is checked against the config JSON Schema (see
+        GET /config/schema), the parser's former soft skips are errors, and semantic rules apply
+        (server-only resources and actor_authentication are rejected, default_traits and trait
+        resource keys must resolve). Any error rejects the push as 422 parse_error and nothing is
+        stored; ?force=true does not bypass it. Plugin and hook settings go under `extensions`.
       parameters:
         - name: If-Match
           in: header
@@ -3263,8 +3285,10 @@ paths:
                 $ref: "#/components/schemas/ErrorDto"
         "422":
           description: >-
-            rootId is not depth-0, configYaml failed parse-validation, or configYaml embeds a
-            mismatched project.rootId (rootid_mismatch)
+            rootId is not depth-0, configYaml failed parse-validation or strict validation
+            (parse_error; for validation `details.errors` lists `{path, reason}` pairs with RFC 6901
+            JSON Pointer paths, and `details.warnings` any advisory findings), or configYaml embeds
+            a mismatched project.rootId (rootid_mismatch)
           content:
             application/json:
               schema:

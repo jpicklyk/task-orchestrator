@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigViolation
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.ConfigPushResult
 import io.github.jpicklyk.mcptask.current.application.service.ConfigRollbackResult
@@ -30,9 +31,12 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.put
 import org.slf4j.LoggerFactory
 import java.util.UUID
 
@@ -232,7 +236,6 @@ fun Route.projectConfigRoutes(
                                 fingerprint = result.fingerprint,
                                 updatedAt = result.updatedAt.toString(),
                                 warning = result.warning,
-                                ignoredSections = result.ignoredSections.ifEmpty { null },
                                 schemaWarnings = result.schemaWarnings.ifEmpty { null },
                                 version = result.version,
                                 appended = result.appended,
@@ -253,7 +256,17 @@ fun Route.projectConfigRoutes(
                             "configYaml is ${result.sizeBytes} bytes, exceeds the ${result.maxBytes} byte limit"
                         )
                     is ConfigPushResult.ParseError ->
-                        call.respondError(LegacyRestCode.PARSE_ERROR, "configYaml failed to parse: ${result.detail}")
+                        call.respondError(
+                            LegacyRestCode.PARSE_ERROR,
+                            "configYaml failed to parse: ${result.detail}",
+                            details = result.violations.takeIf { it.isNotEmpty() }?.let { violationsDetails(it, emptyList()) },
+                        )
+                    is ConfigPushResult.Invalid ->
+                        call.respondError(
+                            LegacyRestCode.PARSE_ERROR,
+                            "configYaml failed validation with ${result.errors.size} error(s); nothing was stored",
+                            details = violationsDetails(result.errors, result.warnings),
+                        )
                     is ConfigPushResult.RootIdMismatch ->
                         call.respondError(
                             LegacyRestCode.ROOTID_MISMATCH,
@@ -447,6 +460,22 @@ private fun ConfigVersion.toSummaryDto(): ConfigVersionSummaryDto =
         warningsCount = warnings.size,
         canonical = canonicalJson != null,
     )
+
+/** The `details` of a validation rejection: `{errors: [{path, reason}], warnings?: [...]}`, paths are RFC 6901 pointers. */
+private fun violationsDetails(
+    errors: List<ConfigViolation>,
+    warnings: List<ConfigViolation>
+): JsonObject =
+    buildJsonObject {
+        put("errors", JsonArray(errors.map(::violationJson)))
+        if (warnings.isNotEmpty()) put("warnings", JsonArray(warnings.map(::violationJson)))
+    }
+
+private fun violationJson(violation: ConfigViolation): JsonObject =
+    buildJsonObject {
+        put("path", JsonPrimitive(violation.path))
+        put("reason", JsonPrimitive(violation.reason))
+    }
 
 /** Parses the `{rootId}` path parameter as a UUID; responds 400 and returns null on failure. */
 private suspend fun ApplicationCall.parseRootId(): UUID? {
