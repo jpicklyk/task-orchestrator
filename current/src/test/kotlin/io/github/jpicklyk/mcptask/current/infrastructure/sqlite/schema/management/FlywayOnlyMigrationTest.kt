@@ -94,7 +94,8 @@ class FlywayOnlyMigrationTest {
         val before = query(url, "SELECT title FROM work_items ORDER BY title") { it.getString(1) }
         // Rebuild the exact V17 shape: drop what later migrations added, then the history.
         // Every table later migrations added (including the data_steps ledger) must go for an exact V17 shape.
-        // V27 (item_traits) is reversed first, before the V26 work_items recreation below.
+        // V28 (notes.version) and V27 (item_traits) are reversed first, before the V26 work_items recreation below.
+        exec(url, "ALTER TABLE notes DROP COLUMN version")
         exec(url, "DROP TABLE item_traits")
         exec(url, "DROP TABLE data_steps")
         exec(url, "DROP TABLE config_heads")

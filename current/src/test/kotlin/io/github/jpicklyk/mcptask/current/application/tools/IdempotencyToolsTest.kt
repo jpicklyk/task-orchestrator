@@ -3,17 +3,18 @@ package io.github.jpicklyk.mcptask.current.application.tools
 import io.github.jpicklyk.mcptask.current.application.port.ClaimResult
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
+import io.github.jpicklyk.mcptask.current.test.actorArg
+import io.github.jpicklyk.mcptask.current.test.envelopeOk
 import io.github.jpicklyk.mcptask.current.test.sansReplay
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
 import io.mockk.coEvery
 import io.mockk.coVerify
 import kotlinx.coroutines.Dispatchers
@@ -292,171 +293,61 @@ class IdempotencyToolsTest {
         }
 
     // ──────────────────────────────────────────────
-    // ManageNotesTool — upsert idempotency
+    // notes_write — upsert idempotency (the per-element keyed path of the 4.0 write tools)
     // ──────────────────────────────────────────────
 
     @Test
-    fun `manage_notes upsert caches response on requestId`() =
+    fun `notes_write upsert caches response on idempotencyKey`() =
         runBlocking {
-            val tool = ManageNotesTool()
-            val itemId = createTestItem().toString()
-            val requestId = UUID.randomUUID().toString()
+            val itemId = createTestItem()
+            val key = UUID.randomUUID().toString()
 
-            val firstResult =
-                tool.execute(
-                    params(
-                        "operation" to JsonPrimitive("upsert"),
-                        "notes" to
-                            JsonArray(
-                                listOf(
-                                    buildJsonObject {
-                                        put("itemId", JsonPrimitive(itemId))
-                                        put("key", JsonPrimitive("approach"))
-                                        put("role", JsonPrimitive("work"))
-                                        put("body", JsonPrimitive("First body"))
-                                    }
-                                )
-                            ),
-                        "requestId" to JsonPrimitive(requestId),
-                        "actor" to actor()
-                    ),
-                    context
-                ) as JsonObject
+            val first =
+                context.upsertNoteVia(
+                    itemId,
+                    "approach",
+                    "work",
+                    "First body",
+                    actor = actorArg("test-agent"),
+                    idempotencyKey = key
+                )
+            val second =
+                context.upsertNoteVia(
+                    itemId,
+                    "approach",
+                    "work",
+                    "First body",
+                    actor = actorArg("test-agent"),
+                    idempotencyKey = key
+                )
 
-            val secondResult =
-                tool.execute(
-                    params(
-                        "operation" to JsonPrimitive("upsert"),
-                        "notes" to
-                            JsonArray(
-                                listOf(
-                                    buildJsonObject {
-                                        put("itemId", JsonPrimitive(itemId))
-                                        put("key", JsonPrimitive("approach"))
-                                        put("role", JsonPrimitive("work"))
-                                        put("body", JsonPrimitive("First body"))
-                                    }
-                                )
-                            ),
-                        "requestId" to JsonPrimitive(requestId),
-                        "actor" to actor()
-                    ),
-                    context
-                ) as JsonObject
+            assertTrue(envelopeOk(first), "first call: $first")
+            assertTrue("\"replayed\":true" in second.toString(), "the second call is served from the stored record: $second")
+            assertEquals(
+                first["data"]!!.jsonObject["results"]!!.jsonArray[0].jsonObject["version"],
+                second["data"]!!.jsonObject["results"]!!.jsonArray[0].jsonObject["version"],
+                "a replay returns the stored version, it does not bump it"
+            )
 
-            assertEquals(firstResult.sansReplay(), secondResult.sansReplay())
-
-            // Verify the note body was set ONCE — second call did not overwrite
-            val notes = context.noteRepository().findByItemId(UUID.fromString(itemId))
-            assertNotNull(notes)
-            val notesList = notes
-            assertEquals(1, notesList.size)
-            assertEquals("First body", notesList[0].body, "Cached call must not have overwritten the body")
+            // Verify the note body was set ONCE: the second call did not run
+            val notes = context.noteRepository().findByItemId(itemId)
+            assertEquals(1, notes.size)
+            assertEquals("First body", notes[0].body, "Cached call must not have overwritten the body")
+            assertEquals(1L, notes[0].version, "the replay did not write")
         }
 
     @Test
-    fun `manage_notes without requestId skips cache`() =
+    fun `notes_write without idempotencyKey skips cache`() =
         runBlocking {
-            val tool = ManageNotesTool()
-            val itemId = createTestItem().toString()
+            val itemId = createTestItem()
 
-            tool.execute(
-                params(
-                    "operation" to JsonPrimitive("upsert"),
-                    "notes" to
-                        JsonArray(
-                            listOf(
-                                buildJsonObject {
-                                    put("itemId", JsonPrimitive(itemId))
-                                    put("key", JsonPrimitive("approach"))
-                                    put("role", JsonPrimitive("work"))
-                                    put("body", JsonPrimitive("v1"))
-                                }
-                            )
-                        )
-                ),
-                context
-            )
-
-            tool.execute(
-                params(
-                    "operation" to JsonPrimitive("upsert"),
-                    "notes" to
-                        JsonArray(
-                            listOf(
-                                buildJsonObject {
-                                    put("itemId", JsonPrimitive(itemId))
-                                    put("key", JsonPrimitive("approach"))
-                                    put("role", JsonPrimitive("work"))
-                                    put("body", JsonPrimitive("v2"))
-                                }
-                            )
-                        )
-                ),
-                context
-            )
+            context.upsertNoteVia(itemId, "approach", "work", "v1")
+            context.upsertNoteVia(itemId, "approach", "work", "v2")
 
             assertEquals(0, db.idempotencyRecordCount())
-            val notes = context.noteRepository().findByItemId(UUID.fromString(itemId))
-            assertNotNull(notes)
-            assertEquals("v2", notes[0].body, "Without requestId, second call must overwrite")
-        }
-
-    // ──────────────────────────────────────────────
-    // ManageDependenciesTool — create idempotency
-    // ──────────────────────────────────────────────
-
-    @Test
-    fun `manage_dependencies create caches response on requestId`() =
-        runBlocking {
-            val tool = ManageDependenciesTool()
-            val from = createTestItem("From").toString()
-            val to = createTestItem("To").toString()
-            val requestId = UUID.randomUUID().toString()
-
-            val firstResult =
-                tool.execute(
-                    params(
-                        "operation" to JsonPrimitive("create"),
-                        "dependencies" to
-                            JsonArray(
-                                listOf(
-                                    buildJsonObject {
-                                        put("fromItemId", JsonPrimitive(from))
-                                        put("toItemId", JsonPrimitive(to))
-                                    }
-                                )
-                            ),
-                        "requestId" to JsonPrimitive(requestId),
-                        "actor" to actor()
-                    ),
-                    context
-                ) as JsonObject
-
-            val secondResult =
-                tool.execute(
-                    params(
-                        "operation" to JsonPrimitive("create"),
-                        "dependencies" to
-                            JsonArray(
-                                listOf(
-                                    buildJsonObject {
-                                        put("fromItemId", JsonPrimitive(from))
-                                        put("toItemId", JsonPrimitive(to))
-                                    }
-                                )
-                            ),
-                        "requestId" to JsonPrimitive(requestId),
-                        "actor" to actor()
-                    ),
-                    context
-                ) as JsonObject
-
-            assertEquals(firstResult.sansReplay(), secondResult.sansReplay())
-
-            // Verify exactly one dependency exists (cached call did NOT create a duplicate)
-            val deps = context.dependencyRepository().findByFromItemId(UUID.fromString(from))
-            assertEquals(1, deps.size, "Cached call must not create a duplicate dependency")
+            val notes = context.noteRepository().findByItemId(itemId)
+            assertEquals("v2", notes[0].body, "Without a key, second call must overwrite")
+            assertEquals(2L, notes[0].version, "each unkeyed write bumps the version")
         }
 
     // ──────────────────────────────────────────────
@@ -1116,67 +1007,6 @@ class IdempotencyToolsTest {
     // C3: getOrCompute regression — single-thread existing tests still pass
     // (same-key retry gets cached result across all migrated tools)
     // ──────────────────────────────────────────────
-
-    /**
-     * TEST-C3e: ManageDependenciesTool returns cached response on exact retry after getOrCompute migration.
-     *
-     * Regression guard: verifies the migrate-to-getOrCompute didn't break single-thread caching.
-     */
-    @Test
-    fun `manage_dependencies getOrCompute regression same-key retry gets cached result`(): Unit =
-        runBlocking {
-            val tool = ManageDependenciesTool()
-            val from = createTestItem("Dep From").toString()
-            val to = createTestItem("Dep To").toString()
-            val requestId = UUID.randomUUID().toString()
-
-            val first =
-                tool.execute(
-                    params(
-                        "operation" to JsonPrimitive("create"),
-                        "dependencies" to
-                            JsonArray(
-                                listOf(
-                                    buildJsonObject {
-                                        put("fromItemId", JsonPrimitive(from))
-                                        put("toItemId", JsonPrimitive(to))
-                                    }
-                                )
-                            ),
-                        "requestId" to JsonPrimitive(requestId),
-                        "actor" to actor("dep-agent")
-                    ),
-                    context
-                )
-
-            val second =
-                tool.execute(
-                    params(
-                        "operation" to JsonPrimitive("create"),
-                        "dependencies" to
-                            JsonArray(
-                                listOf(
-                                    buildJsonObject {
-                                        put("fromItemId", JsonPrimitive(from))
-                                        put("toItemId", JsonPrimitive(to))
-                                    }
-                                )
-                            ),
-                        "requestId" to JsonPrimitive(requestId),
-                        "actor" to actor("dep-agent")
-                    ),
-                    context
-                )
-
-            assertEquals(
-                first.sansReplay(),
-                second.sansReplay(),
-                "Same-key retry must return the cached response after getOrCompute migration"
-            )
-            // Only one dependency should exist (no double-create)
-            val deps = context.dependencyRepository().findByFromItemId(UUID.fromString(from))
-            assertEquals(1, deps.size, "getOrCompute must prevent double-creation on retry")
-        }
 
     /**
      * TEST-C3f: CreateWorkTreeTool returns cached response on exact retry after getOrCompute migration.

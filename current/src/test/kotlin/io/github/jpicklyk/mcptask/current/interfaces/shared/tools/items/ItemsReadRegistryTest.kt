@@ -62,10 +62,9 @@ class ItemsReadRegistryTest {
         val tools = buildMcpTools()
 
         assertFalse("query_items" in tools.map { it.name }, "query_items is deleted")
-        val notes = tools.single { it.name == "query_notes" }
-        val operation = notes.parameterSchema.properties!!["operation"].toString()
-        assertFalse("search" in operation, "query_notes has no search operation: $operation")
-        assertTrue("get" in operation && "list" in operation, "control: get and list remain: $operation")
+        // Merge r1: Q11 moved query_notes get/list to notes_read, so with search removed the whole tool is gone.
+        assertFalse("query_notes" in tools.map { it.name }, "query_notes (and so its search operation) is deleted")
+        assertTrue(tools.isNotEmpty(), "control: the 3.x tool list is not empty")
     }
 
     @Test

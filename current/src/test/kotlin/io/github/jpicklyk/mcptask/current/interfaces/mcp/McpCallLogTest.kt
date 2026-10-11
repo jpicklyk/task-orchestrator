@@ -243,16 +243,16 @@ class McpCallLogTest {
             assertEquals(0, flush().size, "tools/list and initialize write no call_log row")
 
             val capture = LogCapture().attach(McpToolAdapter::class.java.name)
-            val args = arrayOf("operation" to jstr("list"), "itemId" to jstr(rig.seed("S2 read").id.toString()))
+            val args = arrayOf("operation" to jstr("list"), "rootId" to jstr(rig.seed("S2 read").id.toString()))
             val before = Instant.now()
-            val result = call("query_notes", *args)
+            val result = call("query_rules", *args)
             val after = Instant.now()
             capture.detach()
 
             val reqId = assertNotNull(reqIdOf(result), "_meta.reqId must be present: ${result.meta}")
             assertTrue(ReqId.isValid(reqId), "reqId must be 8 Crockford characters: $reqId")
 
-            val mdc = capture.events.lastOrNull { it.mdc["tool"] == "query_notes" }
+            val mdc = capture.events.lastOrNull { it.mdc["tool"] == "query_rules" }
             assertNotNull(mdc, "the adapter logs its tool-call line inside the call's MDC scope")
             assertEquals(reqId, mdc.mdc["reqId"], "MDC reqId equals _meta.reqId (A1)")
             assertTrue(
@@ -265,7 +265,7 @@ class McpCallLogTest {
             val row = all.single()
             assertEquals(reqId, row["req_id"])
             assertEquals("mcp", row["surface"])
-            assertEquals("query_notes", row["tool"])
+            assertEquals("query_rules", row["tool"])
             assertEquals("list", row["operation"])
             assertEquals("ok", row["outcome"])
             assertNull(row["error_code"])
@@ -292,7 +292,7 @@ class McpCallLogTest {
     fun `S2 concurrent calls get distinct reqIds and one row each`() =
         runBlocking {
             val seeded = jstr(rig.seed("S2 concurrent").id.toString())
-            val results = (1..80).map { async { call("query_notes", "operation" to jstr("list"), "itemId" to seeded) } }.awaitAll()
+            val results = (1..80).map { async { call("query_rules", "operation" to jstr("list"), "rootId" to seeded) } }.awaitAll()
             val ids = results.map { assertNotNull(reqIdOf(it)) }
             assertEquals(80, ids.toSet().size, "every call has its own reqId")
             assertTrue(ids.all { ReqId.isValid(it) })
@@ -364,37 +364,33 @@ class McpCallLogTest {
         }
 
     @Test
-    fun `S6 a batch of three notes with one failing records batch_size 3 and failed_count 1`() =
+    fun `S6 a batch of three item updates with one failing records batch_size 3 and failed_count 1`() =
         runBlocking {
-            val item = rig.seed("S6 notes")
+            val first = rig.seed("S6 batch a")
+            val second = rig.seed("S6 batch b")
+            val item = first
             val notes =
                 buildJsonArray {
                     add(
                         buildJsonObject {
-                            put("itemId", item.id.toString())
-                            put("key", "n1")
-                            put("role", "work")
-                            put("body", "b1")
+                            put("itemId", first.id.toString())
+                            put("title", "S6 batch a renamed")
                         }
                     )
                     add(
                         buildJsonObject {
-                            put("itemId", item.id.toString())
-                            put("key", "n2")
-                            put("role", "work")
-                            put("body", "b2")
+                            put("itemId", second.id.toString())
+                            put("title", "S6 batch b renamed")
                         }
                     )
                     add(
                         buildJsonObject {
                             put("itemId", UUID.randomUUID().toString())
-                            put("key", "n3")
-                            put("role", "work")
-                            put("body", "b3")
+                            put("title", "S6 batch unknown")
                         }
                     )
                 }
-            val result = call("manage_notes", "operation" to jstr("upsert"), "notes" to notes)
+            val result = call("manage_items", "operation" to jstr("update"), "items" to notes)
             // The MCP structuredContent is the tool's data payload itself (summary.failed, else failed).
             val payload = result.structuredContent
             val failed =
@@ -405,12 +401,16 @@ class McpCallLogTest {
                     ?.jsonPrimitive
                     ?.intOrNull
                     ?: payload?.get("failed")?.jsonPrimitive?.intOrNull
-            assertEquals(1, failed, "fixture: exactly one of the three notes fails per the tool's own summary: ${result.structuredContent}")
+            assertEquals(
+                1,
+                failed,
+                "fixture: exactly one of the three updates fails per the tool's own summary: ${result.structuredContent}"
+            )
             val row = flush().single()
             assertEquals(3L, row["batch_size"])
             assertEquals(1L, row["failed_count"])
             val ids = Json.parseToJsonElement(row["target_ids"] as String).jsonArray.map { it.jsonPrimitive.content }
-            assertTrue(item.id.toString() in ids, "elements of the top-level notes array contribute their itemId: $ids")
+            assertTrue(item.id.toString() in ids, "elements of the top-level items array contribute their itemId: $ids")
         }
 
     @Test
@@ -682,9 +682,9 @@ class McpCallLogTest {
         runBlocking {
             val results =
                 listOf(
-                    call("query_notes", "operation" to jstr("list"), "itemId" to jstr(rig.seed("A2 read").id.toString())),
-                    call("query_notes", "operation" to jstr("not-an-operation")),
-                    call("query_notes")
+                    call("query_rules", "operation" to jstr("list"), "rootId" to jstr(rig.seed("A2 read").id.toString())),
+                    call("query_rules", "operation" to jstr("not-an-operation")),
+                    call("query_rules")
                 )
             assertTrue(results.any { it.isError == true }, "fixture: at least one of the calls must fail")
             assertTrue(results.any { it.isError != true }, "fixture: at least one of the calls must succeed")
@@ -720,7 +720,7 @@ class McpCallLogTest {
             val junkOp = call("manage_items", "operation" to jstr(long))
             val badOp = call("manage_items", "operation" to jstr("Not Valid!"))
             val noOp = call("p10_echo", "m" to jstr("x"))
-            val goodOp = call("query_notes", "operation" to jstr("list"), "itemId" to jstr(rig.seed("F1 read").id.toString()))
+            val goodOp = call("query_rules", "operation" to jstr("list"), "rootId" to jstr(rig.seed("F1 read").id.toString()))
             val flags =
                 call(
                     "p10_echo",

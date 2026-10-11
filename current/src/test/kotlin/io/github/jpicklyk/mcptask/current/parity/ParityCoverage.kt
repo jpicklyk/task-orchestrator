@@ -142,13 +142,13 @@ object ParityCoverage {
 }
 
 /**
- * The production parity catalog. Every tool item that registers a select or op MUST append its HAPPY and SCOPE_FORBIDDEN
- * scenarios (or a reasoned [ScopeExempt]) here, or `ParityCoverageGuardTest` fails. `items_read` (item 450aa813) contributes
+ * The `items_read` scenarios [ProductionParity] registers (split out unchanged at the Q11/Q12 merge).
+ * `items_read` (item 450aa813) contributes
  * one HAPPY and one SCOPE_FORBIDDEN scenario per select plus strictness / capability scenarios; the oracles are literals from
  * the task-scope (D2: a root-scoped TARGET id outside the scope is `forbidden{scope: root, required: <listed roots>}` before
  * anything else; list-like selects drop out-of-scope rows instead of failing) and the envelope statuses.
  */
-object ProductionParity {
+object ItemsReadParityScenarios {
     private val r1: UUID = UUID.fromString("11111111-1111-4111-8111-111111111111")
     private val c1: UUID = UUID.fromString("22222222-2222-4222-8222-222222222222")
     private val r2: UUID = UUID.fromString("33333333-3333-4333-8333-333333333333")
@@ -335,4 +335,18 @@ object ProductionParity {
         )
 
     val exemptions: List<ScopeExempt> = emptyList()
+}
+
+/**
+ * The production parity catalog. Every item that registers a select or op MUST append its HAPPY and SCOPE_FORBIDDEN
+ * scenarios (or a reasoned [ScopeExempt]) here, or `ParityCoverageGuardTest` fails. `notes_read` / `notes_write` (Q11) are the
+ * first production tools; their scenarios live in `NotesParityCatalog` (they need notes seeded beforehand) and run in
+ * `NotesParityTest`. `deps_read` / `deps_write` (Q12) follow in `DepsParityScenarios`, run in `DepsParityTest`; `items_read`
+ * (Q19) in [ItemsReadParityScenarios], run in `ItemsReadParityTest`.
+ */
+object ProductionParity {
+    val scenarios: List<ParityScenario> =
+        NotesParityCatalog.scenarios + DepsParityScenarios.scenarios + ItemsReadParityScenarios.scenarios
+    val exemptions: List<ScopeExempt> =
+        NotesParityCatalog.exemptions + DepsParityScenarios.exemptions + ItemsReadParityScenarios.exemptions
 }

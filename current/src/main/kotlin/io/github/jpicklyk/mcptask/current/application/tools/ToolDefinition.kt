@@ -112,9 +112,6 @@ enum class ToolCategory(
     /** Note content management operations */
     NOTE_MANAGEMENT("note_management"),
 
-    /** Dependency graph operations */
-    DEPENDENCY_MANAGEMENT("dependency_management"),
-
     /** Status progression, role transitions, and task recommendations */
     WORKFLOW("workflow"),
 

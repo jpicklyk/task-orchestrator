@@ -1,7 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.domain.model.Dependency
-import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
@@ -25,7 +23,6 @@ import java.sql.DriverManager
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
-import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -35,7 +32,7 @@ import kotlin.test.assertTrue
  * routes, over a real SQLite database through `configureWriteTestApp`.
  *
  * Oracles: plan section 3.9 l.280 and the frozen task-scope REST adapter: POST /items, PATCH /items/{id},
- * PUT /items/{id}/notes/{key}, POST /items/{id}/advance and POST /dependencies honour the header; a replay sends the
+ * POST /items/{id}/advance and POST /dependencies honour the header; a replay sends the
  * stored status, body and ETag verbatim plus the header `Idempotent-Replayed: true`; the same key with another
  * request (fingerprint over op, path, If-Match and body) is 409 `idempotency_mismatch` and executes nothing; a 2xx and
  * a body-parse 400 `validation_error` are recorded, any other non-2xx (here: 400 `cycle_detected`) is not, so a retry
@@ -140,26 +137,6 @@ class IdempotencyRestRoutesTest {
         }
 
     @Test
-    fun `S4 PUT note replays and keeps a single note`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Note host", depth = 0)) }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val key = UUID.randomUUID().toString()
-            val path = "/api/v1/items/${item.id}/notes/impl-note"
-            val body = """{"role":"work","body":"detail"}"""
-
-            val first = send("PUT", path, body, key)
-            val firstBody = first.bodyAsText()
-            val second = send("PUT", path, body, key)
-
-            assertEquals(HttpStatusCode.Created, first.status)
-            assertVerbatimReplay(first, firstBody, second)
-            assertEquals(1, rawInt("SELECT count(*) FROM notes"))
-            assertEquals(1, records())
-        }
-
-    @Test
     fun `S4 POST advance honours the key - one transition and a verbatim replay`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
@@ -175,29 +152,6 @@ class IdempotencyRestRoutesTest {
             assertEquals(HttpStatusCode.OK, first.status)
             assertVerbatimReplay(first, firstBody, second)
             assertEquals(1, rawInt("SELECT count(*) FROM role_transitions"), "the replay must not transition again")
-            assertEquals(1, records())
-        }
-
-    @Test
-    fun `S4 POST dependencies honours the key - one edge and a verbatim replay`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val (from, to) =
-                runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "From", depth = 0)) to
-                        repo.workItemRepository().create(WorkItem(title = "To", depth = 0))
-                }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val key = UUID.randomUUID().toString()
-            val body = """{"fromItemId":"${from.id}","toItemId":"${to.id}","type":"blocks"}"""
-
-            val first = send("POST", "/api/v1/dependencies", body, key)
-            val firstBody = first.bodyAsText()
-            val second = send("POST", "/api/v1/dependencies", body, key)
-
-            assertEquals(HttpStatusCode.Created, first.status)
-            assertVerbatimReplay(first, firstBody, second)
-            assertEquals(1, rawInt("SELECT count(*) FROM dependencies"))
             assertEquals(1, records())
         }
 
@@ -223,30 +177,6 @@ class IdempotencyRestRoutesTest {
         }
 
     @Test
-    fun `S6 POST dependencies with the same key and another target is a 409 idempotency_mismatch`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val (from, to, other) =
-                runBlocking {
-                    Triple(
-                        repo.workItemRepository().create(WorkItem(title = "From", depth = 0)),
-                        repo.workItemRepository().create(WorkItem(title = "To", depth = 0)),
-                        repo.workItemRepository().create(WorkItem(title = "Other", depth = 0))
-                    )
-                }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val key = UUID.randomUUID().toString()
-
-            send("POST", "/api/v1/dependencies", """{"fromItemId":"${from.id}","toItemId":"${to.id}","type":"blocks"}""", key)
-            val mismatch =
-                send("POST", "/api/v1/dependencies", """{"fromItemId":"${from.id}","toItemId":"${other.id}","type":"blocks"}""", key)
-
-            assertEquals(HttpStatusCode.Conflict, mismatch.status)
-            assertTrue("idempotency_mismatch" in mismatch.bodyAsText())
-            assertEquals(1, rawInt("SELECT count(*) FROM dependencies"))
-        }
-
-    @Test
     fun `S6 PATCH with the same key and another If-Match is a mismatch because If-Match is part of the request`(): Unit =
         testApplication {
             val repo = db.repositoryProvider()
@@ -264,34 +194,6 @@ class IdempotencyRestRoutesTest {
         }
 
     // ---------------------------------------------------------------- S7 / S8: what is recorded
-
-    @Test
-    fun `S7 a 400 cycle_detected is not recorded and the retry with the same key executes once the cycle is gone`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val (a, b) =
-                runBlocking {
-                    val a = repo.workItemRepository().create(WorkItem(title = "A", depth = 0))
-                    val b = repo.workItemRepository().create(WorkItem(title = "B", depth = 0))
-                    repo.dependencyRepository().create(Dependency(fromItemId = a.id, toItemId = b.id, type = DependencyType.BLOCKS))
-                    a to b
-                }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val key = UUID.randomUUID().toString()
-            val body = """{"fromItemId":"${b.id}","toItemId":"${a.id}","type":"blocks"}"""
-
-            val rejected = send("POST", "/api/v1/dependencies", body, key)
-            assertEquals(HttpStatusCode.BadRequest, rejected.status, "attempt 1 must fail")
-            assertTrue("cycle_detected" in rejected.bodyAsText())
-            assertEquals(0, records(), "a state failure is not recorded")
-
-            DriverManager.getConnection(db.jdbcUrl).use { c -> c.createStatement().use { it.executeUpdate("DELETE FROM dependencies") } }
-
-            val retry = send("POST", "/api/v1/dependencies", body, key)
-            assertEquals(HttpStatusCode.Created, retry.status, "the retry with the same key must execute")
-            assertNull(retry.headers[replayedHeader])
-            assertEquals(1, records(), "control: the successful execution is recorded")
-        }
 
     @Test
     fun `S8 a malformed JSON body is a recorded 400 that replays and a changed body under the same key is a mismatch`(): Unit =
@@ -333,28 +235,6 @@ class IdempotencyRestRoutesTest {
             assertEquals(HttpStatusCode.OK, advance.status)
             assertEquals(3, rawInt("SELECT count(*) FROM work_items"))
             assertEquals(0, records())
-        }
-
-    @Test
-    fun `S15 the same key on two different routes executes both`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val (from, to) =
-                runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "From", depth = 0)) to
-                        repo.workItemRepository().create(WorkItem(title = "To", depth = 0))
-                }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val key = UUID.randomUUID().toString()
-
-            val create = send("POST", "/api/v1/items", """{"type":"test-item","title":"Route one"}""", key)
-            val dependency =
-                send("POST", "/api/v1/dependencies", """{"fromItemId":"${from.id}","toItemId":"${to.id}","type":"blocks"}""", key)
-
-            assertEquals(HttpStatusCode.Created, create.status)
-            assertEquals(HttpStatusCode.Created, dependency.status, "another route is another operation: no mismatch, no replay")
-            assertNotEquals("true", dependency.headers[replayedHeader])
-            assertEquals(2, records())
         }
 
     @Test

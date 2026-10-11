@@ -5,9 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
@@ -20,9 +18,11 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SqliteUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.CountingUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
+import io.github.jpicklyk.mcptask.current.test.callTool
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.sqlite.assertNoOutsideUnitWrites
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -60,7 +60,7 @@ import kotlin.test.assertTrue
  *
  * Oracles: task-scope D2 (store fault -> site legacy mapper: MCP DATABASE_ERROR with the innermost SQL text), D3/F5
  * (MCP text for a lost optimistic lock: "WorkItem was modified by another transaction (version mismatch)"), D4/D7/F7
- * (one unit per element; create_work_tree and manage_dependencies create are ONE unit per call), F10 (MCP read fault
+ * (one unit per element; create_work_tree is ONE unit per call), F10 (MCP read fault
  * -> DATABASE_ERROR, never RESOURCE_NOT_FOUND), claim contract in the declarations (outcome and code `db_error`,
  * kind `transient`). The exact MCP message prefixes are NOT DECLARED, so S5 asserts the code and the `inj` text only.
  * NOT-COVERED here: the McpToolAdapter fallback (no public seam to drive it; see test-manifest).
@@ -116,16 +116,18 @@ class P5bWriteUnitToolsTest {
                 }
         )
 
-    private fun noteUpsert(
+    /** A `notes_write` call upserting one `work` note per key (an element per key, each its own write unit). */
+    private fun noteUpsertCall(
         itemId: UUID,
         vararg keys: String
-    ) = obj(
-        "operation" to JsonPrimitive("upsert"),
-        "notes" to
+    ) = buildJsonObject {
+        put(
+            "ops",
             buildJsonArray {
                 keys.forEach { k ->
                     add(
                         buildJsonObject {
+                            put("op", "upsert")
                             put("itemId", itemId.toString())
                             put("key", k)
                             put("role", "work")
@@ -134,7 +136,10 @@ class P5bWriteUnitToolsTest {
                     )
                 }
             }
-    )
+        )
+    }
+
+    private fun results(envelope: JsonObject): JsonArray = envelope["data"]!!.jsonObject["results"]!!.jsonArray
 
     private fun data(result: JsonElement): JsonObject = (result as JsonObject)["data"] as JsonObject
 
@@ -142,7 +147,7 @@ class P5bWriteUnitToolsTest {
 
     /**
      * A write fault must surface as the DATABASE_ERROR code carrying the innermost SQL text. Per-element tools
-     * (manage_items / manage_notes) report it inside `failures`; a call-level failure puts it in `error`. Either shape
+     * (manage_items) report it inside `failures`; a call-level failure puts it in `error`. Either shape
      * must carry `inj`, and the code, wherever the envelope carries one, must be DATABASE_ERROR and never not-found.
      */
     private fun assertDatabaseFault(result: JsonElement) {
@@ -322,19 +327,27 @@ class P5bWriteUnitToolsTest {
         }
 
     @Test
-    fun `S5 manage_notes upsert fault reports DATABASE_ERROR with the innermost SQL text and writes no note`(): Unit =
+    fun `S5 notes_write upsert fault fails the element, redacts the SQL text and writes no note`(): Unit =
         runBlocking {
             val item = repo.create(WorkItem(title = "S5 note host", depth = 0))
             rawExec("CREATE TRIGGER s5_notes BEFORE INSERT ON notes WHEN NEW.key = 'boom' BEGIN SELECT RAISE(ABORT, 'inj'); END")
 
-            val result = db.assertNoOutsideUnitWrites { ManageNotesTool().execute(noteUpsert(item.id, "boom"), contextOver().first) }
+            val result = db.assertNoOutsideUnitWrites { contextOver().first.callTool("notes_write", noteUpsertCall(item.id, "boom")) }
 
-            assertDatabaseFault(result)
+            val element = results(result).single().jsonObject
+            assertFalse(element["ok"]!!.jsonPrimitive.boolean, "the faulting element fails: $result")
+            assertFalse("inj" in result.toString(), "the 4.0 envelope never carries the store's SQL text: $result")
             assertEquals(0, rawInt("SELECT count(*) FROM notes WHERE key = 'boom'"))
 
             rawExec("DROP TRIGGER s5_notes")
-            val healthy = ManageNotesTool().execute(noteUpsert(item.id, "boom"), contextOver().first)
-            assertEquals(1, data(healthy)["upserted"]!!.jsonPrimitive.int, "control: $healthy")
+            val healthy = contextOver().first.callTool("notes_write", noteUpsertCall(item.id, "boom"))
+            assertTrue(
+                results(healthy)
+                    .single()
+                    .jsonObject["ok"]!!
+                    .jsonPrimitive.boolean,
+                "control: $healthy"
+            )
         }
 
     // ---------------------------------------------------------------- S6
@@ -436,17 +449,17 @@ class P5bWriteUnitToolsTest {
         }
 
     @Test
-    fun `S14 manage_notes upsert of three with the second faulting is three units, keeping notes 1 and 3`(): Unit =
+    fun `S14 notes_write upsert of three with the second faulting is three units, keeping notes 1 and 3`(): Unit =
         runBlocking {
             val item = repo.create(WorkItem(title = "S14 note host", depth = 0))
             rawExec("CREATE TRIGGER s14_notes BEFORE INSERT ON notes WHEN NEW.key = 'boom' BEGIN SELECT RAISE(ABORT, 'inj'); END")
             val (ctx, counting) = contextOver()
 
-            val result = db.assertNoOutsideUnitWrites { ManageNotesTool().execute(noteUpsert(item.id, "n1", "boom", "n3"), ctx) }
+            val result = db.assertNoOutsideUnitWrites { ctx.callTool("notes_write", noteUpsertCall(item.id, "n1", "boom", "n3")) }
 
-            val d = data(result)
-            assertEquals(2, d["upserted"]!!.jsonPrimitive.int, "$result")
-            assertEquals(1, d["failed"]!!.jsonPrimitive.int, "$result")
+            val summary = result["data"]!!.jsonObject["summary"]!!.jsonObject
+            assertEquals(2, summary["ok"]!!.jsonPrimitive.int, "$result")
+            assertEquals(1, summary["failed"]!!.jsonPrimitive.int, "$result")
             assertEquals(1, rawInt("SELECT count(*) FROM notes WHERE key = 'n1'"))
             assertEquals(0, rawInt("SELECT count(*) FROM notes WHERE key = 'boom'"))
             assertEquals(1, rawInt("SELECT count(*) FROM notes WHERE key = 'n3'"))
@@ -494,44 +507,5 @@ class P5bWriteUnitToolsTest {
             assertTrue(success(healthy), "control: $healthy")
             assertEquals(4, rawInt("SELECT count(*) FROM work_items WHERE title LIKE 'S14 tree%'"))
             assertEquals(1, okCounting.writes, "one unit for the whole call")
-        }
-
-    @Test
-    fun `S14 manage_dependencies create of three is one atomic unit - a fault on the third edge leaves no edge`(): Unit =
-        runBlocking {
-            val ids = (1..6).map { repo.create(WorkItem(title = "S14 dep $it", depth = 0)).id }
-            val params =
-                obj(
-                    "operation" to JsonPrimitive("create"),
-                    "dependencies" to
-                        buildJsonArray {
-                            listOf(0 to 1, 2 to 3, 4 to 5).forEach { (a, b) ->
-                                add(
-                                    buildJsonObject {
-                                        put("fromItemId", ids[a].toString())
-                                        put("toItemId", ids[b].toString())
-                                    }
-                                )
-                            }
-                        }
-                )
-            rawExec(
-                "CREATE TRIGGER s14_deps BEFORE INSERT ON dependencies WHEN (SELECT count(*) FROM dependencies) >= 2 " +
-                    "BEGIN SELECT RAISE(ABORT, 'inj'); END"
-            )
-            val (faultCtx, faultCounting) = contextOver()
-
-            val faulted = db.assertNoOutsideUnitWrites { ManageDependenciesTool().execute(params, faultCtx) }
-
-            assertEquals(0, rawInt("SELECT count(*) FROM dependencies"), "all-or-nothing: edges 1 and 2 must be rolled back: $faulted")
-            assertFalse("\"created\":3" in faulted.toString(), "$faulted")
-            assertEquals(1, faultCounting.writes, "one unit per call")
-
-            rawExec("DROP TRIGGER s14_deps")
-            val (okCtx, okCounting) = contextOver()
-            val healthy = ManageDependenciesTool().execute(params, okCtx)
-            assertEquals(3, data(healthy)["created"]!!.jsonPrimitive.int, "control: $healthy")
-            assertEquals(3, rawInt("SELECT count(*) FROM dependencies"))
-            assertEquals(1, okCounting.writes, "one unit per call")
         }
 }

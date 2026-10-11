@@ -3,9 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.tools
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -15,7 +13,10 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
+import io.github.jpicklyk.mcptask.current.test.actorArg
+import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -182,23 +183,7 @@ class KeyedElementToolsTest {
         itemId: UUID,
         context: ToolExecutionContext
     ) {
-        ManageNotesTool().execute(
-            obj(
-                "operation" to JsonPrimitive("upsert"),
-                "notes" to
-                    buildJsonArray {
-                        add(
-                            buildJsonObject {
-                                put("itemId", itemId.toString())
-                                put("key", "acceptance-criteria")
-                                put("role", "queue")
-                                put("body", "- the criteria")
-                            }
-                        )
-                    }
-            ),
-            context
-        )
+        context.putNote(itemId, "acceptance-criteria", "queue", "- the criteria")
     }
 
     // ---------------------------------------------------------------- S1
@@ -289,37 +274,22 @@ class KeyedElementToolsTest {
         }
 
     @Test
-    fun `S6 manage_notes upsert with the same key and a different body is a mismatch and keeps the stored body`(): Unit =
+    fun `S6 notes_write upsert with the same key and a different body is a mismatch and keeps the stored body`(): Unit =
         runBlocking {
             val ctx = context()
             val itemId = queueItem("Note host").id
             val key = UUID.randomUUID().toString()
 
-            fun upsert(body: String) =
-                obj(
-                    "operation" to JsonPrimitive("upsert"),
-                    "notes" to
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", itemId.toString())
-                                    put("key", "approach")
-                                    put("role", "work")
-                                    put("body", body)
-                                }
-                            )
-                        },
-                    "requestId" to JsonPrimitive(key),
-                    "actor" to actor()
-                )
+            suspend fun upsert(body: String) =
+                ctx.upsertNoteVia(itemId, "approach", "work", body, actor = actorArg("agent-1"), idempotencyKey = key)
 
-            ManageNotesTool().execute(upsert("First body"), ctx)
+            upsert("First body")
             assertEquals(1, records())
 
-            val replay = ManageNotesTool().execute(upsert("First body"), ctx)
+            val replay = upsert("First body")
             assertTrue("\"replayed\":true" in replay.toString(), "an identical retry replays: $replay")
 
-            val mismatch = ManageNotesTool().execute(upsert("DIFFERENT body"), ctx)
+            val mismatch = upsert("DIFFERENT body")
             assertTrue("idempotency_mismatch" in mismatch.toString(), "a changed body is a mismatch: $mismatch")
             val notes = ctx.noteRepository().findByItemId(itemId)
             assertEquals(1, notes.size)
@@ -354,36 +324,6 @@ class KeyedElementToolsTest {
             val mismatch = CreateWorkTreeTool().execute(treeParams("Different title"), ctx)
             assertTrue("idempotency_mismatch" in mismatch.toString(), "a changed tree is a mismatch: $mismatch")
             assertEquals(1, itemRows(), "a mismatch must not create a second tree")
-        }
-
-    @Test
-    fun `S6 manage_dependencies create replays an identical retry and creates one dependency`(): Unit =
-        runBlocking {
-            val ctx = context()
-            val from = queueItem("From").id
-            val to = queueItem("To").id
-            val key = UUID.randomUUID().toString()
-            val params =
-                obj(
-                    "operation" to JsonPrimitive("create"),
-                    "dependencies" to
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("fromItemId", from.toString())
-                                    put("toItemId", to.toString())
-                                }
-                            )
-                        },
-                    "requestId" to JsonPrimitive(key),
-                    "actor" to actor()
-                )
-            ManageDependenciesTool().execute(params, ctx)
-            val replay = ManageDependenciesTool().execute(params, ctx)
-
-            assertEquals(true, data(replay)["replayed"]?.jsonPrimitive?.booleanOrNull, "single-element tools report data.replayed: $replay")
-            assertEquals(1, ctx.dependencyRepository().findByFromItemId(from).size)
-            assertEquals(1, records())
         }
 
     // ---------------------------------------------------------------- S2 / S7
@@ -661,24 +601,7 @@ class KeyedElementToolsTest {
                     .single()
                     .id
 
-            val noteCall =
-                obj(
-                    "operation" to JsonPrimitive("upsert"),
-                    "notes" to
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", hostId.toString())
-                                    put("key", "approach")
-                                    put("role", "work")
-                                    put("body", "body")
-                                }
-                            )
-                        },
-                    "requestId" to JsonPrimitive(key),
-                    "actor" to actor()
-                )
-            val result = ManageNotesTool().execute(noteCall, ctx)
+            val result = ctx.upsertNoteVia(hostId, "approach", "work", "body", actor = actorArg("agent-1"), idempotencyKey = key)
             assertFalse("idempotency_mismatch" in result.toString(), "a different tool is a different operation: $result")
             assertEquals(1, ctx.noteRepository().findByItemId(hostId).size)
             assertEquals(2, records())

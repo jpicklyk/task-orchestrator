@@ -1,18 +1,19 @@
 package io.github.jpicklyk.mcptask.current.parity
 
-import io.github.jpicklyk.mcptask.current.application.api.CallPrincipal
 import io.github.jpicklyk.mcptask.current.application.port.CallLogSink
 import io.github.jpicklyk.mcptask.current.application.port.Clock
+import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
+import io.github.jpicklyk.mcptask.current.domain.model.Dependency
+import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.toAccessScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.sha256
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildToolDispatcher
@@ -69,8 +70,27 @@ internal val PARITY_CLOCK: Clock = Clock { PARITY_NOW }
 
 /** Seeds work items with caller-chosen ids through the undecorated repository (no event rows, same on both legs). */
 class ParitySeeder(
-    private val repo: WorkItemRepository
+    private val repo: WorkItemRepository,
+    private val deps: DependencyStore? = null
 ) {
+    /**
+     * Seeds a dependency with a caller-chosen id through the undecorated store (no event rows, same on both legs). The
+     * `createdAt` is the fixed [PARITY_NOW], so list order falls to the id tiebreak. The domain invariants (distinct ends,
+     * no threshold on RELATES_TO) are enforced by [Dependency] itself.
+     */
+    suspend fun dependency(
+        id: UUID,
+        from: UUID,
+        to: UUID,
+        type: DependencyType = DependencyType.BLOCKS,
+        unblockAt: String? = null
+    ): Dependency {
+        val store = checkNotNull(deps) { "this seeder was built without a dependency store" }
+        return store.create(
+            Dependency(id = id, fromItemId = from, toItemId = to, type = type, unblockAt = unblockAt, createdAt = PARITY_NOW)
+        )
+    }
+
     /** Creates an item; a child's depth and root are derived from its parent so the domain invariants hold by construction. */
     suspend fun item(
         id: UUID,
@@ -128,14 +148,10 @@ internal fun parityAuthConfig(token: ParityToken): ApiAuthConfig.Bearer =
     ApiAuthConfig.Bearer(tokens = mapOf(HashBytes(sha256(token.raw)) to token.principal()))
 
 /** The [CallAccess] an MCP leg runs under so it carries the REST leg's identity (principal, scope, capabilities). */
-internal fun parityAccess(token: ParityToken): CallAccess {
-    val principal = token.principal()
-    return CallAccess(
-        principal = CallPrincipal(ApiAuditBridge.toActorClaim(principal), ApiAuditBridge.toVerificationResult(principal)),
-        scope = principal.toAccessScope(),
-        capabilities = principal.capabilities
-    )
-}
+internal fun parityAccess(token: ParityToken): CallAccess =
+    // The same builder the REST route uses, with the default redaction (API_REDACT_NOTE_ATTRIBUTION on): both legs
+    // then agree on whether note attribution is visible.
+    token.principal().toCallAccess(redactNoteAttribution = true)
 
 internal class McpResult(
     val isError: Boolean,
@@ -233,7 +249,10 @@ class ParityHarness(
         val dir = Files.createTempDirectory("parity-leg-")
         try {
             val rig = EventLogRig.build(db, dir, clock = PARITY_CLOCK)
-            runBlocking { ParitySeeder(db.repositoryProvider().workItemRepository()).seed() }
+            runBlocking {
+                val provider = db.repositoryProvider()
+                ParitySeeder(provider.workItemRepository(), provider.dependencyRepository()).seed()
+            }
             return Leg(db, dir, rig)
         } catch (e: Throwable) {
             runCatching { db.close() }
@@ -276,8 +295,10 @@ class ParityHarness(
                 throw e
             }
         try {
-            val before = snapshot(restLeg.db.jdbcUrl)
+            val rawBefore = rawTables(restLeg.db.jdbcUrl)
+            val before = project(rawBefore)
             assertEquals(before, snapshot(mcpLeg.db.jdbcUrl), "${s.name}: the two legs must start from identical seeded databases")
+            val known = knownIds(rawBefore, s.arguments)
 
             val rest = runRest(restLeg, s)
             val mcp =
@@ -314,8 +335,10 @@ class ParityHarness(
             assertEquals(mcpReqId, mcp.reqIdMeta, "${s.name}: _meta.reqId equals the body's meta.reqId")
             assertNotEquals(restReqId, mcpReqId, "${s.name}: each call gets its own reqId")
 
-            val restNorm = normalize(rest.body, restReqId)
-            val mcpNorm = normalize(mcp.structured.toString(), mcpReqId)
+            val restRawAfter = rawTables(restLeg.db.jdbcUrl)
+            val mcpRawAfter = rawTables(mcpLeg.db.jdbcUrl)
+            val (restNorm, restAfter) = tokenizeGeneratedIds(restRawAfter, normalize(rest.body, restReqId), known)
+            val (mcpNorm, mcpAfter) = tokenizeGeneratedIds(mcpRawAfter, normalize(mcp.structured.toString(), mcpReqId), known)
             assertEquals(mcpNorm, restNorm, "${s.name}: body parity between MCP and REST")
 
             val ok = restBody["ok"]?.jsonPrimitive?.boolean ?: error("${s.name}: body has no ok flag")
@@ -340,12 +363,10 @@ class ParityHarness(
             for (needle in s.expectContains) assertTrue(needle in restNorm, "${s.name}: body must contain $needle but was $restNorm")
             for (needle in s.expectAbsent) assertFalse(needle in restNorm, "${s.name}: body must not contain $needle but was $restNorm")
 
-            val restAfter = snapshot(restLeg.db.jdbcUrl)
-            val mcpAfter = snapshot(mcpLeg.db.jdbcUrl)
             for (table in restAfter.keys) {
                 assertEquals(restAfter.getValue(table), mcpAfter.getValue(table), "${s.name}: $table snapshot parity between REST and MCP")
             }
-            val changed = restAfter != before
+            val changed = project(restRawAfter) != before
             s.expectDbChanged?.let { assertEquals(it, changed, "${s.name}: database changed") }
             return ParityOutcome(rest.status, restNorm, restAfter, changed)
         } finally {
@@ -360,17 +381,36 @@ class ParityHarness(
     ): String {
         val marker = "\"reqId\":\"$reqId\""
         assertTrue(marker in body, "body carries its reqId marker: $body")
-        return body.replace(marker, "\"reqId\":\"<REQ>\"")
+        // A stamp on the fixed clock is compared exactly; a stamp some store takes from the wall clock instead (note rows are
+        // stamped by the repository, not the injected clock) differs between the legs by milliseconds, so it must still be an
+        // ISO-8601 instant and is masked.
+        val fixed = PARITY_NOW.toString()
+        return body.replace(marker, "\"reqId\":\"<REQ>\"").replace(TIMESTAMP) { match ->
+            val value = match.groupValues[2]
+            if (value == fixed) {
+                match.value
+            } else {
+                Instant.parse(value)
+                "\"${match.groupValues[1]}\":\"<WALL>\""
+            }
+        }
     }
 
     companion object {
         private val TABLES = listOf("work_items", "notes", "dependencies", "events")
 
+        private val TIMESTAMP = Regex("\"(createdAt|modifiedAt)\":\"([^\"]*)\"")
+
         /**
          * The comparable content of every table: generated ids (all `id` columns except work_items, whose ids are seeded),
-         * `seq`, request/session correlation ids and every timestamp column are dropped; rows are sorted (events by `seq`).
+         * `seq`, request/session correlation ids, an event's transport `host` and every timestamp column are dropped; rows are
+         * sorted (events by `seq`). `host` records the caller's transport identity, which differs between the legs by design
+         * (Q7: MCP records `clientInfo.name`, REST the `X-Client-Host` header or user agent).
          */
-        fun snapshot(jdbcUrl: String): Map<String, List<Map<String, Any?>>> =
+        fun snapshot(jdbcUrl: String): Map<String, List<Map<String, Any?>>> = project(rawTables(jdbcUrl))
+
+        /** Every column of every table, no column dropped; events are ordered by `seq`, other tables are unordered. */
+        internal fun rawTables(jdbcUrl: String): Map<String, List<Map<String, Any?>>> =
             DriverManager.getConnection(jdbcUrl).use { connection ->
                 TABLES.associateWith { table ->
                     connection.createStatement().use { statement ->
@@ -382,25 +422,103 @@ class ParityHarness(
                                         add((1..meta.columnCount).associate { meta.getColumnLabel(it) to cell(rows.getObject(it)) })
                                     }
                                 }
-                            val ordered = if (table == "events") raw.sortedBy { it["seq"] as Long } else raw
-                            val kept =
-                                ordered.map { row ->
-                                    row.filterKeys { label ->
-                                        !(
-                                            label == "seq" ||
-                                                label == "req_id" ||
-                                                label == "session_id" ||
-                                                label == "at" ||
-                                                label.endsWith("_at")
-                                        ) &&
-                                            !(label == "id" && table != "work_items")
-                                    }
-                                }
-                            if (table == "events") kept else kept.sortedBy { it.toString() }
+                            if (table == "events") raw.sortedBy { it["seq"] as Long } else raw
                         }
                     }
                 }
             }
+
+        /**
+         * [raw] without the columns that legitimately differ between two runs of the same call: `seq`, request/session
+         * correlation ids, every timestamp (but not the `unblock_at` threshold, which is data), the transport `host` of an event, and generated `id` columns (all but work_items).
+         * Row order is kept.
+         */
+        private fun withoutNoise(raw: Map<String, List<Map<String, Any?>>>): Map<String, List<Map<String, Any?>>> =
+            raw.mapValues { (table, rows) ->
+                rows.map { row ->
+                    row.filterKeys { label ->
+                        !(
+                            label == "seq" ||
+                                label == "req_id" ||
+                                label == "session_id" ||
+                                (label == "host" && table == "events") ||
+                                label == "at" ||
+                                (label.endsWith("_at") && label != "unblock_at")
+                        ) &&
+                            !(label == "id" && table != "work_items")
+                    }
+                }
+            }
+
+        private fun sorted(tables: Map<String, List<Map<String, Any?>>>): Map<String, List<Map<String, Any?>>> =
+            tables.mapValues { (table, rows) -> if (table == "events") rows else rows.sortedBy { it.toString() } }
+
+        /** The [snapshot] projection of [rawTables] output: noise columns dropped, non-event rows sorted. */
+        internal fun project(raw: Map<String, List<Map<String, Any?>>>): Map<String, List<Map<String, Any?>>> = sorted(withoutNoise(raw))
+
+        private val UUID_TEXT = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+        private val HEX_BLOB = Regex("[0-9a-f]{32}")
+
+        private fun dashed(hex: String): String =
+            "${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}"
+
+        /** The lowercase dashed UUIDs a cell carries: a dashed UUID inside text, or a whole-cell 32-hex blob. */
+        private fun uuidsIn(cell: Any?): List<String> =
+            when {
+                cell !is String -> emptyList()
+                HEX_BLOB.matches(cell) -> listOf(dashed(cell))
+                else -> UUID_TEXT.findAll(cell).map { it.value.lowercase() }.toList()
+            }
+
+        /**
+         * The ids that exist before the call (every UUID in the seeded database) or that the caller named in [arguments]. Any
+         * other UUID seen afterwards was generated by the call and differs between the two legs.
+         */
+        private fun knownIds(
+            rawBefore: Map<String, List<Map<String, Any?>>>,
+            arguments: String
+        ): Set<String> =
+            buildSet {
+                for (rows in rawBefore.values) for (row in rows) for (cell in row.values) addAll(uuidsIn(cell))
+                addAll(UUID_TEXT.findAll(arguments).map { it.value.lowercase() })
+            }
+
+        /**
+         * Replaces every generated id (a UUID not in [known]) by a positional token `<IDn>`, numbered by first appearance: the
+         * events table by `seq` first, then [body]. A generated id seen only in another table becomes `<GEN>`. Applied to the
+         * body, to dashed UUIDs inside text and JSON cells, and to whole-cell 32-hex blobs, so the two legs compare equal exactly
+         * when the generated ids play the same roles. Returns the tokenized body and the projected (see [project]) tables.
+         */
+        private fun tokenizeGeneratedIds(
+            rawWithNoise: Map<String, List<Map<String, Any?>>>,
+            body: String,
+            known: Set<String>
+        ): Pair<String, Map<String, List<Map<String, Any?>>>> {
+            // noise columns carry per-call generated ids (request and session ids): they must not take token numbers
+            val raw = withoutNoise(rawWithNoise)
+            val tokens = LinkedHashMap<String, String>()
+
+            fun note(uuid: String) {
+                if (uuid !in known && uuid !in tokens) tokens[uuid] = "<ID${tokens.size + 1}>"
+            }
+            for (row in raw.getValue("events")) for (cell in row.values) uuidsIn(cell).forEach(::note)
+            UUID_TEXT.findAll(body).forEach { note(it.value.lowercase()) }
+
+            fun swap(uuid: String): String {
+                val lower = uuid.lowercase()
+                return if (lower in known) uuid else tokens[lower] ?: "<GEN>"
+            }
+
+            fun apply(cell: Any?): Any? =
+                when {
+                    cell !is String -> cell
+                    HEX_BLOB.matches(cell) -> if (dashed(cell) in known) cell else swap(dashed(cell))
+                    else -> UUID_TEXT.replace(cell) { swap(it.value) }
+                }
+            val tokenizedBody = UUID_TEXT.replace(body) { swap(it.value) }
+            val tables = raw.mapValues { (_, rows) -> rows.map { row -> row.mapValues { apply(it.value) } } }
+            return tokenizedBody to sorted(tables)
+        }
 
         private fun cell(value: Any?): Any? =
             when (value) {

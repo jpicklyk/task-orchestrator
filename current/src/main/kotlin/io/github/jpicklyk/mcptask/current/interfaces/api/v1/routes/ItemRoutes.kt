@@ -70,7 +70,8 @@ private const val MAX_RECEIVED = 100
  *   success it sets `ETag: "v<version>"` and answers `304 Not Modified` (no body) when `If-None-Match` equals it; an
  *   error never carries an ETag and is never a 304, so scope is decided before any conditional answer.
  * - `GET /items/{id}/children` == `{select: list, parentId: id, limit?, cursor?}`. Other query parameters are
- *   `unknown_parameter`; a non-integer `limit` is `invalid_request`. No ETag.
+ *   `unknown_parameter`; a non-integer `limit` is `invalid_request`. No ETag. [redactNoteAttribution] is the `/ops`
+ *   flag, handed to the same builder so the access is identical.
  *
  * Capability (READ) and scope are enforced by the dispatcher and the select, exactly as on `/ops`. A request with no
  * authenticated principal is `unauthenticated` (fail closed). The 3.x list, roots, tree, breadcrumbs and schema
@@ -80,6 +81,7 @@ fun Route.itemRoutes(
     registry: ToolRegistry,
     dispatcher: ToolDispatcher,
     profile: ToolProfile = ToolProfile.ORCHESTRATION,
+    redactNoteAttribution: Boolean = true,
 ) {
     get("/items/{id}") {
         val reqId = call.response.headers[REQ_ID_HEADER] ?: ReqId.generate()
@@ -96,7 +98,7 @@ fun Route.itemRoutes(
                 put("select", "get")
                 put("itemId", call.parameters["id"].orEmpty())
             }
-        val envelope = call.dispatchItemsRead(registry, dispatcher, profile, arguments, reqId)
+        val envelope = call.dispatchItemsRead(registry, dispatcher, profile, redactNoteAttribution, arguments, reqId)
         val version = if (envelope.httpStatus == HttpStatusCode.OK.value) versionOf(envelope) else null
         if (version != null) {
             val etag = etagForVersion(version)
@@ -130,7 +132,7 @@ fun Route.itemRoutes(
                 limit?.let { put("limit", it) }
                 params["cursor"]?.let { put("cursor", it) }
             }
-        call.respondEnvelope(call.dispatchItemsRead(registry, dispatcher, profile, arguments, reqId))
+        call.respondEnvelope(call.dispatchItemsRead(registry, dispatcher, profile, redactNoteAttribution, arguments, reqId))
     }
 }
 
@@ -142,6 +144,7 @@ private suspend fun ApplicationCall.dispatchItemsRead(
     registry: ToolRegistry,
     dispatcher: ToolDispatcher,
     profile: ToolProfile,
+    redactNoteAttribution: Boolean,
     arguments: JsonObject,
     reqId: String,
 ): EncodedEnvelope {
@@ -149,7 +152,7 @@ private suspend fun ApplicationCall.dispatchItemsRead(
         attributes.getOrNull(ApiPrincipalKey)
             ?: return EnvelopeEncoder.error(DomainError(ErrorCode.UNAUTHENTICATED, "No authenticated principal."), reqId)
     val spec = registry[ItemsReadTool.NAME] ?: error("the tool registry has no ${ItemsReadTool.NAME}")
-    val dispatched = dispatcher.dispatch(spec, profile, arguments, reqId, SURFACE_REST, principal.toCallAccess())
+    val dispatched = dispatcher.dispatch(spec, profile, arguments, reqId, SURFACE_REST, principal.toCallAccess(redactNoteAttribution))
     return dispatched.envelope
 }
 

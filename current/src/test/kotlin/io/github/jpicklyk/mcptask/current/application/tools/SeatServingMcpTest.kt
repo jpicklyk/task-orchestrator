@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView
-import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -10,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
+import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
@@ -565,27 +565,7 @@ traits:
         role: String,
         body: String,
     ) {
-        val result =
-            ManageNotesTool().execute(
-                buildJsonObject {
-                    put("operation", JsonPrimitive("upsert"))
-                    put(
-                        "notes",
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", JsonPrimitive(itemId.toString()))
-                                    put("key", JsonPrimitive(key))
-                                    put("role", JsonPrimitive(role))
-                                    put("body", JsonPrimitive(body))
-                                },
-                            )
-                        },
-                    )
-                },
-                toolContext,
-            )
-        assertTrue((result as JsonObject)["success"]!!.jsonPrimitive.boolean, "note upsert must succeed: $result")
+        toolContext.putNote(itemId, key, role, body)
     }
 
     @Test

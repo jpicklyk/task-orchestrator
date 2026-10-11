@@ -1,23 +1,18 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops
 
-import io.github.jpicklyk.mcptask.current.application.api.CallPrincipal
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.FieldViolation
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.toAccessScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.OPS_CALL_INFO
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.OpsCallInfo
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.REQ_ID_HEADER
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.MAX_JSON_WRITE_BODY_BYTES
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
-import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
@@ -46,12 +41,14 @@ import kotlinx.serialization.json.JsonObject
  * `CallContext.scope`. Every fault answers an envelope: no authenticated principal is `unauthenticated`
  * (fail closed); an unknown or profile-hidden tool, a non-JSON `Content-Type`, an `Idempotency-Key` header
  * (use `ops[].idempotencyKey`) or a body that is not a JSON object is `invalid_request`; a body over
- * [MAX_JSON_WRITE_BODY_BYTES] is `payload_too_large`. Serves the ORCHESTRATION [profile] until Q29.
+ * [MAX_JSON_WRITE_BODY_BYTES] is `payload_too_large`. Serves the ORCHESTRATION [profile] until Q29. Note attribution is
+ * hidden from a non-admin caller while [redactNoteAttribution] holds (see [toCallAccess]).
  */
 fun Route.opsRoutes(
     registry: ToolRegistry,
     dispatcher: ToolDispatcher,
-    profile: ToolProfile = ToolProfile.ORCHESTRATION
+    profile: ToolProfile = ToolProfile.ORCHESTRATION,
+    redactNoteAttribution: Boolean = true
 ) {
     post("/ops/{tool}") {
         val reqId = call.response.headers[REQ_ID_HEADER] ?: ReqId.generate()
@@ -115,7 +112,7 @@ fun Route.opsRoutes(
             return@post
         }
 
-        val access = principal.toCallAccess()
+        val access = principal.toCallAccess(redactNoteAttribution)
         val dispatched = dispatcher.dispatch(spec, profile, arguments, reqId, SURFACE_REST, access)
         call.attributes.put(OPS_CALL_INFO, OpsCallInfo(spec.name, dispatched))
         call.respondEnvelope(dispatched.envelope)
@@ -124,18 +121,6 @@ fun Route.opsRoutes(
 
 /** The `surface` of every call a REST route dispatches. */
 internal const val SURFACE_REST = "rest"
-
-/**
- * The ONE builder of a REST caller's [CallAccess], shared by `POST /api/v1/ops/{tool}` and the resource GETs that
- * dispatch a select (`GET /items/{id}`, `GET /items/{id}/children`): the bearer principal (never a body `actor`),
- * its access scope and its capabilities, so both routes answer the same bytes for the same principal.
- */
-fun ApiPrincipal.toCallAccess(): CallAccess =
-    CallAccess(
-        principal = CallPrincipal(ApiAuditBridge.toActorClaim(this), ApiAuditBridge.toVerificationResult(this)),
-        scope = toAccessScope(),
-        capabilities = capabilities
-    )
 
 private const val IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
 private const val MAX_RECEIVED = 100

@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.application.config.LayeredConfig
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
+import io.github.jpicklyk.mcptask.current.application.port.BodySource
 import io.github.jpicklyk.mcptask.current.application.port.Clock
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.DependencyStore
@@ -85,6 +86,12 @@ class ToolExecutionContext(
     val workViewQueries: WorkViewQueries = WorkViewQueries(unitOfWork),
     /** The shared config service; null in tests, where tools build their own over [repositoryProvider]. */
     val configService: ConfigService? = null,
+    /**
+     * Reads the file a `bodyFromFile` field names. Production wires a `FileBodySource` over the agent config root,
+     * built once in `ServerComposition`; the default rejects every path (fail closed), so a context nobody wired a
+     * root into can never read a file.
+     */
+    val bodySource: BodySource = BodySource.DISABLED,
 ) {
     /**
      * Durable per-element idempotency over [unitOfWork]. Lazy so contexts that never serve a keyed call
@@ -114,14 +121,13 @@ class ToolExecutionContext(
     val claimService: ClaimService by lazy { ClaimService(repositoryProvider, unitOfWork) }
 
     /**
-     * The single owner of the note write policy, shared by `manage_notes`, the REST note routes and
-     * `create_work_tree`. Lazy for the same reason as [advanceServiceFactoryLazy].
+     * The single owner of the note write policy, shared by `notes_write` and `create_work_tree`. Lazy for the same reason as [advanceServiceFactoryLazy].
      */
     val noteCommandService: NoteCommandService by lazy { NoteCommandService(repositoryProvider, configResolver, unitOfWork) }
 
     /**
      * The single owner of the dependency write policy (normalization, duplicate and cycle rules), shared by
-     * `manage_dependencies`, the REST dependency routes and `create_work_tree`. Lazy for the same reason as
+     * `deps_write` and `create_work_tree`. Lazy for the same reason as
      * [advanceServiceFactoryLazy].
      */
     val dependencyCommandService: DependencyCommandService by lazy { DependencyCommandService(repositoryProvider, unitOfWork) }

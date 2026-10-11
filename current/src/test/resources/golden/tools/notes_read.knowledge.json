@@ -1,0 +1,58 @@
+{
+  "name": "notes_read",
+  "inputSchema": {
+    "properties": {
+      "select": {
+        "type": "string",
+        "description": "Which read to run. A field marked [select: ...] applies only to the selects named.",
+        "enum": [
+          "get",
+          "list"
+        ]
+      },
+      "itemId": {
+        "type": "string",
+        "description": "Id of the work item that owns the note: a full UUID or 8 to 32 hex characters of one."
+      },
+      "key": {
+        "type": "string",
+        "description": "Note key, unique per item (1 to 200 characters, case-sensitive). [select: get]"
+      },
+      "ifVersion": {
+        "type": "integer",
+        "description": "The version the caller already holds (at least 1). When it equals the current version the answer is {unchanged: true, version} with no body. [select: get]"
+      },
+      "role": {
+        "type": "string",
+        "description": "Only notes of this role: queue, work or review (case-insensitive). [select: list]"
+      },
+      "keys": {
+        "type": "array",
+        "description": "Only notes with one of these keys. An empty list matches nothing. [select: list]",
+        "items": {
+          "type": "string"
+        }
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Page size, 1 to 200 (default 50). [select: list]"
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Opaque cursor from the previous page's page.next. [select: list]"
+      },
+      "describe": {
+        "type": "boolean",
+        "description": "true: return the operations, their parameters and errors instead of running the tool."
+      }
+    },
+    "type": "object"
+  },
+  "description": "Read the notes on work items: get one note with its body, or list an item's notes without bodies. Call with describe:true for each operation's parameters and errors.",
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

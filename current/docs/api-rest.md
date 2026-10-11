@@ -33,8 +33,8 @@ for missing notes, and fails open the same way when `TASK_ORCHESTRATOR_API_URL` 
 8. [Data Transfer Objects (DTOs)](#8-data-transfer-objects-dtos)
 9. [Endpoints — Items (Read)](#9-endpoints--items-read)
 10. [Endpoints — Items (Write)](#10-endpoints--items-write)
-11. [Endpoints — Notes (Read)](#11-endpoints--notes-read)
-12. [Endpoints — Notes (Write)](#12-endpoints--notes-write)
+11. [Endpoints - Notes (Read)](#11-endpoints---notes-read)
+12. [Endpoints - Notes (Write)](#12-endpoints---notes-write)
 13. [Endpoints — Dependencies](#13-endpoints--dependencies)
 14. [Endpoints — Resource Leases](#14-endpoints--resource-leases)
 15. [Endpoints — Transitions (Audit)](#15-endpoints--transitions-audit)
@@ -182,9 +182,9 @@ Each token grants a set of additive capabilities:
 |------------|--------------|-----------------|
 | `READ` | `read` | All GET endpoints under `/api/v1/` |
 | `WRITE_ITEMS` | `write-items` | `POST /items`, `PATCH /items/{id}`, `DELETE /items/{id}` |
-| `WRITE_NOTES` | `write-notes` | `PUT /items/{id}/notes/{key}`, `DELETE /items/{id}/notes/{key}` |
+| `WRITE_NOTES` | `write-notes` | `POST /ops/notes_write` ops `upsert` and `delete` (checked per op by the dispatcher, section 20a) |
 | `ADVANCE` | `advance` | `POST /items/{id}/advance` |
-| `MANAGE_DEPENDENCIES` | `manage-dependencies` | `POST /dependencies`, `DELETE /dependencies/{id}` |
+| `MANAGE_DEPENDENCIES` | `manage-dependencies` | `POST /ops/deps_write` ops `create`, `delete`, `linear`, `fan_out` and `fan_in` (checked per op by the dispatcher, section 20a) |
 | `WRITE_CONFIG` | `write-config` | `PUT /roots/{rootId}/config`, `DELETE /roots/{rootId}/config`, `POST /roots/{rootId}/config/rollback`, `PUT /roots/{rootId}/plans/{slug}` |
 | `ADMIN` | `admin` | Implies all of the above; unlocks attribution fields in responses |
 
@@ -219,11 +219,9 @@ drift apart.
   tag is checked on each note's owning item)
 - `GET /transitions` and `GET /items/{id}/breadcrumbs` — a `tags_include` token sees only rows for
   items it is allowed to see; `GET /items/{id}?include=children` is filtered the same way
-- `GET /items/{id}/dependencies` and `GET /items/{id}/backlinks` — the subject item's own scope
-  check is unchanged (`403 scope_forbidden` if the subject itself is out of scope); the
-  *counterparty* item on each edge/backlink is additionally checked against `root_ids` and
-  `tags_include`, and a row whose counterparty is out of scope is dropped from the response body
-  (`200 OK` with a filtered, possibly-empty collection — never `403` for the counterparty side)
+- `POST /ops/deps_read` and `POST /ops/deps_write` (section 13) - the subject item of a read is
+  checked (`403 forbidden`); an edge whose counterparty is out of scope is dropped from a read page
+  and not counted; a write needs every named item (both stored ends for a delete) in scope
 - `GET /api/v1/events` (SSE) — a `tags_include` token is enforced per-event, identically for the
   live stream and Last-Event-ID replay (see §21)
 - `GET /items/{id}/children` — the parent gets the same `enforceScopeForItem` check as any other
@@ -266,7 +264,7 @@ DB `COUNT` and are unaffected.
 
 - Format: `"v1-<modifiedAtMillis>"` (quoted string per HTTP spec)
 - Items: ETag is derived from `item.modifiedAt`
-- Notes: ETag is derived from `note.modifiedAt`
+- Notes: `GET /items/{id}/notes/{key}` answers `ETag: "v{version}"` from the note version (V28) and honors `If-None-Match` (`304`); there is no note `If-Match`: guard a write with `notes_write` `expectedVersion` (section 12)
 - Returned in `ETag` response header on all successful reads and writes
 
 **Conditional reads:** `If-None-Match: <etag>` → `304 Not Modified` when the resource has not changed.
@@ -274,7 +272,6 @@ DB `COUNT` and are unaffected.
 **Conditional writes:**
 - `PATCH /items/{id}` — **requires** `If-Match` header. Missing header → `400 precondition_required`. Mismatch → `412` with error `etag_mismatch`.
 - `DELETE /items/{id}` — **optional** `If-Match`. When supplied and mismatched → `412 etag_mismatch`.
-- `PUT /items/{id}/notes/{key}` — `If-Match` accepted on the update path (when the note already exists). Missing on update is allowed; mismatch → `412 etag_mismatch`. On create (note does not exist), `If-Match` is ignored.
 
 **`GET /items/{id}/gate` carries no `ETag` and ignores `If-None-Match`.** This is deliberate, not an
 omission: gate status depends on the item's notes and its resolved schema/config, and neither is
@@ -317,7 +314,7 @@ byte-identical content produces the same fingerprint/ETag as an LF, BOM-less che
 
 ## 5. Idempotency
 
-`POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT /items/{id}/notes/{key}`, and `POST /dependencies` support idempotency via the `Idempotency-Key` header:
+`POST /items`, `PATCH /items/{id}`, and `POST /items/{id}/advance` support idempotency via the `Idempotency-Key` header:
 
 ```
 Idempotency-Key: <UUID>
@@ -331,8 +328,8 @@ Idempotency-Key: <UUID>
 - **What is recorded.** Only a 2xx response and a pure payload rejection (a `400 validation_error` for a malformed body or value) are recorded. A response that depends on state or is transient (`404`, `403`, `409`, `412`, `500`, `503`) rolls the write back and is **not** recorded, so a retry with the same key runs again.
 - Concurrent requests with the same key serialize on the database writer: the first executes, the others replay its result.
 - The same record store backs the MCP tools (`requestId`, keyed per element — see `api-reference.md`); a REST key is `"<uuid>:0"` under the REST route, so the two surfaces never collide.
-- `POST /items` and `PUT /items/{id}/notes/{key}` additionally require `Content-Type: application/json` (an absent header is treated as `*/*` and accepted); any other value → `415 unsupported_media_type` before the idempotency key or body is read.
-- Every write route now bounds its body read to a fixed byte limit BEFORE buffering it: a `Content-Length` over the limit is rejected with `413 payload_too_large` before any bytes are touched, and a chunked/understated-`Content-Length` body is caught by a channel read capped at `limit + 1` bytes, so an oversized body is never buffered in full either way. `POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT /items/{id}/notes/{key}`, and `POST /dependencies` share a 1 MiB limit (previously unbounded); `PUT /roots/{rootId}/config` (128 KiB) and `PUT /roots/{rootId}/plans/{slug}` (64 KiB) keep their existing numeric limits, now enforced at the same pre-buffer point instead of after a full read. See §6 for the `payload_too_large` error shape.
+- `POST /items` additionally requires `Content-Type: application/json` (an absent header is treated as `*/*` and accepted); any other value → `415 unsupported_media_type` before the idempotency key or body is read.
+- Every write route now bounds its body read to a fixed byte limit BEFORE buffering it: a `Content-Length` over the limit is rejected with `413 payload_too_large` before any bytes are touched, and a chunked/understated-`Content-Length` body is caught by a channel read capped at `limit + 1` bytes, so an oversized body is never buffered in full either way. `POST /items`, `PATCH /items/{id}`, and `POST /items/{id}/advance` share a 1 MiB limit (previously unbounded); `PUT /roots/{rootId}/config` (128 KiB) and `PUT /roots/{rootId}/plans/{slug}` (64 KiB) keep their existing numeric limits, now enforced at the same pre-buffer point instead of after a full read. See §6 for the `payload_too_large` error shape.
 
 ---
 
@@ -373,14 +370,11 @@ other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability
 | `rule_not_found` | 404 | `GET /roots/{rootId}/rules/{key}` (§19a): the root resolves and is depth-0, but no `rule/<key>` plan document exists there — distinct from `not_found`, which covers an unknown `{rootId}` itself |
 | `scope_forbidden` | 403 | Item exists but is outside the caller's scope; also returned for `POST /items` creating a root item, or `PATCH /items/{id}` moving an item to root, when the resulting root-level item would be outside the caller's scope (see §3) |
 | `field_not_patchable` | 400 | PATCH attempted on a server-owned field |
-| `cycle_detected` | 400 | Dependency would create a cycle |
 | `has_children` | 409 | `DELETE /items/{id}` refused: item has one or more direct children and `?recursive=true` was not given; `details.childCount` is the direct child count |
 | `idempotency_mismatch` | 409 | An `Idempotency-Key` was reused with a different request (see §5) |
-| `duplicate_dependency` | 409 | `POST /dependencies`: an edge with the same `fromItemId`/`toItemId`/`type` already exists |
-| `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §23), or a non-JSON `Content-Type` on `POST /items`, `PUT /items/{id}/notes/{key}`, `POST /items/{id}/advance`, or `POST /dependencies` (see §5) |
+| `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §23), or a non-JSON `Content-Type` on `POST /items` or `POST /items/{id}/advance` (see §5) |
 | `etag_mismatch` | 412 | `If-Match` header does not match current ETag |
-| `note_body_too_long` | 422 | `PUT /items/{id}/notes/{key}`: the body exceeds the schema `maxLength` for the key and `note_limits.mode` is `reject` |
-| `payload_too_large` | 413 | Request body exceeds its route's byte limit (and, for `PUT /items/{id}/notes/{key}`, a note `body` over 65536 UTF-8 bytes) — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT /items/{id}/notes/{key}`, and `POST /dependencies` share a 1 MiB limit; `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB, except a `{slug}` starting with `rule/` (e.g. `rule%2Fcommit-discipline`), which is capped tighter at 16384 bytes (16 KiB) — the single enforcement point `query_rules`/§19a rely on, so those read surfaces never re-check size themselves (see §18, §19, §19a). |
+| `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /items`, `PATCH /items/{id}`, and `POST /items/{id}/advance` share a 1 MiB limit; `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB, except a `{slug}` starting with `rule/` (e.g. `rule%2Fcommit-discipline`), which is capped tighter at 16384 bytes (16 KiB) — the single enforcement point `query_rules`/§19a rely on, so those read surfaces never re-check size themselves (see §18, §19, §19a). |
 | `version_conflict` | 409 | `PATCH /items/{id}`: `If-Match` matched at read time, but a concurrent writer's update won the version race before this write committed — optimistic-lock loss, distinct from `etag_mismatch`. Retry with a fresh `If-Match` ETag. |
 | `invalid_transition` | 409 | `POST /items` or `PATCH /items/{id}` (4.0): the new parent is `terminal` and its effective lifecycle is `auto`, so it takes no new children; `details.parentId` names it. Reopen the parent (`POST /items/{id}/advance` with `reopen`) and retry. A `manual` or `permanent` parent accepts children. |
 | `invalid_request` | 401 | `error_description` body. Missing `Authorization` header, a non-Bearer scheme, or an empty Bearer credential (also the SSE pre-flight when no header or allowed `?token=` is presented). Carries `WWW-Authenticate: Bearer error="invalid_request"`. |
@@ -394,7 +388,7 @@ other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability
 | `not_claim_holder` | 409 | Not reachable on REST today (ownership is not enforced on this surface); reserved for the same claim check MCP applies |
 | `internal` | 500 | An exception escaped a `/api/v1` route. The message is always `Internal server error`: the exception text is logged at ERROR and never returned. Produced by the REST safety net (see below) |
 | `resource_unavailable` | 409 | Resource-lease gate contention on `POST /items/{id}/advance` into WORK — transient, retryable. Carries a `Retry-After` header and `details.contendedResources`/`details.retryAfterMs`. Never discloses the current holder. |
-| `config_unavailable` | 503 | Per-root config read failed (a transient database error) and there was no last-known-good cached config to serve for that root — transient, retryable; the caller applies its own backoff (no `Retry-After` header). Returned by `POST /items/{id}/advance`, `GET /items/{id}/gate` (see §9, §10), `PUT /items/{id}/notes/{key}` (note write policy needs the per-root schema and `note_limits` mode), and `GET /roots/{rootId}/config/effective` (see §18). REST and the MCP tools now read per-root config through the same `EffectiveConfigResolver`/last-known-good cache (one shared instance, built once in `ServerComposition`) — a transient DB error on one surface is absorbed by a cache warmed by the other, so this error is rarer than it was when each surface kept its own cache. Exception: `POST /items/{id}/advance` reads the item's config (and every cascade target's) inside the advance's unit of work, `GET /items/{id}/gate` inside its preview's read unit, and `PUT /items/{id}/notes/{key}` inside the write's unit of work; a unit has no last-known-good fallback, so on those three routes a read fault answers `config_unavailable` even when the cache is warm. |
+| `config_unavailable` | 503 | Per-root config read failed (a transient database error) and there was no last-known-good cached config to serve for that root — transient, retryable; the caller applies its own backoff (no `Retry-After` header). Returned by `POST /items/{id}/advance`, `GET /items/{id}/gate` (see §9, §10), and `GET /roots/{rootId}/config/effective` (see §18). REST and the MCP tools now read per-root config through the same `EffectiveConfigResolver`/last-known-good cache (one shared instance, built once in `ServerComposition`) — a transient DB error on one surface is absorbed by a cache warmed by the other, so this error is rarer than it was when each surface kept its own cache. Exception: `POST /items/{id}/advance` reads the item's config (and every cascade target's) inside the advance's unit of work and `GET /items/{id}/gate` inside its preview's read unit; a unit has no last-known-good fallback, so on those two routes a read fault answers `config_unavailable` even when the cache is warm. |
 | `db_error` | 500 | A store fault: a read route responds `Database query failed` (or the route's own read text), a write route its existing text (e.g. `Failed to create item`). A store fault on a read is never reported as `404 not_found`; `404` means only that the row does not exist. |
 
 **One mapper, one safety net.** Every `ErrorDto` body is built by one mapper (`LegacyRestErrorMapper`): each
@@ -605,21 +599,10 @@ the field's purpose is external verifiability, so it is deliberately not redacte
 ```
 
 `type` is `blocks` or `relates_to`: blocking dependencies are stored in one orientation (`fromItemId`
-blocks `toItemId`), and `IS_BLOCKED_BY`, accepted as an input type by MCP `manage_dependencies`, is
-normalized to `blocks` with the ends swapped before it is stored. REST create only accepts
-`blocks`/`relates_to` — see POST /dependencies below. `unblockAt` is the effective unblock-role
+blocks `toItemId`); edges are written through `deps_write` (section 13), which accepts only
+`blocks`/`relates_to`. `unblockAt` is the effective unblock-role
 threshold: `null` only for `relates_to` (no blocking semantics); for `blocks` it is the stored value,
 defaulting to `"terminal"` when unset — never a raw possibly-null passthrough.
-
-### BacklinkDto
-
-```json
-{
-  "fromItemId": "<uuid>",
-  "fromTitle": "string",
-  "type": "blocks|relates_to"
-}
-```
 
 ### GateStatusDto
 
@@ -1495,133 +1478,79 @@ The `hasReviewPhase` is resolved from the item's schema (type + tags + traits) t
 
 ---
 
-## 11. Endpoints — Notes (Read)
+## 11. Endpoints - Notes (Read)
 
-All require `READ` capability. Attribution fields (`actor`, `verification`) are `null` by default; set to non-null only when the caller has `ADMIN` and `API_REDACT_NOTE_ATTRIBUTION=false`.
+Both routes are thin translations to the 4.0 `notes_read` tool through the shared dispatcher (see
+`api-reference.md` -> `notes_read`). They answer the 4.0 response envelope, byte-equal to
+`POST /api/v1/ops/notes_read` (section 20a) for the same arguments apart from `meta.reqId`, with the HTTP status
+taken from the envelope's error code (not the `ErrorDto` body of section 6). Both require `READ` capability and
+honor the token's root and tag scope (`403 forbidden` with `detail.scope`). Attribution fields (`actor`,
+`verification`) are present only when the caller has `ADMIN` or `API_REDACT_NOTE_ATTRIBUTION=false`; proof
+evidence is never shown. A query parameter a route does not list is `400 invalid_request`.
 
 ### GET /items/{id}/notes
 
-List all notes for an item.
+`notes_read select=list`: the item's notes without bodies, ordered by key.
 
-**Query parameters:**
-- `role` — filter by phase: `queue`, `work`, `review`
-- `key` — filter by note key (exact match)
+**Query parameters:** `role` (`queue`, `work`, `review`), `keys` (comma-separated keys to keep), `limit`
+(1-200, default 50), `cursor` (from `data.page.next`). The 3.x `key` parameter is gone (use `keys`).
 
-**Response:** `200 OK` → `List<NoteDto>`
+**Response:** `200 OK`, `data: {items: [{id, key, role, version, bodyLength, modifiedAt, actor?,
+verification?}], page: {total, truncated, next?}}`. `id` is the first 8 hex characters of the note id.
+Paging follows the envelope rules as amended by U22: `total` is the full count on every page,
+`truncated` is true exactly when notes exist after this page, and `next` is present exactly when
+`truncated`. Errors: `400 invalid_request` / `invalid_cursor`, `403 forbidden`, `404 not_found` /
+`ambiguous_id` for the item id.
 
 ### GET /items/{id}/notes/{key}
 
-Single note by key.
+`notes_read select=get`: one note with its body. Takes no query parameter.
 
-**Response header:** `ETag: "v1-<millis>"` (for use as `If-Match` on subsequent PUT)
-
-**Responses:**
-- `200 OK` → `NoteDto`
-- `404 not_found` — note not found on item
+**Response:** `200 OK`, `data: {id, key, role, version, body, modifiedAt, actor?, verification?}`, with
+`ETag: "v{version}"` (the note version, V28). An `If-None-Match` naming that tag (or `*`) answers
+`304 Not Modified` with no body. A missing note is `404 not_found` (id `<itemUuid>/<key>`).
 
 ---
 
-## 12. Endpoints — Notes (Write)
+## 12. Endpoints - Notes (Write)
 
-All require `WRITE_NOTES` capability.
+The 3.x `PUT /items/{id}/notes/{key}` and `DELETE /items/{id}/notes/{key}` routes are removed and no longer
+served. Notes are written through
+`POST /api/v1/ops/notes_write` (section 20a) with `ops[]` elements `upsert` and `delete`, each with an optional
+`expectedVersion` guard (`0` = must not exist, `n` = current version must be `n`; otherwise
+`409 version_conflict`, nothing written) and an optional per-element `idempotencyKey` (an
+`Idempotency-Key` header is rejected on `/ops`). Requires `WRITE_NOTES`. The write policy (role
+normalization, 65536-byte body cap, CRLF to LF, schema role, `maxLength` under `note_limits`) is
+described in `api-reference.md` -> `notes_write`.
 
-### PUT /items/{id}/notes/{key}
-
-Upsert (create or replace) a note. `role` and `body` are always replaced on update.
-
-**Request body:**
-```json
-{
-  "role": "queue|work|review",   // required; any letter case, stored lowercase
-  "body": "string",              // required; at most 65536 UTF-8 bytes
-  "properties": {}               // optional — reserved, currently ignored
-}
-```
-
-**`If-Match` behavior:** Optional on create. On update (note already exists), supplied `If-Match` is validated; mismatch → `412 etag_mismatch`.
-
-**Responses:**
-- `201 Created` → `NoteDto` + `ETag` header (note was new)
-- `200 OK` → `NoteDto` + `ETag` header (note was updated)
-- `201 Created` / `200 OK` also carry a `warning` string in the body when the note body exceeded the schema `maxLength` under `note_limits.mode: warn` (absent otherwise)
-- `400 validation_error` — invalid `role`, or the key is declared in the item's resolved schema with a different role
-- `412 etag_mismatch`
-- `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6), or the note `body` itself exceeds 65536 UTF-8 bytes
-- `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the `Idempotency-Key` header or body is read
-- `422 note_body_too_long` — the body exceeds the schema `maxLength` for the key and `note_limits.mode` is `reject`
-- `503 config_unavailable` — the item's per-root config could not be read
-
-The write policy (role normalization, 64 KiB body cap, CRLF-to-LF normalization, schema-role and `maxLength` checks) is the same one `manage_notes` and `create_work_tree` apply; the `If-Match` check runs before it. A schema-role or `maxLength` rejection is not recorded for `Idempotency-Key` replay (it depends on config), so a retry after a config change runs again.
-
-Supports `Idempotency-Key` header.
-
-### DELETE /items/{id}/notes/{key}
-
-Delete a note.
-
-**Responses:**
-- `204 No Content`
-- `404 not_found` — note not found
+**`bodyFromFile` is MCP-only.** It reads a file on the server's host, so REST takes the note text inline in
+`body` only (as the 3.x REST note writes did). An `upsert` element that sets `bodyFromFile` on
+`POST /api/v1/ops/notes_write` fails alone with `invalid_request` on field `/bodyFromFile` (reason: use the
+inline `body`); no file is opened and nothing is stored for it, and the other elements of a non-atomic batch
+still run.
 
 ---
 
 ## 13. Endpoints — Dependencies
 
-### GET /items/{id}/dependencies
+The 3.x `GET /items/{id}/dependencies`, `GET /items/{id}/backlinks`, `POST /dependencies` and
+`DELETE /dependencies/{id}` routes are removed and no longer served. Dependencies are read and written
+through the 4.0 tools over `POST /api/v1/ops/{tool}` (section 20a):
 
-Returns the combined dependency view split by direction and type. Requires `READ`.
+- `POST /api/v1/ops/deps_read` - `select: list` (the edges touching an item, filtered by `direction`
+  `incoming` / `outgoing` / `all` and `type`; the old backlinks are `direction: incoming`) or
+  `select: graph` (the blocking graph around an item in topological order). Requires `READ`. A subject
+  item outside the token's scope is `403 forbidden`; an edge whose counterparty is out of scope is
+  dropped from the page and not counted.
+- `POST /api/v1/ops/deps_write` - `ops[]` elements `create`, `delete` (by `id`, by `from`/`to`, or every
+  edge of an `item`), and the patterns `linear`, `fan_out` and `fan_in`, each one element created all or
+  nothing. Requires `MANAGE_DEPENDENCIES`, checked per op. Every named item (both stored ends for a
+  delete) must be in scope, else the element is `forbidden` and nothing is written. A duplicate edge is
+  `duplicate`, a cycle `cycle_detected`; per-element `idempotencyKey` replaces the `Idempotency-Key`
+  header.
 
-**Response `200 OK`:** `DependenciesDto` with `blocks`, `blockedBy`, and `related` arrays.
-
-### GET /items/{id}/backlinks
-
-Items that reference this item via any dependency edge. Requires `READ`.
-
-**Response `200 OK`:** `List<BacklinkDto>`
-
-### POST /dependencies
-
-Create a dependency edge. Requires `MANAGE_DEPENDENCIES`.
-
-**Request body:** `DependencyCreateDto`
-```json
-{
-  "fromItemId": "<uuid>",
-  "toItemId": "<uuid>",
-  "type": "blocks|relates_to",
-  "unblockAt": "queue|work|review|terminal|null"
-}
-```
-
-Validation:
-- `fromItemId` ≠ `toItemId` — `400 validation_error`
-- `unblockAt` must be absent or null for `relates_to` edges — `400 validation_error`
-- Both items must exist — `400 not_found`
-- Both items must be in scope — `403 scope_forbidden`
-- Cycle detection — `400 cycle_detected`. Runs only for `blocks` (the item that would block, `fromItemId`), over the normalized blocker-to-blocked graph (including edges created through MCP `manage_dependencies` with `IS_BLOCKED_BY`); `relates_to` has no blocking semantics and skips the check entirely.
-- Duplicate edge — `409 duplicate_dependency` when an edge with the same `fromItemId`/`toItemId`/`type` already exists. A `blocks` edge that restates a stored one the other way round (a former `IS_BLOCKED_BY` input) is the same stored edge and is rejected the same way.
-
-**Responses:**
-- `201 Created` → `DependencyEdgeDto`
-- `400 cycle_detected` / `validation_error` / `not_found`
-- `409 duplicate_dependency`
-- `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
-- `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the body is read
-
-Supports `Idempotency-Key` header (see [section 5](#5-idempotency)); the same key with a different body is `409 idempotency_mismatch`.
-
-### DELETE /dependencies/{id}
-
-Remove a dependency edge by its UUID. Requires `MANAGE_DEPENDENCIES`.
-
-Scope check: both `fromItemId` and `toItemId` of the edge must be accessible to the caller.
-
-**Responses:**
-- `204 No Content`
-- `404 not_found`
-- `403 scope_forbidden`
-- `500 db_error` - a store fault: `Database query failed` on the edge lookup, `Failed to delete
-  dependency` on the delete itself (the SQL text is logged, not returned)
+Fields, answers and error codes are described in `api-reference.md` -> `deps_read` and `deps_write`.
+`GET /items/{id}?include=deps` still returns the `DependenciesDto` view (section 8).
 
 ---
 
@@ -2276,7 +2205,8 @@ like any other REST row. A fault answered before dispatch (the table above) keep
 `POST /api/v1/ops/{tool}` as `tool` and no `operation`.
 
 **Parity with MCP.** MCP and this route share one tool registry and one dispatcher, so a tool behaves the same
-on both surfaces. A test-side parity harness runs every registered tool over both transports with identically
+on both surfaces, with one deliberate exception: `notes_write` `bodyFromFile` is MCP-only and answers
+`invalid_request` (`/bodyFromFile`) here (section 12). A test-side parity harness runs every registered tool over both transports with identically
 seeded databases and compares the envelope bytes (minus `meta.reqId`), the HTTP status against the error
 code, and the resulting database state; a coverage guard requires every registered select and op to carry a
 happy-path and a scope-forbidden scenario.
@@ -2375,7 +2305,7 @@ Both `sync.lost` and `auth.expired` are **control events** — they always bypas
 
 **Redaction.** Applied per connection, on egress only, identically for live delivery and `Last-Event-ID` replay: `actor` is omitted when `API_REDACT_NOTE_ATTRIBUTION=true` and the caller lacks `ADMIN`; otherwise it is delivered (`API_AUTH_MODE=none` callers are ADMIN).
 
-**Stored `events` row data:** each domain event's `events`-table row carries a type-specific `data` object that the SSE `ApiEvent` does not expose. For `note.upserted` it is `{itemId, key, role, bodyLength, bodyFromFile}` (plus `actorParent` when the writing actor names a parent): `bodyFromFile` is the server-side path a `manage_notes` caller supplied (since 4.0), or null for an inline body; the file contents are never recorded.
+**Stored `events` row data:** each domain event's `events`-table row carries a type-specific `data` object that the SSE `ApiEvent` does not expose. For `note.upserted` it is `{itemId, key, role, bodyLength, bodyFromFile}` (plus `actorParent` when the writing actor names a parent): `bodyFromFile` is the server-side path a `notes_write` MCP caller supplied (since 4.0), or null for an inline body; the file contents are never recorded.
 
 **`item.updated` note:** since 4.0 an update that changes no field emits nothing, and a role change that also edits other fields emits only `item.advanced`.
 

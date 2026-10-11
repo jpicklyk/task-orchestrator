@@ -2,9 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
@@ -108,8 +106,6 @@ class ErrorKindCoverageTest {
             val adapter = McpToolAdapter()
             listOf(
                 ManageItemsTool(),
-                ManageNotesTool(),
-                ManageDependenciesTool(),
                 CompleteTreeTool(),
                 ClaimItemTool(),
                 AdvanceItemTool()
@@ -309,7 +305,7 @@ class ErrorKindCoverageTest {
         }
 
     // ----------------------------------------------
-    // S5 - manage_items / manage_notes / manage_dependencies per-element failures
+    // S5 - manage_items per-element failures
     // ----------------------------------------------
 
     @Test
@@ -369,79 +365,6 @@ class ErrorKindCoverageTest {
 
             val failure = result.data().entries("failures").single()
             assertEquals("not_found", failure.str("errorCode"))
-            assertEquals("permanent", failure.str("errorKind"))
-        }
-
-    @Test
-    fun `S5 manage_notes upsert on an unknown item keeps its error and gains errorKind permanent`(): Unit =
-        runBlocking {
-            val result =
-                call(
-                    "manage_notes",
-                    mapOf(
-                        "operation" to "upsert",
-                        "notes" to
-                            listOf(
-                                mapOf("itemId" to UUID.randomUUID().toString(), "key" to "orphan-note", "role" to "queue", "body" to "b")
-                            )
-                    )
-                )
-
-            val failure = result.data().entries("failures").single()
-            assertTrue(failure.str("error")!!.contains("not found"), "error text kept: $failure")
-            assertEquals("not_found", failure.str("errorCode"))
-            assertEquals("permanent", failure.str("errorKind"))
-        }
-
-    @Test
-    fun `S5 manage_notes upsert without a key is an invalid_request failure with errorKind permanent`(): Unit =
-        runBlocking {
-            val existing = item("note target")
-
-            val result =
-                call(
-                    "manage_notes",
-                    mapOf("operation" to "upsert", "notes" to listOf(mapOf("itemId" to existing.id.toString(), "role" to "queue")))
-                )
-
-            val failure = result.data().entries("failures").single()
-            assertTrue(failure.str("error")!!.contains("key"), "error text kept: $failure")
-            assertEquals("invalid_request", failure.str("errorCode"))
-            assertEquals("permanent", failure.str("errorKind"))
-        }
-
-    @Test
-    fun `S5 manage_dependencies duplicate edge keeps its error and gains errorCode duplicate with errorKind permanent`(): Unit =
-        runBlocking {
-            val a = item("dep a")
-            val b = item("dep b")
-            val edge = mapOf("fromItemId" to a.id.toString(), "toItemId" to b.id.toString())
-            val first = call("manage_dependencies", mapOf("operation" to "create", "dependencies" to listOf(edge)))
-            assertTrue(first.isError != true, "control: the first edge is created: ${first.content}")
-
-            val result = call("manage_dependencies", mapOf("operation" to "create", "dependencies" to listOf(edge)))
-
-            val failure = result.data().entries("failures").single()
-            assertTrue(failure.str("error")!!.contains("already exists", ignoreCase = true), "error text kept: $failure")
-            assertEquals("duplicate", failure.str("errorCode"))
-            assertEquals("permanent", failure.str("errorKind"))
-        }
-
-    @Test
-    fun `S5 manage_dependencies cycle keeps its error and gains errorCode cycle_detected with errorKind permanent`(): Unit =
-        runBlocking {
-            val a = item("cycle a")
-            val b = item("cycle b")
-            val forward = mapOf("fromItemId" to a.id.toString(), "toItemId" to b.id.toString())
-            val backward = mapOf("fromItemId" to b.id.toString(), "toItemId" to a.id.toString())
-            val first = call("manage_dependencies", mapOf("operation" to "create", "dependencies" to listOf(forward)))
-            assertTrue(first.isError != true, "control: the forward edge is created: ${first.content}")
-
-            val result = call("manage_dependencies", mapOf("operation" to "create", "dependencies" to listOf(backward)))
-
-            val failure = result.data().entries("failures").single()
-            assertTrue(failure.str("error")!!.contains("circular", ignoreCase = true), "error text kept: $failure")
-            assertEquals("cycle_detected", failure.str("errorCode"))
             assertEquals("permanent", failure.str("errorKind"))
         }
 
