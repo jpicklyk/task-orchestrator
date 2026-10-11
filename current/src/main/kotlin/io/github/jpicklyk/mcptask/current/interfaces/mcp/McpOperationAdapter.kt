@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.application.telemetry.CallTelemetry
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
 import io.github.jpicklyk.mcptask.current.infrastructure.logging.MdcValues
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EnvelopeEncoder
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.CallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.Dispatched
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
@@ -48,7 +49,9 @@ import kotlin.time.TimeSource
 class McpOperationAdapter(
     private val dispatcher: ToolDispatcher,
     private val callLog: CallLogSink = CallLogSink.NONE,
-    private val clock: Clock = Clock.SYSTEM
+    private val clock: Clock = Clock.SYSTEM,
+    /** The access of a call by MCP session. MCP stays unscoped until W4; the parity harness passes the REST principal's. */
+    private val access: (sessionId: String?) -> CallAccess = { CallAccess.UNRESTRICTED }
 ) {
     private val logger = LoggerFactory.getLogger(McpOperationAdapter::class.java)
 
@@ -90,7 +93,7 @@ class McpOperationAdapter(
                 MDCContext((MDC.getCopyOfContextMap() ?: emptyMap()) + correlationFields) + ActorVerificationScope() + telemetry
             ) {
                 try {
-                    dispatcher.dispatch(spec, profile, arguments, reqId, CallLogRecord.SURFACE_MCP)
+                    dispatcher.dispatch(spec, profile, arguments, reqId, CallLogRecord.SURFACE_MCP, access(sessionId))
                 } catch (e: Exception) {
                     // The dispatcher translates escaping exceptions itself; this is a last-resort net.
                     e.rethrowIfCancellation()

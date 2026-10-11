@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorFixtures
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpsToolSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.SelectSpec
@@ -173,6 +174,7 @@ class FixtureTools {
         OpSpec<CreateReq, String>(
             name = "create",
             doc = "Create a thing.",
+            capability = ApiCapability.WRITE_ITEMS,
             request = serializer<CreateReq>(),
             errors = setOf(ErrorCode.NOT_FOUND),
             execute = { _, ctx, req ->
@@ -190,6 +192,7 @@ class FixtureTools {
         OpSpec<RenameReq, String>(
             name = "rename",
             doc = "Rename a thing.",
+            capability = ApiCapability.WRITE_ITEMS,
             request = serializer<RenameReq>(),
             execute = { _, ctx, req ->
                 seen += ctx
@@ -203,6 +206,7 @@ class FixtureTools {
             doc = "Purge a thing.",
             profile = ToolProfile.ORCHESTRATION,
             destructive = true,
+            capability = ApiCapability.WRITE_ITEMS,
             request = serializer<PurgeReq>(),
             execute = { _, ctx, req ->
                 seen += ctx
@@ -215,6 +219,7 @@ class FixtureTools {
             name = "reset",
             doc = "Reset.",
             profile = ToolProfile.ORCHESTRATION,
+            capability = ApiCapability.WRITE_ITEMS,
             request = serializer<ResetReq>(),
             execute = { _, _, req -> Outcome.Ok("reset:${req.reason}") }
         )

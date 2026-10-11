@@ -270,16 +270,9 @@ class CurrentMcpServer(
             // profile on this one Server until Q29. A registry name equal to a 3.x name fails startup.
             val registry = ToolRegistry(buildToolSpecs())
             checkRegistryDisjoint(registry, tools)
-            val operationAdapter =
-                McpOperationAdapter(
-                    ToolDispatcher(
-                        RequestDecoder(),
-                        toolContext.actorVerifier(),
-                        BatchRunner(toolContext.unitOfWork, toolContext.idempotency),
-                        toolContext
-                    ),
-                    callLog = callLogWriter
-                )
+            // ONE dispatcher serves MCP and REST (`POST /api/v1/ops/{tool}`), so both produce the same bytes.
+            val toolDispatcher = buildToolDispatcher(toolContext)
+            val operationAdapter = McpOperationAdapter(toolDispatcher, callLog = callLogWriter)
             operationAdapter.register(server, registry, ToolProfile.ORCHESTRATION)
             logger.info("Registered ${registry.visible(ToolProfile.ORCHESTRATION).size} 4.0 tools")
 
@@ -314,7 +307,9 @@ class CurrentMcpServer(
                             degradedModePolicy,
                             composition.actorAuthEnabled,
                             readinessMarker,
-                            callLogWriter
+                            callLogWriter,
+                            registry,
+                            toolDispatcher
                         )
                     else -> {
                         logger.error("Unknown MCP_TRANSPORT: '$transportType'. Valid values: stdio, http")
@@ -418,6 +413,8 @@ class CurrentMcpServer(
         actorAuthEnabled: Boolean,
         readinessMarker: ReadinessMarker,
         callLog: CallLogSink = CallLogSink.NONE,
+        toolRegistry: ToolRegistry = ToolRegistry(buildToolSpecs()),
+        toolDispatcher: ToolDispatcher = buildToolDispatcher(toolContext),
     ): StartupOutcome {
         val host = appConfig.mcpHttpHost
         val port = appConfig.mcpHttpPort
@@ -497,6 +494,8 @@ class CurrentMcpServer(
                     jwksVerifier = jwksVerifier,
                     appConfig = appConfig,
                     callLog = callLog,
+                    toolRegistry = toolRegistry,
+                    toolDispatcher = toolDispatcher,
                 )
             }
 
@@ -629,6 +628,15 @@ internal fun buildMcpTools(): List<ToolDefinition> =
         QueryRulesTool(),
     )
 
+/** The one [ToolDispatcher] over [toolContext], shared by the MCP adapter and `POST /api/v1/ops/{tool}`. */
+internal fun buildToolDispatcher(toolContext: ToolExecutionContext): ToolDispatcher =
+    ToolDispatcher(
+        RequestDecoder(),
+        toolContext.actorVerifier(),
+        BatchRunner(toolContext.unitOfWork, toolContext.idempotency),
+        toolContext
+    )
+
 /**
  * Fails startup when a 4.0 registry tool reuses a 3.x tool name (U2: no 3.x name is reused), since both
  * register on the same MCP [Server] until Q32 deletes the 3.x tools.
@@ -713,6 +721,8 @@ internal fun Application.installRestApiRoutes(
     jwksVerifier: JwksApiVerifier? = null,
     appConfig: AppConfig = AppConfig.fromEnv(),
     callLog: CallLogSink = CallLogSink.NONE,
+    toolRegistry: ToolRegistry = ToolRegistry(buildToolSpecs()),
+    toolDispatcher: ToolDispatcher = buildToolDispatcher(toolContext),
 ) {
     if (apiConfig is ApiAuthConfig.Disabled) return
 

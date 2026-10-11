@@ -37,9 +37,7 @@ private fun makeCapabilityPlugin(cap: ApiCapability) =
                 return@onCall
             }
 
-            val allowed =
-                principal.capabilities.contains(ApiCapability.ADMIN) ||
-                    principal.capabilities.contains(pluginConfig.requiredCapability)
+            val allowed = principal.capabilities.grants(pluginConfig.requiredCapability)
 
             if (!allowed) {
                 authzLogger.debug(
@@ -339,5 +337,14 @@ fun hasCapability(
     cap: ApiCapability,
 ): Boolean {
     val principal = call.attributes.getOrNull(ApiPrincipalKey) ?: return false
-    return principal.capabilities.contains(ApiCapability.ADMIN) || principal.capabilities.contains(cap)
+    return principal.capabilities.grants(cap)
 }
+
+/**
+ * The ONE capability predicate, shared by the REST route wrapper, [hasCapability] and the tool dispatcher:
+ * [ApiCapability.ADMIN] implies every capability, anything else must be listed.
+ */
+fun Set<ApiCapability>.grants(required: ApiCapability): Boolean = ApiCapability.ADMIN in this || required in this
+
+/** The kebab-case spelling [ApiCapability.fromConfigString] parses (`write-items`, `read`, ...). */
+fun ApiCapability.configName(): String = name.lowercase().replace('_', '-')

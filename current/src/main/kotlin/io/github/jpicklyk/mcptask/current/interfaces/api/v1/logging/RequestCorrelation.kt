@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.logging.MdcValues
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.Dispatched
 import io.ktor.http.HttpHeaders
 import io.ktor.http.content.OutgoingContent
 import io.ktor.server.application.Application
@@ -31,6 +32,8 @@ import io.ktor.server.routing.RoutingRoot
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.slf4j.MDCContext
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import org.slf4j.MDC
 import java.util.UUID
 import kotlin.time.TimeSource
@@ -138,6 +141,15 @@ internal fun Application.installRequestCorrelation(
 }
 
 internal const val REQ_ID_HEADER = "X-Req-Id"
+
+/** What `POST /api/v1/ops/{tool}` learned about its call: the registry tool name and the dispatch result. */
+internal class OpsCallInfo(
+    val tool: String,
+    val dispatched: Dispatched
+)
+
+/** Set by the /ops route once a call reaches the dispatcher; the call log records it instead of the route template. */
+internal val OPS_CALL_INFO = AttributeKey<OpsCallInfo>("CallLogOpsCall")
 private const val API_ROOT = "/api/v1"
 private const val EVENT_STREAM_PATH = "/api/v1/events"
 
@@ -288,7 +300,16 @@ private fun submitRestCall(
         val errorCode = if (isError) call.attributes.getOrNull(CAPTURED_ERROR_CODE) ?: "http_$status" else null
         val segments = path.split('/').filter { it.isNotEmpty() }
         val uuidSegments = segments.filter { UUID_SEGMENT.matches(it) }
-        val tool = restToolName(call.request.httpMethod.value, call.attributes.getOrNull(MATCHED_ROUTE_TEMPLATE), path, resources.get())
+        val ops = call.attributes.getOrNull(OPS_CALL_INFO)
+        val opsData =
+            ops
+                ?.dispatched
+                ?.envelope
+                ?.body
+                ?.get("data") as? JsonObject
+        val tool =
+            ops?.tool
+                ?: restToolName(call.request.httpMethod.value, call.attributes.getOrNull(MATCHED_ROUTE_TEMPLATE), path, resources.get())
         val requestBytes =
             call.request.header(HttpHeaders.ContentLength)?.toLongOrNull()
                 ?: if (call.request.header(HttpHeaders.TransferEncoding) == null) 0L else null
@@ -297,7 +318,7 @@ private fun submitRestCall(
                 telemetry = telemetry,
                 at = startedAt,
                 tool = tool,
-                operation = null,
+                operation = ops?.dispatched?.operation,
                 targetIds = CallLogFields.targetIdsJson(null, uuidSegments),
                 requestShape = restRequestShape(call.request.queryString(), telemetry.searchShape),
                 isError = isError,
@@ -305,9 +326,9 @@ private fun submitRestCall(
                 latencyMs = latencyMs,
                 requestBytes = requestBytes,
                 responseBytes = call.attributes.getOrNull(CAPTURED_RESPONSE_BYTES),
-                batchSize = null,
-                failedCount = null,
-                resultCount = null,
+                batchSize = ops?.dispatched?.batchSize,
+                failedCount = ops?.let { CallLogFields.failedCount(opsData) },
+                resultCount = (opsData?.get("items") as? JsonArray)?.size,
                 eligibleCount = null
             )
         )

@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.shared.tools
 
 import io.github.jpicklyk.mcptask.current.application.api.Doc
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.test.tools.FixtureTools
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
@@ -99,7 +100,7 @@ class ToolRegistryTest {
         request: KSerializer<E>,
         profile: ToolProfile = ToolProfile.KNOWLEDGE
     ): OpSpec<E, String> =
-        OpSpec(name = name, doc = "An op.", profile = profile, request = request, execute = {
+        OpSpec(name = name, doc = "An op.", profile = profile, capability = ApiCapability.WRITE_ITEMS, request = request, execute = {
             _,
             _,
             _
