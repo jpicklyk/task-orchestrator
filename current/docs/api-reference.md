@@ -150,7 +150,8 @@ already-adopted document (`duplicate`, kind `document`), an anchor miss (`invali
 
 **Scope.** The whole tree hangs under one anchor, which is the only check: `root.id` (attach) or `parentId` must be
 admitted; a top-level root create is `forbidden` under a root scope and, under a tag scope, needs a listed tag in
-`root.tags`. A `docRef.rootId` is checked too.
+`root.tags`. A `docRef.rootId` is never looked up: it is matched against the tree's own root, so a foreign or
+unknown id is the same `invalid_request` on `/docRef/rootId`.
 
 #### `complete_tree`
 

@@ -87,7 +87,8 @@ sealed interface TreeRootInput {
 
 /**
  * A whole work tree request. [docSlug] names the plan document every anchor is cut from (the root adopts it last);
- * [docRootId] is its project root when the caller named one (it must be the tree's own root). The note actor is
+ * [docRootRef] is its project root as the caller wrote it (a UUID or hex prefix), matched against the tree's own root
+ * and never looked up, so a foreign or unknown id is the same `invalid_request` and reveals nothing. The note actor is
  * [actorClaim] / [verification] for every note the tree writes.
  */
 data class WorkTreeRequest(
@@ -97,7 +98,7 @@ data class WorkTreeRequest(
     val notes: List<TreeNoteInput> = emptyList(),
     val createNotes: Boolean = false,
     val docSlug: String? = null,
-    val docRootId: UUID? = null,
+    val docRootRef: String? = null,
     val actorClaim: ActorClaim? = null,
     val verification: VerificationResult? = null
 )
@@ -197,6 +198,17 @@ class WorkTreeService(
     companion object {
         /** The ref that names the root. */
         const val ROOT_REF = "root"
+
+        /** True when [ref] (a canonical UUID or a dash-free hex prefix, any case) names [id]. */
+        fun namesId(
+            ref: String,
+            id: UUID
+        ): Boolean =
+            if (ref.contains('-')) {
+                ref.equals(id.toString(), ignoreCase = true)
+            } else {
+                id.toString().replace("-", "").startsWith(ref.lowercase())
+            }
 
         /**
          * The children's refs in parent-before-child order ([TopoOrder] over the parentRef edges, ties in request
@@ -331,8 +343,9 @@ class WorkTreeService(
         if (slug == null) {
             adoption = null
         } else {
-            if (request.docRootId != null && request.docRootId != effectiveRootId) {
-                return Outcome.Err(invalid("/docRef/rootId", "must be the tree's own root $effectiveRootId", request.docRootId.toString()))
+            val docRootRef = request.docRootRef
+            if (docRootRef != null && !namesId(docRootRef, effectiveRootId)) {
+                return Outcome.Err(invalid("/docRef/rootId", "must be the tree's own root", docRootRef))
             }
             val doc =
                 repositoryProvider.planDocumentRepository().get(effectiveRootId, slug)

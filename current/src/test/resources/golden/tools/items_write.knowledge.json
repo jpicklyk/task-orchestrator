@@ -110,11 +110,11 @@
             },
             "root": {
               "type": "object",
-              "description": "Tree root: id attaches to an existing item, else title and type create one. [ops: create_tree]",
+              "description": "Tree root: id attaches, else title and type create. [ops: create_tree]",
               "properties": {
                 "id": {
                   "type": "string",
-                  "description": "Existing item to attach to (no new root). Not with parentId."
+                  "description": "Item to attach to. Not with parentId."
                 },
                 "title": {
                   "type": "string",
@@ -177,7 +177,7 @@
                 },
                 "noteAnchors": {
                   "type": "array",
-                  "description": "Notes cut from docRef sections; need docRef.",
+                  "description": "Notes cut from docRef sections.",
                   "items": {
                     "type": "object",
                     "properties": {
@@ -196,7 +196,7 @@
                       },
                       "anchor": {
                         "type": "string",
-                        "description": "Section heading to cut."
+                        "description": "Heading to cut."
                       }
                     },
                     "required": [
@@ -216,7 +216,7 @@
                 "properties": {
                   "ref": {
                     "type": "string",
-                    "description": "Unique local name; root is reserved."
+                    "description": "Unique ref; not root."
                   },
                   "title": {
                     "type": "string",
@@ -228,7 +228,7 @@
                   },
                   "parentRef": {
                     "type": "string",
-                    "description": "Parent ref: root (default) or a child ref."
+                    "description": "Parent ref; default root."
                   },
                   "priority": {
                     "type": "string",
@@ -283,7 +283,7 @@
                   },
                   "noteAnchors": {
                     "type": "array",
-                    "description": "Notes cut from docRef sections; need docRef.",
+                    "description": "Notes cut from docRef sections.",
                     "items": {
                       "type": "object",
                       "properties": {
@@ -302,7 +302,7 @@
                         },
                         "anchor": {
                           "type": "string",
-                          "description": "Section heading to cut."
+                          "description": "Heading to cut."
                         }
                       },
                       "required": [
@@ -328,7 +328,7 @@
                 "properties": {
                   "from": {
                     "type": "string",
-                    "description": "Source ref (the blocker for blocks)."
+                    "description": "From ref (the blocker)."
                   },
                   "to": {
                     "type": "string",
@@ -344,7 +344,7 @@
                   },
                   "unblockAt": {
                     "type": "string",
-                    "description": "Role the blocker must reach; default terminal.",
+                    "description": "Unblocks at this role; default terminal.",
                     "enum": [
                       "queue",
                       "work",
@@ -367,7 +367,7 @@
                 "properties": {
                   "itemRef": {
                     "type": "string",
-                    "description": "Ref of the note's item."
+                    "description": "Item ref."
                   },
                   "key": {
                     "type": "string",
@@ -400,15 +400,15 @@
             },
             "docRef": {
               "type": "object",
-              "description": "Plan document noteAnchors cut from; the root adopts it. [ops: create_tree]",
+              "description": "Plan document for noteAnchors; root adopts it. [ops: create_tree]",
               "properties": {
                 "slug": {
                   "type": "string",
-                  "description": "Plan document slug (not rule/)."
+                  "description": "Slug (not rule/)."
                 },
                 "rootId": {
                   "type": "string",
-                  "description": "Document's project root; default the tree's root."
+                  "description": "Must be the tree's root (default)."
                 }
               },
               "required": [

@@ -99,14 +99,6 @@ private suspend fun WriteScope.createTree(
             }
         }
     }
-    val docRootId: UUID? =
-        req.docRef?.rootId?.let { ref ->
-            when (val r = resolveInScope(env, ctx, ref, "/docRef/rootId")) {
-                is Outcome.Err -> return r
-                is Outcome.Ok -> r.value
-            }
-        }
-
     val request =
         WorkTreeRequest(
             root =
@@ -120,7 +112,8 @@ private suspend fun WriteScope.createTree(
             notes = req.notes.map { TreeNoteInput(it.itemRef, it.key, it.role.wire, it.body) },
             createNotes = req.createNotes,
             docSlug = req.docRef?.slug,
-            docRootId = docRootId,
+            // Matched against the tree's own root, never looked up: a foreign id is invalid_request, not an existence oracle.
+            docRootRef = req.docRef?.rootId?.raw,
             actorClaim = ctx.principal?.claim,
             verification = ctx.principal?.verification
         )
