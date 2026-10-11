@@ -21,8 +21,9 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
 
 /**
- * `items_read` select `search`: full-text search over item content and note bodies through the shared search
- * service (both corpora fused in one ranking unless `kinds` narrows them). The caller's scope filters candidates
+ * `items_read` select `search`: full-text search over item content, note bodies and document title/body through the
+ * shared search service (every kind the filters apply to is fused in one ranking unless `kinds` narrows them; role,
+ * tags and traits describe items, so they apply to item and note content only). The caller's scope filters candidates
  * before ranking and capping. `page.total` is the capped hit count; `page.capped` says more matches existed than the
  * cap. Filter ids (`itemId`, `ancestorId`) are resolved under D2 and not scope-checked.
  */
@@ -31,7 +32,11 @@ object ItemsReadSearch {
     data class Request(
         @Doc("Search terms, all must match; matched literally.")
         val query: String,
-        @Doc("item (title, summary, description) and/or note (bodies); default both.")
+        @Doc(
+            "item (title, summary, description), note (bodies) and/or document (title, body); default every kind the " +
+                "filters apply to. role, tags and traits apply to item and note only: with any of them the default is " +
+                "item and note, and naming document too is invalid."
+        )
         val kinds: List<KindWire>? = null,
         @Doc("auto (default: both, fused), substring (terms of 3+ characters), text (stemmed).")
         val matchMode: MatchModeWire? = null,
@@ -49,7 +54,7 @@ object ItemsReadSearch {
     val select =
         SelectSpec.Paged<Request, JsonObject>(
             name = "search",
-            doc = "Ranked full-text hits over item content and note bodies the caller may see.",
+            doc = "Ranked full-text hits over item content, note bodies and documents the caller may see.",
             request = serializer<Request>(),
             errors = setOf(ErrorCode.NOT_FOUND, ErrorCode.AMBIGUOUS_ID, ErrorCode.FORBIDDEN, ErrorCode.INVALID_CURSOR),
             handler = handler@{ env, ctx, req ->
@@ -71,7 +76,7 @@ object ItemsReadSearch {
                         is Outcome.Err -> return@handler r
                         is Outcome.Ok -> r.value
                     }
-                val corpora = (req.kinds ?: KindWire.entries).map { it.corpus }.toSet()
+                val corpora = req.kinds?.map { it.corpus }?.toSet()
                 val request =
                     SearchRequest(
                         query = req.query,
@@ -85,12 +90,13 @@ object ItemsReadSearch {
                         limit = page.limit,
                         offset = page.offset,
                         access = ctx.scope,
+                        snippets = req.snippet ?: true,
                     )
                 val result =
                     try {
                         env.searchService.search(request)
                     } catch (e: SearchValidationException) {
-                        return@handler Outcome.Err(invalidField(pointer("query"), e.message ?: "is not a valid search"))
+                        return@handler Outcome.Err(invalidField(pointer(e.field), e.message ?: "is not a valid search"))
                     }
                 val snippet = req.snippet ?: true
                 val explain = req.explain ?: false
@@ -107,7 +113,14 @@ object ItemsReadSearch {
     ): JsonObject =
         buildJsonObject {
             put("kind", hit.kind)
-            put("itemId", ItemView.shortId(hit.itemId))
+            if (hit.documentKind != null) {
+                // A document is addressed by (rootId, docKind, slug), the same key docs_read takes.
+                put("rootId", ItemView.shortId(hit.itemId))
+                put("docKind", hit.documentKind)
+                hit.slug?.let { put("slug", it) }
+            } else {
+                put("itemId", ItemView.shortId(hit.itemId))
+            }
             hit.noteKey?.let { put("noteKey", it) }
             hit.title?.let { put("title", it) }
             put("field", hit.field)
