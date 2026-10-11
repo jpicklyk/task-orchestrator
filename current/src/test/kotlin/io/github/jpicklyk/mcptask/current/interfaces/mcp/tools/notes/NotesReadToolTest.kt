@@ -699,7 +699,7 @@ class NotesReadToolTest {
         }
 
         val legacy = buildMcpTools()
-        assertTrue(legacy.isNotEmpty(), "control: the 3.x tool list is not empty")
+        // Q21 and Q23 removed the last 3.x tools, so the list is empty; the control is that notes_* are served (above).
         assertFalse(legacy.any { it.name == "manage_notes" }, "manage_notes is deleted")
         assertFalse(legacy.any { it.name == "query_notes" }, "query_notes is deleted (its search moved to items_read in Q19)")
     }

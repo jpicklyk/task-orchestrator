@@ -118,8 +118,8 @@ val globalConfigPath = configBaseDir.resolve(".taskorchestrator/config.yaml")
   `GlobalConfigFile` (it is stripped before validation and never stored in canonical form). `TypeBackfillStep` also keeps reading the file.
 - `jwks_path` resolves against the injected `configBaseDir` (`DefaultJwksKeySetProvider(config, configBaseDir)`); `bodyFromFile` against
   the `FileBodySource` root built from the same base directory.
-- **This is the SERVER-scope/fallback config.** Per-**project** config is stored per-root in the DB: pushed via `manage_project_config` or
-  `PUT /api/v1/roots/{rootId}/config`, synced from the workspace file by the `config-sync` SessionStart hook, and layered over the server
+- **This is the SERVER-scope/fallback config.** Per-**project** config is stored per-root in the DB: pushed via the `config` tool's `push` op
+  (`POST /api/v1/ops/config`), synced from the workspace file by the `config-sync` SessionStart hook, and layered over the server
   config per item `rootId` (hot-reloads, no restart). See `claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md` -> "Global vs Per-Project Config".
 - This repo's own `.taskorchestrator/config.yaml` is git-tracked dogfood config and doubles as a living schema/trait example — it is delivered to the server per-root via the `config-sync` hook, not mounted as the global config. The actual global mount is the process-schema floor at `deploy/global-config/.taskorchestrator/` — agent-observation, session-retrospective, improvement-proposal, and container schemas only, shared across every project the server serves.
 

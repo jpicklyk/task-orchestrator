@@ -343,7 +343,7 @@ Illustrated: [Orchestrating a Run](https://jpicklyk.github.io/task-orchestrator/
 | **Notes** | `manage_notes`, `query_notes` | Persistent phase-scoped documentation |
 | **Dependencies** | `manage_dependencies`, `query_dependencies` | Typed edges with pattern shortcuts (linear, fan-out, fan-in) and backlinks |
 | **Workflow** | `advance_item`, `get_next_status`, `get_context`, `get_next_item`, `get_blocked_items`, `claim_item` | Trigger-based transitions with gate enforcement, dependency validation, and atomic find-and-claim for multi-agent fleets |
-| **Project config** | `manage_project_config`, `manage_plan_documents` | Push per-project schema config and stash planning documents ahead of work item creation |
+| **Project config** | `config`, `manage_plan_documents` | Push, validate, roll back and inspect per-project schema config and rule text, and stash planning documents ahead of work item creation |
 
 Item IDs accept short hex prefixes: `itemId="a3f2"` works in place of a full UUID once the prefix is unambiguous. See the [API Reference](https://github.com/jpicklyk/task-orchestrator/wiki/api-reference) for every tool's parameters and response shapes.
 

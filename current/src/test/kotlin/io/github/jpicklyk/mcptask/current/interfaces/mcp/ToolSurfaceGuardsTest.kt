@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.api.Doc
+import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
+import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
@@ -301,7 +303,8 @@ class ToolSurfaceGuardsTest {
 
     // ------------------------------------------------------------------ S18
 
-    private val legacyTools = buildMcpTools()
+    // The production 3.x list is empty since Q21/Q23; the test-only 3.x drivers keep the guard checked against real names.
+    private val legacyTools = buildMcpTools() + listOf(AdvanceItemTool(), ClaimItemTool())
 
     @Test
     fun `S18 the fixture and production registries are disjoint from the 3x tools`() {
@@ -350,8 +353,8 @@ class ToolSurfaceGuardsTest {
     @Test
     fun `S18 a clash is found among several non-clashing registry tools`() {
         val fx = FixtureTools()
-        val clash = SelectToolSpec("query_rules", "Clash.", fx.readTool.selects)
+        val clash = SelectToolSpec("claim_item", "Clash.", fx.readTool.selects)
         val failure = assertFails { checkRegistryDisjoint(ToolRegistry(listOf(fx.readTool, fx.writeTool, clash)), legacyTools) }
-        assertTrue("query_rules" in failure.message.orEmpty(), failure.message)
+        assertTrue("claim_item" in failure.message.orEmpty(), failure.message)
     }
 }

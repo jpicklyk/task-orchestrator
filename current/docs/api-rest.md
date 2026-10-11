@@ -40,10 +40,10 @@ for missing notes, and fails open the same way when `TASK_ORCHESTRATOR_API_URL` 
 14. [Endpoints — Resource Leases](#14-endpoints--resource-leases)
 15. [Endpoints — Transitions (Audit)](#15-endpoints--transitions-audit)
 16. [Endpoints — Search](#16-endpoints--search)
-17. [Endpoints — Config / Schema Discovery](#17-endpoints--config--schema-discovery)
-18. [Endpoints — Project Config (Per-Root)](#18-endpoints--project-config-per-root)
+17. [Endpoints — Config JSON Schema](#17-endpoints--config-json-schema)
+18. [Project Config (Per-Root), moved to the `config` tool](#18-project-config-per-root-moved-to-the-config-tool)
 19. [Endpoints — Plan Documents (Per-Root)](#19-endpoints--plan-documents-per-root)
-19a. [Endpoints — Rules (Per-Root)](#19a-endpoints--rules-per-root)
+19a. [Rules (Per-Root), moved to the `config` tool](#19a-rules-per-root-moved-to-the-config-tool)
 20. [Endpoints — Service Meta](#20-endpoints--service-meta)
 20a. [Endpoints - Ops (RPC)](#20a-endpoints---ops-rpc)
 21. [Server-Sent Events (SSE)](#21-server-sent-events-sse)
@@ -185,7 +185,7 @@ Each token grants a set of additive capabilities:
 | `WRITE_NOTES` | `write-notes` | `POST /ops/notes_write` ops `upsert` and `delete` (checked per op by the dispatcher, section 20a) |
 | `ADVANCE` | `advance` | The `advance` tool's ops (`transition`, `claim`, `release`, `heartbeat`) through `POST /ops/advance`, and `items_write` `complete_tree` (orchestration profile) through `POST /ops/items_write` (section 20a) |
 | `MANAGE_DEPENDENCIES` | `manage-dependencies` | `POST /ops/deps_write` ops `create`, `delete`, `linear`, `fan_out` and `fan_in` (checked per op by the dispatcher, section 20a) |
-| `WRITE_CONFIG` | `write-config` | `PUT /roots/{rootId}/config`, `DELETE /roots/{rootId}/config`, `POST /roots/{rootId}/config/rollback`, `POST /ops/docs_write` ops `upsert`, `archive`, `unarchive`, `delete`, `attach` and `detach` (checked per op by the dispatcher, section 20a) |
+| `WRITE_CONFIG` | `write-config` | `POST /ops/config` ops `push`, `rollback` and `reset`, `POST /ops/docs_write` ops `upsert`, `archive`, `unarchive`, `delete`, `attach` and `detach` (checked per op by the dispatcher, section 20a) |
 | `ADMIN` | `admin` | Implies all of the above; unlocks attribution fields in responses |
 
 **`ADMIN` unlocks:** When a caller has `ADMIN`, note and transition `actor`/`verification` fields are included in responses (subject to `API_REDACT_*` env flags). Non-admin callers always receive `null` for these fields.
@@ -261,33 +261,17 @@ tag-scoped callers is gone.
 
 ### Config ETags
 
-Config/schema endpoints (`/config`, `/config/schemas`, etc.) use a fingerprint-based ETag:
-- Format: `"cfg-<fingerprint>"` where fingerprint is the SHA-256 hex digest of the stored SERVER config head (`"cfg-no-config"` when there is none), read from the database on every request. A boot-time `file-import` of the global config file stores the digest over the exact bytes of the file (normalized first — see below), so it is the value 3.x reported; editing the file does nothing until the next restart re-imports it, and a version another process appends to a shared database changes the ETag on the next request
-- Stable across reads when the config has not changed
-- `If-None-Match` → `304` when fingerprint matches
+Only `GET /config/schema` (§17) carries a config ETag: a strong validator over the published JSON Schema that changes
+exactly when the schema does. The `"cfg-<fingerprint>"`, `"cfg-v<version>"` and `"eff-<fingerprint>"` ETags and the
+`If-Match` / `If-None-Match` handling of the per-root config routes are retired together with those routes: config
+reads and writes are ops of the `config` tool (`POST /ops/config`, section 20a), where a write guards with
+`expectedVersion` (`version_conflict`) and a read always answers `200`.
 
-The per-root project config endpoints (§18, `/roots/{rootId}/config`) are versioned: every stored config
-version has an ETag of the form `"cfg-v<version>"` (for example `"cfg-v3"`), the per-root version number
-starting at 1. `GET`/`PUT`/`POST .../rollback` return the ETag of the version they report; `PUT` and
-`POST .../rollback` additionally accept `If-Match` for optimistic-concurrency writes (see §18). The pre-versioning
-form `"cfg-<fingerprint>"` (a SHA-256 over the stored `configYaml`'s UTF-8 bytes, see
-`SqliteConfigStore.computeFingerprint`) is still accepted in `If-Match` and `If-None-Match` on these routes, so
-a client holding an old ETag keeps working until the new envelope lands; such a legacy `If-Match` is compared
-against the head's fingerprint.
-
-A write whose `If-Match` is stale is rejected with `412` before the identical-content check: re-pushing the head's own content with a stale ETag is `412`, not an idempotent `200`.
-
-The per-root effective config endpoint (§18, `GET /roots/{rootId}/config/effective`) uses a DIFFERENT
-prefix, `"eff-<fingerprint>"`, where the fingerprint is a SHA-256 over BOTH layers' fingerprints (global
-and per-root), so it changes when either layer changes. It supports `If-None-Match` → `304` like the
-`cfg-` endpoints, but an `eff-` ETag is never accepted as a per-root config `If-Match`.
-
-**Normalization (both endpoints, identical rule):** before hashing, the config text has one leading
-UTF-8 BOM (U+FEFF) stripped if present, then every CRLF (`\r\n`) is replaced with LF (`\n`) — nothing
-else. The stored/served `configYaml` bytes are never rewritten; only the value fed into the SHA-256
-hash is normalized. This means a CRLF/BOM checkout (e.g. `core.autocrlf=true` on Windows) of
-byte-identical content produces the same fingerprint/ETag as an LF, BOM-less checkout. See
-`infrastructure/security/Sha256Hex.kt`'s `configFingerprint` for the canonical implementation.
+**Normalization of config text:** before hashing, the config text has one leading UTF-8 BOM (U+FEFF) stripped if
+present, then every CRLF (`\r\n`) is replaced with LF (`\n`) - nothing else. The stored/served `configYaml` bytes
+are never rewritten; only the value fed into the SHA-256 fingerprint is normalized. A CRLF/BOM checkout (e.g.
+`core.autocrlf=true` on Windows) of byte-identical content therefore produces the same fingerprint as an LF, BOM-less
+checkout. See `infrastructure/security/Sha256Hex.kt`'s `configFingerprint` for the canonical implementation.
 
 ---
 
@@ -299,7 +283,7 @@ tools served at `POST /api/v1/ops/{tool}` (`items_write`, `notes_write`, `deps_w
 `idempotencyKey` instead, recorded per `(principal, tool, key)` for 24 hours (section 20a); an `Idempotency-Key` header on
 `/ops` is `400 invalid_request`.
 
-- Every write route bounds its body read to a fixed byte limit BEFORE buffering it: a `Content-Length` over the limit is rejected with `413 payload_too_large` before any bytes are touched, and a chunked/understated-`Content-Length` body is caught by a channel read capped at `limit + 1` bytes, so an oversized body is never buffered in full either way. `POST /api/v1/ops/{tool}` has a 1 MiB limit (its `payload_too_large` is an envelope error, section 20a); `PUT /roots/{rootId}/config` (128 KiB) keeps its existing numeric limit, enforced at the same pre-buffer point; a `docs_write` document body is capped by the document service instead (section 6). See §6 for the legacy `payload_too_large` error shape.
+- Every write route bounds its body read to a fixed byte limit BEFORE buffering it: a `Content-Length` over the limit is rejected with `413 payload_too_large` before any bytes are touched, and a chunked/understated-`Content-Length` body is caught by a channel read capped at `limit + 1` bytes, so an oversized body is never buffered in full either way. `POST /api/v1/ops/{tool}` has a 1 MiB limit (its `payload_too_large` is an envelope error, section 20a); a `docs_write` document body is capped by the document service instead (section 6). See §6 for the legacy `payload_too_large` error shape.
 
 ---
 
@@ -336,10 +320,9 @@ other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability
 | `bad_request` | 400 | Missing or malformed path/query parameter |
 | `validation_error` | 400 | Invalid field value or deserialization failure (`ErrorDto` body); or (SSE-specific, `error_description` body) `GET /api/v1/events` was called with a `?root=` query parameter that yields no valid UUID (see §21) |
 | `not_found` | 404 | Item, note, or dependency not found |
-| `rule_not_found` | 404 | `GET /roots/{rootId}/rules/{key}` (§19a): the root resolves and is depth-0, but no `rule/<key>` plan document exists there — distinct from `not_found`, which covers an unknown `{rootId}` itself |
 | `scope_forbidden` | 403 | Item exists but is outside the caller's scope (see §3) |
 | `etag_mismatch` | 412 | `If-Match` header does not match current ETag |
-| `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /api/v1/ops/{tool}` is 1 MiB (an envelope error, section 20a); `PUT /roots/{rootId}/config` is 128 KiB. A document body written through `docs_write` is capped by the document service, not by a route limit: 65536 bytes, or 16384 for `kind` `rule` (a `payload_too_large` element), the single enforcement point `query_rules`/§19a rely on (see §18, §19, §19a). |
+| `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /api/v1/ops/{tool}` is 1 MiB (an envelope error, section 20a); a document body written through `docs_write` is capped by the document service, not by a route limit: 65536 bytes, or 16384 for `kind` `rule` (a `payload_too_large` element), the single enforcement point the `config` tool's `rules` op relies on (see §18, §19, §19a). |
 | `invalid_request` | 401 | `error_description` body. Missing `Authorization` header, a non-Bearer scheme, or an empty Bearer credential (also the SSE pre-flight when no header or allowed `?token=` is presented). Carries `WWW-Authenticate: Bearer error="invalid_request"`. |
 | `invalid_token` | 401 | `error_description` body. Unknown, expired, or otherwise invalid token (bearer or JWKS). Carries `WWW-Authenticate: Bearer error="invalid_token"`. |
 | `verification_failed` | 401 | Not currently reachable via REST — a JWT passing `ApiBearerAuth` is always `VERIFIED`, which every `degradedModePolicy` trusts. Reserved for the same audit-policy check used by MCP tool calls, where a self-reported actor under a degraded JWKS result can still be rejected. |
@@ -347,8 +330,8 @@ other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability
 | `insufficient_scope` | 403 | `error_description` body. A generic `requireCapability` check failed for the plugin's configured capability; (SSE-specific) a `GET /api/v1/events` connection presents a valid token that lacks the `read` capability (see §21); (SSE-specific) a `GET /api/v1/events` connection carries a `tags_include` scope but the route has no `WorkItemRepository` wired to filter by it -- fail-closed rather than serving an unfiltered stream; or (SSE-specific) a root-scoped principal's `?root=` values do not intersect its token's `scope.rootIds` -- the requested roots are entirely outside scope (see §21) |
 | `not_claim_holder` | 403 | Not an `ErrorDto` route error: the `advance` tool (`POST /ops/advance`, section 20a) returns it in its envelope for a `transition` on an item another actor holds, or a `release`/`heartbeat` of an item the caller does not hold. Claim ownership applies on REST as on MCP since 4.0 |
 | `internal` | 500 | An exception escaped a `/api/v1` route. The message is always `Internal server error`: the exception text is logged at ERROR and never returned. Produced by the REST safety net (see below) |
-| `config_unavailable` | 503 | Per-root config read failed (a transient database error) and there was no last-known-good cached config to serve for that root — transient, retryable; the caller applies its own backoff (no `Retry-After` header). Returned by `GET /roots/{rootId}/config/effective` (see §18). REST and the MCP tools now read per-root config through the same `EffectiveConfigResolver`/last-known-good cache (one shared instance, built once in `ServerComposition`) — a transient DB error on one surface is absorbed by a cache warmed by the other, so this error is rarer than it was when each surface kept its own cache. Exception: the `items_read` `context` select reads inside its preview's read unit; a unit has no last-known-good fallback, so on that select and in the `advance` tool (both answer the envelope error `unavailable`, `retryAfterMs` 1000 for `advance`) a read fault answers `unavailable` even when the cache is warm. |
-| `config_invalid` | 422 | A stored config head (the server head, or a root's) has no canonical form or cannot be decoded. Fail closed: the config is never treated as absent and never falls through to another layer. Returned by `/config*` and `GET /roots/{rootId}/config/effective` (item writes, the item schema view and the gate moved to `/ops/items_write` and `/ops/items_read`, which answer it in the 4.0 envelope; the gate is `items_read` `select: context`); permanent, a fresh config push restores the root. |
+| `config_unavailable` | 503 | Per-root config read failed (a transient database error) and there was no last-known-good cached config to serve for that root — transient, retryable. No REST route returns it any more: the config reads moved to `POST /ops/config` and the gate to `items_read` `select: context`, which answer the envelope error `unavailable` (`retryAfterMs` 1000) instead (section 20a). Both read inside a unit of work, which has no last-known-good fallback, so a read fault there answers `unavailable` even when the cache is warm. |
+| `config_invalid` | 422 | A stored config head (the server head, or a root's) has no canonical form or cannot be decoded. Fail closed: the config is never treated as absent and never falls through to another layer. No REST route returns it any more: item writes, the item schema view, the gate and the config reads moved to `/ops/items_write`, `/ops/items_read` (the gate is `select: context`) and `/ops/config`, which answer it in the 4.0 envelope; permanent, a fresh config push restores the root. |
 | `db_error` | 500 | A store fault: a read route responds `Database query failed` (or the route's own read text), a write route its existing text (e.g. `Failed to create item`). A store fault on a read is never reported as `404 not_found`; `404` means only that the row does not exist. |
 
 **One mapper, one safety net.** Every `ErrorDto` body is built by one mapper (`LegacyRestErrorMapper`): each
@@ -373,7 +356,7 @@ alike (including `401`), is the `req_id` of every `events` row the request wrote
 request's row in the `call_log` table. Only `/api/v1` and paths under `/api/v1/` are covered (not
 `/api/v10`). A `401` from the auth layer records its body's `error` code (`invalid_request`,
 `invalid_token`, ...) as the row's `error_code`; `http_<status>` is the fallback. The row's `tool` is
-the matched route template as declared (`GET /api/v1/roots/{rootId}/config`); a call that matched no route is
+the matched route template as declared (`POST /api/v1/ops/{tool}`); a call that matched no route is
 `<METHOD> /api/v1/<first segment>` for a served top-level resource, else `<METHOD> unmatched`. `principal_id`
 on REST rows is the authenticated API principal (`api:<tokenId>`); only MCP rows can carry a self-reported actor id (up to 500 characters, with `proof_status` distinguishing verified ids). `X-Req-Id` is in the default
 `CORS_EXPOSE_HEADERS`. See
@@ -574,6 +557,9 @@ See §6.
 
 ### Config DTOs
 
+These shapes are the members of the `effective` op's result (the `config` tool, `POST /ops/config`, section 20a;
+[api-reference.md](api-reference.md#config)). They are no longer returned by any REST route.
+
 **NoteSchemaEntryDto:**
 ```json
 {
@@ -588,8 +574,8 @@ See §6.
 ```
 
 `maxLength` (integer, optional) is present only when a maximum note-body length is configured for
-this entry; omitted otherwise. It appears wherever a `NoteSchemaEntryDto` is returned — `GET
-/config`, `/config/schemas`, `/config/schemas/{type}`, and `/config/traits`.
+this entry; omitted otherwise. It appears wherever a `NoteSchemaEntryDto` is returned: in the `effective` result's
+`schemas[].notes` and `traits[].notes`.
 
 **DispatchProfileDto:**
 ```json
@@ -616,17 +602,6 @@ returns. Declared per trait per phase under `traits.<name>.dispatch.<phase>:`; s
 
 `mode` is `"exclusive"` or `"advisory"`; `ttlSeconds` is present only when configured.
 
-**SchemaDto:**
-```json
-{
-  "type": "feature-task",
-  "lifecycleMode": "auto",
-  "hasReviewPhase": true,
-  "notes": [<NoteSchemaEntryDto>],
-  "defaultTraits": ["needs-security-review"]
-}
-```
-
 **TraitDto:**
 ```json
 {
@@ -639,22 +614,8 @@ returns. Declared per trait per phase under `traits.<name>.dispatch.<phase>:`; s
 
 `dispatch` (map of phase name to `DispatchProfileDto`, optional) and `resources` (array of
 `ResourceRequirementDto`, optional) are omitted from the JSON (never `null`) rather than an empty map/array when
-the trait declares neither. **Global config only:** every `/config*` route resolves against the
-server-wide schema service, not any per-root pushed config, so a per-root `dispatch`/`resources`
-override on a trait of the same name is not reflected here — resolve the per-root-aware value via
-`items_read(select="schema", itemId=...)` (MCP, or `POST /api/v1/ops/items_read`) instead; that path applies the item's own
-`rootId` automatically, so no `rootId` parameter is needed (or honored) there.
-
-**ConfigSnapshotDto:**
-```json
-{
-  "schemas": [<SchemaDto>],
-  "traits": [<TraitDto>],
-  "types": ["feature-task", "bug"],
-  "statusGraph": <StatusGraphDto>,
-  "defaultSchema": <SchemaDto>|null
-}
-```
+the trait declares neither. In the `effective` result a trait the per-root config declares is reported from the
+per-root entry alone (see `EffectiveConfigDto` below).
 
 **StatusGraphTypeDto:**
 ```json
@@ -683,7 +644,7 @@ Note: `"<previousRole>"` is a literal sentinel string — dashboards must resolv
 }
 ```
 
-**EffectiveSchemaDto** (see §18, `GET /roots/{rootId}/config/effective`):
+**EffectiveSchemaDto** (an element of the `effective` result's `schemas`):
 ```json
 {
   "type": "feature-task",
@@ -701,10 +662,10 @@ when a default schema resolved the miss). `configSource` is `"per-root"` or `"gl
 literal MCP `items_read(select="schema", ...)` uses. `configFingerprint` is the supplying
 layer's fingerprint, omitted when that layer has none.
 
-**EffectiveConfigDto** (see §18, `GET /roots/{rootId}/config/effective`):
+**EffectiveConfigDto** (the `effective` op's result, less the `ok` flag):
 ```json
 {
-  "rootId": "550e8400-e29b-41d4-a716-446655440000",
+  "rootId": "550e8400-e29b-41d4-a716-446655440000|null",
   "schemas": [<EffectiveSchemaDto>],
   "traits": [<TraitDto>],
   "types": ["bug", "feature-task"],
@@ -717,7 +678,8 @@ layer's fingerprint, omitted when that layer has none.
 Every registered type (the union of this root's per-root `work_item_schemas` keys and the global
 schema service's keys) resolved against `{rootId}`'s LAYERED config in one response — the same
 per-root/global view `EffectiveConfigResolver` and MCP `items_read(select="schema", type=K, rootId=R)`
-already compute, surfaced as one REST resource instead of requiring a dashboard to probe per type.
+already compute, surfaced as one result instead of requiring a dashboard to probe per type. `rootId` is omitted
+for the server-only view (`effective` without a `rootId`).
 `types` lists every schema key (per-root and global, ascending natural `String` order) that
 resolves to a schema for this root, and `schemas` follows that same order — `types` always equals
 the `type` values of `schemas`. Each key resolves by the one precedence rule (per-root exact type,
@@ -729,63 +691,8 @@ is skipped. `globalFingerprint`/`perRootFingerprint` are omitted when null (no g
 entry, omitted when no layer defines one. A trait the per-root config declares is reported from the
 per-root entry alone (notes, dispatch and resources together; a dimension it does not declare is
 empty). The `schemaResolution` field was removed in 4.0 (the 3.x `schema_resolution` modes are
-gone). Distinct from `ConfigSnapshotDto` (GLOBAL-only, `/config`) and the
-raw stored YAML `GET /roots/{rootId}/config` returns — this route performs no trait merging (same
-as `SchemaDto`/the MCP type-path): it reports each type's RESOLVED BASE schema only.
-
-**ProjectConfigResponseDto** (see §18):
-```json
-{
-  "rootId": "550e8400-e29b-41d4-a716-446655440000",
-  "fingerprint": "e3b0c44298fc1c14...",
-  "updatedAt": "2026-07-15T19:00:00Z",
-  "configYaml": "work_item_schemas:\n  ...",
-  "warning": "string|null",
-  "relation": "current|superseded|unknown|null",
-  "schemaWarnings": ["Schema 'feature-task': required note 'spec' (role 'work') is not owned by any declared seat; listed under 'unowned' in missingBySeat"]
-}
-```
-`configYaml` is populated on `GET` only (omitted on `PUT`). `warning` is populated only when the
-root's `type` is not `"project"` (non-fatal — the push still succeeds). `relation` is populated on
-`GET` only, and only when `?fingerprint=` was supplied — see §18. `schemaWarnings` is populated on
-`PUT` only, and only for advisory findings (a resource key declared by three or more traits, a required
-note no declared seat owns) — omitted entirely when empty; the push still succeeds and the config is
-still stored regardless of `schemaWarnings`. The 3.x `ignoredSections` field was removed in 4.0: a key
-the per-root layer does not honor is now rejected, not ignored. See §18 and the
-[config reference](config-reference.md).
-
-**RuleResponseDto** (see §19a) — §19a's per-key rule read; mirrors the MCP `query_rules` tool's
-`get` data payload minus `resolvedFrom` (REST has no item/skill-pointer mode):
-```json
-{
-  "rootId": "550e8400-e29b-41d4-a716-446655440000",
-  "key": "commit-discipline",
-  "rulesVersion": "e3b0c44298fc1c14...",
-  "body": "string"
-}
-```
-`rulesVersion` is the backing rule document's `contentHash` (same value
-`docs_read` reports for `kind` `rule`, slug `<key>`). `body` is served
-byte-for-byte as stored.
-
-**RuleSummaryDto** — one row of `RuleListResponseDto.rules` (see §19a); metadata only, never the
-body:
-```json
-{
-  "key": "commit-discipline",
-  "rulesVersion": "e3b0c44298fc1c14...",
-  "updatedAt": "2026-09-28T13:00:00Z"
-}
-```
-
-**RuleListResponseDto** (see §19a):
-```json
-{
-  "rootId": "550e8400-e29b-41d4-a716-446655440000",
-  "rules": [<RuleSummaryDto>]
-}
-```
-`rules` is ordered by `key` ascending.
+gone). It performs no trait merging (same as the MCP
+`items_read(select="schema")` type path): it reports each type's RESOLVED BASE schema only.
 
 ### Resource lease items (see section 14)
 
@@ -1091,265 +998,46 @@ capping. Fields and the hit shape are in `api-reference.md` -> `items_read`.
 
 ---
 
-## 17. Endpoints — Config / Schema Discovery
-
-All require `READ`. All config endpoints emit a fingerprint-based ETag (`"cfg-<fingerprint>"`) and support `If-None-Match` → `304 Not Modified`.
-
-These endpoints describe the **global** config only. For what a specific project root actually resolves to (its per-root config layered over the global one), use `GET /roots/{rootId}/config/effective` (§18).
-
-### GET /config
-
-Full config snapshot: all schemas, traits, types, and the status-transition graph.
-
-**Response:** `200 OK` → `ConfigSnapshotDto`
-
-### GET /config/schemas
-
-All schema definitions.
-
-**Response:** `200 OK` → `List<SchemaDto>`
-
-### GET /config/schemas/{type}
-
-Single schema by type name.
-
-**Responses:**
-- `200 OK` → `SchemaDto`
-- `404 not_found` — unknown type
-
-### GET /config/traits
-
-All trait definitions.
-
-**Response:** `200 OK` → `List<TraitDto>`
-
-### GET /config/types
-
-Sorted list of registered type name strings.
-
-**Response:** `200 OK` → `List<String>`
+## 17. Endpoints — Config JSON Schema
 
 ### GET /config/schema
 
-The JSON Schema (draft 2020-12) every config document is validated against, byte for byte.
+The JSON Schema (draft 2020-12) every config document is validated against, byte for byte. Requires `READ`.
 
 **Response:** `200 OK`, `Content-Type: application/schema+json`, the schema document itself (not an
 envelope), with a strong `ETag` that changes exactly when the schema does; `If-None-Match` with that ETag
-returns `304`. Same capability as the other `/config*` reads. See the [config reference](config-reference.md).
+returns `304`. See the [config reference](config-reference.md).
 
-### GET /config/status-graph
-
-Structural role-transition graph across all schema types, derived from the transition table the
-advance policy uses (one cell per role and user trigger; an invalid cell is omitted).
-
-**Response:** `200 OK` → `StatusGraphDto`
-
-See §23 for the important caveat about what the status graph does and does not reflect.
+It is the only config route. `GET /config`, `/config/schemas`, `/config/schemas/{type}`, `/config/traits`,
+`/config/types` and `/config/status-graph` are gone (they answer `404`): `effective` without a `rootId` returns the
+same server-set view (schemas, traits, types and status graph) from the `config` tool, section 20a.
 
 ---
 
-## 18. Endpoints — Project Config (Per-Root)
+## 18. Project Config (Per-Root), moved to the `config` tool
 
-Per-root config YAML documents pushed by a client (or the fail-open SessionStart config-sync hook,
-in a later phase) and layered over the global `.taskorchestrator/config.yaml` on every
-schema-resolving read — see [`ConfigService`](../src/main/kotlin/io/github/jpicklyk/mcptask/current/application/service/ConfigService.kt)
-and the MCP `manage_project_config` tool, which share the exact same validate-then-persist
-pipeline as these routes (both converge on identical DB state for the same payload).
+`GET`, `PUT` and `DELETE /roots/{rootId}/config`, `GET /roots/{rootId}/config/history`,
+`POST /roots/{rootId}/config/rollback` and `GET /roots/{rootId}/config/effective` are gone (they answer `404`). Their
+replacements are ops of the `config` tool, called as `POST /api/v1/ops/config` (section 20a) and over MCP:
 
-**Versioned store.** A root's config is a sequence of immutable versions (`config_versions`, numbered 1, 2, ...
-per root) plus a head pointer; a push appends the next version and moves the head, a rollback appends a copy of an
-older version, and `DELETE` appends an empty *reset* version. Nothing is ever overwritten or deleted, so
-`GET .../config/history` shows every change. Each version records its `source` (`push`, `file-import` (the boot import of the mounted global file, which lands on the SERVER scope, or on the root named by its `project.rootId`), `migration`,
-`rollback`, `reset`), the pushing principal and request id, and the soft parse warnings the push produced. A
-reset head reads as "no config": `GET` (without `?version=`) answers `404` and schema resolution falls through to
-the global layer, exactly as for a root that never had a config.
+| Removed route | `config` op |
+|---|---|
+| `GET /roots/{rootId}/config[?version=&fingerprint=]` | `get` |
+| `PUT /roots/{rootId}/config[?force=]` | `push` (`force`, `expectedVersion` replace `?force=` and `If-Match`) |
+| `DELETE /roots/{rootId}/config` | `reset` (a root with no config, or one already reset, now answers `appended: false` instead of `404`) |
+| `GET /roots/{rootId}/config/history[?limit=&before=]` | `history` |
+| `POST /roots/{rootId}/config/rollback` | `rollback` (`expectedVersion` replaces `If-Match`) |
+| `GET /roots/{rootId}/config/effective` | `effective` |
+| none | `validate` (a dry run of `push`) |
 
-All verbs additionally require `ApiScope.rootIds` (when scoped) to contain `{rootId}` —
-`403 scope_forbidden` otherwise. `{rootId}` must be a depth-0 WorkItem UUID.
+Capabilities: `get`, `history`, `validate`, `effective` and `rules` need `read`; `push`, `rollback` and `reset` need
+`write-config`; the dispatcher checks each element. The scope check runs on `rootId` first, so a root outside the
+caller's scope is `forbidden`, not `not_found`. Status mapping of an element error follows the envelope table in
+section 20a: `config_invalid` is `422`, `version_conflict` `409`, `payload_too_large` `413`, `not_found` `404`.
 
-### PUT /roots/{rootId}/config
-
-Validates and stores raw `configYaml` for `{rootId}`. Requires `WRITE_CONFIG`.
-
-**Request body:** raw YAML text (`Content-Type: application/yaml` or `text/plain`); max 128 KiB.
-
-**Query parameter:** `force` (boolean, default `false`) - set `?force=true` to bypass push guards;
-skips both the embedded `project.rootId` mismatch check (guard 5 below) and the fast-forward
-fingerprint guard (guard 6 below). It does NOT skip guard 7 (`If-Match`) - an explicit
-compare-and-set precondition the caller supplied for this request is still enforced even under
-`?force=true`.
-
-**Validation pipeline (in order, stops at first failure - nothing is written on failure):**
-1. Body size <= 128 KiB
-2. `{rootId}` resolves to an existing WorkItem
-3. That WorkItem is depth-0 (configs anchor to project roots only)
-4. `configYaml` parses under a `SafeConstructor` YAML load (rejects `!!`-tagged arbitrary Java
-   type construction - CWE-502 - as well as ordinary syntax errors)
-5. Unless `?force=true`: if the parsed document embeds a top-level `project.rootId` that parses as
-   a UUID and differs from `{rootId}`, the push is rejected (an absent or non-UUID `project.rootId`
-   is not an error - the push proceeds as if it were absent)
-5a. The document is validated strictly (JSON Schema structure, the parser's former soft skips, and the
-   semantic rules; see the [config reference](config-reference.md)). Any error rejects the push as
-   `422 parse_error` with the errors in `details`. `?force=true` does not bypass this step.
-6. Unless `?force=true`: the incoming `configYaml`'s fingerprint is classified against `{rootId}`'s
-   stored versions, and
-7. optional `If-Match` (see below) is compared against `{rootId}`'s head -
-
-   guards 6 and 7 are evaluated **atomically with the write itself**, inside the SAME write unit that
-   appends the version: both guards read the head once, decide, and the append applies to that SAME head,
-   closing the read-then-write race a separate guard-read followed by a separate write would leave open.
-   Guard 6 rejects a fingerprint that is **superseded** (held by an earlier version of the current epoch, or
-   by the pre-versioning fingerprint history of a migrated root), since writing it would silently revert a
-   later push made from elsewhere; **current** (the head's own content) and **unknown** (divergent edit, or no
-   config yet) both proceed. A reset starts a new epoch: after a `DELETE`, content from before the reset is
-   *unknown* again, not superseded. Guard 7 rejects a supplied `If-Match` that does not match the head AT THE
-   POINT the append would occur; `If-Match` is ignored when no head exists yet (a first push is a create with
-   nothing to compare against). `If-Match` takes `"cfg-v<n>"` (compared against the head's version) or the
-   legacy `"cfg-<fingerprint>"` (compared against the head's fingerprint); any other value never matches.
-
-**Identical re-push.** A body whose fingerprint equals the head's appends nothing: no new version, no event,
-`200 OK` with the head's own `version`, ETag and `"appended": false`.
-
-**Strict validation (4.0).** A pushed document may carry only the keys a per-root config owns:
-`work_item_schemas`, `note_schemas`, `traits`, `project`, `note_limits`, `status_labels`, `independence` and
-`extensions` (an opaque mapping of namespaces for plugin and hook settings, for example
-`extensions.claude-code`). Anything else is an error, not an ignored key: the server-only `resources` and
-`actor_authentication`, the removed `schema_resolution`, the 3.x top-level plugin sections (`orchestration`,
-`retrospective`, `actor_attribution`; move them under `extensions.claude-code`), and every unknown key. A
-trait or resource the document references must exist in the document or in the server config. Documents
-already stored from 3.x keep loading; only a new push is strict. The rejection lists every problem as an
-RFC 6901 `path` plus a `reason`; see the [config reference](config-reference.md).
-
-**Responses:**
-- `200 OK` -> `ProjectConfigResponseDto` (no `configYaml` field on this verb; `version` is the head
-  version after the push and `appended` is `false` for an identical re-push; `schemaWarnings`
-  present only when non-empty). `schemaWarnings` carries advisory findings only (resource fan-out, a
-  required note no seat owns) - the push still succeeds and the config is still stored when they are
-  present. `ETag: "cfg-v<version>"`
-- `404 not_found` - `{rootId}` does not resolve to an existing WorkItem
-- `422 validation_error` - `{rootId}` is not depth-0
-- `422 parse_error` - `configYaml` failed SafeConstructor parse-validation, or failed strict
-  validation. For validation, `details` is `{"errors": [{"path": "/orchestration", "reason": "..."}],
-  "warnings": [...]}` (`warnings` only when non-empty; `path` is an RFC 6901 JSON Pointer, the root is
-  `""`) and nothing is stored. A structural seat error carries its one error in `details.errors` too.
-- `422 rootid_mismatch` - `configYaml` embeds a `project.rootId` differing from `{rootId}` (message
-  names both ids); retry with `?force=true` to bypass
-- `409 superseded` - `configYaml`'s fingerprint is known-old (guard 6 above); message names the
-  head version's creation time (`updatedAt`); retry with `?force=true` to overwrite anyway. Distinct from
-  `412 etag_mismatch` below - this is a known-old-**content** guard, not a concurrent-write guard.
-- `412 etag_mismatch` - `If-Match` supplied and mismatched against an EXISTING head AT THE POINT
-  the append would occur (guard 7 above; a first push to a root with no prior version ignores
-  `If-Match` - there is nothing to match yet); response carries a refreshed `ETag` header for the
-  head's actual current version
-- `413 payload_too_large` - body exceeds 128 KiB; enforced before the body is fully buffered (see §5)
-- `403 scope_forbidden` - capability present but `{rootId}` outside token scope
-- `500 db_error` - a repository failure surfaces here rather than silently skipping a guard -
-  guard evaluation is fail-closed, not fail-open. The append runs once inside its unit of
-  work (single writer), so there is no compare-and-set retry budget to exhaust. SQLITE_BUSY is
-  retried by the unit; a BUSY that outlasts the unit deadline is reported like any other store
-  fault, as `500 db_error` with `Failed to store project config` (not `unavailable`)
-
-### GET /roots/{rootId}/config
-
-Reads back the stored config for `{rootId}`: the head version, or a specific version. Requires `READ`.
-
-**Query parameters:**
-- `version` (optional integer >= 1) — return that exact version instead of the head. A reset version is
-  returned with an empty `configYaml`. A non-integer or `< 1` value is `400 bad_request`; an unknown version
-  is `404 not_found`.
-- `fingerprint` (optional, SHA-256 hex digest) — when supplied, classifies it against `{rootId}`'s stored
-  versions and adds a `relation` field (`"current"|"superseded"|"unknown"`) to the response body. Omitted
-  entirely when the query parameter is absent.
-
-**Responses:**
-- `200 OK` → `ProjectConfigResponseDto` (includes `configYaml`, plus the additive `version` and `source` of the
-  returned version); `ETag: "cfg-v<version>"`
-- `304 Not Modified` — `If-None-Match` matches `"cfg-v<version>"` or the legacy `"cfg-<fingerprint>"` of the
-  returned version
-- `404 not_found` — no config has ever been pushed for `{rootId}`, or its head is a reset (without
-  `?version=`), or the requested version does not exist (the WorkItem itself is not validated to exist —
-  mirrors the MCP tool's `get` semantics)
-
-### DELETE /roots/{rootId}/config
-
-Resets the config of `{rootId}`: appends an empty version with `source: "reset"` and moves the head to it.
-History is kept in full — every earlier version stays readable with `GET ...?version=N`, can be rolled back to,
-and appears in `GET .../config/history`. After a reset the root resolves exactly as one that never had a config.
-Requires `WRITE_CONFIG`. Records `config.version_created`.
-
-**Responses:**
-- `204 No Content` — reset
-- `404 not_found` — `{rootId}` had no config, or its head is already a reset (nothing written)
-
-### GET /roots/{rootId}/config/history
-
-Lists the stored versions of `{rootId}`'s config, newest first. Requires `READ`. A read view: a root without
-any config (or an unknown root) answers `200` with an empty `versions` array and no `headVersion`.
-
-**Query parameters:** `limit` (optional integer 1..200, default 50; anything else `400 validation_error`),
-`before` (optional integer, exclusive upper bound on the version, for paging; non-integer `400 bad_request`).
-
-**Responses:**
-- `200 OK` → `ConfigHistoryResponseDto` — `{ rootId, headVersion, versions[] }` where each entry is a
-  `ConfigVersionSummaryDto` `{ version, fingerprint, source, createdAt, principalId?, warningsCount, canonical }`
-  (`canonical` is `false` only for a migrated version the `config-canonicalize` upgrade step has not filled yet).
-  Rollback and reset rows are included with their `source`; the YAML itself is never returned here — read it with
-  `GET ...?version=N`.
-
-### POST /roots/{rootId}/config/rollback
-
-Appends a copy of an earlier version as the new head (`source: "rollback"`). Requires `WRITE_CONFIG`.
-
-**Request body:** JSON `{"version": N}` (integer >= 1; max 4 KiB). Optional `If-Match` as for `PUT` (`"cfg-v<n>"`
-or the legacy fingerprint form, compared against the head).
-
-A target whose content equals the head's writes nothing and still answers `200` (`"appended": false`). A
-target whose canonical form is still missing (a migrated version) is canonicalized in the same unit. Records
-`config.version_created` when a version is appended.
-
-**Responses:**
-- `200 OK` → `ProjectConfigResponseDto` (no `configYaml`; `version` is the new head, `source`, `appended`);
-  `ETag: "cfg-v<version>"`
-- `400 bad_request` — body missing, not JSON, or `version` not an integer >= 1
-- `404 not_found` — no such version, or the root has no config at all
-- `412 etag_mismatch` — `If-Match` mismatched the head; carries a refreshed `ETag`
-- `403 scope_forbidden` — `{rootId}` outside token scope
-- `500 db_error` — repository failure
-
-### GET /roots/{rootId}/config/effective
-
-Additive route (AR-39/C5): every registered type resolved against `{rootId}`'s LAYERED
-(per-root-over-global) config in one response — the same view `EffectiveConfigResolver` and MCP
-`items_read(select="schema", type=K, rootId=R)` already compute. Distinct from `GET /config`
-(§17, GLOBAL-only) and `GET /roots/{rootId}/config` above (the RAW stored YAML): this route reports
-the RESOLVED base schema per type, with no trait merging — same as `SchemaDto`/the MCP type-path.
-Purely additive: no existing `/config*` or `/roots/{rootId}/config` route, body, or ETag changes.
-Requires `READ`.
-
-**Authorization/validation order:** `READ` capability → parse `{rootId}` as a UUID (`400
-bad_request` on failure) → `ApiScope.rootIds` scope check (`403 scope_forbidden`) → root WorkItem
-exists (`404 not_found`) → root is depth-0 (`422 validation_error`) → exactly one per-root config
-read, wrapped in the `config_unavailable` 503 envelope (see §6) — see §4/§5's note above on the shared REST/MCP cache.
-
-**Responses:**
-- `200 OK` → `EffectiveConfigDto`; `ETag: "eff-<fingerprint>"` — a composite fingerprint over
-  BOTH layers (`"eff-" + sha256Hex("global:" + (globalFingerprint ?: "-") + "\nper-root:" +
-  (perRootFingerprint ?: "-"))`), distinct from `/config*`'s and `/roots/{rootId}/config`'s
-  `"cfg-"` prefix so an effective ETag can never be mistaken for a per-root-config `If-Match`
-  fingerprint value
-- `304 Not Modified` — `If-None-Match` matches the current effective ETag
-- `400 bad_request` — `{rootId}` is missing or not a valid UUID
-- `403 scope_forbidden` — capability present but `{rootId}` outside token scope
-- `404 not_found` — `{rootId}` does not resolve to an existing WorkItem
-- `422 validation_error` — `{rootId}` resolves to a WorkItem that is not depth-0
-- `500 db_error` — the root-lookup read itself failed with a repository error other than
-  not-found (a transient DB failure surfaces here, distinct from the 404 case above)
-- `503 config_unavailable` — the per-root config read failed and there was no last-known-good
-  cached config for `{rootId}` (see §6); transient, no `Retry-After` header
-
-The response body has no `schemaResolution` field (removed in 4.0). Every type resolves by one
-precedence rule: per-root exact type, then global exact type, then per-root `default`, then global
-`default`. See `EffectiveConfigDto` above for the full response shape.
+The shapes of the ops, the push pipeline, the strict validation, the fast-forward guard (now `version_conflict`) and
+the last-known-good behavior are documented once, in [api-reference.md](api-reference.md#config) and the
+[config reference](config-reference.md).
 
 ---
 
@@ -1372,63 +1060,13 @@ caller's root and tag scope on `rootId`. See `api-reference.md` (`docs_read`, `d
 
 ---
 
-## 19a. Endpoints — Rules (Per-Root)
+## 19a. Rules (Per-Root), moved to the `config` tool
 
-Read-only REST counterpart of the MCP `query_rules` tool's DIRECT (`rootId`+`key`) lookup -- git-
-tracked, client-neutral operating rules (the blind-authorship protocol, commit discipline,
-forbidden test patterns, review scoping, and so on), stored as `rule` documents (§19)
-and served here verbatim. Both surfaces converge on the same `RuleService` -- a pure read-only view
-over the same rule documents `docs_write` writes, so
-MCP and REST always agree on `rulesVersion` (the backing document's `contentHash`) and `body` for
-the same key. REST has **no item/skill-pointer mode** -- that mode resolves an item's effective
-(trait-merged) schema, which REST config-adjacent routes never read; use the MCP `query_rules` tool
-with `itemId`+`noteKey` for skill-pointer resolution.
-
-All verbs require `ApiScope.rootIds` (when scoped) to contain `{rootId}` -- `403 scope_forbidden`
-otherwise. `{rootId}` must resolve to an existing, depth-0 WorkItem. `{key}` must match the rule-key
-grammar `^[a-z0-9][a-z0-9._-]{0,99}$` -- lowercase alphanumeric, `.`, `_`, `-`; starting
-alphanumeric; max 100 characters; never `/`, uppercase, or `:` (see §8's `RuleResponseDto`). The
-route takes the BARE key, not a `rule/`-prefixed slug -- the server derives the `rule/<key>` slug
-internally; writing or reading the underlying document directly goes through `docs_write` and `docs_read` with
-`kind` `rule` and the bare key as `slug` (§19).
-
-**Validation/authorization order** (mirrors `EffectiveConfigRoutes`'s documented order, §18):
-parse `{rootId}` as a UUID (`400 bad_request`) → parse/validate `{key}` grammar, `{key}` route
-only (`400 bad_request`) → `enforceScopeForItem` (`403 scope_forbidden`) → root WorkItem exists
-(`404 not_found`) → root is depth-0 (`422 validation_error`) → `rule/<key>` document exists,
-`{key}` route only (`404 rule_not_found`) → `200 OK`. A repository failure at any read step is
-`500 db_error`.
-
-### GET /roots/{rootId}/rules/{key}
-
-Reads back one rule's body and `rulesVersion`. Requires `READ`.
-
-**Responses:**
-- `200 OK` → `RuleResponseDto`
-- `400 bad_request` — `{rootId}` is missing or not a valid UUID, or `{key}` fails the rule-key
-  grammar
-- `403 scope_forbidden` — capability present but `{rootId}` outside token scope
-- `404 not_found` — `{rootId}` does not resolve to an existing WorkItem
-- `422 validation_error` — `{rootId}` resolves to a WorkItem that is not depth-0
-- `404 rule_not_found` — `{rootId}` is a valid depth-0 root, but no `rule/{key}` document exists
-  there
-- `500 db_error` — the root-lookup or document read itself failed with a repository error
-
-### GET /roots/{rootId}/rules
-
-Lists `{key, rulesVersion, updatedAt}` for every valid rule key under `{rootId}`, sorted by key
-ascending, never the body. A `rule/<key>` document whose key fails the grammar (writable via
-`docs_write`, which does not itself enforce it, but never served here) is silently
-excluded, as are non-`rule/` slugs. `status` (`pending` vs `adopted`) is ignored -- both are listed.
-Requires `READ`.
-
-**Responses:**
-- `200 OK` → `RuleListResponseDto`
-- `400 bad_request` — `{rootId}` is missing or not a valid UUID
-- `403 scope_forbidden` — capability present but `{rootId}` outside token scope
-- `404 not_found` — `{rootId}` does not resolve to an existing WorkItem
-- `422 validation_error` — `{rootId}` resolves to a WorkItem that is not depth-0
-- `500 db_error` — the root-lookup or list read itself failed with a repository error
+`GET /roots/{rootId}/rules` and `GET /roots/{rootId}/rules/{key}` are gone (they answer `404`). The `config` tool's
+`rules` op serves the same git-tracked rule text (`rule` documents, `kind` `rule` and slug `<key>`,
+written through `docs_write`): `rootId` lists keys, `rootId` with `key` reads
+one rule, and `itemId` with `noteKey` follows a note's skill pointer (now also available on REST). An absent rule is
+`not_found` kind `document`, no longer the `rule_not_found` code. See [api-reference.md](api-reference.md#config).
 
 ---
 
@@ -1461,7 +1099,7 @@ fault answers `503 config_unavailable`; `/health` never reads it.
 can serve, **unconditionally** — regardless of whether the resolved config for any given root
 actually declares `seats:`/`independent_of:`. `"independent_of"` (A2) joined this list once the
 independence attestation gate started enforcing it, and `"rules"` (A3) advertises the per-root
-rule text served by §19a — see [api-reference.md](api-reference.md)
+rule text served by the `config` tool's `rules` op (§19a) — see [api-reference.md](api-reference.md)
 → "Server feature advertisement" for the full rationale and the current list.
 
 ### GET /api/v1/health
@@ -1730,7 +1368,7 @@ caller capability tier, or admin status, because there is no attribution-bearing
 
 ## 23. Status-Graph Caveat
 
-`GET /config/status-graph` returns the **structural** (schema-defined) transition graph — which triggers are valid for each role per type.
+The `statusGraph` member of the `config` tool's `effective` result is the **structural** (schema-defined) transition graph — which triggers are valid for each role per type.
 
 This graph does NOT reflect:
 - Runtime gate enforcement (note gates — required notes that must be filled before `start` succeeds)
@@ -1742,10 +1380,9 @@ Dashboard UI: do not use the status graph to pre-compute which buttons to enable
 
 The `"<previousRole>"` sentinel in `blocked.resume` is a literal string — resolve it from the live item's `previousRole` field.
 
-This same caveat applies to the `statusGraph` field `GET /roots/{rootId}/config/effective` (§18)
-returns: it is built by the same status-graph construction over that root's resolved schema set, so
-it is equally structural-only — it does not reflect note gates, dependency blockers, claim
-ownership, or per-item lifecycle exceptions for `{rootId}`'s items either.
+The graph of a rooted `effective` call is built over that root's resolved schema set, so it is equally structural-only: it does
+not reflect note gates, dependency blockers, claim ownership, or per-item lifecycle exceptions for the root's items
+either.
 
 ---
 

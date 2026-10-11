@@ -1,32 +1,22 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
-import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.WRITE_TOKEN
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureProjectConfigTestApp
+import io.github.jpicklyk.mcptask.current.test.callTool
+import io.github.jpicklyk.mcptask.current.test.errorAt
 import io.github.jpicklyk.mcptask.current.test.get
+import io.github.jpicklyk.mcptask.current.test.results
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
-import io.ktor.client.request.header
-import io.ktor.client.request.put
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
-import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import org.junit.jupiter.api.io.TempDir
@@ -46,11 +36,9 @@ import kotlin.test.assertTrue
  *
  * Harness: the GLOBAL half mirrors [GlobalConfigStartupFailClosedTest] (a real
  * `.taskorchestrator/config.yaml` under a temp `AGENT_CONFIG_DIR`, loaded via a real
- * [ServerComposition.build]). The PUSH half mirrors [ManageProjectConfigToolSchemaWarningsTest]
- * (MCP `manage_project_config` push via a real SQLite-backed [ToolExecutionContext]) and
- * `ProjectConfigRoutesTest` (REST `PUT /api/v1/roots/{rootId}/config` via the real
- * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureProjectConfigTestApp] /
- * `projectConfigRoutes`) -- never a hand-built replica of either surface.
+ * [ServerComposition.build]). The PUSH half pushes through the `config` tool (a real SQLite-backed
+ * [ToolExecutionContext]); a rejected push is a `config_invalid` element error (the REST route halves of Q22 and earlier
+ * moved to `POST /api/v1/ops/config`, which the production parity scenarios cover) -- never a hand-built replica.
  */
 class SeatConfigLoadFailClosedTest {
     @RegisterExtension
@@ -83,45 +71,51 @@ class SeatConfigLoadFailClosedTest {
         return ToolExecutionContext(repo, unitOfWork = db.unitOfWork()) to rootId
     }
 
+    private fun configCall(op: JsonObject): JsonObject = buildJsonObject { put("ops", buildJsonArray { add(op) }) }
+
     private fun push(
         context: ToolExecutionContext,
         rootId: String,
         yaml: String,
-    ): JsonElement =
+    ): JsonObject =
         runBlocking {
-            ManageProjectConfigTool(YamlConfigDocumentParser).execute(
-                JsonObject(
-                    mapOf(
-                        "operation" to JsonPrimitive("push"),
-                        "rootId" to JsonPrimitive(rootId),
-                        "configYaml" to JsonPrimitive(yaml),
-                    ),
+            context.callTool(
+                "config",
+                configCall(
+                    buildJsonObject {
+                        put("op", "push")
+                        put("rootId", rootId)
+                        put("configYaml", yaml)
+                    },
                 ),
-                context,
             )
         }
 
     private fun get(
         context: ToolExecutionContext,
         rootId: String,
-    ): JsonElement =
+    ): JsonObject =
         runBlocking {
-            ManageProjectConfigTool(YamlConfigDocumentParser).execute(
-                JsonObject(
-                    mapOf(
-                        "operation" to JsonPrimitive("get"),
-                        "rootId" to JsonPrimitive(rootId),
-                    ),
+            context.callTool(
+                "config",
+                configCall(
+                    buildJsonObject {
+                        put("op", "get")
+                        put("rootId", rootId)
+                    },
                 ),
-                context,
             )
         }
 
-    private fun isSuccess(result: JsonElement): Boolean = (result as JsonObject)["success"]!!.jsonPrimitive.boolean
+    private fun isSuccess(result: JsonObject): Boolean = result.results()[0]["ok"]!!.jsonPrimitive.content == "true"
 
-    private fun errorOf(result: JsonElement): JsonObject = (result as JsonObject)["error"] as JsonObject
+    private fun errorOf(result: JsonObject): JsonObject = result.errorAt(0)
 
-    private fun dataOf(result: JsonElement): JsonObject = (result as JsonObject)["data"] as JsonObject
+    /** The `detail.errors` violations of a `config_invalid` element error. */
+    private fun violationsOf(result: JsonObject): List<JsonObject> =
+        errorOf(result)["detail"]!!.jsonObject["errors"]!!.jsonArray.map { it.jsonObject }
+
+    private fun dataOf(result: JsonObject): JsonObject = result.results()[0]
 
     // ─── S3 -- two enters:true in one phase ─────────────────────────────────
 
@@ -191,44 +185,20 @@ class SeatConfigLoadFailClosedTest {
     }
 
     @Test
-    fun `S3 push of two enters true seats in one list is rejected as VALIDATION_ERROR via MCP and stores nothing`() {
+    fun `S3 push of two enters true seats in one list is rejected as config_invalid and stores nothing`() {
         val (context, rootId) = buildContext()
 
         val result = push(context, rootId.toString(), twoEntersOneList)
 
         assertTrue(!isSuccess(result), "push must be rejected: $result")
-        assertEquals(ErrorCodes.VALIDATION_ERROR, errorOf(result)["code"]!!.jsonPrimitive.content)
-        val message = errorOf(result)["message"]!!.jsonPrimitive.content
-        assertTrue(message.contains("work"), "N4: the rejection message must name phase 'work': $message")
+        assertEquals("config_invalid", errorOf(result)["code"]!!.jsonPrimitive.content)
+        val reasons = violationsOf(result).joinToString("\n") { it["reason"]!!.jsonPrimitive.content }
+        assertTrue(reasons.contains("work"), "N4: the rejection must name phase 'work': $reasons")
 
         val getResult = get(context, rootId.toString())
         assertTrue(!isSuccess(getResult))
-        assertEquals(ErrorCodes.RESOURCE_NOT_FOUND, errorOf(getResult)["code"]!!.jsonPrimitive.content, "nothing must be stored")
+        assertEquals("not_found", errorOf(getResult)["code"]!!.jsonPrimitive.content, "nothing must be stored")
     }
-
-    @Test
-    fun `S3 push of two enters true seats in one list is rejected as 422 parse_error via REST and stores nothing`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val root =
-                runBlocking {
-                    (repo.workItemRepository().create(WorkItem(title = "REST Push Root", depth = 0))!!)
-                }
-            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
-
-            val response =
-                client.put("/api/v1/roots/${root.id}/config") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.parse("application/yaml"))
-                    setBody(twoEntersOneList)
-                }
-
-            assertEquals(HttpStatusCode.UnprocessableEntity, response.status)
-            assertTrue(response.bodyAsText().contains("parse_error"), "body: ${response.bodyAsText()}")
-
-            val persisted = runBlocking { repo.configStore().get(root.id) }
-            assertTrue(persisted == null, "a two-enters:true config must never be stored")
-        }
 
     // ─── S4 -- F2 dup seat name, F3 reserved 'unowned' name, F4 after-cycle: fatal like S3 ──
 
@@ -287,30 +257,14 @@ class SeatConfigLoadFailClosedTest {
     }
 
     @Test
-    fun `S4 F2 duplicate seat name push is rejected via MCP (VALIDATION_ERROR) and REST (422 parse_error), storing nothing`(): Unit =
-        testApplication {
-            val (context, mcpRootId) = buildContext()
-            val mcpResult = push(context, mcpRootId.toString(), dupSeatName)
-            assertTrue(!isSuccess(mcpResult), "MCP push must be rejected: $mcpResult")
-            assertEquals(ErrorCodes.VALIDATION_ERROR, errorOf(mcpResult)["code"]!!.jsonPrimitive.content)
-
-            val repo = db.repositoryProvider()
-            val root =
-                runBlocking {
-                    (repo.workItemRepository().create(WorkItem(title = "F2 REST Root", depth = 0))!!)
-                }
-            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val restResponse =
-                client.put("/api/v1/roots/${root.id}/config") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.parse("application/yaml"))
-                    setBody(dupSeatName)
-                }
-            assertEquals(HttpStatusCode.UnprocessableEntity, restResponse.status)
-            assertTrue(restResponse.bodyAsText().contains("parse_error"), "body: ${restResponse.bodyAsText()}")
-            val persisted = runBlocking { repo.configStore().get(root.id) }
-            assertTrue(persisted == null, "a duplicate seat name config must never be stored")
-        }
+    fun `S4 F2 duplicate seat name push is rejected as config_invalid and stores nothing`() {
+        val (context, rootId) = buildContext()
+        val result = push(context, rootId.toString(), dupSeatName)
+        assertTrue(!isSuccess(result), "push must be rejected: $result")
+        assertEquals("config_invalid", errorOf(result)["code"]!!.jsonPrimitive.content)
+        val stored = get(context, rootId.toString())
+        assertEquals("not_found", errorOf(stored)["code"]!!.jsonPrimitive.content, "a duplicate seat name config must never be stored")
+    }
 
     @Test
     fun `S4 F3 a seat named unowned fails global startup naming the config path`(
@@ -327,30 +281,18 @@ class SeatConfigLoadFailClosedTest {
     }
 
     @Test
-    fun `S4 F3 a seat named unowned push is rejected via MCP (VALIDATION_ERROR) and REST (422 parse_error), storing nothing`(): Unit =
-        testApplication {
-            val (context, mcpRootId) = buildContext()
-            val mcpResult = push(context, mcpRootId.toString(), reservedUnownedName)
-            assertTrue(!isSuccess(mcpResult), "MCP push must be rejected: $mcpResult")
-            assertEquals(ErrorCodes.VALIDATION_ERROR, errorOf(mcpResult)["code"]!!.jsonPrimitive.content)
-
-            val repo = db.repositoryProvider()
-            val root =
-                runBlocking {
-                    (repo.workItemRepository().create(WorkItem(title = "F3 REST Root", depth = 0))!!)
-                }
-            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val restResponse =
-                client.put("/api/v1/roots/${root.id}/config") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.parse("application/yaml"))
-                    setBody(reservedUnownedName)
-                }
-            assertEquals(HttpStatusCode.UnprocessableEntity, restResponse.status)
-            assertTrue(restResponse.bodyAsText().contains("parse_error"), "body: ${restResponse.bodyAsText()}")
-            val persisted = runBlocking { repo.configStore().get(root.id) }
-            assertTrue(persisted == null, "a config with a seat named 'unowned' must never be stored")
-        }
+    fun `S4 F3 a seat named unowned push is rejected as config_invalid and stores nothing`() {
+        val (context, rootId) = buildContext()
+        val result = push(context, rootId.toString(), reservedUnownedName)
+        assertTrue(!isSuccess(result), "push must be rejected: $result")
+        assertEquals("config_invalid", errorOf(result)["code"]!!.jsonPrimitive.content)
+        val stored = get(context, rootId.toString())
+        assertEquals(
+            "not_found",
+            errorOf(stored)["code"]!!.jsonPrimitive.content,
+            "a config with a seat named 'unowned' must never be stored"
+        )
+    }
 
     @Test
     fun `S4 F4 an after cycle fails global startup naming the config path`(
@@ -366,32 +308,16 @@ class SeatConfigLoadFailClosedTest {
     }
 
     @Test
-    fun `S4 F4 an after cycle push is rejected via MCP (VALIDATION_ERROR) and REST (422 parse_error), storing nothing`(): Unit =
-        testApplication {
-            val (context, mcpRootId) = buildContext()
-            val mcpResult = push(context, mcpRootId.toString(), afterCycle)
-            assertTrue(!isSuccess(mcpResult), "MCP push must be rejected: $mcpResult")
-            assertEquals(ErrorCodes.VALIDATION_ERROR, errorOf(mcpResult)["code"]!!.jsonPrimitive.content)
+    fun `S4 F4 an after cycle push is rejected as config_invalid and stores nothing`() {
+        val (context, rootId) = buildContext()
+        val result = push(context, rootId.toString(), afterCycle)
+        assertTrue(!isSuccess(result), "push must be rejected: $result")
+        assertEquals("config_invalid", errorOf(result)["code"]!!.jsonPrimitive.content)
+        val stored = get(context, rootId.toString())
+        assertEquals("not_found", errorOf(stored)["code"]!!.jsonPrimitive.content, "an after-cycle config must never be stored")
+    }
 
-            val repo = db.repositoryProvider()
-            val root =
-                runBlocking {
-                    (repo.workItemRepository().create(WorkItem(title = "F4 REST Root", depth = 0))!!)
-                }
-            application { configureProjectConfigTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val restResponse =
-                client.put("/api/v1/roots/${root.id}/config") {
-                    header("Authorization", "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.parse("application/yaml"))
-                    setBody(afterCycle)
-                }
-            assertEquals(HttpStatusCode.UnprocessableEntity, restResponse.status)
-            assertTrue(restResponse.bodyAsText().contains("parse_error"), "body: ${restResponse.bodyAsText()}")
-            val persisted = runBlocking { repo.configStore().get(root.id) }
-            assertTrue(persisted == null, "an after-cycle config must never be stored")
-        }
-
-    // ─── S4 -- W1/W2/W3/W4/W6 warnings: load succeeds, push surfaces schemaWarnings ──
+    // --- S4 -- W1/W2/W3/W4/W6 warnings: load succeeds, push rejects them ---
 
     private val warningsYaml =
         """
@@ -443,7 +369,7 @@ class SeatConfigLoadFailClosedTest {
         val result = push(context, rootId.toString(), warningsYaml)
 
         assertTrue(!isSuccess(result), "former soft skips must reject the push: $result")
-        val errors = dataOf(result)["errors"]!!.jsonArray.map { it.jsonObject }
+        val errors = violationsOf(result)
         val schemaWarnings = errors.map { it["reason"]!!.jsonPrimitive.content }
         assertTrue(schemaWarnings.size >= 5, "expected at least 5 errors (W1,W2,W3x2,W4,W6): $schemaWarnings")
 
@@ -484,7 +410,7 @@ class SeatConfigLoadFailClosedTest {
         val result = push(context, rootId.toString(), warnMissingSeatNameYaml)
 
         assertTrue(!isSuccess(result), "a missing seat name is a former soft skip and rejects the push: $result")
-        val errors = dataOf(result)["errors"]!!.jsonArray.map { it.jsonObject }
+        val errors = violationsOf(result)
         assertTrue(
             errors.any {
                 it["path"]!!.jsonPrimitive.content == "/work_item_schemas/warn-missing-seat-name/seats/0" &&
@@ -510,6 +436,6 @@ class SeatConfigLoadFailClosedTest {
         val result = push(context, rootId.toString(), cleanYaml)
 
         assertTrue(isSuccess(result))
-        assertNull(dataOf(result)["schemaWarnings"], "schemaWarnings must be omitted entirely when empty, not an empty array")
+        assertNull(dataOf(result)["warnings"], "warnings must be omitted entirely when empty, not an empty array")
     }
 }

@@ -30,8 +30,7 @@ errors, per-root-config-unavailable failures, and internal errors.
 | `docs_write` | Documents | Write | Upsert, archive, unarchive, delete a root's versioned documents; attach or detach items (4.0 envelope) |
 | `docs_read` | Documents | Read | Get a document or one version, list, history and links (4.0 envelope) |
 | `advance` | Workflow | Write | Phase transitions (cascade and gate enforcement) and claim ownership: ops `transition`, `claim`, `release`, `heartbeat` |
-| `manage_project_config` | System | Write/Read | Push or read back per-root config YAML for the layered schema resolver |
-| `query_rules` | System | Read | Read git-tracked rule text by rootId+key, by an item skill-pointer resolution, or list rule keys under a root |
+| `config` | System | Write/Read | Per-root config (get, history, push, validate, rollback, reset), the effective resolved view, and rule text: ops of one 4.0 tool, orchestration profile only |
 
 ---
 
@@ -299,7 +298,7 @@ and `itemId`, or `rootId` without `type`, is `invalid_request`.
 (`seats`, `dispatchBySeat`, `independent_of`, `rules`), unconditionally, whatever the resolved config
 declares, so a client can tell an old server from a config that declares no seats. `features` also appears
 on REST `GET /api/v1/info` and the `.well-known` service descriptor (see `api-rest.md`). `rules` advertises
-per-root rule text served by [`query_rules`](#query_rules) and `GET /api/v1/roots/{rootId}/rules[/{key}]`.
+per-root rule text served by the [`config`](#config) tool's `rules` op.
 
 **`search`.** Ranked full-text hits through the shared search service. `kinds` picks the content: `item`
 (title, summary, description), `note` (bodies) and/or `document` (title and body of plan, rule and page
@@ -757,76 +756,96 @@ a held key is `resource_unavailable`. Leases are released on every exit from `wo
 
 ## Category: System
 
-### manage_project_config
+### config
 
-**Purpose.** Transport-agnostic config sync: a client pushes its repo's `.taskorchestrator/config.yaml`
-text keyed by a project root's WorkItem UUID; `ToolExecutionContext.resolveSchema()` layers this
-per-root config over the global config on every schema-resolving read (see `PerRootConfigService` —
-hot-reload is a property of that read path, so no separate reload call is needed after a push).
+**Purpose.** Per-root config and rule text in one `ops[]` call (4.0 envelope; orchestration profile only, nothing
+of it appears in the knowledge profile). It replaces the 3.x `manage_project_config` and `query_rules` tools and the
+REST routes `GET|PUT|DELETE /roots/{rootId}/config`, `GET /roots/{rootId}/config/history`,
+`POST /roots/{rootId}/config/rollback`, `GET /roots/{rootId}/config/effective`, `GET /roots/{rootId}/rules[/{key}]`
+and the server-set reads `GET /config`, `/config/schemas[/{type}]`, `/config/traits`, `/config/types` and
+`/config/status-graph`. The same call is served over MCP and as `POST /api/v1/ops/config`. Only
+`GET /api/v1/config/schema` (the published JSON Schema) stays a route.
 
-**Versioned store.** The stored config is the head of a versioned, append-only store: a push appends the
-next version of the root's config and moves the head, and a byte-identical re-push appends nothing. Version
-history, reading an older version, rollback and reset are REST-only for now (`GET .../config?version=`,
-`GET .../config/history`, `POST .../config/rollback`, `DELETE .../config`; see
-[api-rest.md §18](api-rest.md#18-endpoints--project-config-per-root)) - this tool's `push` and `get` shapes are unchanged.
+The request is `{ "ops": [...], "atomic"?: bool, "actor"?: {...} }`; each element is a flat object naming its op in
+`op`, with an optional `idempotencyKey`. One failed element of a non-atomic call is `207 partial_failure` on REST;
+`atomic: true` fails the whole call with the code's own status. Every `rootId` is a UUID or a hex prefix of 8 to 32
+characters and must name a depth-0 item. The scope check runs first, before existence and depth: a root outside the
+caller's scope is `forbidden`, never `not_found`.
 
-**Read-error fallback (last-known-good).** A read of the head (and, on a cache miss, of its version) failing with a transient
-repository error is NOT the same as "no per-root config" — `PerRootConfigService` never falls back
-to the global config on a read error. It instead serves that root's last cached parse (last-known-good)
-without evicting it, and logs a WARN naming the root and the error. Last-known-good has no TTL: the
-next successful read refreshes it via the normal fingerprint-comparison hot-reload path, and it is
-shared by MCP and REST (one `EffectiveConfigResolver`, built once in `ServerComposition`). A read made
-inside a unit of work (a write's or a preview's read unit) never serves last-known-good — a fault there fails closed as below even
-with a warm cache; `notes_write` upsert reads
-the config this way, and so does `items_write` `create_tree` (it plans the tree inside its element's unit). When there is no cached entry to serve — a cold
-cache, e.g. the first read for the root — the read fails closed with a transient
-`config_unavailable` error (see [Error Envelope](#error-envelope)) rather than silently resolving
-against the global config. This is distinct from an explicit absence (no config version, or a reset head), which evicts any cached entry
-and falls through to the global config. A head whose stored canonical form is missing or undecodable is neither:
-it fails closed (`PerRootConfigInvalidException`) and never falls through to the global layer.
-`advance`, `items_write` `complete_tree` and
-REST `POST /items/{id}/advance` read the advanced item's config (and every cascade target's) inside the
-advance's unit, so the NOTE, lease and label decisions never use config read before the writer lock;
-the `canAdvance` preview of `items_read(select="context")` (MCP and `POST /api/v1/ops/items_read`) reads it inside
-its read unit the same way.
+| Op | Fields | Capability | Result |
+|---|---|---|---|
+| `get` | `rootId`, `version?`, `fingerprint?` | `read` | `{rootId, version, fingerprint, source, createdAt, configYaml, relation?}` |
+| `history` | `rootId`, `limit?` (1..200, default 50), `before?` | `read` | `{rootId, headVersion?, versions: [{version, fingerprint, source, createdAt, principalId?, warningsCount, canonical}]}` newest first |
+| `push` | `rootId`, `configYaml`, `force?`, `expectedVersion?` | `write-config` | `{rootId, version, fingerprint, appended, createdAt, warnings?}` |
+| `validate` | `rootId`, `configYaml` | `read` | `{rootId, valid, errors: [{path, reason}], warnings: [{path, reason}], diff?}` |
+| `rollback` | `rootId`, `version`, `expectedVersion?` | `write-config` | `{rootId, version, fingerprint, source, appended, createdAt}` |
+| `reset` | `rootId` | `write-config` (destructive) | `{rootId, appended}` |
+| `effective` | `rootId?` | `read` | `{rootId?, schemas, traits, types, statusGraph, defaultSchema?, globalFingerprint?, perRootFingerprint?}` |
+| `rules` | `rootId?`, `key?`, `itemId?`, `noteKey?` | `read` | a list `{rootId, rules: [{key, rulesVersion, updatedAt}]}` or one rule `{rootId, key, slug, rulesVersion, body, resolvedFrom?}` |
 
-Supports two operations, selected via `operation`:
+`validate` writes nothing, so it needs only `read`. The retired `cfg-<fingerprint>` and `cfg-v<version>` ETags and
+the `If-Match` / `If-None-Match` compare-and-set are gone: use `expectedVersion` on `push` and `rollback`.
 
-#### `push`
+**Versioned store.** The stored config is the head of a versioned, append-only store: a `push` appends the next
+version of the root's config and moves the head, and a byte-identical re-push appends nothing (`appended: false`).
+`rollback` appends a copy of an earlier version (source `rollback`; to the head's own content it appends nothing; to a reset version it appends a reset, or nothing when the head is already a reset),
+`reset` appends an empty `reset` version so the root falls back to the server config, and history keeps every version.
+`get` without `version` reads the head (a reset head is `not_found`); with `version` it reads that exact version, a
+reset one as an empty document. `get` with `fingerprint` adds `relation`: `current`, `superseded` (an earlier version
+or the pre-versioning history held that content) or `unknown`.
 
-Validates, in order:
-1. `configYaml` must not exceed **128 KiB** (131,072 bytes, UTF-8) — rejected before any parse
-   attempt (CWE-770: bounds parse cost and storage growth against a hostile or oversized payload).
-2. `rootId` must resolve to an existing WorkItem.
-3. That WorkItem must be depth 0 (a project root) — configs anchor to roots only.
-4. If the root's `type` is not `"project"`, the push still succeeds but the response includes a
-   non-fatal `warning` field (a naming convention, not an enforced constraint).
-5. `configYaml` is parsed via the same parser `PerRootConfigService` uses on every read, using a
-   YAML *safe* constructor that only ever builds plain maps/lists/scalars (see **Parse safety**
-   below). Unparseable or unsafe YAML is rejected here — nothing is stored — so a broken or
-   malicious config can never silently exist server-side and fall through to the global schema on
-   a later read.
-6. If the parsed document embeds a top-level `project.rootId` that parses as a UUID and differs
-   from `rootId`, the push is rejected as a `rootId` mismatch (see **rootId mismatch guard**
-   below) — unless `force: true` is passed.
-6a. The document is validated strictly (see **Strict validation** below). Any error rejects the push
-   and `force: true` does not bypass it.
-7. If the incoming document's fingerprint is **superseded** — it appears in the root's fingerprint
-   history but is not the current fingerprint (i.e. the server has already moved past this exact
-   content) — the push is rejected as stale (see **Fast-forward guard** below) — unless
-   `force: true` is passed. A fingerprint the server has never seen (`unknown`) pushes normally;
-   the current fingerprint (`current`) is the idempotent re-push.
+**`push` pipeline.** In order: `configYaml` at most **128 KiB** (131,072 bytes, UTF-8), rejected before any parse
+(`payload_too_large`); strict parse with a safe constructor (see **Parse safety**); the embedded `project.rootId`
+guard; strict validation (see **Strict validation**); then one write. Failures are `config_invalid` with
+`detail.errors` as `{path, reason}` RFC 6901 pointers (a parse failure without a pointer is one entry at path `""`;
+a `project.rootId` naming another root is one entry at `/project/rootId`). `force: true` skips the `rootId` mismatch
+guard and the older-content guard only: it never skips validation or `expectedVersion`. Content an earlier version
+held, without `force`, is `version_conflict` with `expected` the newest stored version that held it (0 when only the
+pre-versioning history knew it) and `actual` the head. An `expectedVersion` that differs from the head is
+`version_conflict` with `expected` your value and `actual` the head; it is ignored when the root has no config yet.
+A root whose `type` is not `project` still succeeds, with a first `warnings` entry; the advisory schema findings
+(a resource key declared by three or more traits, a required note no declared seat owns) follow it, and `warnings`
+is omitted when there are none. A successful push that appended also makes later ops of the same call see the new
+head (`effective` after `push` reads the new layer).
 
-On success, stores the document and returns its fingerprint. Pushing byte-identical content is
-naturally idempotent: the fingerprint returned is unchanged, so a caller can `get` first and skip
-the push when fingerprints already match — no separate idempotency-key machinery is needed. The
-fingerprint is computed after stripping one leading UTF-8 BOM and normalizing CRLF to LF (nothing
-else) — content that differs only by line-ending style or a leading BOM fingerprints identically;
-the stored `configYaml` itself is never rewritten by this normalization.
+**`validate`** runs the same size, parse, `rootId` and validation steps as `push` without writing, without
+`expectedVersion` and without the older-content guard. Problems come back in the result (`valid: false`, `errors`),
+including a parse failure and a `project.rootId` mismatch; an oversized document stays `payload_too_large`. When the
+document has no errors, `diff` is the change against the head, `{types, traits, settings}` each with `added`,
+`removed` and `changed` name lists (no head, or a reset head, counts as empty).
 
-**Which sections a per-root document may carry.** Only a subset of top-level `configYaml` keys belong in
-a per-root document; any other key is rejected (see **Strict validation** below), so a push is never
-silently partial:
+**`effective`** is one layered read. With `rootId` it is that root's config over the server's; without it, the
+server config alone (no scope check, `read` only). `schemas` lists every registered type resolved (`configSource`
+is `per-root` or `global`), `traits` carries `dispatch` and `resources` when declared, `statusGraph` is the
+structural transition graph for those types, and the two fingerprints are omitted when that layer has none. The
+status graph is structural: it shows which triggers are valid per role, not whether an item's gates would pass.
+
+**`rules`** reads git-tracked rule text (`rule` documents, `kind` `rule` and slug `<key>`, written by [`docs_write`](#docs_write)). The mode
+follows the fields: `rootId` alone lists keys (never bodies); `rootId` with `key` returns one rule's body and its
+`rulesVersion` (the document's content hash), byte for byte; `itemId` with `noteKey` resolves the item's effective
+schema, looks up the note entry and follows its `skill` field as the rule key under the item's root (a depth-0 item
+is its own root), echoing `resolvedFrom: {itemId, noteKey, skill}`. Any other combination is `invalid_request`
+naming the offending field. `key` is `^[a-z0-9][a-z0-9._-]{0,99}$`; a `noteKey` with no entry, no `skill`, or a
+skill that is not a valid key is `invalid_request` at `/noteKey`. An absent rule is `not_found` kind `document` with
+id `rule/<key>`. Documents whose key fails the grammar are never listed or served; `pending` and `adopted` rules are
+both served.
+
+**Errors.** An absent root under an unrestricted scope is `not_found` kind `root`; a root with no config, or an
+absent version, `not_found` kind `config` (id the root). A `rootId` that is not depth 0 is `invalid_request` at
+`/rootId`. An unloadable config head is `config_invalid`, an unreadable one `unavailable`.
+
+**Read-error fallback (last-known-good).** A read of the head failing with a transient repository error is NOT the
+same as "no per-root config": `PerRootConfigService` never falls back to the server config on a read error. Outside a
+unit of work it serves that root's last cached parse (last-known-good) and logs a WARN; the cache is shared by MCP and
+REST (one `EffectiveConfigResolver`, built once in `ServerComposition`) and has no TTL. A read made inside a unit of
+work (a write's or a preview's read unit, and every `config` op runs in one) never serves last-known-good and fails
+closed with a transient `unavailable`; with a cold cache the same holds everywhere. This is distinct from an explicit
+absence (no config version, or a reset head), which evicts any cached entry and falls through to the server config. A
+head whose stored canonical form is missing or undecodable fails closed (`config_invalid`) and never falls through.
+`advance`, `items_write` `create_tree` and `complete_tree`, and the `items_read` `context` preview read the item's config inside their unit the same way.
+
+**Which sections a per-root document may carry.** Only a subset of top-level `configYaml` keys belong in a
+per-root document; any other key is rejected, so a push is never silently partial:
 
 | Top-level key | Honored per-root? | Layered by |
 |---|---|---|
@@ -836,26 +855,12 @@ silently partial:
 | `project` | Yes | `ConfigService` (embedded `project.rootId` guard only) |
 | `note_limits` | Yes | `ToolExecutionContext.resolveNoteLimitsMode()` |
 | `status_labels` | Yes | `ToolExecutionContext.resolveStatusLabel()` |
-| `resources` | No — the resource registry is server-only (rejected) | n/a |
-| `schema_resolution` | No — removed in 4.0 (rejected) | n/a |
-| `extensions` | Stored, never read — an opaque mapping of namespaces for plugin and hook settings | n/a |
-| `independence` | Yes | `EffectiveConfigResolver.resolveIndependencePolicy()` (A2) — a per-root block replaces the global one wholesale; see [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2) → "Independence (A2)" |
-| `actor_authentication` | No — global-only (rejected) | n/a |
+| `resources` | No: the resource registry is server-only (rejected) | n/a |
+| `schema_resolution` | No: removed in 4.0 (rejected) | n/a |
+| `extensions` | Stored, never read: an opaque mapping of namespaces for plugin and hook settings | n/a |
+| `independence` | Yes | `EffectiveConfigResolver.resolveIndependencePolicy()`: a per-root block replaces the server one wholesale |
+| `actor_authentication` | No: server-only (rejected) | n/a |
 | any other key | No (rejected) | n/a |
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `operation` | string (`"push"` \| `"get"`) | Yes | Selects the operation |
-| `rootId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem — must be depth 0 for `push` |
-| `configYaml` | string | Yes (push only) | Raw config.yaml text to store for this root; max 128 KiB |
-| `force` | boolean | No (push only, default `false`) | Bypass push guards — skips both the embedded `project.rootId` mismatch check and the superseded (fast-forward) staleness check |
-
-**rootId mismatch guard.** A pushed `configYaml` document may embed its own root id at top-level
-`project.rootId`. If present and it parses as a UUID that differs from the `rootId` argument,
-the push is rejected before any write — this catches a config document synced or copy-pasted
-against the wrong project root before it silently overwrites the target root's gates. An absent or
-non-UUID `project.rootId` is not an error; the push proceeds as if it were absent. Pass
-`force: true` to push anyway.
 
 **Strict validation.** A push is validated before anything is stored: the document is checked against the
 published JSON Schema (`GET /api/v1/config/schema`), everything the 3.x parser used to skip with a warning is
@@ -864,117 +869,39 @@ an invalid dispatch `effort`, ...), and semantic rules apply: `resources` and `a
 server-only, `work_item_schemas` and `note_schemas` cannot be combined, every `default_traits` entry must name
 a trait defined in the document or the server config, and every trait `resources[].key` must be declared in
 the server resource registry. Plugin and hook settings (the 3.x top-level `orchestration`, `retrospective`
-and `actor_attribution`) go under `extensions.claude-code`. The rejection is `VALIDATION_ERROR`; `details`
-(text) and `data.errors` list every problem as `{path, reason}` with an RFC 6901 JSON Pointer
-`path`. See the [config reference](config-reference.md).
+and `actor_attribution`) go under `extensions.claude-code`. See the [config reference](config-reference.md).
 
 **Parse safety.** `configYaml` is parsed with SnakeYAML's `SafeConstructor` rather than its default
 `Constructor`. The default constructor will instantiate an arbitrary Java type named by a YAML
-`!!`-tag — a well-known deserialization-RCE class of vulnerability (CWE-502) — which matters here
-specifically because `configYaml` is attacker-reachable input pushed over the MCP protocol, not a
-trusted local file read from disk. `SafeConstructor` only ever builds plain maps, lists, and
-scalars, which is everything a config document legitimately needs; any `!!`-tagged custom type is
-rejected as a parse failure instead of being instantiated. The same fix applies everywhere per-root
-config bytes are parsed (`PerRootConfigService`, on every schema-resolving read) and to the global
-`.taskorchestrator/config.yaml` loader.
+`!!`-tag, a well-known deserialization-RCE class of vulnerability (CWE-502), which matters here
+because `configYaml` is attacker-reachable input pushed over the MCP protocol, not a trusted local file.
+`SafeConstructor` only builds plain maps, lists and scalars, which is everything a config document needs; any
+`!!`-tagged custom type is rejected as a parse failure. The same applies everywhere per-root config bytes are
+parsed (`PerRootConfigService`, on every schema-resolving read) and to the server-set boot import.
 
-**Example.**
+**Examples.**
 
 ```json
-{
-  "operation": "push",
-  "rootId": "3f9c2b10-...",
-  "configYaml": "work_item_schemas:\n  feature-task:\n    notes:\n      - key: spec\n        role: queue\n        required: true\n"
-}
+{ "ops": [
+  { "op": "validate", "rootId": "3f9c2b10-...", "configYaml": "work_item_schemas:\n  feature-task:\n    notes: []\n" },
+  { "op": "push", "rootId": "3f9c2b10-...", "configYaml": "work_item_schemas:\n  feature-task:\n    notes: []\n", "expectedVersion": 4 },
+  { "op": "effective", "rootId": "3f9c2b10-..." }
+] }
 ```
-
-**Response (success).**
 
 ```json
-{
-  "rootId": "3f9c2b10-...",
-  "fingerprint": "a94a8fe5cc...",
-  "updatedAt": "2026-07-14T18:40:00Z",
-  "warning": "Root item type is 'null', not 'project' — config pushed anyway (a naming convention, not an enforced constraint)",
-  "schemaWarnings": ["Schema 'feature-task': required note 'spec' (role 'work') is not owned by any declared seat; listed under 'unowned' in missingBySeat"]
-}
+{ "ops": [ { "op": "rules", "itemId": "840e700a-...", "noteKey": "test-manifest" } ] }
 ```
 
-`warning` is only present when the root's `type` is not `"project"`. `schemaWarnings` is only present
-(and non-empty) for advisory findings: a resource key declared by three or more traits, or a required
-note no declared seat owns. The push still succeeds and the document is still stored regardless of
-`schemaWarnings` — these are advisory, not validation failures (contrast with the `VALIDATION_ERROR`
-cases below, which reject the push outright). The 3.x `ignoredSections` field was removed in 4.0: a key
-the per-root layer does not honor is now rejected, not ignored.
+**Out of scope.** The server set (`project.rootId` absent) has no `get`, `history`, `push`, `rollback` or `reset`
+op: it is written only by the boot import of the mounted file, and `effective` without a `rootId` is its read.
 
-**Error cases.**
-
-| Condition | `error.code` |
-|---|---|
-| `configYaml` exceeds 128 KiB | `VALIDATION_ERROR` (message names the limit and the actual size) |
-| `rootId` does not resolve to an existing WorkItem | `RESOURCE_NOT_FOUND` |
-| Root WorkItem has `depth != 0` | `VALIDATION_ERROR` |
-| `configYaml` fails to parse (invalid/unsafe YAML syntax or shape, including `!!`-tagged custom types — see **Parse safety** above) | `VALIDATION_ERROR` (message includes the parse detail) |
-| `configYaml` fails strict validation (see **Strict validation** above) | `VALIDATION_ERROR` (message gives the error count; `data.errors` lists `{path, reason}`; nothing is stored) |
-| `configYaml` embeds a `project.rootId` that differs from `rootId` (and `force` was not `true`) | `VALIDATION_ERROR` (message names both ids) |
-| `configYaml`'s fingerprint is superseded — in the root's history but not current (and `force` was not `true`) | `VALIDATION_ERROR` (message: local config is older than the server's, with the server row's `updatedAt`) |
-| Storage failure | `DATABASE_ERROR` |
-
-**Fast-forward guard.** Every successful push appends the *previous* current fingerprint to a
-per-root history (newest first, pruned to the last 20; stored in `project_config.fingerprint_history`,
-added in migration V11). An incoming push whose fingerprint appears in that history but is not the
-current fingerprint is provably *older content the server has already moved past* — the classic
-stale-checkout case (old branch, unsynced worktree, second machine) — and is rejected so a session
-starting from an outdated file cannot silently revert the project's live config. Content the server
-has never seen (`unknown`) is accepted — true divergence remains last-writer-wins by design. Rows
-created before V11 have no history and classify every non-current fingerprint as `unknown`
-(pre-guard behavior) until history accumulates. The `config-sync` SessionStart hook performs the
-same check client-side via `get` + `fingerprint` (below) and skips the push with a warning instead
-of hitting the rejection.
-
-#### `get`
-
-Reads back the stored config for a root.
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `operation` | string (`"push"` \| `"get"`) | Yes | Selects the operation |
-| `rootId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem to read the config for |
-| `fingerprint` | string (hex SHA-256) | No (get only) | A local document fingerprint (computed with the same BOM-stripped, CRLF-normalized rule the server uses) to classify against this root's stored config; adds `relation` to the response |
-
-**Response (success).**
-
-```json
-{
-  "rootId": "3f9c2b10-...",
-  "configYaml": "work_item_schemas:\n  ...\n",
-  "fingerprint": "a94a8fe5cc...",
-  "updatedAt": "2026-07-14T18:40:00Z",
-  "relation": "superseded"
-}
-```
-
-`relation` is only present when a `fingerprint` argument was supplied: `"current"` (matches the
-stored fingerprint), `"superseded"` (in this root's fingerprint history but not current — the
-supplied content is older than the server's), or `"unknown"` (never seen — new content, or a
-pre-V11 row with no history). Callers deciding whether to push should treat `superseded` as
-"do not push without `force`" — this is exactly what the `config-sync` hook does.
-
-**Response (no config pushed for this root).** `error.code` is `RESOURCE_NOT_FOUND`.
-
-**Note on actor attribution.** Unlike `notes_write`/`items_write`, this tool does not accept an
-`actor` parameter — its writes aren't part of the per-note/per-item attribution model (a config
-document has no "author" note field to stamp), so mirroring the actor-claim/verification machinery
-would add complexity with no corresponding read surface to expose it through.
-
-**Trust-model caveat.** `manage_project_config` can silently rewrite a project's gate configuration
-(required notes, review phases, trait routing) for every item under a root. Under
-`MCP_TRANSPORT=http`, the `/mcp` endpoint is **unauthenticated regardless of REST API auth mode** —
-any client that can reach the port can call `push` for any root. This is not a gap introduced by
-this tool; it's the existing MCP transport trust model (see
-[`fleet-deployment.md`](./fleet-deployment.md), "MCP HTTP Transport (`/mcp`) Is Unauthenticated —
-Read First") applying to config data the same way it already applies to every other MCP tool.
-Fence `/mcp` at the network layer per that guidance before exposing `MCP_TRANSPORT=http` beyond a
+**Trust-model caveat.** `push`, `rollback` and `reset` can silently rewrite a project's gate configuration
+(required notes, review phases, trait routing) for every item under a root. Under `MCP_TRANSPORT=http`, the `/mcp`
+endpoint is **unauthenticated regardless of REST API auth mode**: any client that can reach the port can call these
+ops for any root. This is the existing MCP transport trust model (see [`fleet-deployment.md`](./fleet-deployment.md),
+"MCP HTTP Transport (`/mcp`) Is Unauthenticated - Read First") applying to config data the way it applies to every
+other MCP tool. Fence `/mcp` at the network layer per that guidance before exposing `MCP_TRANSPORT=http` beyond a
 single trusted process.
 
 ### docs_read
@@ -996,7 +923,7 @@ on every select that names one document and an optional filter on `list`. A `roo
 | `links` | `rootId`, `kind`, `slug`, `direction?` (`outgoing`, `incoming`, `all`; default `all`), `limit?`, `cursor?` | `{items: [{id, relation, from: {kind, id}, to: {kind, id}, toRef?, anchor?}], page}` ordered by creation time then id |
 
 - `version` and `ifVersion` together are `invalid_request`; a missing document or version is `not_found`. Versions are integers, 1 for the first write.
-- `contentHash` is the SHA-256 hex of the LF-normalized body's UTF-8 bytes. For a `rule` document it is the `rulesVersion` that [`query_rules`](#query_rules) reports.
+- `contentHash` is the SHA-256 hex of the LF-normalized body's UTF-8 bytes. For a `rule` document it is the `rulesVersion` that the [`config`](#config) tool's `rules` op reports.
 - `list` leaves archived documents out unless `includeArchived` is true. `adoptedBy` is the item that adopted a plan (`items_write` `create_tree` with a `docRef`); it is omitted when the caller's scope does not admit that item.
 - `links` returns the links the document makes (`references` parsed from `[[slug]]` in its body, `attached`, `adopted_by`) and, with `incoming`, the links that point at it (a `derived_from` note, another document's reference). A link end is `{kind, id}` with `kind` `item`, `note` or `document`; a reference to a document that does not exist yet has no `to` and carries `toRef`. A link whose item or note end is outside the caller's scope, or no longer exists, is left out before paging and is not counted in `page.total`.
 - `actor` on a version is shown only to a caller allowed to see attribution (the same rule as `notes_read`).
@@ -1016,7 +943,7 @@ an `idempotencyKey`. Every element commits on its own unless `atomic` is true; t
 of `manage_plan_documents` and `PUT /api/v1/roots/{rootId}/plans/{slug}`.
 
 Every op needs the `WRITE_CONFIG` capability (`write-config`), the capability of the route this tool replaces: a `write-notes` token cannot
-rewrite documents, because rule documents are served to agents as instructions by `query_rules`. Every op also checks the caller's root and tag
+rewrite documents, because rule documents are served to agents as instructions by the `config` tool's `rules` op. Every op also checks the caller's root and tag
 scope on `rootId`; a forbidden element is never executed and records no event.
 
 | Op | Fields | Result (`results[i]`) |
@@ -1034,7 +961,7 @@ scope on `rootId`; a forbidden element is never executed and records no event.
   is frozen (`duplicate`); an archived document must be unarchived first (`invalid_request`). `title` omitted keeps the current title. `created` is true
   when the write made version 1. The `slug` of an upsert is 1 to 200 characters with no leading or trailing whitespace, no control characters and none
   of `[`, `]`, `#` (a `[[slug]]` reference could not name it), and a `plan` slug must not start with `rule/` (the plan facade would hide it); reads and
-  the other ops accept any non-empty slug, so slugs migrated from 3.x stay reachable. The rule-key grammar of `query_rules` is not enforced here.
+  the other ops accept any non-empty slug, so slugs migrated from 3.x stay reachable. The rule-key grammar of the `config` tool's `rules` op is not enforced here.
 - **`bodyFromFile`** is MCP-only: over `POST /api/v1/ops/docs_write` an element that sets it fails `invalid_request` (`/bodyFromFile`) and no file is
   read. Over MCP it is read through the same `BodySource` as `notes_write` (a relative path strictly inside the agent config root, a regular UTF-8 file
   of at most 65536 bytes).
@@ -1059,159 +986,6 @@ scope on `rootId`; a forbidden element is never executed and records no event.
 
 `manage_plan_documents` and the REST `/roots/{rootId}/plans` routes are removed. A plan's 3.x `status` (`pending` / `adopted`) is now `adoptedBy` on a
 document, and a write over an adopted plan answers `duplicate` instead of the 3.x conflict. `items_write` `create_tree` with a `docRef` still adopts a stashed plan.
-
-### query_rules
-
-**Purpose.** Read-only surface for git-tracked rule text -- client-neutral operating rules (the
-blind-authorship protocol, commit discipline, forbidden test patterns, review scoping, and so on)
-stored as `rule` [documents](#docs_write) (`kind` `rule`, slug `<key>`) via `docs_write` and
-served here verbatim. `query_rules` never inlines rule text into `items_read(select="schema")`
--- that surface stays pointer-only: a note-schema entry's `skill` field names a rule key, and the
-caller resolves the actual text through this tool. Both operations converge on the same
-`RuleService` the REST `rules` routes use (see [api-rest.md](./api-rest.md) section 19a) -- one
-read-only view over the `rule` documents `docs_write`/`PlanDocumentService`
-write, so MCP and REST always agree on `rulesVersion` and body for the same key.
-
-Supports two operations, selected via `operation`:
-
-#### `get`
-
-Reads back one rule's body and `rulesVersion` (the backing plan document's `contentHash`).
-Exactly one of two mutually exclusive parameter pairs selects the lookup:
-
-- **Direct** -- `rootId`+`key`: reads `rule/<key>` under `rootId` directly.
-- **Skill-pointer** -- `itemId`+`noteKey`: resolves `itemId`'s EFFECTIVE (trait-merged) schema via
-  the same `ToolExecutionContext.resolveSchema()` path `manage_project_config`/`advance_item` use,
-  looks up `noteKey`'s entry in that resolved schema, and follows its `skill` field as the rule key
-  -- read under the item's OWN `rootId` (`item.rootId`, not a caller-supplied one). The response
-  echoes this resolution as `resolvedFrom`.
-
-Providing both pairs, or neither, fails validation (`get requires exactly one of (rootId+key) or
-(itemId+noteKey)`).
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `operation` | string (`"get"` \| `"list"`) | Yes | Selects the operation |
-| `rootId` | string (UUID or 4+ char hex prefix) | One of `rootId`+`key` / `itemId`+`noteKey` (get); required (list) | Project root WorkItem -- direct lookup, or the anchor for `list` |
-| `key` | string | With `rootId` (get, direct lookup only) | Rule key: lowercase alphanumeric/`.`/`_`/`-`, starting alphanumeric, max 100 chars (see **Key grammar** below); rejected on `list` |
-| `itemId` | string (UUID or 4+ char hex prefix) | With `noteKey` (get, skill-pointer lookup only) | WorkItem whose effective schema resolves the skill pointer; rejected on `list` |
-| `noteKey` | string | With `itemId` (get, skill-pointer lookup only) | Note key to resolve via `itemId`'s effective schema; its entry's `skill` field names the rule key; rejected on `list` |
-
-**Key grammar.** `^[a-z0-9][a-z0-9._-]{0,99}$` -- lowercase alphanumeric, `.`, `_`, `-`; must start
-with an alphanumeric; max 100 characters; never `/`, uppercase, or `:` (a key is one path segment,
-usable verbatim in a REST URL and as the `rule/<key>` plan-document slug suffix). Checked in
-`validateParams` for the direct `rootId`+`key` pair (`VALIDATION_ERROR` before any repository
-call); for the skill-pointer pair the RESOLVED `skill` value is checked the same way once the
-schema lookup succeeds (see **Error cases** below).
-
-**Example (direct).**
-
-```json
-{
-  "operation": "get",
-  "rootId": "3f9c2b10-...",
-  "key": "commit-discipline"
-}
-```
-
-**Example (skill-pointer).**
-
-```json
-{
-  "operation": "get",
-  "itemId": "840e700a-...",
-  "noteKey": "test-manifest"
-}
-```
-
-**Response (success, direct).**
-
-```json
-{
-  "rootId": "3f9c2b10-...",
-  "key": "commit-discipline",
-  "slug": "rule/commit-discipline",
-  "rulesVersion": "e3b0c44298fc1c14...",
-  "body": "..."
-}
-```
-
-**Response (success, skill-pointer).** Adds `resolvedFrom`:
-
-```json
-{
-  "rootId": "3f9c2b10-...",
-  "key": "test-author",
-  "slug": "rule/test-author",
-  "rulesVersion": "e3b0c44298fc1c14...",
-  "body": "...",
-  "resolvedFrom": {
-    "itemId": "840e700a-...",
-    "noteKey": "test-manifest",
-    "skill": "test-author"
-  }
-}
-```
-
-`body` is served byte-for-byte as stored -- no trimming, no re-encoding -- and `rulesVersion` is
-always the stored document's `contentHash`, the same value `docs_read` reports for that
-rule document (`kind` `rule`, slug `<key>`).
-
-**Error cases.**
-
-| Condition | `error.code` |
-|---|---|
-| Neither or both of (`rootId`+`key`) / (`itemId`+`noteKey`) supplied | `VALIDATION_ERROR` |
-| `rootId`/`itemId` malformed (not a UUID or 4+ char hex prefix) | `VALIDATION_ERROR` |
-| `key` fails the key grammar (direct lookup) | `VALIDATION_ERROR` |
-| `itemId` does not resolve to an existing WorkItem | `RESOURCE_NOT_FOUND` |
-| Item has no `rootId` (skill-pointer lookup) | `VALIDATION_ERROR` |
-| `rootId` does not resolve to an existing WorkItem | `RESOURCE_NOT_FOUND` |
-| `rootId` (or the item's own root) is not depth-0 | `VALIDATION_ERROR` |
-| `noteKey` not found in the item's effective schema, or its entry has no `skill` field | `RESOURCE_NOT_FOUND` |
-| Resolved `skill` value fails the key grammar | `VALIDATION_ERROR` |
-| No `rule/<key>` document exists at that root | `RESOURCE_NOT_FOUND` |
-| Per-root config read fails transiently while resolving a skill pointer (no last-known-good cached) | transient `config_unavailable` (see [Error Envelope](#error-envelope)) -- a `PerRootConfigUnavailableException` from `resolveSchema()` is deliberately left uncaught in the tool and mapped by the MCP adapter, same as `manage_project_config`/`advance_item` |
-| Storage failure | `DATABASE_ERROR` |
-
-#### `list`
-
-Returns `{key, rulesVersion, updatedAt}` for every valid rule key under `rootId`, sorted by key
-ascending, **never the body**. Accepts only `rootId` -- `key`, `itemId`, and `noteKey` are all
-rejected. A `rule/<key>` document whose key fails the key grammar (stashable via
-`docs_write`, which does not itself enforce the grammar, but never served by `get` or
-`list`) is silently excluded, as are non-`rule/` slugs. A document's `status` (`pending` vs
-`adopted`) is ignored -- both are listed and served; adoption freezes a rule's content, it does not
-hide it.
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `operation` | string (`"get"` \| `"list"`) | Yes | Selects the operation |
-| `rootId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem to list rule keys for |
-
-**Response (success).**
-
-```json
-{
-  "rootId": "3f9c2b10-...",
-  "rules": [
-    { "key": "commit-discipline", "rulesVersion": "e3b0c4...", "updatedAt": "2026-09-28T13:00:00Z" },
-    { "key": "test-author", "rulesVersion": "a94a8f...", "updatedAt": "2026-09-28T13:05:00Z" }
-  ]
-}
-```
-
-**Error cases.**
-
-| Condition | `error.code` |
-|---|---|
-| `rootId` malformed, or `key`/`itemId`/`noteKey` supplied on `list` | `VALIDATION_ERROR` |
-| `rootId` does not resolve to an existing WorkItem | `RESOURCE_NOT_FOUND` |
-| `rootId` is not depth-0 | `VALIDATION_ERROR` |
-| Storage failure | `DATABASE_ERROR` |
-
-**Note on actor attribution.** Like `manage_project_config`, this tool does
-not accept an `actor` parameter -- it is read-only, with no write to attribute.
 
 ---
 
@@ -1330,7 +1104,7 @@ is returned as `DATABASE_ERROR` with the message `Database error in '<tool>': <s
 
 **`config_unavailable` (transient).** A root's per-root config could not be read (a transient
 database error on `getFingerprint`/`get`) and there was no last-known-good cached config for that
-root to serve instead — see `manage_project_config`'s Purpose note above for the last-known-good
+root to serve instead — see the [`config`](#config) tool's last-known-good note for the
 cache this falls back to. A read made inside a unit of work (an advance, and the `canAdvance` preview)
 has no fallback, so there it fails even when the cache is warm. `retryAfterMs` is null, per the
 `transient` kind's own-backoff rule.

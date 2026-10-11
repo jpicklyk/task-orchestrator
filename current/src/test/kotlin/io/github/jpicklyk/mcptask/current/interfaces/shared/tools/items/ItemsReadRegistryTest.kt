@@ -67,7 +67,8 @@ class ItemsReadRegistryTest {
         assertFalse("query_items" in tools.map { it.name }, "query_items is deleted")
         // Merge r1: Q11 moved query_notes get/list to notes_read, so with search removed the whole tool is gone.
         assertFalse("query_notes" in tools.map { it.name }, "query_notes (and so its search operation) is deleted")
-        assertTrue(tools.isNotEmpty(), "control: the 3.x tool list is not empty")
+        // Q21 and Q23 removed the last 3.x tools: the list is empty, and items_read is served by the registry instead.
+        assertTrue(ToolRegistry(buildToolSpecs())["items_read"] != null, "control: items_read is registered")
     }
 
     @Test

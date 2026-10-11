@@ -7,10 +7,15 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpOperationAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildToolDispatcher
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installMcpStreamableHttp
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.HttpClient
@@ -161,7 +166,7 @@ class RestCallLogTest {
             application { configureApp(rig.composition, writer) }
 
             val missing = UUID.randomUUID()
-            val typed = client.getWith("/roots/$missing/config") // a legacy ErrorDto route (item and note GETs answer envelopes)
+            val typed = client.getWith("/items/$missing/transitions") // a legacy ErrorDto route (item and note GETs answer envelopes)
             assertEquals(HttpStatusCode.NotFound, typed.status)
             val typedCode =
                 Json
@@ -175,7 +180,7 @@ class RestCallLogTest {
 
             writer.flushNow()
             val byTool = callLogRows().associateBy { it["tool"] }
-            val typedRow = byTool.getValue("GET /api/v1/roots/{rootId}/config")
+            val typedRow = byTool.getValue("GET /api/v1/items/{id}/transitions")
             assertEquals("error", typedRow["outcome"])
             assertEquals("not_found", typedRow["error_code"], "the typed ErrorDto.error, not http_404")
             assertEquals(typed.headers["X-Req-Id"], typedRow["req_id"])
@@ -202,7 +207,7 @@ class RestCallLogTest {
             val deep = client.getWith("/items/$a/zzz/$b")
             val keyed = client.getWith("/items/$a/notes/my-key")
             val listingResponse = client.getWith("/items?limit=5&includeChildren=true&title=x")
-            val schema = client.getWith("/roots/$a/config")
+            val schema = client.getWith("/items/$a/transitions")
 
             writer.flushNow()
             val byReq = callLogRows().associateBy { it["req_id"] }
@@ -220,7 +225,7 @@ class RestCallLogTest {
             assertEquals(listOf("includeChildren", "limit"), shape.keys.toList())
             assertNull(listing["target_ids"])
             // G1: a matched multi-literal route keeps its declared template.
-            assertEquals("GET /api/v1/roots/{rootId}/config", byReq.getValue(schema.headers["X-Req-Id"])["tool"])
+            assertEquals("GET /api/v1/items/{id}/transitions", byReq.getValue(schema.headers["X-Req-Id"])["tool"])
         }
 
     @Test
@@ -230,11 +235,11 @@ class RestCallLogTest {
             val writer = newWriter(rig.composition)
             application { configureApp(rig.composition, writer) }
             val id = UUID.randomUUID()
-            val matched = client.getWith("/roots/$id/config")
+            val matched = client.getWith("/items/$id/transitions")
             val plain = client.getWith("/items/$id")
             writer.flushNow()
             val byReq = callLogRows().associateBy { it["req_id"] }
-            assertEquals("GET /api/v1/roots/{rootId}/config", byReq.getValue(matched.headers["X-Req-Id"])["tool"])
+            assertEquals("GET /api/v1/items/{id}/transitions", byReq.getValue(matched.headers["X-Req-Id"])["tool"])
             assertEquals("GET /api/v1/items/{id}", byReq.getValue(plain.headers["X-Req-Id"])["tool"])
         }
 
@@ -364,6 +369,9 @@ class RestCallLogTest {
                     options = ServerOptions(capabilities = ServerCapabilities(tools = ServerCapabilities.Tools(listChanged = true)))
                 )
             McpToolAdapter(callLog = writer).registerToolsWithServer(server, buildMcpTools(), rig.ctx)
+            // The 4.0 tools beside them, as CurrentMcpServer serves them (every 3.x tool is gone since Q21/Q23).
+            McpOperationAdapter(buildToolDispatcher(rig.ctx), callLog = writer)
+                .register(server, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
             application {
                 installMcpStreamableHttp(server)
                 val authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig()
@@ -405,7 +413,7 @@ class RestCallLogTest {
                 contentType(ContentType.Application.Json)
                 setBody("""{"jsonrpc":"2.0","id":2,"method":"tools/list"}""")
             }
-            // Q21 retired create_work_tree; the root is seeded directly and a remaining MCP-registered tool is called.
+            // Q21 retired create_work_tree and Q23 query_rules; the root is seeded directly and the 4.0 config tool is called.
             val root = rig.seed("s16")
             val call =
                 client.post("/mcp") {
@@ -413,7 +421,7 @@ class RestCallLogTest {
                     header("mcp-session-id", sessionId)
                     contentType(ContentType.Application.Json)
                     setBody(
-                        """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"query_rules","arguments":{"operation":"list","rootId":"${root.id}"}}}"""
+                        """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"config","arguments":{"ops":[{"op":"rules","rootId":"${root.id}"}]}}}"""
                     )
                 }
             val payload =
@@ -441,7 +449,7 @@ class RestCallLogTest {
             val mcp = rows.filter { it["surface"] == "mcp" }
             assertEquals(1, mcp.size, "only the tools/call is an MCP call_log row: $rows")
             assertEquals(reqId, mcp.single()["req_id"])
-            assertEquals("query_rules", mcp.single()["tool"])
+            assertEquals("config", mcp.single()["tool"])
             assertEquals(
                 0,
                 rows.count { it["surface"] == "rest" },

@@ -393,44 +393,66 @@ class FailClosedConfigTest {
         assertTrue("config_invalid" in body, "$what: $body")
     }
 
+    /** A `config` `effective` call for [root] (the server set when null) through the composition's real dispatcher. */
+    private fun configEffective(
+        composition: CompositionResult,
+        root: UUID?
+    ): JsonObject =
+        runBlocking {
+            composition.toolContext.callTool(
+                "config",
+                buildJsonObject {
+                    put(
+                        "ops",
+                        JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("op", "effective")
+                                    root?.let { put("rootId", it.toString()) }
+                                }
+                            )
+                        )
+                    )
+                }
+            )
+        }
+
     @Test
-    fun `S5 3x REST - a broken server head is 422 config_invalid on config and effective config and fails ops items_read context`() {
+    fun `S5 3x REST - a broken server head is config_invalid on the config effective op and fails ops items_read context`() {
         val healthy = boot("a", base)
         val root = seedRoot()
         val item = seedItem(root)
+        assertEnvelopeOk(configEffective(healthy, null), "control: config effective (server set)")
+        assertEnvelopeOk(configEffective(healthy, root.id), "control: config effective (root)")
         rest(healthy) {
-            assertEquals(HttpStatusCode.OK, fetch("/api/v1/config").status, "control: GET /config")
-            assertEquals(HttpStatusCode.OK, fetch("/api/v1/roots/${root.id}/config/effective").status, "control: effective config")
             val control = opsContext(item.id)
             assertEquals(HttpStatusCode.OK, control.status, "control: ops items_read context: ${control.bodyAsText()}")
         }
         nullServerCanonical()
         val broken = cold("cold")
 
+        assertEnvelopeConfigInvalid(configEffective(broken, null), "config effective (server set)")
+        assertEnvelopeConfigInvalid(configEffective(broken, root.id), "config effective (root)")
         rest(broken) {
-            assertRestConfigInvalid("/api/v1/config", "GET /config")
-            assertRestConfigInvalid("/api/v1/roots/${root.id}/config/effective", "GET /roots/{id}/config/effective")
             assertOpsContextConfigInvalid(item.id, "POST /ops/items_read context")
         }
     }
 
     @Test
-    fun `S5 3x REST - a broken root head is 422 config_invalid on its effective config, config_invalid on ops items_read context`() {
+    fun `S5 3x REST - a broken root head is config_invalid on its config effective op and on ops items_read context`() {
         val healthy = boot("a", base)
         val root = seedRoot()
         val item = seedItem(root)
         pushRootConfig(root, rootOnly)
-        rest(healthy) {
-            assertEquals(HttpStatusCode.OK, fetch("/api/v1/roots/${root.id}/config/effective").status, "control: effective config")
-        }
+        assertEnvelopeOk(configEffective(healthy, root.id), "control: config effective (root)")
         nullRootCanonical()
         val broken = cold("cold")
 
+        assertEnvelopeConfigInvalid(configEffective(broken, root.id), "config effective (root)")
         rest(broken) {
-            assertRestConfigInvalid("/api/v1/roots/${root.id}/config/effective", "GET /roots/{id}/config/effective")
             assertOpsContextConfigInvalid(item.id, "POST /ops/items_read context")
-            assertEquals(HttpStatusCode.OK, fetch("/api/v1/config").status, "the server head itself is healthy and still served")
         }
+        assertEnvelopeOk(configEffective(broken, null), "the server head itself is healthy and still served")
     }
 
     // ------------------------------------------------------------------------------------------------ S5: 4.0 envelope

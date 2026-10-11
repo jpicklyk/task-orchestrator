@@ -74,7 +74,9 @@ class ItemsWriteRegistrationTest {
     @Test
     fun `S18 manage_items is gone from the MCP tool list while other tools remain`() {
         val names = buildMcpTools().map { it.name }
-        assertTrue(names.isNotEmpty() && "query_rules" in names, "control: the list still holds other tools: $names")
+        // Control: every 3.x tool is gone (Q21, Q23), so the served surface that still holds tools is the 4.0 registry.
+        val served = names + ToolRegistry(buildToolSpecs()).tools.map { it.name }
+        assertTrue("config" in served && "items_write" in served, "control: the served surface still holds other tools: $served")
         assertTrue("manage_items" !in names, "manage_items must not be registered: $names")
         assertTrue("create_work_tree" !in names, "create_work_tree must not be registered (Q21): $names")
         assertTrue("complete_tree" !in names, "complete_tree must not be registered (Q21): $names")
