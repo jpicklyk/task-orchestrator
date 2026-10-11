@@ -10,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
 import io.github.jpicklyk.mcptask.current.application.service.ParentChange
 import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -32,19 +31,19 @@ import io.github.jpicklyk.mcptask.current.test.envelopeOk
 import io.github.jpicklyk.mcptask.current.test.inUnit
 import io.github.jpicklyk.mcptask.current.test.itemsWrite
 import io.github.jpicklyk.mcptask.current.test.okId
+import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.testClaimService
+import io.github.jpicklyk.mcptask.current.test.treeItemId
 import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -785,41 +784,41 @@ class EventActorRootIdTest {
         }
 
     @Test
-    fun `S11f create_work_tree with a top-level actor attributes the tree item created events`(): Unit =
+    fun `S11f create_tree with a top-level actor attributes the tree item created events`(): Unit =
         runBlocking {
             val bus = ApiEventBus()
             val flow = bus.subscribe("s11f", emptySet(), lastEventId = null)
             val ctx = toolContext(bus)
 
             val result =
-                CreateWorkTreeTool().execute(
-                    buildJsonObject {
-                        put(
-                            "root",
-                            buildJsonObject {
-                                put("type", "test-item")
-                                put("title", "Tree-s11f")
-                            }
-                        )
-                        put(
-                            "children",
-                            buildJsonArray {
-                                add(
-                                    buildJsonObject {
-                                        put("ref", "c1")
-                                        put("type", "test-item")
-                                        put("title", "Child-s11f")
-                                    },
-                                )
-                            },
-                        )
-                        put("actor", actorJson("agent-a"))
-                    },
-                    ctx,
-                )
-            val data = assertToolSuccess(result)["data"] as JsonObject
-            val rootId = UUID.fromString((data["root"] as JsonObject)["id"]!!.jsonPrimitive.content)
-            val childId = UUID.fromString((data["children"] as JsonArray)[0].jsonObject["id"]!!.jsonPrimitive.content)
+                ctx
+                    .itemsWrite(
+                        buildJsonObject {
+                            put("op", "create_tree")
+                            put(
+                                "root",
+                                buildJsonObject {
+                                    put("type", "test-item")
+                                    put("title", "Tree-s11f")
+                                }
+                            )
+                            put(
+                                "children",
+                                buildJsonArray {
+                                    add(
+                                        buildJsonObject {
+                                            put("ref", "c1")
+                                            put("type", "test-item")
+                                            put("title", "Child-s11f")
+                                        },
+                                    )
+                                },
+                            )
+                        },
+                        actor = actorJson("agent-a"),
+                    ).okResult(0)
+            val rootId = result.treeItemId(0)
+            val childId = result.treeItemId(1)
 
             val events = bus.drainDelivered("s11f", flow)
             assertEquals(dtoPlainA(), events.one(ApiEventType.ITEM_CREATED, rootId).actor)

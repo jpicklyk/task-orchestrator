@@ -53,8 +53,8 @@ private val effectiveConfigLogger = LoggerFactory.getLogger("EffectiveConfigRout
  * [EffectiveConfigResolver.layered] read, wrapped in the same `config_unavailable` 503 envelope
  * `ItemRoutes` uses for [PerRootConfigUnavailableException].
  *
- * [serverConfig] is the DB-backed server layer the [configResolver] reads from; every resolved value (the status
- * graph included) comes from [configResolver]'s single layered read, so this route holds the source only for wiring
+ * The status graph is built by [StatusGraphBuilder.buildStatusGraph] over the layered read's own schemas.
+ * [serverConfig] is the DB-backed server layer the [configResolver] reads from; this route holds it only for wiring
  * symmetry with `configRoutes`.
  * Type keys come from [io.github.jpicklyk.mcptask.current.application.config.LayeredConfig.typeKeys]. Every resolved value comes from [configResolver]'s single
  * [EffectiveConfigResolver.layered] read; no separate default-schema probing or per-root-vs-global

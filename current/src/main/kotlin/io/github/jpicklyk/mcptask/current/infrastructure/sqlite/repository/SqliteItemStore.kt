@@ -379,6 +379,22 @@ class SqliteItemStore(
         }
     }
 
+    override suspend fun filterVisible(
+        ids: Set<UUID>,
+        scope: AccessScope,
+    ): Set<UUID> {
+        if (ids.isEmpty()) return emptySet()
+        return databaseManager.readTx {
+            val visible = visibilityConditions(scope) ?: return@readTx emptySet()
+            val condition = (listOf(WorkViewSql.inIdSet(WorkItemsTable.id, ids)) + visible).reduce { acc, op -> acc and op }
+            WorkItemsTable
+                .select(WorkItemsTable.id)
+                .where { condition }
+                .map { it[WorkItemsTable.id].value }
+                .toSet()
+        }
+    }
+
     override suspend fun countByParentAndRole(
         parentIds: Set<UUID>,
         scope: AccessScope,
@@ -510,15 +526,17 @@ class SqliteItemStore(
         rootIds: Set<UUID>?,
         limit: Int,
         offset: Int,
+        scope: AccessScope,
     ): ItemSlice {
         if (roles.isEmpty() || rootIds?.isEmpty() == true) return ItemSlice(emptyList(), 0)
         return databaseManager.readTx {
             val conditions = mutableListOf<Op<Boolean>>()
             if (rootIds != null) {
-                val scope = ScopeResolver.resolve(rootIds)
-                if (scope == ResolvedScope.Empty) return@readTx ItemSlice(emptyList(), 0)
-                conditions.add(scope.toCondition())
+                val resolved = ScopeResolver.resolve(rootIds)
+                if (resolved == ResolvedScope.Empty) return@readTx ItemSlice(emptyList(), 0)
+                conditions.add(resolved.toCondition())
             }
+            conditions.addAll(visibilityConditions(scope) ?: return@readTx ItemSlice(emptyList(), 0))
             conditions.add(WorkItemsTable.role inList roles.map { WorkViewSql.stored(it) })
             val condition = conditions.reduce { acc, op -> acc and op }
             val items =
@@ -547,14 +565,16 @@ class SqliteItemStore(
         ancestorId: UUID?,
         limit: Int,
         offset: Int,
+        scope: AccessScope,
     ): ItemSlice =
         databaseManager.readTx {
             val conditions = mutableListOf<Op<Boolean>>()
             if (ancestorId != null) {
-                val scope = ScopeResolver.resolve(setOf(ancestorId))
-                if (scope == ResolvedScope.Empty) return@readTx ItemSlice(emptyList(), 0)
-                conditions.add(scope.toCondition())
+                val resolved = ScopeResolver.resolve(setOf(ancestorId))
+                if (resolved == ResolvedScope.Empty) return@readTx ItemSlice(emptyList(), 0)
+                conditions.add(resolved.toCondition())
             }
+            conditions.addAll(visibilityConditions(scope) ?: return@readTx ItemSlice(emptyList(), 0))
             parentId?.let { conditions.add(WorkItemsTable.parentId eq it) }
             val explicit = WorkItemsTable.role eq WorkViewSql.stored(Role.BLOCKED)
             val open = WorkItemsTable.role inList listOf(Role.QUEUE, Role.WORK, Role.REVIEW).map { WorkViewSql.stored(it) }

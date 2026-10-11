@@ -36,23 +36,23 @@ object ItemsReadList {
 
     @Serializable
     data class Request(
-        @Doc("Only direct children of this item (UUID or 8-32 hex).") val parentId: IdRef? = null,
+        @Doc(ItemsReadDocs.PARENT_ID) val parentId: IdRef? = null,
         @Doc(ItemsReadDocs.ANCESTOR_ID) val ancestorId: IdRef? = null,
         @Doc("Only items at this depth (0 = roots).") val depth: Int? = null,
         @Doc(ItemsReadDocs.ROLE) val role: RoleWire? = null,
-        @Doc("Only items with this priority.") val priority: PriorityWire? = null,
+        @Doc(ItemsReadDocs.PRIORITY) val priority: PriorityWire? = null,
         @Doc(ItemsReadDocs.TAGS) val tags: List<String>? = null,
         @Doc(ItemsReadDocs.TRAITS) val traits: List<String>? = null,
         @Doc(ItemsReadDocs.TYPE) val type: String? = null,
         @Doc("Only items in this claim state (expired: TTL elapsed).")
         val claimStatus: ClaimStatusWire? = null,
-        @Doc("Created at or after (ISO 8601).") @Contextual val createdAfter: Instant? = null,
-        @Doc("Created at or before (ISO 8601).") @Contextual val createdBefore: Instant? = null,
-        @Doc("Modified at or after (ISO 8601).") @Contextual val modifiedAfter: Instant? = null,
-        @Doc("Modified at or before (ISO 8601).") @Contextual val modifiedBefore: Instant? = null,
-        @Doc("Role changed at or after (ISO 8601).")
+        @Doc(ItemsReadDocs.CREATED_AFTER) @Contextual val createdAfter: Instant? = null,
+        @Doc(ItemsReadDocs.CREATED_BEFORE) @Contextual val createdBefore: Instant? = null,
+        @Doc(ItemsReadDocs.MODIFIED_AFTER) @Contextual val modifiedAfter: Instant? = null,
+        @Doc(ItemsReadDocs.MODIFIED_BEFORE) @Contextual val modifiedBefore: Instant? = null,
+        @Doc(ItemsReadDocs.ROLE_CHANGED_AFTER)
         @Contextual val roleChangedAfter: Instant? = null,
-        @Doc("Role changed at or before (ISO 8601).")
+        @Doc(ItemsReadDocs.ROLE_CHANGED_BEFORE)
         @Contextual val roleChangedBefore: Instant? = null,
         @Doc("Sort field; default createdAt.") val sort: SortWire? = null,
         @Doc("Sort direction; default desc.") val order: OrderWire? = null,

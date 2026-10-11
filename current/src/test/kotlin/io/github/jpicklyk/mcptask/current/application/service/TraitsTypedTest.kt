@@ -1,8 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
@@ -19,13 +17,16 @@ import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemView
 import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
 import io.github.jpicklyk.mcptask.current.test.createCommand
 import io.github.jpicklyk.mcptask.current.test.createOp
+import io.github.jpicklyk.mcptask.current.test.createTreeOp
 import io.github.jpicklyk.mcptask.current.test.errorAt
 import io.github.jpicklyk.mcptask.current.test.itemsWrite
 import io.github.jpicklyk.mcptask.current.test.okId
+import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.rawCount
 import io.github.jpicklyk.mcptask.current.test.results
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.strings
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import io.github.jpicklyk.mcptask.current.test.updateOp
 import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.get
@@ -539,7 +540,7 @@ class TraitsTypedTest {
         }
 
     // ---------------------------------------------------------------------------------------------
-    // S2 / S3 / S9 / S10 - the items_write and create_work_tree adapters
+    // S2 / S3 / S9 / S10 - the items_write create and create_tree adapters
     // ---------------------------------------------------------------------------------------------
 
     private fun JsonObject.data(): JsonObject = this["data"]!!.jsonObject
@@ -740,39 +741,41 @@ class TraitsTypedTest {
         }
 
     @Test
-    fun `S2 create_work_tree stores the traits of the root and of a child as typed lists`(
+    fun `S2 create_tree stores the traits of the root and of a child as typed lists`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
             val r = freeRig(dir)
 
-            r.callOk(
-                CreateWorkTreeTool(),
-                "root" to
-                    buildJsonObject {
-                        put("title", "Tree root")
-                        put("type", "test-item")
-                        put("traits", "b, a,,b")
-                    },
-                "children" to
-                    buildJsonArray {
-                        add(
+            r
+                .itemsWrite(
+                    createTreeOp(
+                        "root" to
                             buildJsonObject {
-                                put("ref", "c1")
+                                put("title", "Tree root")
                                 put("type", "test-item")
-                                put("title", "Tree child")
-                                put("traits", "c")
+                                put("traits", strings("b", "a"))
                             },
-                        )
-                        add(
-                            buildJsonObject {
-                                put("ref", "c2")
-                                put("type", "test-item")
-                                put("title", "Tree plain")
-                            },
-                        )
-                    },
-            )
+                        "children" to
+                            buildJsonArray {
+                                add(
+                                    buildJsonObject {
+                                        put("ref", "c1")
+                                        put("type", "test-item")
+                                        put("title", "Tree child")
+                                        put("traits", strings("c"))
+                                    },
+                                )
+                                add(
+                                    buildJsonObject {
+                                        put("ref", "c2")
+                                        put("type", "test-item")
+                                        put("title", "Tree plain")
+                                    },
+                                )
+                            }
+                    )
+                ).okResult(0)
 
             assertEquals(ordered("b", "a"), rawTraitsByTitle("Tree root"))
             assertEquals(ordered("c"), rawTraitsByTitle("Tree child"))
@@ -798,7 +801,7 @@ class TraitsTypedTest {
             val plain = r.make("plain", type = "feature-task")
 
             suspend fun gate(item: WorkItem): JsonObject =
-                r.callOk(GetContextTool(), "itemId" to str(item.id.toString())).data()["gateStatus"]!!.jsonObject
+                r.callOk(ItemContextProbe(), "itemId" to str(item.id.toString())).data()["gateStatus"]!!.jsonObject
 
             suspend fun missing(item: WorkItem): Set<String> = gate(item)["missing"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
 

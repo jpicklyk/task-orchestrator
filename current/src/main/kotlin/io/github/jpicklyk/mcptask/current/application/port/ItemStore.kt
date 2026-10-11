@@ -197,6 +197,15 @@ interface ItemStore {
     // restriction adds at most a fixed number of statements per call, never one per id.
 
     /**
+     * The ids of [ids] whose item exists and is visible under [scope], as ONE statement for any number of ids (an empty
+     * set returns an empty set without touching the database). An unrestricted [scope] still reports only existing ids.
+     */
+    suspend fun filterVisible(
+        ids: Set<UUID>,
+        scope: AccessScope,
+    ): Set<UUID>
+
+    /**
      * Direct-children counts grouped by role, per parent in [parentIds]. Every requested id is a
      * key; a parent with no children (or no row) maps to an empty map. Roles with zero children are
      * omitted from the inner map. Only children visible under [scope] are counted.
@@ -250,13 +259,14 @@ interface ItemStore {
      * One page of the items whose role is in [roles], optionally within the subtree(s) of
      * [rootIds] (roots included; an empty set selects nothing), plus the exact count of the whole
      * set. Ordered by role (queue, work, review, blocked, terminal), then `role_changed_at`
-     * ascending (longest in the role first), then `id` ascending.
+     * ascending (longest in the role first), then `id` ascending. Only items visible under [scope] are listed or counted.
      */
     suspend fun findByRoles(
         roles: Set<Role>,
         rootIds: Set<UUID>?,
         limit: Int,
         offset: Int,
+        scope: AccessScope = AccessScope.unrestricted(),
     ): ItemSlice
 
     /**
@@ -266,13 +276,15 @@ interface ItemStore {
      * beyond the edge threshold (`unblock_at`, TERMINAL when null); a BLOCKED or missing blocker
      * never satisfies. TERMINAL items are never returned. The optional [parentId] (direct children)
      * and [ancestorId] (subtree, inclusive) filters are AND-ed. Ordered BLOCKED first, then QUEUE,
-     * WORK, REVIEW, then `id` ascending.
+     * WORK, REVIEW, then `id` ascending. Only items visible under [scope] are listed or counted; whether an item is
+     * blocked is decided on the true rows.
      */
     suspend fun findBlocked(
         parentId: UUID?,
         ancestorId: UUID?,
         limit: Int,
         offset: Int,
+        scope: AccessScope = AccessScope.unrestricted(),
     ): ItemSlice
 }
 

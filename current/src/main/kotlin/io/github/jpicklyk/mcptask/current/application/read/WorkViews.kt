@@ -20,6 +20,24 @@ data class BlockedScope(
     val ancestorId: UUID? = null,
 )
 
+/** Why the `next` view is empty although items matched its selector. */
+enum class NextEmptyReason {
+    /** Matched items are held by an active claim (their own, or an ancestor's). */
+    CLAIM_HELD,
+
+    /** Matched items are free of claims but wait on an unsatisfied blocking dependency. */
+    DEPENDENCY_UNMET,
+}
+
+/**
+ * One page of the `next` view: [page] of the eligible items with the exact eligible total, and [emptyReason] set only when
+ * nothing is eligible although items matched the selector (null when something is eligible, and when nothing matched).
+ */
+data class NextView(
+    val page: ListPage<WorkItem>,
+    val emptyReason: NextEmptyReason? = null,
+)
+
 /** Why an item is in the blocked view. */
 enum class BlockType {
     /** The item's role is BLOCKED. */
@@ -136,7 +154,8 @@ data class ContextScope(
  * The health / session-resume item data.
  *
  * @property active WORK and REVIEW items (work first, then longest in the role first).
- * @property blocked Role-BLOCKED items, same order rule.
+ * @property blocked The blocked items (the [WorkViewQueries.blocked] set: role BLOCKED, or open with an unsatisfied
+ *   blocking dependency), BLOCKED first, then queue, work, review; no blocker detail.
  * @property claimSummary Claim-status counts over every item in scope.
  * @property notes The notes of each item on the [active] page, in one batched read. Every listed active id is a
  *   key (an empty list when it has none).

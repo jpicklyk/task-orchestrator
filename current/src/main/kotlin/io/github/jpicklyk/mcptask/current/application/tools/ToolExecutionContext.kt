@@ -6,6 +6,9 @@ import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLo
 import io.github.jpicklyk.mcptask.current.application.config.LayeredConfig
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
+import io.github.jpicklyk.mcptask.current.application.knowledge.document.DocumentService
+import io.github.jpicklyk.mcptask.current.application.knowledge.link.LinkService
+import io.github.jpicklyk.mcptask.current.application.knowledge.related.RelatedService
 import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchService
 import io.github.jpicklyk.mcptask.current.application.port.BodySource
 import io.github.jpicklyk.mcptask.current.application.port.Clock
@@ -165,11 +168,23 @@ class ToolExecutionContext(
     /** The plan-document write owner (stash, and the adoption `create_work_tree` runs in its unit). */
     val planDocumentService: PlanDocumentService by lazy { PlanDocumentService(repositoryProvider, unitOfWork) }
 
+    /** The document write owner, shared by `docs_write`. Lazy for the same reason as [advanceServiceFactoryLazy]. */
+    val documentService: DocumentService by lazy { DocumentService(repositoryProvider, unitOfWork) }
+
+    /** The link write owner (attach and detach), shared by `docs_write`. Lazy for the same reason as [advanceServiceFactoryLazy]. */
+    val linkService: LinkService by lazy { LinkService(repositoryProvider, unitOfWork) }
+
     /**
      * Full-text search over items and notes, built from [RepositoryProvider.searchIndex] on first use (a provider
      * without a search index fails only when a search actually runs).
      */
     val searchService: SearchService by lazy { SearchService(repositoryProvider.searchIndex(), unitOfWork) }
+
+    /**
+     * The `related` read (weighted fusion of dependency, link, tag and text signals), built from
+     * [RepositoryProvider.searchIndex] on first use, like [searchService].
+     */
+    val relatedService: RelatedService by lazy { RelatedService(repositoryProvider.searchIndex(), unitOfWork) }
 
     /** Access to WorkItem CRUD and query operations. */
     fun workItemRepository(): WorkItemRepository = repositoryProvider.workItemRepository()
@@ -334,8 +349,7 @@ class ToolExecutionContext(
     fun advanceServiceFactory(): AdvanceServiceFactory = advanceServiceFactoryLazy
 
     /**
-     * The shared read-only [TransitionPreview] (`get_context` / `GET /items/{id}/gate` `canAdvance`,
-     * `get_next_status`): the same snapshot loader and policy every advance uses.
+     * The shared read-only [TransitionPreview] (`canAdvance` of `items_read` `select=context`): the same snapshot loader and policy every advance uses.
      */
     fun transitionPreview(): TransitionPreview = advanceServiceFactory().preview()
 }

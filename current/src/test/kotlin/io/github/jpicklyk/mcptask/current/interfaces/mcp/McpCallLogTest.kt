@@ -14,6 +14,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteCallLogStore
 import io.github.jpicklyk.mcptask.current.infrastructure.telemetry.CallLogWriter
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.test.CallLogRows
 import io.github.jpicklyk.mcptask.current.test.LogCapture
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
@@ -133,6 +136,9 @@ class McpCallLogTest {
     ): Pair<Client, Server> {
         val srv = Server(serverInfo = Implementation(name = "p10-server", version = "1.0.0"), options = inMemoryTestServerOptions())
         adapter.registerToolsWithServer(srv, tools, rig.ctx)
+        // The 4.0 tools (items_read ...) through the real operation adapter on the same server, writing the same call log.
+        McpOperationAdapter(buildToolDispatcher(rig.ctx), callLog = writer)
+            .register(srv, ToolRegistry(buildToolSpecs()), ToolProfile.ORCHESTRATION)
         val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
         val cli =
             Client(
@@ -307,7 +313,7 @@ class McpCallLogTest {
     // ------------------------------------------------------------------ S6
 
     @Test
-    fun `S6 get_context in item mode records the item version`() =
+    fun `S6 items_read context in item mode records the item version`() =
         runBlocking {
             val item = rig.seed("S6 context")
             val version =
@@ -315,7 +321,7 @@ class McpCallLogTest {
                     .workItemRepository()
                     .getById(item.id)!!
                     .version
-            call("get_context", "itemId" to jstr(item.id.toString()))
+            call("items_read", "select" to jstr("context"), "itemId" to jstr(item.id.toString()))
             val row = flush().single()
             val versions = Json.parseToJsonElement(row["target_versions"] as String).jsonObject
             assertEquals(version.toLong(), versions[item.id.toString()]!!.jsonPrimitive.content.toLong())
@@ -373,7 +379,7 @@ class McpCallLogTest {
         }
 
     @Test
-    fun `S6 get_next_item over three dependency-blocked queue items records result 0 and eligible 0`() =
+    fun `S6 items_read next over three dependency-blocked queue items records result 0 and eligible 0`() =
         runBlocking {
             val blocker = rig.seed("S6 blocker", role = Role.WORK)
             val items = (1..3).map { rig.seed("S6 blocked $it") }
@@ -382,7 +388,7 @@ class McpCallLogTest {
                     Dependency(fromItemId = blocker.id, toItemId = it.id, type = DependencyType.BLOCKS)
                 )
             }
-            val result = call("get_next_item")
+            val result = call("items_read", "select" to jstr("next"))
             assertTrue(result.isError != true, "${result.content}")
             val row = flush().single()
             assertEquals(0L, row["result_count"], "every candidate is dependency-blocked")
@@ -390,10 +396,10 @@ class McpCallLogTest {
         }
 
     @Test
-    fun `S6 get_next_item with one unblocked item records result 1 of eligible 1`() =
+    fun `S6 items_read next with one unblocked item records result 1 of eligible 1`() =
         runBlocking {
             rig.seed("S6 free")
-            call("get_next_item")
+            call("items_read", "select" to jstr("next"))
             val row = flush().single()
             assertEquals(1L, row["result_count"])
             assertEquals(1L, row["eligible_count"])

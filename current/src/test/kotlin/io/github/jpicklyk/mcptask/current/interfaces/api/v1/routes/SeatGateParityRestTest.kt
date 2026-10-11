@@ -1,16 +1,17 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advanceTool
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.items.ItemsReadTool
 import io.github.jpicklyk.mcptask.current.parity.ParityToken
 import io.github.jpicklyk.mcptask.current.parity.installParityRestApp
 import io.github.jpicklyk.mcptask.current.parity.parityAuthConfig
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -38,7 +39,7 @@ import kotlin.test.assertFalse
 
 /**
  * Independent test (items 79cd4f0c and 2cd17c00) for `missingBySeat` parity, re-pointed at the `advance` transition op: the seat
- * buckets of a gate failure must be the same whether read from `get_context`, from `GET /items/{id}/gate`, or from the `missing`
+ * buckets of a gate failure must be the same whether read from the MCP context select, from `POST /ops/items_read` `select: context`, or from the `missing`
  * list of the `gate_blocked` element that `advance` op `transition` answers (`missing[].seat` grouped by seat).
  *
  * Oracles: the fixture schemas below (the seat-owned required notes are written in the config, so the expected buckets are
@@ -113,11 +114,11 @@ work_item_schemas:
                     depth = 1
                 )
             )
-            application { installParityRestApp(rig, parityAuthConfig(token), ToolRegistry(listOf(advanceTool()))) }
+            application { installParityRestApp(rig, parityAuthConfig(token), ToolRegistry(listOf(advanceTool(), ItemsReadTool.spec))) }
 
             val context =
                 rig
-                    .callOk(GetContextTool(), "itemId" to JsonPrimitive(ITEM_ID.toString()))
+                    .callOk(ItemContextProbe(), "itemId" to JsonPrimitive(ITEM_ID.toString()))
                     .getValue("data")
                     .jsonObject
                     .getValue("gateStatus")
@@ -132,19 +133,17 @@ work_item_schemas:
             val contextBuckets = asMap(context.getValue("missingBySeat").jsonObject)
             assertEquals(expected, contextBuckets, "the buckets named by the fixture schema")
 
-            val gate = client.get("/api/v1/items/$ITEM_ID/gate") { header("Authorization", "Bearer ${token.raw}") }
+            val gate = client.restContext(ITEM_ID, token.raw)
             assertEquals(HttpStatusCode.OK, gate.status)
             val gateBuckets =
                 asMap(
-                    Json
-                        .parseToJsonElement(gate.bodyAsText())
-                        .jsonObject
-                        .getValue("gateStatus")
-                        .jsonObject
+                    gate
+                        .bodyAsText()
+                        .contextGate()
                         .getValue("missingBySeat")
                         .jsonObject
                 )
-            assertEquals(contextBuckets, gateBuckets, "GET gate matches get_context")
+            assertEquals(contextBuckets, gateBuckets, "the ops context select matches the MCP context select")
 
             val advance =
                 client.post("/api/v1/ops/advance") {
@@ -179,7 +178,7 @@ work_item_schemas:
         }
 
     @Test
-    fun `S12 missingBySeat is identical across get_context, REST gate and the advance transition for a queue item with one bucket`(
+    fun `S12 missingBySeat is identical across the MCP and REST context selects and the advance transition for a queue item`(
         @TempDir dir: Path
     ) = parityOn(dir, QUEUE_CONFIG, "seat-parity", Role.QUEUE, mapOf("planner" to listOf("diagnosis", "task-scope")))
 

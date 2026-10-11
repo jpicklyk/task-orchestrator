@@ -1,7 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.test.P11Driver
@@ -14,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.test.flag
 import io.github.jpicklyk.mcptask.current.test.setup
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.text
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -49,13 +48,12 @@ class PreviewAdvanceParityTest {
 
     private fun driver(dir: Path) = P11Driver(EventLogRig.build(db.db, dir, P11_BASE_YAML))
 
-    private suspend fun P11Driver.gate(item: io.github.jpicklyk.mcptask.current.domain.model.WorkItem): JsonObject {
-        val data = rig.call(GetContextTool(), "itemId" to JsonPrimitive(item.id.toString()))["data"]!!.jsonObject
-        return data["gateStatus"]!!.jsonObject
-    }
+    private suspend fun P11Driver.gate(item: io.github.jpicklyk.mcptask.current.domain.model.WorkItem): JsonObject =
+        contextData(item)["gateStatus"]!!.jsonObject
 
-    private suspend fun P11Driver.nextStatus(item: io.github.jpicklyk.mcptask.current.domain.model.WorkItem): JsonObject =
-        rig.call(GetNextStatusTool(), "itemId" to JsonPrimitive(item.id.toString()))["data"]!!.jsonObject
+    /** `data` of `items_read select=context` for [item] (the removed `get_context` item mode and `get_next_status`). */
+    private suspend fun P11Driver.contextData(item: io.github.jpicklyk.mcptask.current.domain.model.WorkItem): JsonObject =
+        rig.call(ItemContextProbe(), "itemId" to JsonPrimitive(item.id.toString()))["data"]!!.jsonObject
 
     @Test
     fun `S12 get_context canAdvance and blockedBy equal the gate that advance start would hit, across every generated state`(
@@ -95,7 +93,7 @@ class PreviewAdvanceParityTest {
         }
 
     @Test
-    fun `S12 get_next_status reports Ready or the same blocking gate that advance start would hit`(
+    fun `S12 context next and blockers report Ready or the same blocking gate that advance start would hit`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -104,34 +102,39 @@ class PreviewAdvanceParityTest {
                 val (item, holder) = d.setup(state)
                 val label = state.label
 
-                val next = d.nextStatus(item)
+                val data = d.contextData(item)
+                val gate = data["gateStatus"]!!.jsonObject
                 val outcome = d.advance(item, "start")
 
                 when (state.expectedBlockedBy) {
-                    "terminal" -> assertEquals("Terminal", next.text("recommendation"), "$label: $next")
-                    "table" -> assertEquals("Blocked", next.text("recommendation"), "$label: a blocked item is reported Blocked: $next")
+                    "terminal" -> {
+                        assertEquals(false, gate.flag("canAdvance"), "$label: $gate")
+                        assertEquals(null, data["next"], "$label: a terminal item has no next: $data")
+                    }
+                    "table" -> {
+                        assertEquals(false, gate.flag("canAdvance"), "$label: a blocked item cannot start: $gate")
+                        assertEquals("table", gate.text("blockedBy"), "$label: $gate")
+                    }
                     null -> {
-                        assertEquals("Ready", next.text("recommendation"), "$label: $next")
-                        assertEquals("start", next.text("trigger"), "$label: $next")
+                        assertEquals(true, gate.flag("canAdvance"), "$label: $gate")
+                        assertEquals("start", data["next"]!!.jsonObject.text("trigger"), "$label: $data")
                         assertEquals(true, outcome.flag("applied"), "$label: Ready agrees with advance: $outcome")
                     }
                     "dependency" -> {
-                        assertEquals("Blocked", next.text("recommendation"), "$label: $next")
-                        assertTrue(next.arr("blockers").isNotEmpty(), "$label: the dependency blockers are listed: $next")
+                        assertEquals("dependency", gate.text("blockedBy"), "$label: $gate")
+                        assertTrue(gate.arr("blockers").isNotEmpty(), "$label: the dependency blockers are listed: $gate")
                     }
                     "note" -> {
-                        assertEquals("Blocked", next.text("recommendation"), "$label: $next")
-                        assertEquals("gate_blocked", next.text("reason"), "$label: $next")
+                        assertEquals("note", gate.text("blockedBy"), "$label: $gate")
                         val phaseKey = mapOf(Role.QUEUE to "spec", Role.WORK to "impl", Role.REVIEW to "verdict")[state.role]
-                        assertEquals(listOf(phaseKey), next.arr("missingNotes").map { it.jsonPrimitive.content }, "$label: $next")
+                        assertEquals(listOf(phaseKey), gate.arr("missing").map { it.jsonPrimitive.content }, "$label: $gate")
                     }
                     "lease" -> {
-                        assertEquals("Blocked", next.text("recommendation"), "$label: $next")
-                        assertEquals("resource_unavailable", next.text("reason"), "$label: $next")
+                        assertEquals("lease", gate.text("blockedBy"), "$label: $gate")
                         assertEquals(
                             listOf(P11_LEASE_KEY),
-                            next.arr("contendedResources").map { it.jsonPrimitive.content },
-                            "$label: $next"
+                            gate.arr("contended").map { it.jsonPrimitive.content },
+                            "$label: $gate"
                         )
                     }
                 }
@@ -171,7 +174,7 @@ class PreviewAdvanceParityTest {
                 val gate = d.gate(item)
                 assertEquals(true, gate.flag("canAdvance"), "${item.title}: $gate")
                 assertEquals(null, gate.text("blockedBy"), "${item.title}: blockedBy is absent when canAdvance is true: $gate")
-                assertEquals("Ready", d.nextStatus(item).text("recommendation"), item.title)
+                assertEquals("start", d.contextData(item)["next"]!!.jsonObject.text("trigger"), item.title)
                 assertEquals(true, d.advance(item, "start").flag("applied"), item.title)
             }
         }

@@ -22,25 +22,32 @@ import java.util.UUID
 /**
  * Sweep fixtures for tests that drive item writes through the production `items_write` tool over the real
  * dispatcher (the removed `manage_items` was their previous entry point). Pure plumbing: no assertion logic lives
- * here, and the oracle of every test stays in the test itself. The default [profile] is the one the MCP server serves
- * (orchestration), so orchestration-only ops such as `repin` are reachable.
+ * here, and the oracle of every test stays in the test itself.
  */
 internal suspend fun ToolExecutionContext.itemsWrite(
     vararg ops: JsonObject,
     atomic: Boolean = false,
     actor: JsonObject? = null,
     reqId: String = "k7f3q9ab",
-    profile: ToolProfile = ToolProfile.ORCHESTRATION
+    profile: ToolProfile? = null
 ): JsonObject {
     val spec = checkNotNull(ToolRegistry(buildToolSpecs())["items_write"]) { "items_write is not registered" }
+    // Default: knowledge, unless an op is orchestration-only (create_tree, complete_tree and repin, amendment U23).
+    val effectiveProfile =
+        profile ?: if (ops.any { it.opName() in ORCHESTRATION_ONLY_OPS }) ToolProfile.ORCHESTRATION else ToolProfile.KNOWLEDGE
     val arguments =
         buildJsonObject {
             actor?.let { put("actor", it) }
             if (atomic) put("atomic", true)
             put("ops", JsonArray(ops.toList()))
         }
-    return buildToolDispatcher(this).dispatch(spec, profile, arguments, reqId, "mcp").envelope.body
+    return buildToolDispatcher(this).dispatch(spec, effectiveProfile, arguments, reqId, "mcp").envelope.body
 }
+
+/** The `items_write` ops the knowledge profile hides. */
+private val ORCHESTRATION_ONLY_OPS = setOf("create_tree", "complete_tree", "repin")
+
+private fun JsonObject.opName(): String? = (this["op"] as? JsonPrimitive)?.content
 
 /** [ToolExecutionContext.itemsWrite] over the rig's production composition. */
 internal suspend fun EventLogRig.itemsWrite(
@@ -48,7 +55,7 @@ internal suspend fun EventLogRig.itemsWrite(
     atomic: Boolean = false,
     actor: JsonObject? = null,
     reqId: String = "k7f3q9ab",
-    profile: ToolProfile = ToolProfile.ORCHESTRATION
+    profile: ToolProfile? = null
 ): JsonObject = ctx.itemsWrite(*ops, atomic = atomic, actor = actor, reqId = reqId, profile = profile)
 
 /** A `create` element for [title]; [extra] adds or overrides fields. */
@@ -89,6 +96,32 @@ internal fun deleteOp(
         if (recursive) put("recursive", true)
         extra.forEach { (k, v) -> put(k, v) }
     }
+
+/** A `create_tree` element with [fields] (`root`, `children`, `deps`, `notes`, ...). */
+internal fun createTreeOp(vararg fields: Pair<String, JsonElement>): JsonObject =
+    buildJsonObject {
+        put("op", "create_tree")
+        fields.forEach { (k, v) -> put(k, v) }
+    }
+
+/**
+ * A `complete_tree` element with [fields] (`rootId` or `itemIds`, `trigger`, `includeRoot`). The op is in the
+ * orchestration profile: dispatch it with `profile = ToolProfile.ORCHESTRATION`.
+ */
+internal fun completeTreeOp(vararg fields: Pair<String, JsonElement>): JsonObject =
+    buildJsonObject {
+        put("op", "complete_tree")
+        fields.forEach { (k, v) -> put(k, v) }
+    }
+
+/** The `items[i].id` of a successful tree element ([okResult]). */
+internal fun JsonObject.treeItemId(i: Int): UUID =
+    UUID.fromString(
+        this["items"]!!
+            .jsonArray[i]
+            .jsonObject["id"]!!
+            .jsonPrimitive.content
+    )
 
 /** A string-array JSON value. */
 internal fun strings(vararg values: String): JsonArray = JsonArray(values.map { JsonPrimitive(it) })

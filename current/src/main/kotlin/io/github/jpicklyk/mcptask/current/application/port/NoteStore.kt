@@ -60,6 +60,12 @@ interface NoteStore {
     suspend fun findByItemIds(itemIds: Set<UUID>): Map<UUID, List<Note>>
 
     /**
+     * The owning work item of each note in [noteIds] that exists; absent ids are omitted. The default reads note by
+     * note; the SQLite store overrides it with one column-narrow read per chunk.
+     */
+    suspend fun ownersOf(noteIds: Set<UUID>): Map<UUID, UUID> = noteIds.mapNotNull { id -> getById(id)?.let { id to it.itemId } }.toMap()
+
+    /**
      * The identity of every note on [itemIds] (id, item, key, role), grouped by item, WITHOUT the bodies: what a
      * cascade audit needs before a bulk delete. The default derives it from [findByItemIds]; the SQLite store
      * overrides it with a column-narrow read.

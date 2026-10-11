@@ -54,12 +54,19 @@ internal class IwKit(
             put("ops", JsonArray(ops.toList()))
         }
 
-    /** Unscoped dispatch over the real dispatcher (the MCP default path: the orchestration profile the server serves). */
+    /**
+     * Unscoped dispatch over the real dispatcher (the MCP default path): the knowledge profile, or the orchestration
+     * profile when an op is orchestration-only (`repin`), like the shared `itemsWrite` rig.
+     */
     suspend fun call(
         vararg ops: JsonObject,
         atomic: Boolean = false,
         actor: JsonObject? = null
-    ): Dispatched = buildToolDispatcher(rig.ctx).dispatch(spec, ToolProfile.ORCHESTRATION, args(ops, atomic, actor), "k7f3q9ab", "mcp")
+    ): Dispatched {
+        val profile =
+            if (ops.any { (it["op"] as? JsonPrimitive)?.content == "repin" }) ToolProfile.ORCHESTRATION else ToolProfile.KNOWLEDGE
+        return buildToolDispatcher(rig.ctx).dispatch(spec, profile, args(ops, atomic, actor), "k7f3q9ab", "mcp")
+    }
 
     /** A real MCP client/server call under the token's principal, scope and capabilities; returns the envelope body. */
     suspend fun callScoped(

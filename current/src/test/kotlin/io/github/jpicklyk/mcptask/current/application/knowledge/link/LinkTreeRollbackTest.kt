@@ -3,8 +3,13 @@ package io.github.jpicklyk.mcptask.current.application.knowledge.link
 import io.github.jpicklyk.mcptask.current.application.port.DocumentStore
 import io.github.jpicklyk.mcptask.current.application.port.LinkStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.application.service.TreeAnchorInput
+import io.github.jpicklyk.mcptask.current.application.service.TreeItemInput
+import io.github.jpicklyk.mcptask.current.application.service.TreeRootInput
+import io.github.jpicklyk.mcptask.current.application.service.WorkTreeRequest
+import io.github.jpicklyk.mcptask.current.application.service.WorkTreeService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Document
 import io.github.jpicklyk.mcptask.current.domain.model.DocumentKind
 import io.github.jpicklyk.mcptask.current.domain.model.Link
@@ -12,12 +17,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.LinkRelation
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
@@ -28,7 +27,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * D11 rollback inside the tree unit (item 23faed48, fix round r1, review B2): `create_work_tree` records the
+ * D11 rollback inside the tree unit (item 23faed48, fix round r1, review B2): the work tree ([WorkTreeService], behind
+ * `items_write` `create_tree`) records the
  * `derived_from` links of its anchored notes and then a LATER step of the same unit (the plan adoption, the last step)
  * fails. The links must roll back with the items and notes; nothing of the tree may remain.
  *
@@ -111,43 +111,43 @@ class LinkTreeRollbackTest {
         }
     }
 
-    private fun treeParams(): JsonObject =
-        buildJsonObject {
-            put(
-                "root",
-                buildJsonObject {
-                    put("type", JsonPrimitive("test-item"))
-                    put("title", JsonPrimitive("Feature X"))
-                    put("noteAnchors", anchors("requirements", "overview"))
-                }
-            )
-            put("parentId", JsonPrimitive(project.toString()))
-            put("docRef", buildJsonObject { put("slug", JsonPrimitive("my-plan")) })
-            put(
-                "children",
-                buildJsonArray {
-                    add(
-                        buildJsonObject {
-                            put("ref", JsonPrimitive("t1"))
-                            put("type", JsonPrimitive("test-item"))
-                            put("title", JsonPrimitive("Task 1"))
-                            put("noteAnchors", anchors("task-scope", "task-1"))
-                        }
+    private fun treeRequest(): WorkTreeRequest =
+        WorkTreeRequest(
+            root =
+                TreeRootInput.Create(
+                    TreeItemInput(
+                        ref = WorkTreeService.ROOT_REF,
+                        parentRef = null,
+                        title = "Feature X",
+                        type = "test-item",
+                        anchors = listOf(TreeAnchorInput("requirements", "queue", "overview"))
+                    ),
+                    parentId = project
+                ),
+            children =
+                listOf(
+                    TreeItemInput(
+                        ref = "t1",
+                        parentRef = WorkTreeService.ROOT_REF,
+                        title = "Task 1",
+                        type = "test-item",
+                        anchors = listOf(TreeAnchorInput("task-scope", "queue", "task-1"))
                     )
-                }
-            )
-        }
+                ),
+            docSlug = "my-plan"
+        )
 
-    private fun anchors(
-        key: String,
-        anchor: String
-    ) = buildJsonArray {
-        add(
-            buildJsonObject {
-                put("noteKey", JsonPrimitive(key))
-                put("role", JsonPrimitive("queue"))
-                put("anchor", JsonPrimitive(anchor))
-            }
+    /** The tree service over [provider], as the `create_tree` op composes it. */
+    private fun serviceOver(provider: RepositoryProvider): WorkTreeService {
+        val ctx = ToolExecutionContext(provider, unitOfWork = db.unitOfWork())
+        return WorkTreeService(
+            ctx.repositoryProvider,
+            ctx.unitOfWork,
+            ctx.configResolver,
+            ctx.itemCommandService,
+            ctx.dependencyCommandService,
+            ctx.noteCommandService,
+            ctx.planDocumentService
         )
     }
 
@@ -168,13 +168,10 @@ class LinkTreeRollbackTest {
             val linksBefore = count("SELECT count(*) FROM links")
             val provider = FaultingProvider(real, mode)
 
-            val result =
-                CreateWorkTreeTool().execute(
-                    treeParams(),
-                    ToolExecutionContext(provider, unitOfWork = db.unitOfWork())
-                ) as JsonObject
+            // A domain error from the adoption is an Err; an injected throw escapes the unit after rolling it back.
+            val result = runCatching { serviceOver(provider).create(treeRequest()) }
 
-            assertFalse(result["success"]!!.jsonPrimitive.boolean, "the injected adoption failure must fail the tree; got: $result")
+            assertFalse(result.getOrNull() is Outcome.Ok, "the injected adoption failure must fail the tree; got: $result")
             assertEquals(linksBefore, count("SELECT count(*) FROM links"), "no link of the rolled-back tree remains")
             assertEquals(0, count("SELECT count(*) FROM links WHERE relation = 'derived_from'"))
             assertEquals(itemsBefore, count("SELECT count(*) FROM work_items"), "no item of the rolled-back tree remains")
@@ -200,9 +197,9 @@ class LinkTreeRollbackTest {
     @Test
     fun `control the same tree without an injected fault commits its derived_from links`(): Unit =
         runBlocking {
-            val result = CreateWorkTreeTool().execute(treeParams(), ToolExecutionContext(real, unitOfWork = db.unitOfWork())) as JsonObject
+            val result = serviceOver(real).create(treeRequest())
 
-            assertTrue(result["success"]!!.jsonPrimitive.boolean, "expected success; got: $result")
+            assertTrue(result is Outcome.Ok, "expected success; got: $result")
             assertEquals(2, count("SELECT count(*) FROM links WHERE relation = 'derived_from'"))
         }
 }

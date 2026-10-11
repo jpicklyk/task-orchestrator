@@ -97,6 +97,22 @@ class SqliteLinkStore(
         }
     }
 
+    override suspend fun findFromAll(refs: Collection<EntityRef>): List<Link> {
+        if (refs.isEmpty()) return emptyList()
+        return databaseManager.readTx {
+            refs
+                .groupBy({ it.kind }, { it.id })
+                .flatMap { (kind, ids) ->
+                    ids.distinct().chunked(SQL_IN_CHUNK_SIZE).flatMap { chunk ->
+                        LinksTable
+                            .selectAll()
+                            .where { (LinksTable.fromKind eq kind.toDbValue()) and (LinksTable.fromId inList chunk) }
+                            .map(::toLink)
+                    }
+                }.sortedBy { it.createdAt }
+        }
+    }
+
     @StoreWrite
     override suspend fun deleteFrom(
         ref: EntityRef,

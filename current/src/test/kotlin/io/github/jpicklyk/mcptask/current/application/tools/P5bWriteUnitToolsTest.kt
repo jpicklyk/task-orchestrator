@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.application.service.ItemCreateCommand
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
@@ -17,6 +16,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.CountingUnitOfWork
 import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
 import io.github.jpicklyk.mcptask.current.test.callTool
+import io.github.jpicklyk.mcptask.current.test.createTreeOp
+import io.github.jpicklyk.mcptask.current.test.itemsWrite
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.sqlite.assertNoOutsideUnitWrites
 import kotlinx.coroutines.runBlocking
@@ -57,7 +58,7 @@ import kotlin.test.assertTrue
  *
  * Oracles: task-scope D2 (store fault -> site legacy mapper: MCP DATABASE_ERROR with the innermost SQL text), D3/F5
  * (MCP text for a lost optimistic lock: "WorkItem was modified by another transaction (version mismatch)"), D4/D7/F7
- * (one unit per element; create_work_tree is ONE unit per call), F10 (MCP read fault
+ * (one unit per element; a create_tree element is ONE unit), F10 (MCP read fault
  * -> DATABASE_ERROR, never RESOURCE_NOT_FOUND), claim contract in the declarations (outcome and code `db_error`,
  * kind `transient`). The exact MCP message prefixes are NOT DECLARED, so S5 asserts the code and the `inj` text only.
  * NOT-COVERED here: the McpToolAdapter fallback (no public seam to drive it; see test-manifest).
@@ -317,6 +318,8 @@ class P5bWriteUnitToolsTest {
             assertEquals(3, counting.writes, "one write unit per element: ${counting.ops}")
         }
 
+    private fun treeOp(): JsonObject = createTreeOp(*workTreeParams.entries.map { it.key to it.value }.toTypedArray())
+
     private val workTreeParams =
         obj(
             "root" to
@@ -339,23 +342,26 @@ class P5bWriteUnitToolsTest {
         )
 
     @Test
-    fun `S14 create_work_tree is one unit per call - a fault in the second child leaves no item`(): Unit =
+    fun `S14 create_tree is one unit per element - a fault in the second child leaves no item`(): Unit =
         runBlocking {
             rawExec(
                 "CREATE TRIGGER s14_tree BEFORE INSERT ON work_items WHEN NEW.title = 'S14 tree boom' BEGIN SELECT RAISE(ABORT, 'inj'); END"
             )
             val (faultCtx, faultCounting) = contextOver()
 
-            val faulted = db.assertNoOutsideUnitWrites { CreateWorkTreeTool().execute(workTreeParams, faultCtx) }
+            val faulted = db.assertNoOutsideUnitWrites { faultCtx.itemsWrite(treeOp()) }
 
-            assertFalse(success(faulted), "a tree with a faulting child must fail as a whole: $faulted")
+            assertFalse(
+                results(faulted)[0].jsonObject["ok"]!!.jsonPrimitive.boolean,
+                "a tree with a faulting child must fail as a whole: $faulted"
+            )
             assertEquals(0, rawInt("SELECT count(*) FROM work_items WHERE title LIKE 'S14 tree%'"), "all-or-nothing: no root, no child")
             assertEquals(1, faultCounting.writes, "one unit for the whole call")
 
             rawExec("DROP TRIGGER s14_tree")
             val (okCtx, okCounting) = contextOver()
-            val healthy = CreateWorkTreeTool().execute(workTreeParams, okCtx)
-            assertTrue(success(healthy), "control: $healthy")
+            val healthy = okCtx.itemsWrite(treeOp())
+            assertTrue(results(healthy)[0].jsonObject["ok"]!!.jsonPrimitive.boolean, "control: $healthy")
             assertEquals(4, rawInt("SELECT count(*) FROM work_items WHERE title LIKE 'S14 tree%'"))
             assertEquals(1, okCounting.writes, "one unit for the whole call")
         }

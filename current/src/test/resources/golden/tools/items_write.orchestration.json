@@ -15,6 +15,8 @@
                 "create",
                 "update",
                 "delete",
+                "create_tree",
+                "complete_tree",
                 "repin"
               ]
             },
@@ -28,7 +30,7 @@
             },
             "parentId": {
               "type": "string",
-              "description": "Parent id; omit for a root. Update moves the item. [ops: create, update]"
+              "description": "Parent id; omit for a root. Update moves the item. [ops: create, update, create_tree]"
             },
             "description": {
               "type": "string",
@@ -108,6 +110,336 @@
               "type": "boolean",
               "description": "Delete the subtree; required when the item has children. [ops: delete]"
             },
+            "root": {
+              "type": "object",
+              "description": "Tree root: id attaches, else title and type create. [ops: create_tree]",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Item to attach to. Not with parentId."
+                },
+                "title": {
+                  "type": "string",
+                  "description": "Title; required without id."
+                },
+                "type": {
+                  "type": "string",
+                  "description": "Declared type; required without id."
+                },
+                "priority": {
+                  "type": "string",
+                  "description": "Create defaults to medium.",
+                  "enum": [
+                    "high",
+                    "medium",
+                    "low"
+                  ]
+                },
+                "tags": {
+                  "type": "array",
+                  "description": "Lowercase hyphenated tags. Update: [] clears.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "traits": {
+                  "type": "array",
+                  "description": "Declared trait names. Update: [] clears.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "summary": {
+                  "type": "string",
+                  "description": "Short summary."
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Long description."
+                },
+                "statusLabel": {
+                  "type": "string",
+                  "description": "Free-form status label."
+                },
+                "complexity": {
+                  "type": "integer",
+                  "description": "1 to 10."
+                },
+                "requiresVerification": {
+                  "type": "boolean",
+                  "description": "Completion needs verification."
+                },
+                "metadata": {
+                  "type": "string",
+                  "description": "Free-form metadata text."
+                },
+                "properties": {
+                  "type": "object",
+                  "description": "Free-form JSON object without a traits key."
+                },
+                "noteAnchors": {
+                  "type": "array",
+                  "description": "Notes cut from docRef sections.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "noteKey": {
+                        "type": "string",
+                        "description": "Note key."
+                      },
+                      "role": {
+                        "type": "string",
+                        "description": "Note role.",
+                        "enum": [
+                          "queue",
+                          "work",
+                          "review"
+                        ]
+                      },
+                      "anchor": {
+                        "type": "string",
+                        "description": "Heading to cut."
+                      }
+                    },
+                    "required": [
+                      "noteKey",
+                      "role",
+                      "anchor"
+                    ]
+                  }
+                }
+              }
+            },
+            "children": {
+              "type": "array",
+              "description": "Child items, any order; nest with parentRef. [ops: create_tree]",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "ref": {
+                    "type": "string",
+                    "description": "Unique ref; not root."
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "Item title."
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "Declared item type."
+                  },
+                  "parentRef": {
+                    "type": "string",
+                    "description": "Parent ref; default root."
+                  },
+                  "priority": {
+                    "type": "string",
+                    "description": "Create defaults to medium.",
+                    "enum": [
+                      "high",
+                      "medium",
+                      "low"
+                    ]
+                  },
+                  "tags": {
+                    "type": "array",
+                    "description": "Lowercase hyphenated tags. Update: [] clears.",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "traits": {
+                    "type": "array",
+                    "description": "Declared trait names. Update: [] clears.",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "summary": {
+                    "type": "string",
+                    "description": "Short summary."
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "Long description."
+                  },
+                  "statusLabel": {
+                    "type": "string",
+                    "description": "Free-form status label."
+                  },
+                  "complexity": {
+                    "type": "integer",
+                    "description": "1 to 10."
+                  },
+                  "requiresVerification": {
+                    "type": "boolean",
+                    "description": "Completion needs verification."
+                  },
+                  "metadata": {
+                    "type": "string",
+                    "description": "Free-form metadata text."
+                  },
+                  "properties": {
+                    "type": "object",
+                    "description": "Free-form JSON object without a traits key."
+                  },
+                  "noteAnchors": {
+                    "type": "array",
+                    "description": "Notes cut from docRef sections.",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "noteKey": {
+                          "type": "string",
+                          "description": "Note key."
+                        },
+                        "role": {
+                          "type": "string",
+                          "description": "Note role.",
+                          "enum": [
+                            "queue",
+                            "work",
+                            "review"
+                          ]
+                        },
+                        "anchor": {
+                          "type": "string",
+                          "description": "Heading to cut."
+                        }
+                      },
+                      "required": [
+                        "noteKey",
+                        "role",
+                        "anchor"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "ref",
+                  "title",
+                  "type"
+                ]
+              }
+            },
+            "deps": {
+              "type": "array",
+              "description": "Dependencies between refs. [ops: create_tree]",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "string",
+                    "description": "From ref (the blocker)."
+                  },
+                  "to": {
+                    "type": "string",
+                    "description": "Target ref."
+                  },
+                  "type": {
+                    "type": "string",
+                    "description": "blocks (default) or relates_to.",
+                    "enum": [
+                      "blocks",
+                      "relates_to"
+                    ]
+                  },
+                  "unblockAt": {
+                    "type": "string",
+                    "description": "Unblocks at this role; default terminal.",
+                    "enum": [
+                      "queue",
+                      "work",
+                      "review",
+                      "terminal"
+                    ]
+                  }
+                },
+                "required": [
+                  "from",
+                  "to"
+                ]
+              }
+            },
+            "notes": {
+              "type": "array",
+              "description": "Notes; win over noteAnchors and createNotes. [ops: create_tree]",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "itemRef": {
+                    "type": "string",
+                    "description": "Item ref."
+                  },
+                  "key": {
+                    "type": "string",
+                    "description": "Note key."
+                  },
+                  "role": {
+                    "type": "string",
+                    "description": "Note role.",
+                    "enum": [
+                      "queue",
+                      "work",
+                      "review"
+                    ]
+                  },
+                  "body": {
+                    "type": "string",
+                    "description": "Note text."
+                  }
+                },
+                "required": [
+                  "itemRef",
+                  "key",
+                  "role"
+                ]
+              }
+            },
+            "createNotes": {
+              "type": "boolean",
+              "description": "true: blank notes for unwritten schema keys. [ops: create_tree]"
+            },
+            "docRef": {
+              "type": "object",
+              "description": "Plan document for noteAnchors; root adopts it. [ops: create_tree]",
+              "properties": {
+                "slug": {
+                  "type": "string",
+                  "description": "Slug (not rule/)."
+                },
+                "rootId": {
+                  "type": "string",
+                  "description": "Must be the tree's root (default)."
+                }
+              },
+              "required": [
+                "slug"
+              ]
+            },
+            "rootId": {
+              "type": "string",
+              "description": "Complete its descendants. Exactly one of rootId, itemIds. [ops: complete_tree]"
+            },
+            "itemIds": {
+              "type": "array",
+              "description": "Complete exactly these items. [ops: complete_tree]",
+              "items": {
+                "type": "string"
+              }
+            },
+            "trigger": {
+              "type": "string",
+              "description": "complete (default) or cancel. [ops: complete_tree]",
+              "enum": [
+                "complete",
+                "cancel"
+              ]
+            },
+            "includeRoot": {
+              "type": "boolean",
+              "description": "With rootId: the root too, last. Default true. [ops: complete_tree]"
+            },
             "idempotencyKey": {
               "type": "string",
               "description": "Optional client key (1-128 chars, needs actor). Resending the same op with the same key returns the stored result."
@@ -129,7 +461,7 @@
     },
     "type": "object"
   },
-  "description": "Create, update and delete work items, one ops[] element each. Call with describe:true for each operation's parameters and errors.",
+  "description": "Create, update and delete work items or whole trees, one ops[] element each. Call with describe:true for each operation's parameters and errors.",
   "annotations": {
     "readOnlyHint": false,
     "destructiveHint": true,

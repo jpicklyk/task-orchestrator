@@ -9,15 +9,8 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.QueryRulesTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetBlockedItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepException
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -44,10 +37,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.opsRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.effectiveConfigRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemGateRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteResourceRoutes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.planDocumentRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.projectConfigRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.resourceLeaseRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.ruleRoutes
@@ -591,19 +582,8 @@ internal fun productionServerCapabilities(): ServerCapabilities =
  */
 internal fun buildMcpTools(): List<ToolDefinition> =
     listOf(
-        // Phase 2: Workflow
-        GetNextStatusTool(),
-        GetNextItemTool(),
-        GetBlockedItemsTool(),
-        // Phase 3: Compound operations
-        CompleteTreeTool(),
-        CreateWorkTreeTool(),
-        // Phase 3: Context
-        GetContextTool(),
         // Per-root schema layering: transport-agnostic config sync
         ManageProjectConfigTool(YamlConfigDocumentParser),
-        // Per-root plan document store: dual ingestion (REST PUT + MCP stash)
-        ManagePlanDocumentsTool(),
         // Git-tracked rule text: read-only view over rule/<key> plan documents (A3, 840e700a)
         QueryRulesTool(),
     )
@@ -748,7 +728,6 @@ internal fun Application.installRestApiRoutes(
             )
             // Phase 3: read API — items (through the items_read select), notes, dependencies, transitions
             itemRoutes(toolRegistry, toolDispatcher, redactNoteAttribution = appConfig.apiRedactNoteAttribution)
-            itemGateRoutes(effectiveProvider, toolContext.configResolver, toolContext.transitionPreview())
             // Note resource reads: thin translations to notes_read over the same dispatcher /ops uses (writes are /ops/notes_write).
             noteResourceRoutes(toolRegistry, toolDispatcher, redactNoteAttribution = appConfig.apiRedactNoteAttribution)
             transitionRoutes(
@@ -773,9 +752,6 @@ internal fun Application.installRestApiRoutes(
             // Additive per-root effective (layered) config view — same LayeredConfig the MCP
             // configResolver already computes, surfaced as one REST resource (AR-42).
             effectiveConfigRoutes(effectiveProvider, toolContext.configResolver, serverConfig)
-            // plan_documents store: per-root plan document read/write —
-            // converges on the same PlanDocumentService the manage_plan_documents MCP tool uses.
-            planDocumentRoutes(effectiveProvider, toolContext.unitOfWork)
             // Git-tracked rule text: read-only view over rule/<key> plan documents, converging on
             // the same RuleService the query_rules MCP tool uses (A3, 840e700a).
             ruleRoutes(effectiveProvider)

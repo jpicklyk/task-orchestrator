@@ -9,7 +9,6 @@ import io.github.jpicklyk.mcptask.current.domain.error.ErrorKind
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -36,7 +35,7 @@ enum class LegacyMcpCode(
     INTERNAL_ERROR(ErrorCodes.INTERNAL_ERROR, ErrorCode.INTERNAL),
     OPERATION_FAILED(ErrorCodes.OPERATION_FAILED, ErrorCode.INVALID_TRANSITION),
 
-    // Tool-local codes (advance_item / complete_tree / manage_* / claim_item).
+    // Tool-local codes (advance_item / manage_* / claim_item).
     ITEM_NOT_FOUND("item_not_found", ErrorCode.NOT_FOUND),
     INVALID_TRIGGER("invalid_trigger", ErrorCode.INVALID_REQUEST),
     INVALID_ACTOR("invalid_actor", ErrorCode.INVALID_REQUEST),
@@ -66,8 +65,7 @@ enum class LegacyMcpCode(
 
 /**
  * The only builder of MCP error JSON: top-level envelopes (`{success:false, error:{code, message, kind, ...}}`),
- * per-element failure fields (`errorCode`/`errorKind`) and the `advance_item` / `complete_tree` per-transition
- * failure shapes. The 3.x wire codes and messages are unchanged; `kind` is always the catalog code's kind
+ * per-element failure fields (`errorCode`/`errorKind`) and the `advance_item` per-transition failure shapes. The 3.x wire codes and messages are unchanged; `kind` is always the catalog code's kind
  * (the [DomainError]'s own when the failure carries one).
  */
 object LegacyMcpErrorMapper {
@@ -111,7 +109,7 @@ object LegacyMcpErrorMapper {
     ): JsonObject = ResponseUtil.createErrorResponse(toolError, additionalData)
 
     // ──────────────────────────────────────────────
-    // advance_item / complete_tree classification
+    // advance_item classification
     // ──────────────────────────────────────────────
 
     /** The ONE classification of an [AdvanceFailure]: its 3.x wire code. Its kind is `failure.error.kind`. */
@@ -259,117 +257,6 @@ object LegacyMcpErrorMapper {
                 put("contendedResources", JsonArray(contendedResources.map { JsonPrimitive(it) }))
             }
         }
-
-    // ──────────────────────────────────────────────
-    // complete_tree per-item shapes
-    // ──────────────────────────────────────────────
-
-    /**
-     * The `complete_tree` per-item failure of a structured [AdvanceFailure] (same classification as `advance_item`):
-     * a gate block keeps `gateErrors` + `missingNotes`; a dependency/credential validation failure keeps `error` +
-     * `blockers` (and is NOT a skip); every other variant is `skipped` + `skippedReason`. Every variant carries
-     * `errorCode` + `errorKind`.
-     */
-    fun completeTreeFailure(
-        item: WorkItem,
-        failure: AdvanceFailure
-    ): JsonObject {
-        val code = codeOf(failure)
-        val kind = kindOf(failure)
-        return buildJsonObject {
-            put("itemId", JsonPrimitive(item.id.toString()))
-            put("title", JsonPrimitive(item.title))
-            put("applied", JsonPrimitive(false))
-            when (failure) {
-                is AdvanceFailure.GateBlocked -> {
-                    put("gateErrors", JsonArray(failure.missingNotes.map { JsonPrimitive("missing: ${it.key}") }))
-                    put("error", JsonPrimitive(failure.message))
-                    putCodeAndKind(code, kind)
-                    put("missingNotes", NoteSchemaJsonHelpers.buildMissingNotesArray(failure.missingNotes))
-                    put("previousRole", JsonPrimitive(failure.previousRole.toJsonString()))
-                    put("targetRole", JsonPrimitive(failure.targetRole.toJsonString()))
-                    NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty(failure.violations)?.let { put("violations", it) }
-                }
-                is AdvanceFailure.OwnershipRejected -> {
-                    putSkipped(failure.message)
-                    putStructured(ToolError(kind, code.wire, failure.message, contendedItemId = item.id))
-                }
-                is AdvanceFailure.PolicyRejected -> {
-                    putSkipped(failure.reason)
-                    putStructured(ToolError(kind, code.wire, failure.reason))
-                }
-                is AdvanceFailure.ResourceLeaseUnavailable -> {
-                    putSkipped(failure.message)
-                    putStructured(ToolError(kind, code.wire, failure.message, retryAfterMs = failure.retryAfterMs))
-                    put("contendedResources", JsonArray(failure.contendedResources.map { JsonPrimitive(it) }))
-                }
-                is AdvanceFailure.ValidationFailed -> {
-                    // NOT a skip: the item failed its OWN dependency validation (see advance_item).
-                    put("error", JsonPrimitive(failure.message))
-                    putCodeAndKind(code, kind)
-                    if (failure.blockers.isNotEmpty()) put("blockers", NoteSchemaJsonHelpers.buildBlockersArray(failure.blockers))
-                }
-                is AdvanceFailure.ResolutionFailed -> {
-                    putSkipped(failure.message)
-                    putStructured(ToolError(kind, code.wire, failure.message))
-                }
-                is AdvanceFailure.ApplyFailed -> {
-                    putSkipped(failure.message)
-                    putStructured(ToolError(kind, code.wire, failure.message))
-                }
-            }
-        }
-    }
-
-    /** A `complete_tree` per-item skip that never reached the service (a skipped dependent, an already-terminal item). */
-    fun completeTreeSkipped(
-        item: WorkItem,
-        reason: String,
-        code: ErrorCode
-    ): JsonObject =
-        buildJsonObject {
-            put("itemId", JsonPrimitive(item.id.toString()))
-            put("title", JsonPrimitive(item.title))
-            put("applied", JsonPrimitive(false))
-            put("skipped", JsonPrimitive(true))
-            put("skippedReason", JsonPrimitive(reason))
-            putElementError(code)
-        }
-
-    /** The `complete_tree` per-item failure of an item whose per-root config could not be read (`skipped`, transient). */
-    fun completeTreeConfigUnavailable(
-        item: WorkItem,
-        message: String
-    ): JsonObject =
-        buildJsonObject {
-            put("itemId", JsonPrimitive(item.id.toString()))
-            put("title", JsonPrimitive(item.title))
-            put("applied", JsonPrimitive(false))
-            putSkipped(message)
-            put("errorKind", JsonPrimitive(kindOf(LegacyMcpCode.CONFIG_UNAVAILABLE).toJsonString()))
-            put("errorCode", JsonPrimitive(LegacyMcpCode.CONFIG_UNAVAILABLE.wire))
-        }
-
-    private fun JsonObjectBuilder.putSkipped(reason: String) {
-        put("skipped", JsonPrimitive(true))
-        put("skippedReason", JsonPrimitive(reason))
-        put("error", JsonPrimitive(reason))
-    }
-
-    private fun JsonObjectBuilder.putCodeAndKind(
-        code: LegacyMcpCode,
-        kind: ErrorKind
-    ) {
-        put("errorCode", JsonPrimitive(code.wire))
-        put("errorKind", JsonPrimitive(kind.toJsonString()))
-    }
-
-    private fun JsonObjectBuilder.putStructured(toolError: ToolError) {
-        put("errorKind", JsonPrimitive(toolError.kind.toJsonString()))
-        put("errorCode", JsonPrimitive(toolError.code))
-        toolError.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
-        toolError.contendedItemId?.let { put("contendedItemId", JsonPrimitive(it.toString())) }
-    }
 }
 
 // ──────────────────────────────────────────────

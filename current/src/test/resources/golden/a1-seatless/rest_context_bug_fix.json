@@ -1,0 +1,100 @@
+{
+    "status": 200,
+    "body": {
+        "ok": true,
+        "data": {
+            "item": {
+                "id": "a1000000",
+                "parentId": "a1000000",
+                "type": "bug-fix",
+                "title": "A1 T0 golden bug-fix",
+                "role": "work",
+                "priority": "medium",
+                "depth": 1,
+                "version": 1
+            },
+            "schema": [
+                {
+                    "key": "diagnosis",
+                    "role": "queue",
+                    "required": true,
+                    "exists": false,
+                    "filled": false
+                },
+                {
+                    "key": "implementation-notes",
+                    "role": "work",
+                    "required": true,
+                    "exists": false,
+                    "filled": false
+                },
+                {
+                    "key": "review-checklist",
+                    "role": "review",
+                    "required": true,
+                    "exists": false,
+                    "filled": false
+                },
+                {
+                    "key": "delegation-metadata",
+                    "role": "work",
+                    "required": false,
+                    "exists": false,
+                    "filled": false
+                },
+                {
+                    "key": "session-tracking",
+                    "role": "work",
+                    "required": true,
+                    "exists": false,
+                    "filled": false
+                },
+                {
+                    "key": "test-plan",
+                    "role": "queue",
+                    "required": true,
+                    "exists": false,
+                    "filled": false
+                },
+                {
+                    "key": "test-manifest",
+                    "role": "work",
+                    "required": true,
+                    "exists": false,
+                    "filled": false
+                },
+                {
+                    "key": "test-independence-audit",
+                    "role": "review",
+                    "required": true,
+                    "exists": false,
+                    "filled": false
+                }
+            ],
+            "gateStatus": {
+                "canAdvance": false,
+                "phase": "work",
+                "missing": [
+                    "implementation-notes",
+                    "session-tracking",
+                    "test-manifest"
+                ],
+                "blockedBy": "note"
+            },
+            "transitions": {
+                "block": "blocked",
+                "cancel": "terminal",
+                "complete": "terminal",
+                "hold": "blocked",
+                "start": "review"
+            },
+            "guidanceKey": "implementation-notes",
+            "dispatch": {
+                "agent": "task-orchestrator:implementer"
+            }
+        },
+        "meta": {
+            "reqId": "<A1-T0-NORMALIZED-REQID>"
+        }
+    }
+}

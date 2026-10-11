@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -179,7 +180,9 @@ class McpStreamableHttpTransportTest {
             val expectedNames = buildMcpTools().map { it.name }.toSet()
             assertEquals(expectedNames, servedNames, "tools/list must expose exactly the production tool set")
 
-            // 4) tools/call get_context (health-check) — proves the full stack executes over HTTP
+            // 4) tools/call query_rules list over a directly seeded root -- proves the full stack executes over HTTP
+            // (Q21 retired create_work_tree, which this call used before)
+            val root = db.repositoryProvider().workItemRepository().create(WorkItem(title = "http"))
             val callResp =
                 client.post("/mcp") {
                     header(HttpHeaders.Accept, acceptBoth)
@@ -187,14 +190,14 @@ class McpStreamableHttpTransportTest {
                     contentType(ContentType.Application.Json)
                     setBody(
                         """{"jsonrpc":"2.0","id":3,"method":"tools/call",""" +
-                            """"params":{"name":"get_context","arguments":{}}}""",
+                            """"params":{"name":"query_rules","arguments":{"operation":"list","rootId":"${root.id}"}}}""",
                     )
                 }
             assertEquals(HttpStatusCode.OK, callResp.status)
             val callResult = parseRpc(callResp.bodyAsText())["result"]!!.jsonObject
             assertTrue(
                 callResult["isError"]?.jsonPrimitive?.content != "true",
-                "get_context should not be an error over HTTP: $callResult",
+                "query_rules should not be an error over HTTP: $callResult",
             )
         }
 }

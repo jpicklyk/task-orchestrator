@@ -1,16 +1,21 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import io.github.jpicklyk.mcptask.current.test.P11FaultRig
 import io.github.jpicklyk.mcptask.current.test.P11_FAULT_LEASE_KEY
 import io.github.jpicklyk.mcptask.current.test.arr
+import io.github.jpicklyk.mcptask.current.test.completeTreeOp
 import io.github.jpicklyk.mcptask.current.test.flag
+import io.github.jpicklyk.mcptask.current.test.itemsWrite
+import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.p11FaultResolver
+import io.github.jpicklyk.mcptask.current.test.results
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.strings
 import io.github.jpicklyk.mcptask.current.test.text
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
@@ -29,7 +34,9 @@ import kotlin.test.assertTrue
 
 /**
  * Independent P11 tests (item 919d379e, round r2), gap 2: scenario S9 with NON-POISONING faults, on advance_item and
- * complete_tree (the REST surface is AdvanceRestNonPoisoningFaultTest).
+ * `items_write` `complete_tree` (the REST surface is AdvanceRestNonPoisoningFaultTest). Q21 (c820b3d0) retargets the
+ * complete_tree half to the 4.0 op: its applied transitions share the element's unit, so an apply fault fails the whole
+ * element (rolled back) instead of one skipped entry.
  *
  * The existing S9 faults are SQL triggers; a failed SQL statement poisons the unit, so even an advance that swallowed the
  * exception could not commit. These faults are plain RuntimeExceptions thrown by a delegating store wrapper (a TransitionStore
@@ -61,11 +68,17 @@ class AdvanceNonPoisoningFaultTest {
             )
         }
 
-    private fun treeParams(item: WorkItem): JsonObject =
-        buildJsonObject {
-            put("itemIds", buildJsonArray { add(JsonPrimitive(item.id.toString())) })
-            put("trigger", JsonPrimitive("complete"))
-        }
+    private suspend fun completeTree(
+        ctx: ToolExecutionContext,
+        item: WorkItem
+    ): JsonObject =
+        ctx.itemsWrite(
+            completeTreeOp("itemIds" to strings(item.id.toString()), "trigger" to JsonPrimitive("complete")),
+            profile = ToolProfile.ORCHESTRATION
+        )
+
+    /** The first `items[]` entry of a successful `complete_tree` element. */
+    private fun JsonObject.treeEntry(): JsonObject = okResult(0).arr("items")[0].jsonObject
 
     private fun JsonElement.data(): JsonObject = (this as JsonObject)["data"] as JsonObject
 
@@ -159,7 +172,7 @@ class AdvanceNonPoisoningFaultTest {
     // ---------------------------------------------------------------------------------------------
 
     @Test
-    fun `S9 complete_tree a plain fault on the cascade's transition row fails the item and changes nothing`(): Unit =
+    fun `S9 complete_tree a plain fault on the cascade's transition row fails the element and changes nothing`(): Unit =
         runBlocking {
             val rig = P11FaultRig(db.repositoryProvider())
             val ctx = ToolExecutionContext(rig.provider, configResolver = p11FaultResolver(), unitOfWork = db.unitOfWork())
@@ -167,33 +180,21 @@ class AdvanceNonPoisoningFaultTest {
             val before = rig.snapshot(parent, child)
             rig.transitionStore.arm()
 
-            val result = CompleteTreeTool().execute(treeParams(child), ctx)
+            val result = completeTree(ctx, child)
 
-            val entry = result.entry()
-            assertEquals(false, entry.flag("applied"), "$result")
-            // Observed + reported, not asserted: complete_tree answers an apply failure as skipped with a "Failed to apply transition" reason and no errorCode.
-            assertEquals(true, entry.flag("skipped"), "$result")
-            assertTrue(entry.text("skippedReason").orEmpty().startsWith("Failed to apply transition"), "$result")
-            assertEquals(
-                0,
-                result
-                    .data()["summary"]!!
-                    .jsonObject
-                    .text("completed")
-                    ?.toInt(),
-                "nothing completed: $result"
-            )
+            // The element fails as a whole: an apply fault is not a per-item outcome (the unit holds every applied item).
+            assertEquals(false, result.results()[0].flag("ok"), "$result")
             assertEquals(2, rig.transitionStore.createCalls, "the fault point (the cascade's row, the 2nd create) was reached")
             assertWholeAdvanceRolledBack(rig, before, parent, child)
 
             rig.transitionStore.disarm()
-            val ok = CompleteTreeTool().execute(treeParams(child), ctx).entry()
-            assertEquals(true, ok.flag("applied"), "control: $ok")
+            val ok = completeTree(ctx, child).treeEntry()
+            assertEquals("applied", ok.text("outcome"), "control: $ok")
             assertControlApplies(rig, parent, child)
         }
 
     @Test
-    fun `S9 complete_tree a plain fault releasing the lease on work exit fails the item and changes nothing`(): Unit =
+    fun `S9 complete_tree a plain fault releasing the lease on work exit fails the element and changes nothing`(): Unit =
         runBlocking {
             val rig = P11FaultRig(db.repositoryProvider())
             val ctx = ToolExecutionContext(rig.provider, configResolver = p11FaultResolver(), unitOfWork = db.unitOfWork())
@@ -201,19 +202,15 @@ class AdvanceNonPoisoningFaultTest {
             val before = rig.snapshot(parent, child)
             rig.leaseStore.arm()
 
-            val result = CompleteTreeTool().execute(treeParams(child), ctx)
+            val result = completeTree(ctx, child)
 
-            val entry = result.entry()
-            assertEquals(false, entry.flag("applied"), "$result")
-            // Observed + reported, not asserted: complete_tree answers an apply failure as skipped with a "Failed to apply transition" reason and no errorCode.
-            assertEquals(true, entry.flag("skipped"), "$result")
-            assertTrue(entry.text("skippedReason").orEmpty().startsWith("Failed to apply transition"), "$result")
+            assertEquals(false, result.results()[0].flag("ok"), "$result")
             assertTrue(rig.leaseStore.releaseCalls >= 1, "the fault point (the release on the WORK exit) was reached")
             assertWholeAdvanceRolledBack(rig, before, parent, child)
 
             rig.leaseStore.disarm()
-            val ok = CompleteTreeTool().execute(treeParams(child), ctx).entry()
-            assertEquals(true, ok.flag("applied"), "control: $ok")
+            val ok = completeTree(ctx, child).treeEntry()
+            assertEquals("applied", ok.text("outcome"), "control: $ok")
             assertControlApplies(rig, parent, child)
         }
 }

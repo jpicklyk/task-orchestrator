@@ -3,13 +3,16 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.application.port.NoteStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.SqliteUnitOfWork
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.opsRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildToolDispatcher
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
 import io.github.jpicklyk.mcptask.current.test.P11Driver
 import io.github.jpicklyk.mcptask.current.test.P11MatrixState
 import io.github.jpicklyk.mcptask.current.test.P11_BASE_YAML
@@ -20,12 +23,16 @@ import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.setup
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.text
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.HttpClient
-import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import io.mockk.coEvery
 import io.mockk.spyk
@@ -48,7 +55,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Independent P11 r1 tests (item 919d379e) for fix-decision H3: `get_context` and `GET /items/{id}/gate` report `missing` /
+ * Independent P11 r1 tests (item 919d379e) for fix-decision H3: `items_read` `context` over MCP and over `POST /api/v1/ops/items_read` report `missing` /
  * `missingBySeat` as the required notes the preview's decision itself found missing, so they always agree with
  * `canAdvance` / `blockedBy`. Oracle: fix-decisions-r1 H3 ("blockedBy note always comes with a non-empty missing list"; no
  * second note read outside the preview's unit).
@@ -102,7 +109,7 @@ class PreviewMissingNotesConsistencyTest {
             val d = P11Driver(EventLogRig.build(db.db, dir, P11_BASE_YAML))
             for (state in P11MatrixState.all()) {
                 val (item, holder) = d.setup(state)
-                val data = d.rig.call(GetContextTool(), "itemId" to JsonPrimitive(item.id.toString()))["data"]!!.jsonObject
+                val data = d.rig.call(ItemContextProbe(), "itemId" to JsonPrimitive(item.id.toString()))["data"]!!.jsonObject
                 val gate = data["gateStatus"]!!.jsonObject
                 assertDecisionConsistent(state.label, gate, listOfNotNull(phaseKey(state.role)), onlyNoteGateCanFail = false)
                 d.cleanup(item, holder)
@@ -110,14 +117,14 @@ class PreviewMissingNotesConsistencyTest {
         }
 
     @Test
-    fun `H3 REST gate missing agrees with canAdvance and blockedBy across every generated state`(
+    fun `H3 REST ops context missing agrees with canAdvance and blockedBy across every generated state`(
         @TempDir dir: Path,
     ): Unit =
         testApplication {
             val d = P11Driver(EventLogRig.build(db.db, dir, P11_BASE_YAML))
             val ctx = d.rig.ctx
             application {
-                configureTestApp(makeWriteAuthConfig()) { itemGateRoutes(d.rig.provider, ctx.configResolver, ctx.transitionPreview()) }
+                configureTestApp(makeWriteAuthConfig()) { opsRoutes(ToolRegistry(buildToolSpecs()), buildToolDispatcher(ctx)) }
             }
             for (state in P11MatrixState.all()) {
                 val (item, holder) = d.setup(state)
@@ -132,9 +139,18 @@ class PreviewMissingNotesConsistencyTest {
         itemId: String,
         label: String,
     ): JsonObject {
-        val response = client.get("/api/v1/items/$itemId/gate") { header("Authorization", "Bearer $WRITE_TOKEN") }
+        val response =
+            client.post("/api/v1/ops/items_read") {
+                header("Authorization", "Bearer $WRITE_TOKEN")
+                contentType(ContentType.Application.Json)
+                setBody("{\"select\":\"context\",\"itemId\":\"$itemId\"}")
+            }
         assertEquals(HttpStatusCode.OK, response.status, "$label: ${response.bodyAsText()}")
-        return Json.parseToJsonElement(response.bodyAsText()).jsonObject["gateStatus"]!!.jsonObject
+        return Json
+            .parseToJsonElement(response.bodyAsText())
+            .jsonObject["data"]!!
+            .jsonObject["gateStatus"]!!
+            .jsonObject
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -162,7 +178,7 @@ class PreviewMissingNotesConsistencyTest {
             val gate =
                 d.rig
                     .call(
-                        GetContextTool(),
+                        ItemContextProbe(),
                         "itemId" to JsonPrimitive(item.id.toString())
                     )["data"]!!
                     .jsonObject["gateStatus"]!!
@@ -177,14 +193,14 @@ class PreviewMissingNotesConsistencyTest {
         }
 
     @Test
-    fun `H3 REST gate missing and missingBySeat list exactly the unfilled required notes of the decision`(
+    fun `H3 REST ops context missing and missingBySeat list exactly the unfilled required notes of the decision`(
         @TempDir dir: Path,
     ): Unit =
         testApplication {
             val d = P11Driver(EventLogRig.build(db.db, dir, seatConfig))
             val ctx = d.rig.ctx
             application {
-                configureTestApp(makeWriteAuthConfig()) { itemGateRoutes(d.rig.provider, ctx.configResolver, ctx.transitionPreview()) }
+                configureTestApp(makeWriteAuthConfig()) { opsRoutes(ToolRegistry(buildToolSpecs()), buildToolDispatcher(ctx)) }
             }
             val item = d.item("seat item", Role.QUEUE, type = "h3-seat")
             d.note(item, "diagnosis", "queue")
@@ -261,7 +277,7 @@ class PreviewMissingNotesConsistencyTest {
         val f = raceFixture(hideFirstRead)
         val data =
             (
-                GetContextTool().execute(JsonObject(mapOf("itemId" to JsonPrimitive(f.item.id.toString()))), f.ctx) as JsonObject
+                ItemContextProbe().execute(JsonObject(mapOf("itemId" to JsonPrimitive(f.item.id.toString()))), f.ctx) as JsonObject
             )["data"]!!.jsonObject
         assertTrue(f.noteReads.get() >= 1, "$label: the fixture's note-read interception must have been exercised")
         assertDecisionConsistent(label, data["gateStatus"]!!.jsonObject, listOf("spec"), onlyNoteGateCanFail = true)
@@ -282,7 +298,7 @@ class PreviewMissingNotesConsistencyTest {
         val f = raceFixture(hideFirstRead)
         application {
             configureTestApp(makeWriteAuthConfig()) {
-                itemGateRoutes(f.provider, f.ctx.configResolver, f.ctx.transitionPreview())
+                opsRoutes(ToolRegistry(buildToolSpecs()), buildToolDispatcher(f.ctx))
             }
         }
         val gate = gateOf(client, f.item.id.toString(), label)
@@ -291,10 +307,10 @@ class PreviewMissingNotesConsistencyTest {
     }
 
     @Test
-    fun `H3 REST gate stays self-consistent when the first note read hides a note that later reads show`() =
+    fun `H3 REST ops context stays self-consistent when the first note read hides a note that later reads show`() =
         raceGateRest(true, "rest/hide-first")
 
     @Test
-    fun `H3 REST gate stays self-consistent when the first note read shows a note that later reads hide`() =
+    fun `H3 REST ops context stays self-consistent when the first note read shows a note that later reads hide`() =
         raceGateRest(false, "rest/show-first")
 }

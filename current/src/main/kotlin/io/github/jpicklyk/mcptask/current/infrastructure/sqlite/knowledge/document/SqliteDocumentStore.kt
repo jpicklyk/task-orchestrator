@@ -113,6 +113,28 @@ class SqliteDocumentStore(
         }
     }
 
+    override suspend fun findSummariesByIds(ids: Set<UUID>): List<DocumentSummary> {
+        if (ids.isEmpty()) return emptyList()
+        return databaseManager.readTx {
+            ids.chunked(SQL_IN_CHUNK_SIZE).flatMap { chunk ->
+                DocumentsTable
+                    .select(
+                        DocumentsTable.id,
+                        DocumentsTable.rootItemId,
+                        DocumentsTable.kind,
+                        DocumentsTable.slug,
+                        DocumentsTable.title,
+                        DocumentsTable.contentHash,
+                        DocumentsTable.version,
+                        DocumentsTable.archivedAt,
+                        DocumentsTable.createdAt,
+                        DocumentsTable.modifiedAt
+                    ).where { DocumentsTable.id inList chunk }
+                    .map(::toSummary)
+            }
+        }
+    }
+
     @StoreWrite
     override suspend fun insert(document: Document): Document =
         databaseManager.writeTx("DocumentStore.insert") {

@@ -395,114 +395,6 @@ components:
             - skipped (clamped to the actual window). No route currently populates it (the item
             list routes moved to items_read in 4.0).
 
-    IndependenceViolationDto:
-      type: object
-      required: [key, constraint]
-      description: >-
-        A2: one independence-attestation finding, actor-free by construction (never an actor id,
-        proof, or claim on any surface, MCP or REST). See config-format.md "Independence (A2)".
-      properties:
-        key:
-          type: string
-          description: The declaring note's key (the note whose independent_of triggered this check).
-        seat:
-          type: string
-          nullable: true
-          description: The declaring note's owning seat. Omitted when the schema is not seat-aware.
-        constraint:
-          type: string
-          enum: [same_actor, missing_actor, unverified]
-        conflictingSeat:
-          type: string
-          nullable: true
-          description: >-
-            The seat this finding was raised against. Omitted for a missing_actor/unverified
-            finding raised against the declaring note itself rather than a specific conflicting
-            seat.
-        waived:
-          type: boolean
-          nullable: true
-          description: >-
-            True only for a same_actor finding covered by the independence: temporal-only waiver.
-            A waived finding never blocks a reject-mode transition. Omitted unless true.
-
-    GateStatusDto:
-      type: object
-      required: [canAdvance, phase, missing]
-      properties:
-        canAdvance:
-          type: boolean
-        phase:
-          type: string
-          enum: [queue, work, review, terminal, blocked]
-          description: The item's CURRENT role, lowercased.
-        missing:
-          type: array
-          items:
-            type: string
-          description: Required-note KEY strings (schema order) still unfilled for phase.
-        missingBySeat:
-          type: object
-          nullable: true
-          description: >-
-            A1: missing's keys bucketed by owning seat, plus a reserved "unowned" bucket for a
-            required note with no owning seat — non-empty buckets only, in merged-seat order with
-            "unowned" always last. Present only when the item's resolved schema is seat-aware AND
-            phase != terminal (an empty object when seat-aware but nothing missing); omitted
-            entirely for a seat-less schema or a terminal item. See config-format.md "Seats
-            (Trait & Schema Dimension)".
-          additionalProperties:
-            type: array
-            items:
-              type: string
-        violations:
-          type: array
-          nullable: true
-          description: >-
-            A2: independence-attestation findings for phase. Present (possibly empty) whenever
-            independence mode is not off and the resolved schema declares independent_of
-            somewhere; omitted entirely otherwise, including for a terminal item. canAdvance
-            already accounts for a reject-mode block from a non-waived violation. See
-            config-format.md "Independence (A2)".
-          items:
-            $ref: "#/components/schemas/IndependenceViolationDto"
-        blockedBy:
-          type: string
-          nullable: true
-          enum: [table, dependency, note, lease]
-          description: >-
-            The first gate that blocks a start advance right now (claim ownership excluded): the
-            transition table, an unmet blocking dependency, a required note or reject-mode
-            independence violation, or an exclusive resource lease held by another item. Present
-            only when canAdvance is false and the item is not terminal; omitted otherwise.
-
-    ItemGateDto:
-      type: object
-      required: [itemId, title, role, gateStatus]
-      properties:
-        itemId:
-          type: string
-          format: uuid
-        title:
-          type: string
-        role:
-          type: string
-          enum: [queue, work, review, terminal, blocked]
-        gateStatus:
-          $ref: "#/components/schemas/GateStatusDto"
-        guidanceKey:
-          type: string
-          nullable: true
-          description: >-
-            First missing required note's key with guidance text. Omitted from JSON (not
-            serialized as null) when there is none.
-        skillPointer:
-          type: string
-          nullable: true
-          description: >-
-            First missing required note's skill pointer. Omitted from JSON (not serialized as
-            null) when there is none.
-
     SearchHitDto:
       type: object
       required: [itemId, field, snippet, score]
@@ -1052,83 +944,6 @@ components:
           items:
             $ref: "#/components/schemas/ConfigVersionSummaryDto"
 
-    PlanDocumentResponseDto:
-      type: object
-      required: [id, rootId, slug, contentHash, status, createdAt, updatedAt]
-      properties:
-        id:
-          type: string
-          format: uuid
-        rootId:
-          type: string
-          format: uuid
-        slug:
-          type: string
-        contentHash:
-          type: string
-          description: SHA-256 hex digest of the stored body's UTF-8 bytes
-        status:
-          type: string
-          enum: [pending, adopted]
-        adoptedByItemId:
-          type: string
-          format: uuid
-          nullable: true
-          description: >-
-            Set once status is "adopted"; null while pending, and null again if the adopting
-            item is later deleted (ON DELETE SET NULL — status itself does not revert).
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-        body:
-          type: string
-          nullable: true
-          description: Raw stored document text; present on GET only (omitted on PUT)
-
-    PlanDocumentSummaryDto:
-      type: object
-      required: [id, rootId, slug, contentHash, status, createdAt, updatedAt]
-      description: Same shape as PlanDocumentResponseDto minus body, which list responses never include.
-      properties:
-        id:
-          type: string
-          format: uuid
-        rootId:
-          type: string
-          format: uuid
-        slug:
-          type: string
-        contentHash:
-          type: string
-        status:
-          type: string
-          enum: [pending, adopted]
-        adoptedByItemId:
-          type: string
-          format: uuid
-          nullable: true
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-
-    PlanDocumentListResponseDto:
-      type: object
-      required: [rootId, plans]
-      properties:
-        rootId:
-          type: string
-          format: uuid
-        plans:
-          type: array
-          items:
-            $ref: "#/components/schemas/PlanDocumentSummaryDto"
-
     RuleResponseDto:
       type: object
       required: [rootId, key, rulesVersion, body]
@@ -1145,8 +960,8 @@ components:
         rulesVersion:
           type: string
           description: >-
-            The backing rule/<key> plan document's contentHash (same value
-            PlanDocumentResponseDto/PlanDocumentSummaryDto report for that slug).
+            The backing rule document's contentHash (same value docs_read reports for
+            kind rule, slug <key>).
         body:
           type: string
           description: Raw stored rule text, served byte-for-byte as stored.
@@ -1397,38 +1212,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OpsEnvelope"
-
-  /items/{id}/gate:
-    get:
-      summary: Gate status for a single item (get_context item-mode parity)
-      operationId: getItemGate
-      tags: [items]
-      description: >-
-        Field-for-field identical to the MCP get_context tool's item-mode gateStatus /
-        guidanceKey / skillPointer, computed via the same resolveSchema + computePhaseNoteContext
-        path. No dependency/blocker info and no dispatch field. Carries no ETag and ignores
-        If-None-Match — unlike GET /items/{id}, gate status depends on notes and config, neither
-        of which item.modifiedAt versions. If the notes read fails, every required note for the
-        current phase is reported missing, the same as get_context.
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-      responses:
-        "200":
-          description: Gate status
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ItemGateDto"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "503":
-          $ref: "#/components/responses/ConfigUnavailable"
 
   /items/{id}/notes:
     get:
@@ -2184,7 +1967,7 @@ paths:
         Authorization/validation order: READ capability -> parse {rootId} as a UUID (400) ->
         ApiScope.rootIds scope check (403) -> root WorkItem exists (404) -> root is depth-0 (422)
         -> exactly one per-root config read, answered with the same config_unavailable 503 as
-        the `advance` tool and GET /items/{id}/gate use.
+        the `advance` tool and the items_read context select use.
       parameters:
         - name: If-None-Match
           in: header
@@ -2234,140 +2017,6 @@ paths:
                 $ref: "#/components/schemas/ErrorDto"
         "503":
           $ref: "#/components/responses/ConfigUnavailable"
-
-  /roots/{rootId}/plans:
-    parameters:
-      - name: rootId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    get:
-      summary: List metadata-only plan document summaries for a root
-      operationId: listPlanDocuments
-      tags: [plan-documents]
-      description: |
-        Requires READ + scope. Returns metadata-only summaries (never the body) for every
-        document under {rootId}, ordered by slug ascending.
-      parameters:
-        - name: status
-          in: query
-          schema:
-            type: string
-            enum: [pending, adopted]
-          description: Optional filter to a single status.
-      responses:
-        "200":
-          description: Plan document summaries
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PlanDocumentListResponseDto"
-        "400":
-          description: Invalid status query parameter
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-
-  /roots/{rootId}/plans/{slug}:
-    parameters:
-      - name: rootId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      - name: slug
-        in: path
-        required: true
-        schema:
-          type: string
-    get:
-      summary: Read back a stored plan document, including its body
-      operationId: getPlanDocument
-      tags: [plan-documents]
-      description: |
-        Requires READ + scope. Mirrors the MCP manage_plan_documents tool's get operation.
-      responses:
-        "200":
-          description: Stored plan document
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PlanDocumentResponseDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          description: No document exists at this slug
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-
-    put:
-      summary: Validate and stash a plan document body for a root+slug
-      operationId: putPlanDocument
-      tags: [plan-documents]
-      description: |
-        Requires WRITE_CONFIG + scope. Delegates the full validate-then-persist pipeline
-        (size cap -> root exists -> root is depth-0 -> stash) to PlanDocumentService — the
-        SAME service the MCP manage_plan_documents tool's stash operation calls, so both
-        surfaces converge on identical DB state (including contentHash) for the same payload.
-
-        A document already at status "adopted" for this slug cannot be overwritten by stash —
-        adoption is a one-way transition, rejected as 409 adopted_conflict. A "pending" document
-        at that slug is overwritten in place.
-      requestBody:
-        required: true
-        content:
-          text/plain:
-            schema:
-              type: string
-      responses:
-        "200":
-          description: Plan document validated and stashed
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PlanDocumentResponseDto"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          description: rootId does not resolve to an existing WorkItem
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "409":
-          description: The slug is already adopted; adoption is one-way and cannot be overwritten
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "413":
-          description: >-
-            body exceeds the 64 KiB cap (16 KiB / 16384 UTF-8 bytes for a `rule/<key>` slug); now
-            enforced before the body is fully buffered.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
-        "422":
-          description: rootId is not depth-0
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorDto"
 
   /roots/{rootId}/rules:
     parameters:
@@ -2517,12 +2166,19 @@ paths:
         `claim` (by `itemId` or `select`), `release` and `heartbeat`, all needing the `advance` capability.
         Claim ownership and resource leases are enforced on this route exactly as on MCP.
 
-        `items_write` ops are `create`, `update`, `delete` and `repin` (orchestration profile only). `repin`
-        (`{op: "repin", id, expectedVersion?}`, `write_items` capability) moves the item's config pin to the current config heads
-        and answers `{ok, id, version, repinned, schemaVersion?}`; `repinned: false` means the pin was current
-        and nothing was written. A `notes_write` `upsert` of a key that a pinned item's pinned schema lacks but
-        the current head schema requires fails `schema_pinned_conflict` (409; `detail.itemId`, `pinnedVersion`,
-        `currentVersion` as `server:<n|none>/root:<n|none>`): repin the item first.
+        `items_write` ops are `create`, `update`, `delete`, and `create_tree`, `complete_tree` and `repin`
+        (orchestration profile only). `repin` (`{op: "repin", id, expectedVersion?}`, `write_items` capability)
+        moves the item's config pin to the current config heads and answers `{ok, id, version, repinned,
+        schemaVersion?}`; `repinned: false` means the pin was current and nothing was written. A `notes_write`
+        `upsert` of a key that a pinned item's pinned schema lacks but the current head schema requires fails
+        `schema_pinned_conflict` (409; `detail.itemId`, `pinnedVersion`, `currentVersion` as
+        `server:<n|none>/root:<n|none>`): repin the item first.
+
+        The `docs_read` and `docs_write` tools replace the 3.x `manage_plan_documents` tool and the removed
+        `/roots/{rootId}/plans[/{slug}]` routes. `docs_read` selects are `get`, `list`, `history` and `links`
+        (`READ`); `docs_write` ops are `upsert`, `archive`, `unarchive`, `delete`, `attach` and `detach`, all needing
+        `write-config`. A document is addressed by `(rootId, kind, slug)`. `bodyFromFile` is refused on this route
+        (`invalid_request`, no file read).
       parameters:
         - name: tool
           in: path

@@ -2,8 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.port.EventRecord
 import io.github.jpicklyk.mcptask.current.application.port.MAX_TRAVERSAL_DEPTH
-import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -23,6 +21,7 @@ import io.github.jpicklyk.mcptask.current.test.P11_BASE_YAML
 import io.github.jpicklyk.mcptask.current.test.P11_LEASE_KEY
 import io.github.jpicklyk.mcptask.current.test.TEST_ITEM_TYPE
 import io.github.jpicklyk.mcptask.current.test.createOp
+import io.github.jpicklyk.mcptask.current.test.createTreeOp
 import io.github.jpicklyk.mcptask.current.test.deleteOp
 import io.github.jpicklyk.mcptask.current.test.errorAt
 import io.github.jpicklyk.mcptask.current.test.itemsWrite
@@ -32,6 +31,7 @@ import io.github.jpicklyk.mcptask.current.test.rawCount
 import io.github.jpicklyk.mcptask.current.test.results
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.strings
+import io.github.jpicklyk.mcptask.current.test.treeItemId
 import io.github.jpicklyk.mcptask.current.test.updateOp
 import io.ktor.client.request.delete
 import io.ktor.client.request.patch
@@ -236,7 +236,7 @@ class ItemCommandServiceTest {
         }
 
     @Test
-    fun `S1 create_work_tree stamps placement in both modes`(
+    fun `S1 create_tree stamps placement in both modes`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -245,43 +245,29 @@ class ItemCommandServiceTest {
             val p = d.make("P", d.make("A", r))
 
             val created =
-                d.rig.callOk(
-                    CreateWorkTreeTool(),
-                    "root" to
-                        buildJsonObject {
-                            put("type", "test-item")
-                            put("title", "tree root")
-                        },
-                    "parentId" to JsonPrimitive(p.id.toString()),
-                    "children" to
-                        buildJsonArray {
-                            add(
+                d.rig
+                    .itemsWrite(
+                        createTreeOp(
+                            "root" to
                                 buildJsonObject {
-                                    put("ref", "k")
                                     put("type", "test-item")
-                                    put("title", "tree kid")
+                                    put("title", "tree root")
+                                },
+                            "parentId" to JsonPrimitive(p.id.toString()),
+                            "children" to
+                                buildJsonArray {
+                                    add(
+                                        buildJsonObject {
+                                            put("ref", "k")
+                                            put("type", "test-item")
+                                            put("title", "tree kid")
+                                        }
+                                    )
                                 }
-                            )
-                        },
-                )
-            val createData = created["data"]!!.jsonObject
-            val treeRoot =
-                d.reload(
-                    WorkItem(id = UUID.fromString(createData["root"]!!.jsonObject["id"]!!.jsonPrimitive.content), title = "x")
-                )
-            val kid =
-                d.reload(
-                    WorkItem(
-                        id =
-                            UUID.fromString(
-                                createData["children"]!!
-                                    .jsonArray[0]
-                                    .jsonObject["id"]!!
-                                    .jsonPrimitive.content
-                            ),
-                        title = "x"
-                    )
-                )
+                        )
+                    ).okResult(0)
+            val treeRoot = d.reload(WorkItem(id = created.treeItemId(0), title = "x"))
+            val kid = d.reload(WorkItem(id = created.treeItemId(1), title = "x"))
             assertEquals(3, treeRoot.depth, "create mode: the new root sits under p")
             assertEquals(r.id, treeRoot.rootId)
             assertEquals(4, kid.depth)
@@ -290,41 +276,30 @@ class ItemCommandServiceTest {
             assertEquals(Role.QUEUE, kid.role)
 
             val attached =
-                d.rig.callOk(
-                    CreateWorkTreeTool(),
-                    "root" to buildJsonObject { put("id", p.id.toString()) },
-                    "children" to
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("ref", "k2")
-                                    put("type", "test-item")
-                                    put("title", "attached kid")
+                d.rig
+                    .itemsWrite(
+                        createTreeOp(
+                            "root" to buildJsonObject { put("id", p.id.toString()) },
+                            "children" to
+                                buildJsonArray {
+                                    add(
+                                        buildJsonObject {
+                                            put("ref", "k2")
+                                            put("type", "test-item")
+                                            put("title", "attached kid")
+                                        }
+                                    )
                                 }
-                            )
-                        },
-                )
-            val attachedKid =
-                d.reload(
-                    WorkItem(
-                        id =
-                            UUID.fromString(
-                                attached["data"]!!
-                                    .jsonObject["children"]!!
-                                    .jsonArray[0]
-                                    .jsonObject["id"]!!
-                                    .jsonPrimitive.content
-                            ),
-                        title = "x",
-                    ),
-                )
+                        )
+                    ).okResult(0)
+            val attachedKid = d.reload(WorkItem(id = attached.treeItemId(1), title = "x"))
             assertEquals(3, attachedKid.depth, "attach mode: the kid sits under the existing depth 2 root")
             assertEquals(r.id, attachedKid.rootId)
             assertEquals(p.id, attachedKid.parentId)
             assertEquals(
                 2,
-                attached["data"]!!
-                    .jsonObject["root"]!!
+                attached["items"]!!
+                    .jsonArray[0]
                     .jsonObject["depth"]!!
                     .jsonPrimitive.int,
                 "the reported root depth is the stored one"
@@ -1189,7 +1164,7 @@ class ItemCommandServiceTest {
         }
 
     @Test
-    fun `S7 create_work_tree rejects a closed parent and a closed existing root with a validation error and writes nothing`(
+    fun `S7 create_tree rejects a closed parent and a closed existing root with invalid_transition and writes nothing`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -1198,66 +1173,68 @@ class ItemCommandServiceTest {
             val before = d.count("work_items")
 
             val underClosed =
-                d.rig.call(
-                    CreateWorkTreeTool(),
-                    "root" to
-                        buildJsonObject {
-                            put("type", "test-item")
-                            put("title", "tree under closed")
-                        },
-                    "parentId" to JsonPrimitive(closed.id.toString()),
-                    "children" to
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("ref", "k")
-                                    put("type", "test-item")
-                                    put("title", "kid")
-                                }
-                            )
-                        },
+                d.rig.itemsWrite(
+                    createTreeOp(
+                        "root" to
+                            buildJsonObject {
+                                put("type", "test-item")
+                                put("title", "tree under closed")
+                            },
+                        "parentId" to JsonPrimitive(closed.id.toString()),
+                        "children" to
+                            buildJsonArray {
+                                add(
+                                    buildJsonObject {
+                                        put("ref", "k")
+                                        put("type", "test-item")
+                                        put("title", "kid")
+                                    }
+                                )
+                            }
+                    )
                 )
-            assertFalse(underClosed["success"]!!.jsonPrimitive.boolean, "$underClosed")
-            assertEquals(ErrorCodes.VALIDATION_ERROR, underClosed["error"]!!.jsonObject["code"]!!.jsonPrimitive.content)
+            assertEquals(ErrorCode.INVALID_TRANSITION.wire, underClosed.errorAt(0)["code"]!!.jsonPrimitive.content, "$underClosed")
 
             val attachClosed =
-                d.rig.call(
-                    CreateWorkTreeTool(),
-                    "root" to buildJsonObject { put("id", closed.id.toString()) },
-                    "children" to
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("ref", "k")
-                                    put("type", "test-item")
-                                    put("title", "kid")
-                                }
-                            )
-                        },
+                d.rig.itemsWrite(
+                    createTreeOp(
+                        "root" to buildJsonObject { put("id", closed.id.toString()) },
+                        "children" to
+                            buildJsonArray {
+                                add(
+                                    buildJsonObject {
+                                        put("ref", "k")
+                                        put("type", "test-item")
+                                        put("title", "kid")
+                                    }
+                                )
+                            }
+                    )
                 )
-            assertFalse(attachClosed["success"]!!.jsonPrimitive.boolean, "$attachClosed")
-            assertEquals(ErrorCodes.VALIDATION_ERROR, attachClosed["error"]!!.jsonObject["code"]!!.jsonPrimitive.content)
+            assertEquals(ErrorCode.INVALID_TRANSITION.wire, attachClosed.errorAt(0)["code"]!!.jsonPrimitive.content, "$attachClosed")
 
             assertEquals(before, d.count("work_items"), "zero items created by either rejected tree")
 
             // manual lifecycle accepts the same trees
             val manual = d.terminal("p11-manual")
             val accepted =
-                d.rig.callOk(
-                    CreateWorkTreeTool(),
-                    "root" to buildJsonObject { put("id", manual.id.toString()) },
-                    "children" to
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("ref", "k")
-                                    put("type", "test-item")
-                                    put("title", "kid")
+                d.rig
+                    .itemsWrite(
+                        createTreeOp(
+                            "root" to buildJsonObject { put("id", manual.id.toString()) },
+                            "children" to
+                                buildJsonArray {
+                                    add(
+                                        buildJsonObject {
+                                            put("ref", "k")
+                                            put("type", "test-item")
+                                            put("title", "kid")
+                                        }
+                                    )
                                 }
-                            )
-                        },
-                )
-            assertTrue(accepted["success"]!!.jsonPrimitive.boolean)
+                        )
+                    ).okResult(0)
+            assertTrue(accepted["ok"]!!.jsonPrimitive.boolean)
         }
 
     // ---------------------------------------------------------------------------------------------
@@ -1341,7 +1318,7 @@ class ItemCommandServiceTest {
         }
 
     // ---------------------------------------------------------------------------------------------
-    // S4 / S10 -- create_work_tree is one unit over the services
+    // S4 / S10 -- create_tree is one unit over the services
     // ---------------------------------------------------------------------------------------------
 
     private val planBody =
@@ -1431,7 +1408,7 @@ class ItemCommandServiceTest {
         buildJsonObject {
             put("from", from)
             put("to", to)
-            put("type", "BLOCKS")
+            put("type", "blocks")
         }
 
     @Test
@@ -1444,10 +1421,14 @@ class ItemCommandServiceTest {
             d.raw.planDocumentRepository().stash(project.id, "my-plan", planBody)
 
             val (result, rows) =
-                d.rig.written { d.rig.callOk(CreateWorkTreeTool(), *treeParams(project, buildJsonArray { add(dep("root", "t1")) })) }
+                d.rig.written {
+                    d.rig
+                        .itemsWrite(
+                            createTreeOp(*treeParams(project, buildJsonArray { add(dep("root", "t1")) }))
+                        ).okResult(0)
+                }
 
-            val data = result["data"]!!.jsonObject
-            val rootId = UUID.fromString(data["root"]!!.jsonObject["id"]!!.jsonPrimitive.content)
+            val rootId = result.treeItemId(0)
             assertEquals(
                 listOf(
                     "item.created",
@@ -1488,30 +1469,32 @@ class ItemCommandServiceTest {
             val marker = d.rig.maxSeq()
 
             val cyclic =
-                d.rig.call(
-                    CreateWorkTreeTool(),
-                    *treeParams(
-                        project,
-                        buildJsonArray {
-                            add(dep("t1", "t2"))
-                            add(dep("t2", "t1"))
-                        }
+                d.rig.itemsWrite(
+                    createTreeOp(
+                        *treeParams(
+                            project,
+                            buildJsonArray {
+                                add(dep("t1", "t2"))
+                                add(dep("t2", "t1"))
+                            }
+                        )
                     )
                 )
             val duplicate =
-                d.rig.call(
-                    CreateWorkTreeTool(),
-                    *treeParams(
-                        project,
-                        buildJsonArray {
-                            add(dep("t1", "t2"))
-                            add(dep("t1", "t2"))
-                        }
+                d.rig.itemsWrite(
+                    createTreeOp(
+                        *treeParams(
+                            project,
+                            buildJsonArray {
+                                add(dep("t1", "t2"))
+                                add(dep("t1", "t2"))
+                            }
+                        )
                     )
                 )
 
-            assertFalse(cyclic["success"]!!.jsonPrimitive.boolean, "$cyclic")
-            assertFalse(duplicate["success"]!!.jsonPrimitive.boolean, "$duplicate")
+            assertFalse(cyclic.results()[0]["ok"]!!.jsonPrimitive.boolean, "$cyclic")
+            assertFalse(duplicate.results()[0]["ok"]!!.jsonPrimitive.boolean, "$duplicate")
             assertEquals(items, d.count("work_items"))
             assertEquals(notes, d.count("notes"))
             assertEquals(deps, d.count("dependencies"))
@@ -1531,8 +1514,8 @@ class ItemCommandServiceTest {
                 }
             )
             // control: the same tree without the bad dependencies applies, so the rejections above were the dependencies
-            val ok = d.rig.call(CreateWorkTreeTool(), *treeParams(project, buildJsonArray { add(dep("t1", "t2")) }))
-            assertTrue(ok["success"]!!.jsonPrimitive.boolean, "$ok")
+            val ok = d.rig.itemsWrite(createTreeOp(*treeParams(project, buildJsonArray { add(dep("t1", "t2")) })))
+            assertTrue(ok.results()[0]["ok"]!!.jsonPrimitive.boolean, "$ok")
             assertEquals(items + 3, d.count("work_items"))
         }
 
@@ -1551,9 +1534,9 @@ class ItemCommandServiceTest {
             val deps = d.count("dependencies")
             val marker = d.rig.maxSeq()
 
-            val result = d.rig.call(CreateWorkTreeTool(), *treeParams(project, buildJsonArray { add(dep("t1", "t2")) }))
+            val result = d.rig.itemsWrite(createTreeOp(*treeParams(project, buildJsonArray { add(dep("t1", "t2")) })))
 
-            assertFalse(result["success"]!!.jsonPrimitive.boolean, "$result")
+            assertFalse(result.results()[0]["ok"]!!.jsonPrimitive.boolean, "$result")
             assertEquals(items, d.count("work_items"), "zero items")
             assertEquals(notes, d.count("notes"), "zero notes")
             assertEquals(deps, d.count("dependencies"), "zero dependencies")

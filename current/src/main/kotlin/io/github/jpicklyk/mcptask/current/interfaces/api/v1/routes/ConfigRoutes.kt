@@ -78,7 +78,7 @@ internal fun Route.configRoutesOver(catalogProvider: suspend () -> WorkItemSchem
 
                 val allSchemas = catalog.getAllSchemas()
                 val allTraits = catalog.getAllTraits()
-                val graph = graphBuilder.getStatusGraph(catalog)
+                val graph = graphBuilder.buildStatusGraph(allSchemas)
 
                 call.respond(
                     HttpStatusCode.OK,
@@ -186,7 +186,7 @@ internal fun Route.configRoutesOver(catalogProvider: suspend () -> WorkItemSchem
                     return@get
                 }
                 call.response.header(HttpHeaders.ETag, etag)
-                call.respond(HttpStatusCode.OK, graphBuilder.getStatusGraph(catalog))
+                call.respond(HttpStatusCode.OK, graphBuilder.buildStatusGraph(catalog.getAllSchemas()))
             }
         }
     }

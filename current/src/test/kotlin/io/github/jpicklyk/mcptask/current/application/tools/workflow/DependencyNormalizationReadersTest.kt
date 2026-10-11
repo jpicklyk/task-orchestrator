@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.test.seedDependencies
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -27,17 +28,17 @@ import kotlin.test.assertTrue
 
 /**
  * Independent test authorship for item a19fcf0a (P12, needs-test-author): readers that moved onto the normalized
- * blocking graph. Scenarios S6 (get_next_item) and S12 (NextItemRecommender.isBlocked is fail-closed), plus probes.
+ * blocking graph. Scenarios S6 (select next) and S12 (NextItemRecommender.isBlocked is fail-closed), plus probes.
  *
  * Oracles (frozen plan 3.4 and task-scope item 5a): `a IS_BLOCKED_BY b` means b blocks a, so a stays out of the
  * recommendations while b is below the edge's unblock threshold (terminal by default) and comes back once b reaches
  * it; the recommender is FAIL-CLOSED: a blocker that cannot be read counts as blocking (it was skipped, fail-open,
  * before the item).
  *
- * Response-shape evidence (public): `GetNextItemToolTest` (data.recommendations[].itemId), `NextItemRecommenderTest`
+ * Response-shape evidence (public): the `items_read` `next` select (data.items[].id, an 8-hex short id), `NextItemRecommenderTest`
  * (the fail-closed expectation with a mocked getById returning null).
  *
- * EXISTING-SURFACE: S6 goes through GetNextItemTool.execute with real SQLite; S12 calls the existing
+ * EXISTING-SURFACE: S6 goes through the `items_read` `next` select (via the test probe) with real SQLite; S12 calls the existing
  * `isBlocked(item)` on the real repositories with only `getById` of the blocker overridden to return null.
  */
 class DependencyNormalizationReadersTest {
@@ -45,12 +46,12 @@ class DependencyNormalizationReadersTest {
     val db = SqliteTestDatabase.perMethod()
 
     private lateinit var context: ToolExecutionContext
-    private lateinit var nextTool: GetNextItemTool
+    private lateinit var nextTool: ItemContextProbe
 
     @BeforeEach
     fun setUp() {
         context = ToolExecutionContext(db.repositoryProvider(), unitOfWork = db.unitOfWork())
-        nextTool = GetNextItemTool()
+        nextTool = ItemContextProbe("next")
     }
 
     private suspend fun item(
@@ -77,18 +78,25 @@ class DependencyNormalizationReadersTest {
     private suspend fun recommendedIds(): Set<UUID> {
         val result = nextTool.execute(JsonObject(mapOf("limit" to JsonPrimitive(50))), context) as JsonObject
         assertTrue(result["success"]!!.jsonPrimitive.boolean, "expected success, got: $result")
-        return (result["data"] as JsonObject)["recommendations"]!!
+        // A compact entry carries the 8-hex short id; expand it to the one stored id with that prefix.
+        return (result["data"] as JsonObject)["items"]!!
             .jsonArray
-            .map { UUID.fromString(it.jsonObject["itemId"]!!.jsonPrimitive.content) }
-            .toSet()
+            .map { entry ->
+                val short = entry.jsonObject["id"]!!.jsonPrimitive.content
+                context
+                    .workItemRepository()
+                    .findByIdPrefix(short, 2)
+                    .single()
+                    .id
+            }.toSet()
     }
 
     // ------------------------------------------------------------------
-    // S6: get_next_item honors the direction of an IS_BLOCKED_BY input edge
+    // S6: select next honors the direction of an IS_BLOCKED_BY input edge
     // ------------------------------------------------------------------
 
     @Test
-    fun `S6 get_next_item excludes an item blocked via IS_BLOCKED_BY while the blocker is queued and keeps the blocker`(): Unit =
+    fun `S6 next excludes an item blocked via IS_BLOCKED_BY while the blocker is queued and keeps the blocker`(): Unit =
         runBlocking {
             val blocked = item("Blocked")
             val blocker = item("Blocker")
@@ -101,7 +109,7 @@ class DependencyNormalizationReadersTest {
         }
 
     @Test
-    fun `S6 get_next_item recommends the blocked item once its blocker is terminal`(): Unit =
+    fun `S6 next recommends the blocked item once its blocker is terminal`(): Unit =
         runBlocking {
             val blocker = item("Done Blocker", role = Role.TERMINAL)
             val blocked = item("Blocked")

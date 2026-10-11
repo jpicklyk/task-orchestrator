@@ -11,6 +11,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
 
 /** An `items_write` `repin` element: move one item's config pin to the current config heads. */
@@ -64,8 +66,11 @@ private suspend fun WriteScope.repinItem(
                 ItemWriteResult(
                     id = item.id,
                     version = item.version,
-                    repinned = repinned.value.repinned,
-                    schemaVersion = env.schemaPinService.view(item)?.let { ItemView.schemaVersion(it) }
+                    payload =
+                        buildJsonObject {
+                            put("repinned", repinned.value.repinned)
+                            env.schemaPinService.view(item)?.let { put("schemaVersion", ItemView.schemaVersion(it)) }
+                        }
                 )
             )
         }
