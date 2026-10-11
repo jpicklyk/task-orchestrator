@@ -1,12 +1,15 @@
 {
     "success": true,
     "data": {
-        "mode": "item",
         "item": {
-            "id": "a1000000-0000-4000-8000-000000000002",
+            "id": "a1000000",
+            "parentId": "a1000000",
+            "type": "bug-fix",
             "title": "A1 T0 golden bug-fix",
             "role": "work",
-            "depth": 1
+            "priority": "medium",
+            "depth": 1,
+            "version": 1
         },
         "schema": [
             {
@@ -76,13 +79,16 @@
             ],
             "blockedBy": "note"
         },
+        "transitions": {
+            "block": "blocked",
+            "cancel": "terminal",
+            "complete": "terminal",
+            "hold": "blocked",
+            "start": "review"
+        },
         "guidanceKey": "implementation-notes",
         "dispatch": {
             "agent": "task-orchestrator:implementer"
         }
-    },
-    "metadata": {
-        "timestamp": "<A1-T0-NORMALIZED-TIMESTAMP>",
-        "version": "<A1-T0-NORMALIZED-VERSION>"
     }
 }

@@ -313,8 +313,7 @@ class ToolExecutionContext(
     fun advanceServiceFactory(): AdvanceServiceFactory = advanceServiceFactoryLazy
 
     /**
-     * The shared read-only [TransitionPreview] (`get_context` / `GET /items/{id}/gate` `canAdvance`,
-     * `get_next_status`): the same snapshot loader and policy every advance uses.
+     * The shared read-only [TransitionPreview] (`canAdvance` of `items_read` `select=context`): the same snapshot loader and policy every advance uses.
      */
     fun transitionPreview(): TransitionPreview = advanceServiceFactory().preview()
 }

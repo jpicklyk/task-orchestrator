@@ -13,7 +13,7 @@ import java.util.UUID
 
 /**
  * Service that answers "what's eligible next": the one authoritative source of truth for which item an agent
- * should pick up next. Both `GetNextItemTool` and the selector path of `ClaimItemTool` call into it.
+ * should pick up next. Both `items_read` `select=next` (through `WorkViewQueries`) and the selector path of the `advance` claim op use it.
  *
  * Eligibility is decided entirely in SQL ([WorkItemRepository.findEligible]): the selector filters, the
  * active-claim and ancestor-claim exclusions, and dependency blocking are all predicates of one query that pages
@@ -97,7 +97,7 @@ class NextItemRecommender(
 
     /**
      * [recommend] that also reports [Counted.candidateCount]: the EXACT number of items eligible under [criteria]
-     * (all pages, not a window), for `get_next_item`'s call-log `eligible_count`. [recommend] shares this one
+     * (all pages, not a window), for the call-log `eligible_count` of a `next` read. [recommend] shares this one
      * implementation. Items and count come from one read transaction.
      */
     suspend fun recommendCounted(

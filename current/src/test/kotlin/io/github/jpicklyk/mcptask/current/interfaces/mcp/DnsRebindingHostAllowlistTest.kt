@@ -359,13 +359,13 @@ class DnsRebindingHostAllowlistTest {
     fun `S7 rebinding shape is rejected on every api v1 surface and never reaches the item store`() =
         testApplication {
             application { wire(appConfig = defaultCfg()) }
-            val gatePath = "/api/v1/items/${UUID.randomUUID()}/gate"
+            val childrenPath = "/api/v1/items/${UUID.randomUUID()}/children"
             val marker = "dns-rebind-marker-${UUID.randomUUID()}"
 
             val getPaths =
                 listOf(
                     "/api/v1/items",
-                    gatePath,
+                    childrenPath,
                     "/api/v1/health",
                     "/api/v1/events",
                     "/.well-known/mcp-task-orchestrator.json",

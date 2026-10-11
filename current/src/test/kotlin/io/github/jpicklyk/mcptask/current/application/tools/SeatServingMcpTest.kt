@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
@@ -11,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
 import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -268,7 +268,7 @@ traits:
         runBlocking {
             val toolContext = newToolContext(tempDir)
             val result =
-                GetContextTool().execute(
+                ItemContextProbe().execute(
                     buildJsonObject { put("itemId", JsonPrimitive(SEAT_AWARE_WORK_ID.toString())) },
                     toolContext,
                 )
@@ -355,7 +355,7 @@ traits:
         runBlocking {
             val toolContext = newToolContext(tempDir)
             val result =
-                GetContextTool().execute(
+                ItemContextProbe().execute(
                     buildJsonObject { put("itemId", JsonPrimitive(SEAT_AWARE_TERMINAL_ID.toString())) },
                     toolContext,
                 )
@@ -380,7 +380,7 @@ traits:
             val toolContext = newToolContext(tempDir)
 
             val contextResult =
-                GetContextTool().execute(
+                ItemContextProbe().execute(
                     buildJsonObject { put("itemId", JsonPrimitive(SEAT_AWARE_QUEUE_ID.toString())) },
                     toolContext,
                 )
@@ -527,7 +527,7 @@ traits:
             val toolContext = newToolContext(tempDir)
 
             val contextResult =
-                GetContextTool().execute(
+                ItemContextProbe().execute(
                     buildJsonObject { put("itemId", JsonPrimitive(UNOWNED_NOTE_WORK_ID.toString())) },
                     toolContext,
                 )
@@ -579,7 +579,7 @@ traits:
             upsertNote(toolContext, SEAT_AWARE_WORK_ID, "test-manifest", "work", "done")
 
             val result =
-                GetContextTool().execute(
+                ItemContextProbe().execute(
                     buildJsonObject { put("itemId", JsonPrimitive(SEAT_AWARE_WORK_ID.toString())) },
                     toolContext,
                 )

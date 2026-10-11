@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools
 
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
@@ -24,6 +23,7 @@ import io.github.jpicklyk.mcptask.current.parity.parityAuthConfig
 import io.github.jpicklyk.mcptask.current.test.P11_BASE_YAML
 import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -415,7 +415,7 @@ work_item_schemas:
             assertEquals(Role.QUEUE, twin.load(gated).role, "a blocked start changes nothing")
 
             val context =
-                runBlocking { twin.rig.callOk(GetContextTool(), "itemId" to JsonPrimitive(gated.toString())) }
+                runBlocking { twin.rig.callOk(ItemContextProbe(), "itemId" to JsonPrimitive(gated.toString())) }
                     .obj("data")
                     .obj("gateStatus")
             val bySeat = context.obj("missingBySeat").mapValues { (_, v) -> v.jsonArray.map { it.jsonPrimitive.content } }

@@ -432,10 +432,11 @@ class SqliteClaimStore(
         query: EligibilityQuery,
         limit: Int,
         offset: Int,
+        scope: AccessScope,
     ): ItemSlice {
         val now = clock.unitNow()
         return databaseManager.readTx {
-            val selector = selectorConditions(query, now) ?: return@readTx ItemSlice(emptyList(), 0)
+            val selector = selectorConditions(query, now, scope) ?: return@readTx ItemSlice(emptyList(), 0)
             if (!query.includeClaimed) {
                 selector.add(ClaimPredicates.notActive(now))
                 selector.add(NotOp(shieldedByAncestorClaim(query.requestingAgentId, now)))
@@ -460,10 +461,13 @@ class SqliteClaimStore(
         }
     }
 
-    override suspend fun explainIneligible(query: EligibilityQuery): EligibilityBreakdown {
+    override suspend fun explainIneligible(
+        query: EligibilityQuery,
+        scope: AccessScope,
+    ): EligibilityBreakdown {
         val now = clock.unitNow()
         return databaseManager.readTx {
-            val selector = selectorConditions(query, now) ?: return@readTx EligibilityBreakdown(0, 0, 0)
+            val selector = selectorConditions(query, now, scope) ?: return@readTx EligibilityBreakdown(0, 0, 0)
             val matched = WorkItemsTable.id.count()
             val activelyClaimed = WorkViewSql.countWhen(ClaimPredicates.active(now))
             val dependencyBlocked =
@@ -486,15 +490,21 @@ class SqliteClaimStore(
         }
     }
 
-    override suspend fun claimSummary(rootIds: Set<UUID>?): ClaimStatusCounts {
-        if (rootIds?.isEmpty() == true) return ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0)
+    override suspend fun claimSummary(
+        rootIds: Set<UUID>?,
+        scope: AccessScope,
+    ): ClaimStatusCounts {
+        if (rootIds?.isEmpty() == true || scope.rootIds?.isEmpty() == true) return ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0)
         val now = clock.unitNow()
         return databaseManager.readTx {
-            val scope = rootIds?.let { ScopeResolver.resolve(it) }
-            if (scope == ResolvedScope.Empty) return@readTx ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0)
+            val resolved = rootIds?.let { ScopeResolver.resolve(it) }
+            if (resolved == ResolvedScope.Empty) return@readTx ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0)
+            val visible = visibilityConditions(scope) ?: return@readTx ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0)
+            val conditions = ArrayList<Op<Boolean>>(visible)
+            resolved?.let { conditions.add(it.toCondition()) }
             val buckets = claimBuckets(now)
             val base = WorkItemsTable.select(buckets.active, buckets.expired, buckets.unclaimed)
-            val row = (if (scope != null) base.where { scope.toCondition() } else base).single()
+            val row = (if (conditions.isNotEmpty()) base.where { conditions.reduce { acc, op -> acc and op } } else base).single()
             buckets.read(row)
         }
     }
@@ -538,12 +548,14 @@ class SqliteClaimStore(
         )
 
     /**
-     * The selector filters of [query] (the same builder as [findClaimable]), or null when its scope is empty.
+     * The selector filters of [query] (the same builder as [findClaimable]) AND the visibility of [scope], or null when
+     * either is empty.
      * Must run inside a transaction: resolving `rootIds` may probe or walk the hierarchy.
      */
     private fun selectorConditions(
         query: EligibilityQuery,
         now: Instant,
+        scope: AccessScope = AccessScope.unrestricted(),
     ): MutableList<Op<Boolean>>? {
         val spec =
             ItemQuerySpec(
@@ -560,7 +572,10 @@ class SqliteClaimStore(
                 roleChangedAfter = query.roleChangedAfter,
                 roleChangedBefore = query.roleChangedBefore,
             )
-        return ItemQueries.conditions(spec, query.rootIds?.let { ScopeResolver.resolve(it) }, now)
+        val conditions = ItemQueries.conditions(spec, query.rootIds?.let { ScopeResolver.resolve(it) }, now) ?: return null
+        // The caller's access scope, in the same SQL as the selector (before paging and counting); nothing visible = nothing.
+        conditions.addAll(visibilityConditions(scope) ?: return null)
+        return conditions
     }
 
     /**

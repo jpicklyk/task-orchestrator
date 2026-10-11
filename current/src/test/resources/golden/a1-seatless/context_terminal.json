@@ -1,12 +1,15 @@
 {
     "success": true,
     "data": {
-        "mode": "item",
         "item": {
-            "id": "a1000000-0000-4000-8000-000000000004",
+            "id": "a1000000",
+            "parentId": "a1000000",
+            "type": "bug-fix",
             "title": "A1 T0 golden terminal",
             "role": "terminal",
-            "depth": 1
+            "priority": "medium",
+            "depth": 1,
+            "version": 1
         },
         "schema": [
             {
@@ -70,10 +73,9 @@
             "canAdvance": false,
             "phase": "terminal",
             "missing": []
+        },
+        "transitions": {
+            "reopen": "queue"
         }
-    },
-    "metadata": {
-        "timestamp": "<A1-T0-NORMALIZED-TIMESTAMP>",
-        "version": "<A1-T0-NORMALIZED-VERSION>"
     }
 }

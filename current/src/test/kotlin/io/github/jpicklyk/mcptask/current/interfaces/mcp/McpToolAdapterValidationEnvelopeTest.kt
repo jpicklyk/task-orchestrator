@@ -10,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
@@ -316,10 +315,9 @@ class McpToolAdapterValidationEnvelopeTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S8 - real get_context with a non-boolean includeAncestors maps to VALIDATION_ERROR naming the parameter`(): Unit =
+    fun `S8 - real manage_items delete with a non-boolean recursive maps to VALIDATION_ERROR naming the parameter`(): Unit =
         runBlocking {
             adapter.registerToolWithServer(server, ManageItemsTool(), dummyContext)
-            adapter.registerToolWithServer(server, GetContextTool(), dummyContext)
 
             val createResult =
                 client.callTool(
@@ -337,11 +335,12 @@ class McpToolAdapterValidationEnvelopeTest {
 
             val queryResult =
                 client.callTool(
-                    name = "get_context",
+                    name = "manage_items",
                     arguments =
                         mapOf(
-                            "itemId" to itemId,
-                            "includeAncestors" to 42
+                            "operation" to "delete",
+                            "itemIds" to listOf(itemId),
+                            "recursive" to 42
                         )
                 )
 
@@ -355,14 +354,14 @@ class McpToolAdapterValidationEnvelopeTest {
                     ?.jsonPrimitive
                     ?.content
                     .orEmpty()
-                    .contains("includeAncestors"),
+                    .contains("recursive"),
                 "Error message should name the offending parameter: ${error["message"]}"
             )
 
             val textContent = queryResult.content.filterIsInstance<TextContent>()
             assertTrue(textContent.isNotEmpty())
             assertTrue(
-                textContent[0].text.startsWith("Validation error in 'get_context':"),
+                textContent[0].text.startsWith("Validation error in 'manage_items':"),
                 "Expected a validation-error prefix, not an Internal error, got: ${textContent[0].text}"
             )
         }

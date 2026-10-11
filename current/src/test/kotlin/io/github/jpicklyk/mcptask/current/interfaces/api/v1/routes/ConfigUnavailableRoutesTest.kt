@@ -9,8 +9,6 @@ import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelSer
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.ConfigScope
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
@@ -18,11 +16,7 @@ import io.github.jpicklyk.mcptask.current.test.TestConfigResolver
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.getFingerprint
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
-import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.get
-import io.ktor.client.request.header
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
@@ -30,14 +24,9 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.ktor.server.sse.SSE
-import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
-import kotlinx.coroutines.runBlocking
-import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 /**
  * Independently authored against the frozen `diagnosis`/`test-plan` notes on item `aa664be1` —
@@ -57,48 +46,6 @@ import kotlin.test.assertTrue
 class ConfigUnavailableRoutesTest {
     @RegisterExtension
     val db = SqliteTestDatabase.perMethod()
-
-    @Test
-    fun `S11 - GET items id gate returns 503 config_unavailable when the per-root config read fails cold`() =
-        testApplication {
-            val sqlite = db.repositoryProvider()
-            val item =
-                runBlocking {
-                    val r = sqlite.workItemRepository().create(WorkItem(title = "Root S11", depth = 0))!!
-                    // A real row must exist so getFingerprint succeeds with a non-null value first —
-                    // resolve() only reaches the .get() read (the one failFingerprint=false/failGet=true
-                    // is meant to intercept) once the fingerprint check itself has NOT short-circuited
-                    // on Success(null)/absence.
-                    sqlite.configStore().upsert(r.id, "work_item_schemas:\n  T:\n    notes: []\n")
-                    sqlite
-                        .workItemRepository()
-                        .create(
-                            WorkItem(title = "Child S11", role = Role.WORK, parentId = r.id, rootId = r.id, depth = 1)
-                        )!!
-                }
-            val failable = FailableProjectConfigRepository(sqlite.configStore())
-            failable.failGet = true
-            val provider = FailableRepositoryProvider(sqlite, failable)
-            application {
-                configureTestApp(makeTestAuthConfig()) {
-                    val perRoot = PerRootConfigService(provider.configStore())
-                    ToolExecutionContext(
-                        provider,
-                        perRootConfigService = perRoot,
-                        configResolver = TestConfigResolver.resolver(NoSchemaWorkItemSchemaService, perRoot),
-                        unitOfWork = db.unitOfWork(),
-                    ).let { ctx -> itemGateRoutes(provider, ctx.configResolver, ctx.transitionPreview()) }
-                }
-            }
-
-            val response =
-                client.get("/api/v1/items/${item.id}/gate") {
-                    header("Authorization", "Bearer $TEST_TOKEN")
-                }
-
-            assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
-            assertTrue(response.bodyAsText().contains("config_unavailable"))
-        }
 }
 
 /**

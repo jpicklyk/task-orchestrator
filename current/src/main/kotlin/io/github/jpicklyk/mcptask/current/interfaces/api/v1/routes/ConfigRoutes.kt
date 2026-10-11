@@ -48,7 +48,7 @@ private const val FINGERPRINT_ETAG_PREFIX = "\"cfg-"
  *   document itself, not an envelope.
  */
 fun Route.configRoutes(schemaService: WorkItemSchemaService) {
-    val graphBuilder = StatusGraphBuilder(schemaService)
+    val graphBuilder = StatusGraphBuilder()
 
     requireCapability(ApiCapability.READ) {
         route("/config") {
@@ -64,7 +64,7 @@ fun Route.configRoutes(schemaService: WorkItemSchemaService) {
 
                 val allSchemas = schemaService.getAllSchemas()
                 val allTraits = schemaService.getAllTraits()
-                val graph = graphBuilder.getStatusGraph()
+                val graph = graphBuilder.buildStatusGraph(allSchemas)
 
                 call.respond(
                     HttpStatusCode.OK,
@@ -167,7 +167,7 @@ fun Route.configRoutes(schemaService: WorkItemSchemaService) {
                     return@get
                 }
                 call.response.header(HttpHeaders.ETag, etag)
-                call.respond(HttpStatusCode.OK, graphBuilder.getStatusGraph())
+                call.respond(HttpStatusCode.OK, graphBuilder.buildStatusGraph(schemaService.getAllSchemas()))
             }
         }
     }

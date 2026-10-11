@@ -477,114 +477,6 @@ components:
           type: string
           nullable: true
 
-    IndependenceViolationDto:
-      type: object
-      required: [key, constraint]
-      description: >-
-        A2: one independence-attestation finding, actor-free by construction (never an actor id,
-        proof, or claim on any surface, MCP or REST). See config-format.md "Independence (A2)".
-      properties:
-        key:
-          type: string
-          description: The declaring note's key (the note whose independent_of triggered this check).
-        seat:
-          type: string
-          nullable: true
-          description: The declaring note's owning seat. Omitted when the schema is not seat-aware.
-        constraint:
-          type: string
-          enum: [same_actor, missing_actor, unverified]
-        conflictingSeat:
-          type: string
-          nullable: true
-          description: >-
-            The seat this finding was raised against. Omitted for a missing_actor/unverified
-            finding raised against the declaring note itself rather than a specific conflicting
-            seat.
-        waived:
-          type: boolean
-          nullable: true
-          description: >-
-            True only for a same_actor finding covered by the independence: temporal-only waiver.
-            A waived finding never blocks a reject-mode transition. Omitted unless true.
-
-    GateStatusDto:
-      type: object
-      required: [canAdvance, phase, missing]
-      properties:
-        canAdvance:
-          type: boolean
-        phase:
-          type: string
-          enum: [queue, work, review, terminal, blocked]
-          description: The item's CURRENT role, lowercased.
-        missing:
-          type: array
-          items:
-            type: string
-          description: Required-note KEY strings (schema order) still unfilled for phase.
-        missingBySeat:
-          type: object
-          nullable: true
-          description: >-
-            A1: missing's keys bucketed by owning seat, plus a reserved "unowned" bucket for a
-            required note with no owning seat — non-empty buckets only, in merged-seat order with
-            "unowned" always last. Present only when the item's resolved schema is seat-aware AND
-            phase != terminal (an empty object when seat-aware but nothing missing); omitted
-            entirely for a seat-less schema or a terminal item. See config-format.md "Seats
-            (Trait & Schema Dimension)".
-          additionalProperties:
-            type: array
-            items:
-              type: string
-        violations:
-          type: array
-          nullable: true
-          description: >-
-            A2: independence-attestation findings for phase. Present (possibly empty) whenever
-            independence mode is not off and the resolved schema declares independent_of
-            somewhere; omitted entirely otherwise, including for a terminal item. canAdvance
-            already accounts for a reject-mode block from a non-waived violation. See
-            config-format.md "Independence (A2)".
-          items:
-            $ref: "#/components/schemas/IndependenceViolationDto"
-        blockedBy:
-          type: string
-          nullable: true
-          enum: [table, dependency, note, lease]
-          description: >-
-            The first gate that blocks a start advance right now (claim ownership excluded): the
-            transition table, an unmet blocking dependency, a required note or reject-mode
-            independence violation, or an exclusive resource lease held by another item. Present
-            only when canAdvance is false and the item is not terminal; omitted otherwise.
-
-    ItemGateDto:
-      type: object
-      required: [itemId, title, role, gateStatus]
-      properties:
-        itemId:
-          type: string
-          format: uuid
-        title:
-          type: string
-        role:
-          type: string
-          enum: [queue, work, review, terminal, blocked]
-        gateStatus:
-          $ref: "#/components/schemas/GateStatusDto"
-        guidanceKey:
-          type: string
-          nullable: true
-          description: >-
-            First missing required note's key with guidance text. Omitted from JSON (not
-            serialized as null) when there is none.
-        skillPointer:
-          type: string
-          nullable: true
-          description: >-
-            First missing required note's skill pointer. Omitted from JSON (not serialized as
-            null) when there is none.
-
     SearchHitDto:
       type: object
       required: [itemId, field, snippet, score]
@@ -1731,38 +1623,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/OpsEnvelope"
 
-  /items/{id}/gate:
-    get:
-      summary: Gate status for a single item (get_context item-mode parity)
-      operationId: getItemGate
-      tags: [items]
-      description: >-
-        Field-for-field identical to the MCP get_context tool's item-mode gateStatus /
-        guidanceKey / skillPointer, computed via the same resolveSchema + computePhaseNoteContext
-        path. No dependency/blocker info and no dispatch field. Carries no ETag and ignores
-        If-None-Match — unlike GET /items/{id}, gate status depends on notes and config, neither
-        of which item.modifiedAt versions. If the notes read fails, every required note for the
-        current phase is reported missing, the same as get_context.
-      parameters:
-        - $ref: "#/components/parameters/itemId"
-      responses:
-        "200":
-          description: Gate status
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ItemGateDto"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "503":
-          $ref: "#/components/responses/ConfigUnavailable"
-
   /items/{id}/notes:
     get:
       summary: List notes for an item (notes_read list)
@@ -2517,7 +2377,7 @@ paths:
         Authorization/validation order: READ capability -> parse {rootId} as a UUID (400) ->
         ApiScope.rootIds scope check (403) -> root WorkItem exists (404) -> root is depth-0 (422)
         -> exactly one per-root config read, answered with the same config_unavailable 503 as
-        the `advance` tool and GET /items/{id}/gate use.
+        the `advance` tool and the items_read context select use.
       parameters:
         - name: If-None-Match
           in: header

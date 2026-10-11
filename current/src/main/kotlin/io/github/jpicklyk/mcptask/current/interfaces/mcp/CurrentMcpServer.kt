@@ -15,10 +15,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDoc
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.QueryRulesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetBlockedItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStep
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepException
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -45,7 +41,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.opsRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.effectiveConfigRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemGateRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemWriteRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteResourceRoutes
@@ -595,15 +590,9 @@ internal fun buildMcpTools(): List<ToolDefinition> =
     listOf(
         // Phase 1: CRUD
         ManageItemsTool(),
-        // Phase 2: Workflow
-        GetNextStatusTool(),
-        GetNextItemTool(),
-        GetBlockedItemsTool(),
         // Phase 3: Compound operations
         CompleteTreeTool(),
         CreateWorkTreeTool(),
-        // Phase 3: Context
-        GetContextTool(),
         // Per-root schema layering: transport-agnostic config sync
         ManageProjectConfigTool(YamlConfigDocumentParser),
         // Per-root plan document store: dual ingestion (REST PUT + MCP stash)
@@ -751,7 +740,6 @@ internal fun Application.installRestApiRoutes(
             )
             // Phase 3: read API — items (through the items_read select), notes, dependencies, transitions
             itemRoutes(toolRegistry, toolDispatcher, redactNoteAttribution = appConfig.apiRedactNoteAttribution)
-            itemGateRoutes(effectiveProvider, toolContext.configResolver, toolContext.transitionPreview())
             // Note resource reads: thin translations to notes_read over the same dispatcher /ops uses (writes are /ops/notes_write).
             noteResourceRoutes(toolRegistry, toolDispatcher, redactNoteAttribution = appConfig.apiRedactNoteAttribution)
             transitionRoutes(
@@ -783,7 +771,7 @@ internal fun Application.installRestApiRoutes(
             )
             // Additive per-root effective (layered) config view — same LayeredConfig the MCP
             // configResolver already computes, surfaced as one REST resource (AR-42).
-            effectiveConfigRoutes(effectiveProvider, toolContext.configResolver, noteSchemaService)
+            effectiveConfigRoutes(effectiveProvider, toolContext.configResolver)
             // plan_documents store: per-root plan document read/write —
             // converges on the same PlanDocumentService the manage_plan_documents MCP tool uses.
             planDocumentRoutes(effectiveProvider, toolContext.unitOfWork)

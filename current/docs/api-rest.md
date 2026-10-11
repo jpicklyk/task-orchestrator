@@ -15,7 +15,7 @@ transport, while a persistent HTTP daemon with the REST API enabled is the recom
 ongoing fleet or multi-project work.
 
 The plugin's SubagentStop phase guard (`phase-guard.mjs` / `phase-guard-record.mjs`) is another such
-consumer: it polls `GET /items/{id}/gate` (§9) to decide whether to send a returning subagent back
+consumer: it polled `GET /items/{id}/gate`, which no longer exists (it is `POST /ops/items_read` with `select: context`, section 20a; the hook is re-pointed in W8), to decide whether to send a returning subagent back
 for missing notes, and fails open the same way when `TASK_ORCHESTRATOR_API_URL` is unset — see
 [integration-guides/plugin-skills-hooks.md](integration-guides/plugin-skills-hooks.md).
 
@@ -207,8 +207,6 @@ drift apart.
   outside the scope is `403 forbidden` (envelope, `detail.scope` `root` or `tag`), and under a restricted
   scope an id that matches nothing the caller may see is `403 forbidden` too, never `404`, so scope is no
   existence oracle; children outside the scope are left out of the page and not counted
-- `GET /items/{id}/gate` - `403 scope_forbidden` if the item is outside scope (either `root_ids` or
-  `tags_include`)
 - Write endpoints - `403 scope_forbidden` if the target item is outside scope
 - `POST /ops/items_read` (section 20a) - every select applies the same rules; `list`, `search` and
   `overview` apply the scope before paging, ranking and capping, so `page.total` counts only visible items
@@ -265,11 +263,6 @@ tag-scoped callers is gone.
 **Conditional writes:**
 - `PATCH /items/{id}` - **requires** `If-Match` header. Missing header -> `400 precondition_required`. Mismatch -> `412` with error `etag_mismatch`.
 - `DELETE /items/{id}` - **optional** `If-Match`. When supplied and mismatched -> `412 etag_mismatch`.
-
-**`GET /items/{id}/gate` carries no `ETag` and ignores `If-None-Match`.** This is deliberate: gate status
-depends on the item's notes and its resolved schema/config, and neither is covered by the item's version,
-so an item-derived `ETag` would go stale the moment a note is upserted or the config changes, without the
-item itself being touched.
 
 ### Config ETags
 
@@ -375,7 +368,7 @@ other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability
 | `insufficient_scope` | 403 | `error_description` body. A generic `requireCapability` check failed for the plugin's configured capability; (SSE-specific) a `GET /api/v1/events` connection presents a valid token that lacks the `read` capability (see §21); (SSE-specific) a `GET /api/v1/events` connection carries a `tags_include` scope but the route has no `WorkItemRepository` wired to filter by it -- fail-closed rather than serving an unfiltered stream; or (SSE-specific) a root-scoped principal's `?root=` values do not intersect its token's `scope.rootIds` -- the requested roots are entirely outside scope (see §21) |
 | `not_claim_holder` | 403 | Not an `ErrorDto` route error: the `advance` tool (`POST /ops/advance`, section 20a) returns it in its envelope for a `transition` on an item another actor holds, or a `release`/`heartbeat` of an item the caller does not hold. Claim ownership applies on REST as on MCP since 4.0 |
 | `internal` | 500 | An exception escaped a `/api/v1` route. The message is always `Internal server error`: the exception text is logged at ERROR and never returned. Produced by the REST safety net (see below) |
-| `config_unavailable` | 503 | Per-root config read failed (a transient database error) and there was no last-known-good cached config to serve for that root — transient, retryable; the caller applies its own backoff (no `Retry-After` header). Returned by `GET /items/{id}/gate` (see §9, §10) and `GET /roots/{rootId}/config/effective` (see §18). REST and the MCP tools now read per-root config through the same `EffectiveConfigResolver`/last-known-good cache (one shared instance, built once in `ServerComposition`) — a transient DB error on one surface is absorbed by a cache warmed by the other, so this error is rarer than it was when each surface kept its own cache. Exception: `GET /items/{id}/gate` reads inside its preview's read unit; a unit has no last-known-good fallback, so on that route (and in the `advance` tool, which answers `unavailable` with `retryAfterMs` 1000 per element) a read fault answers `config_unavailable` even when the cache is warm. |
+| `config_unavailable` | 503 | Per-root config read failed (a transient database error) and there was no last-known-good cached config to serve for that root — transient, retryable; the caller applies its own backoff (no `Retry-After` header). Returned by `GET /roots/{rootId}/config/effective` (see §18). REST and the MCP tools now read per-root config through the same `EffectiveConfigResolver`/last-known-good cache (one shared instance, built once in `ServerComposition`) — a transient DB error on one surface is absorbed by a cache warmed by the other, so this error is rarer than it was when each surface kept its own cache. Exception: the `items_read` `context` select reads inside its preview's read unit; a unit has no last-known-good fallback, so on that select and in the `advance` tool (both answer the envelope error `unavailable`, `retryAfterMs` 1000 for `advance`) a read fault answers `unavailable` even when the cache is warm. |
 | `db_error` | 500 | A store fault: a read route responds `Database query failed` (or the route's own read text), a write route its existing text (e.g. `Failed to create item`). A store fault on a read is never reported as `404 not_found`; `404` means only that the row does not exist. |
 
 **One mapper, one safety net.** Every `ErrorDto` body is built by one mapper (`LegacyRestErrorMapper`): each
@@ -400,7 +393,7 @@ alike (including `401`), is the `req_id` of every `events` row the request wrote
 request's row in the `call_log` table. Only `/api/v1` and paths under `/api/v1/` are covered (not
 `/api/v10`). A `401` from the auth layer records its body's `error` code (`invalid_request`,
 `invalid_token`, ...) as the row's `error_code`; `http_<status>` is the fallback. The row's `tool` is
-the matched route template as declared (`GET /api/v1/items/{id}/gate`); a call that matched no route is
+the matched route template as declared (`GET /api/v1/roots/{rootId}/config`); a call that matched no route is
 `<METHOD> /api/v1/<first segment>` for a served top-level resource, else `<METHOD> unmatched`. `principal_id`
 on REST rows is the authenticated API principal (`api:<tokenId>`); only MCP rows can carry a self-reported actor id (up to 500 characters, with `proof_status` distinguishing verified ids). `X-Req-Id` is in the default
 `CORS_EXPOSE_HEADERS`. See
@@ -590,90 +583,6 @@ blocks `toItemId`); edges are written through `deps_write` (section 13), which a
 `blocks`/`relates_to`. `unblockAt` is the effective unblock-role
 threshold: `null` only for `relates_to` (no blocking semantics); for `blocks` it is the stored value,
 defaulting to `"terminal"` when unset — never a raw possibly-null passthrough.
-
-### GateStatusDto
-
-```json
-{
-  "canAdvance": false,
-  "phase": "work",
-  "missing": ["implementation-notes"],
-  "missingBySeat": { "implementer": ["implementation-notes"] },
-  "violations": [
-    { "key": "test-manifest", "seat": "test-author", "constraint": "same_actor", "conflictingSeat": "implementer" }
-  ]
-}
-```
-
-`phase` is the item's CURRENT role, lowercased. `missing` is the required-note KEY strings (schema
-order) still unfilled for `phase` — plain strings, never `{key, description, ...}` objects.
-
-`canAdvance` is "the `advance` tool's `transition` op with `start` would be allowed right now", claim ownership
-excluded: the same transition-policy evaluation the advance runs. It is `false` when the transition
-table rejects `start` (terminal or blocked item), a blocking dependency is unmet, a current-phase
-required note is unfilled (or a `reject`-mode violation blocks), or an exclusive resource the item
-declares is held by another item. `blockedBy` (string, optional) names that gate — `table`,
-`dependency`, `note` or `lease` — and is present only when `canAdvance` is `false` and the item is not
-terminal.
-
-`missingBySeat` (object, optional, A1) buckets `missing`'s keys by owning seat —
-`{<seat>: [keys], ..., "unowned": [keys]}`, non-empty buckets only, in merged-seat order with
-`unowned` always last. Present only when the item's resolved schema is seat-aware AND the item is
-not `TERMINAL` (an empty object `{}` when seat-aware but nothing is missing); omitted entirely
-(`explicitNulls=false`) for a seat-less schema or a terminal item — see
-[`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension)
-→ "Seats" for how a note's owning seat is determined and the `unowned` bucket rule.
-
-`violations` (array, optional, A2) reports independence-attestation findings for `phase` —
-`IndependenceViolationDto` objects, present (possibly `[]`) whenever independence `mode` is not
-`off` and the resolved schema declares `independent_of` somewhere; omitted entirely otherwise,
-including for a terminal item. `canAdvance` already accounts for a `reject`-mode block from a
-non-waived violation, the same way it accounts for missing required notes — see
-[`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2)
-→ "Independence (A2)".
-
-### IndependenceViolationDto
-
-```json
-{
-  "key": "test-manifest",
-  "seat": "test-author",
-  "constraint": "same_actor",
-  "conflictingSeat": "implementer",
-  "waived": true
-}
-```
-
-One A2 independence-attestation finding — field-for-field identical to the MCP JSON shape
-(`GatePredicate`/`NoteSchemaJsonHelpers.buildViolationsArray`). `key` is the declaring note's key;
-`seat` its owning seat (omitted when the schema is not seat-aware); `constraint` is
-`"same_actor"` | `"missing_actor"` | `"unverified"`; `conflictingSeat` the seat the finding was
-raised against (omitted for a `missing_actor`/`unverified` finding raised against the declaring
-note itself); `waived` present (`true`) only when the `independence: temporal-only` waiver applies
-— a waived entry never blocks a `reject`-mode transition. **Actor-free by construction: never an
-actor id, proof, or claim.** `AttributionRedactor` is not involved — there is nothing
-attribution-bearing here to redact; the same body is served to every caller regardless of
-`API_REDACT_NOTE_ATTRIBUTION` or capability tier.
-
-### ItemGateDto
-
-```json
-{
-  "itemId": "<uuid>",
-  "title": "string",
-  "role": "work",
-  "gateStatus": <GateStatusDto>,
-  "guidanceKey": "implementation-notes",
-  "skillPointer": "migration-review"
-}
-```
-
-Response DTO for `GET /items/{id}/gate` (§9) — field-for-field identical to `get_context` item
-mode's `gateStatus`/`guidanceKey`/`skillPointer` (see
-[api-reference.md → get_context](api-reference.md#get_context), "Response (item mode)"). `guidanceKey`
-and `skillPointer` are the FIRST missing required note's guidance key / skill pointer for the
-current phase — omitted from JSON (not `null`) when there is none, same `explicitNulls=false` rule
-as every other DTO in this document.
 
 ### PageDto\<T\>
 
@@ -966,7 +875,7 @@ principal is `401 unauthenticated`. Fields, views and error codes are described 
 
 The 3.x `GET /items`, `GET /items/roots`, `GET /items/{id}/tree`, `GET /items/{id}/breadcrumbs` and
 `GET /items/{id}/schema` routes are removed, together with the `include` parameter of `GET /items/{id}`.
-`GET /items/{id}/tree`, `/breadcrumbs` and `/schema` are no longer routed (`404`). `GET /items` is a method
+`GET /items/{id}/tree`, `/breadcrumbs`, `/schema` and `/gate` are no longer routed (`404`). `GET /items` is a method
 the path no longer serves and `GET /items/roots` is read as `GET /items/{id}` with the id `roots`; both
 answer a `4xx` client error, never a list. Use `POST /api/v1/ops/items_read`:
 
@@ -977,6 +886,7 @@ answer a `4xx` client error, never a list. Use `POST /api/v1/ops/items_read`:
 | `GET /items/{id}/tree` | `{select: "list", ancestorId: id}` |
 | `GET /items/{id}/breadcrumbs` | `{select: "get", itemId: id, fields: ["ancestors"]}` |
 | `GET /items/{id}/schema` | `{select: "schema", itemId: id}` (add `fields: ["guidance"]` for guidance text) |
+| `GET /items/{id}/gate` | `{select: "context", itemId: id}`; the gate is `data.gateStatus` (orchestration profile) |
 | `GET /items/{id}?include=notes` | `notes_read` `{select: "list", itemId: id}` |
 | `GET /items/{id}?include=deps` | `deps_read` `{select: "list", item: id}` |
 | `GET /items/{id}?include=children` | `GET /items/{id}/children` |
@@ -1007,33 +917,12 @@ envelope rules as amended by U22: `total` is the exact count of visible children
 is `403 forbidden`. Errors: `400 invalid_request` / `invalid_cursor`, `403 forbidden`, `404 not_found` /
 `ambiguous_id`.
 
-### GET /items/{id}/gate
+### Gate status
 
-Gate status for the item's current phase — field-for-field identical to the MCP `get_context`
-item mode's `gateStatus`/`guidanceKey`/`skillPointer` (see
-[api-reference.md → get_context](api-reference.md#get_context), "Response (item mode)"), computed via the same `resolveSchema` +
-`computePhaseNoteContext` path; `canAdvance`/`blockedBy` come from the same transition-policy preview
-`get_context` uses (`start`, claim ownership excluded). No blocker list and no dispatch field. Consumed by the
-plugin's SubagentStop phase guard (see
-[integration-guides/plugin-skills-hooks.md](integration-guides/plugin-skills-hooks.md)).
-
-If the notes read itself fails (repository error), every required note for the current phase is
-reported missing — the same fail-safe `computePhaseNoteContext` gives `get_context` when notes
-cannot be loaded.
-
-**Independence (A2):** `gateStatus.violations` (see `GateStatusDto` in §8) is computed against the
-same `independence:` policy and `independent_of` declarations as the MCP `get_context`/`advance_item`
-paths — see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2)
-→ "Independence (A2)". This is also the route the plugin's SubagentStop phase-guard hook polls to
-decide whether a `reject`-mode violation should block a subagent's stop.
-
-**Responses:**
-- `200 OK` → `ItemGateDto` (§8) — no `ETag` header (§4)
-- `400 bad_request` — invalid UUID
-- `403 scope_forbidden`
-- `404 not_found`
-- `503 config_unavailable` — the item's per-root config could not be read inside the preview's read
-  unit, where the last-known-good fallback is disabled (see §6); transient, no `Retry-After` header
+`GET /items/{id}/gate` is removed. The gate state of an item (`canAdvance`, `blockedBy`, `blockers`, `contended`, `missing`,
+`missingBySeat`, `violations`, `guidanceKey`, `skillPointer`) is `data.gateStatus` of
+`POST /api/v1/ops/items_read` with `{"select": "context", "itemId": "<id>"}` (section 20a), the same answer as MCP
+`items_read(select="context")`; see [api-reference.md](api-reference.md#items_read). A removed route answers `404`.
 
 ---
 
@@ -1605,8 +1494,7 @@ Requires `READ`.
 **Authorization/validation order:** `READ` capability → parse `{rootId}` as a UUID (`400
 bad_request` on failure) → `ApiScope.rootIds` scope check (`403 scope_forbidden`) → root WorkItem
 exists (`404 not_found`) → root is depth-0 (`422 validation_error`) → exactly one per-root config
-read, wrapped in the same `config_unavailable` 503 envelope `GET
-/items/{id}/gate` use (see §6, §9, §10) — see §4/§5's note above on the shared REST/MCP cache.
+read, wrapped in the `config_unavailable` 503 envelope (see §6) — see §4/§5's note above on the shared REST/MCP cache.
 
 **Responses:**
 - `200 OK` → `EffectiveConfigDto`; `ETag: "eff-<fingerprint>"` — a composite fingerprint over
@@ -2029,7 +1917,7 @@ All write endpoints (POST, PATCH, PUT, DELETE) synthesize an actor server-side f
 
 **Independence violations (A2) are redacted by construction, not by policy.** `IndependenceViolationDto`
 carries only seat names and note keys (`key`, `seat`, `constraint`, `conflictingSeat`, `waived`) —
-never an actor id, proof, or verification claim — on every surface (`GateStatusDto.violations`,
+never an actor id, proof, or verification claim — on every surface (`items_read` `context` `gateStatus.violations`,
 `AdvanceResponseDto.violations`, `CascadeEventDto.violations`, `422 gate_blocked`'s
 `details.violations`). This is unconditional: it does not vary with `API_REDACT_NOTE_ATTRIBUTION`,
 caller capability tier, or admin status, because there is no attribution-bearing field on the DTO for

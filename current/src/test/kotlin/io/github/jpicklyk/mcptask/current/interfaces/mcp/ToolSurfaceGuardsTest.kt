@@ -350,8 +350,8 @@ class ToolSurfaceGuardsTest {
     @Test
     fun `S18 a clash is found among several non-clashing registry tools`() {
         val fx = FixtureTools()
-        val clash = SelectToolSpec("get_context", "Clash.", fx.readTool.selects)
+        val clash = SelectToolSpec("manage_items", "Clash.", fx.readTool.selects)
         val failure = assertFails { checkRegistryDisjoint(ToolRegistry(listOf(fx.readTool, fx.writeTool, clash)), legacyTools) }
-        assertTrue("get_context" in failure.message.orEmpty(), failure.message)
+        assertTrue("manage_items" in failure.message.orEmpty(), failure.message)
     }
 }

@@ -1,35 +1,12 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
-import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
-import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.TransitionPreview
-import io.github.jpicklyk.mcptask.current.application.service.blockedByWire
-import io.github.jpicklyk.mcptask.current.application.service.computeMissingBySeat
-import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
-import io.github.jpicklyk.mcptask.current.application.support.legacyRead
-import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.application.telemetry.ReqId
-import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.Decision
-import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
-import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.GateStatusDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemGateDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.envelope.respondEnvelope
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.DB_QUERY_FAILED
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.LegacyRestCode
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.error.respondError
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.etagForVersion
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.REQ_ID_HEADER
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.SURFACE_REST
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.ops.toCallAccess
 import io.github.jpicklyk.mcptask.current.interfaces.shared.envelope.EncodedEnvelope
@@ -53,7 +30,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
-import java.util.UUID
 
 /** Query parameters `GET /items/{id}/children` accepts; any other is `unknown_parameter`. */
 private val CHILDREN_PARAMS = setOf("limit", "cursor")
@@ -160,122 +136,3 @@ private suspend fun ApplicationCall.dispatchItemsRead(
 /** `data.version` of a successful `get` envelope; null for any other body. */
 private fun versionOf(envelope: EncodedEnvelope): Long? =
     ((envelope.body["data"] as? JsonObject)?.get("version") as? JsonPrimitive)?.takeIf { !it.isString }?.longOrNull
-
-/**
- * Registers the read-only gate-status sub-resource for a single item, under `/api/v1` (the
- * schema view is `items_read` `select: schema`).
- *
- * - `GET /items/{id}/gate` — the item's title, current role, and canonical gate status for that
- *   role: field-for-field identical to `get_context` item mode's `gateStatus` /
- *   `guidanceKey` / `skillPointer`, computed via the SAME [EffectiveConfigResolver.resolveSchema] +
- *   [computePhaseNoteContext] path get_context uses — no gate logic is reimplemented here.
- *   `gateStatus.missingBySeat` (A1c) is present only for a seat-aware, non-terminal item — see
- *   [io.github.jpicklyk.mcptask.current.application.service.computeMissingBySeat].
- *
- * Id handling: full UUID only (a hex prefix is rejected), malformed → 400 `bad_request`, unknown →
- * 404 `not_found`, out-of-scope → 403 `scope_forbidden`, checked in that order. No
- * dependency/blocker info and no dispatch field on `/gate` (out of scope for this route — see
- * task-scope). No ETag / `If-None-Match` handling: the gate depends on notes and config, neither of
- * which the item's version covers, so a conditional answer could be stale after a note fill or
- * config push.
- *
- * [configResolver] is the SAME [EffectiveConfigResolver] instance the MCP tool context and the
- * REST advance route share (via [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext.configResolver]),
- * so this route shares MCP's last-known-good per-root config cache instead of maintaining its own.
- * A [PerRootConfigUnavailableException] raised resolving that cache responds 503
- * `config_unavailable`, same envelope as the advance route's D6 handling.
- *
- * [transitionPreview] is the SAME preview `get_context` uses: `gateStatus.canAdvance` is
- * `inspect(item, start).decision is Allow` and `gateStatus.blockedBy` the rejecting gate; `missing`,
- * `missingBySeat` and `violations` come from the same read unit. That unit reads config with no
- * last-known-good fallback, so the gate route answers 503 on a per-root read fault even when warm.
- */
-fun Route.itemGateRoutes(
-    repositoryProvider: RepositoryProvider,
-    configResolver: EffectiveConfigResolver,
-    transitionPreview: TransitionPreview,
-) {
-    val workItemRepo = repositoryProvider.workItemRepository()
-
-    requireCapability(ApiCapability.READ) {
-        // ─── GET /items/{id}/gate ──────────────────────────────────────────────
-        get("/items/{id}/gate") {
-            val rawId =
-                call.parameters["id"] ?: run {
-                    call.respondError(LegacyRestCode.BAD_REQUEST, "Missing item id")
-                    return@get
-                }
-            val id =
-                runCatchingNonCancellation { UUID.fromString(rawId) }.getOrNull() ?: run {
-                    call.respondError(LegacyRestCode.BAD_REQUEST, "Invalid UUID: $rawId")
-                    return@get
-                }
-
-            val itemResult =
-                legacyRead({
-                    call.respondError(LegacyRestCode.DB_ERROR, DB_QUERY_FAILED)
-                    return@get
-                }) { workItemRepo.getById(id) }
-            if (itemResult == null) {
-                call.respondError(LegacyRestCode.NOT_FOUND, "Item $id not found")
-                return@get
-            }
-            val item = itemResult
-
-            if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respondError(LegacyRestCode.SCOPE_FORBIDDEN, "Access denied for item $id")
-                return@get
-            }
-
-            // Per D6: a per-root config read failure resolving the gate's schema responds 503 with
-            // a config_unavailable ErrorDto — no Retry-After header, same contract as the advance
-            // route (RFC 9110 §15.6.4: 503 describes a temporary server-side inability). The preview
-            // reads config inside its read unit (no last-known-good fallback there).
-            // Schema, notes, violations and the start decision all come from ONE read unit.
-            val startView =
-                try {
-                    withConfigSession { transitionPreview.inspect(item, Trigger.User.START) }
-                } catch (e: PerRootConfigUnavailableException) {
-                    call.respondError(LegacyRestCode.CONFIG_UNAVAILABLE, e.message)
-                    return@get
-                }
-
-            val resolvedSchema = startView.schema
-            val startDecision = startView.decision
-            val notesByKey = startView.notes.associateBy { it.key }
-
-            val phaseContext = computePhaseNoteContext(item.role, resolvedSchema?.notes, notesByKey)
-            val missing = phaseContext?.missingKeys ?: emptyList()
-            val isTerminal = item.role == Role.TERMINAL
-            // Same rule A1b's get_context applies: computeMissingBySeat alone would still return
-            // `{}` for a seat-aware TERMINAL item, so the terminal check is explicit here too.
-            val missingBySeat = if (isTerminal) null else computeMissingBySeat(resolvedSchema, missing)
-
-            // A2: independence-attestation violations for the item's CURRENT phase -- same
-            // computation GetContextTool's item mode uses (null when TERMINAL, mode OFF, or the
-            // resolved schema declares no `independent_of` anywhere).
-            val violations = if (isTerminal) null else startView.violations
-            val canAdvance = startDecision is Decision.Allow
-
-            call.respond(
-                HttpStatusCode.OK,
-                ItemGateDto(
-                    itemId = item.id.toString(),
-                    title = item.title,
-                    role = item.role.toJsonString(),
-                    gateStatus =
-                        GateStatusDto(
-                            canAdvance = canAdvance,
-                            phase = item.role.toJsonString(),
-                            missing = missing,
-                            missingBySeat = missingBySeat,
-                            violations = violations?.map { it.toDto() },
-                            blockedBy = if (canAdvance || isTerminal) null else startDecision.blockedByWire(),
-                        ),
-                    guidanceKey = phaseContext?.guidanceKey,
-                    skillPointer = phaseContext?.skillPointer,
-                ),
-            )
-        }
-    }
-}

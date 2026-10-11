@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping
 
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.SchemaFacts
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.TransitionTable
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
@@ -18,15 +17,14 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.StatusGraphTypeD
  * emits the sentinel `"<previousRole>"` so dashboards know they must read the live item to resolve
  * the target; an invalid cell is omitted.
  *
- * The result is cached in memory keyed by config fingerprint. When the fingerprint changes
- * (config reload), the cache is invalidated and the graph is rebuilt on the next request.
+ * Stateless over the RESOLVED schemas it is handed: it reads no config and caches nothing. A caller passes the
+ * schema map of its own scope ([buildStatusGraph]) or the one resolved schema of one item ([rowFor]); a null schema
+ * is a schema-free item ([SchemaFacts.SCHEMA_FREE]).
  *
  * Lives in the interfaces layer because it returns `interfaces/api/v1/dto` `*Dto` types — the
  * application layer must not depend on interface DTOs.
  */
-class StatusGraphBuilder(
-    private val schemaService: WorkItemSchemaService,
-) {
+class StatusGraphBuilder {
     companion object {
         /** The ordered list of roles that appear as rows in the graph. */
         val GRAPH_ROLES: List<Role> =
@@ -36,31 +34,9 @@ class StatusGraphBuilder(
         const val PREVIOUS_ROLE_SENTINEL = "<previousRole>"
     }
 
-    @Volatile
-    private var cache: Pair<String?, StatusGraphDto>? = null
-
     /**
-     * Returns the current status graph, rebuilding it when the config fingerprint has changed.
-     */
-    fun getStatusGraph(): StatusGraphDto {
-        val fingerprint = schemaService.getConfigFingerprint()
-        val cached = cache
-        if (cached != null && cached.first == fingerprint) {
-            return cached.second
-        }
-        val graph = buildGraph()
-        cache = Pair(fingerprint, graph)
-        return graph
-    }
-
-    private fun buildGraph(): StatusGraphDto = buildStatusGraph(schemaService.getAllSchemas())
-
-    /**
-     * Builds the status-transition graph for [schemas] directly, bypassing the fingerprint cache —
-     * used by callers (e.g. the per-root effective config view) that already hold a resolved,
-     * possibly per-root-layered schema map and need a fresh, uncached graph for it. Graph `types`
-     * follow [schemas]' iteration order. [getStatusGraph] (global-only, fingerprint-cached) is
-     * unchanged.
+     * Builds the status-transition graph for [schemas]: the schema map the caller resolved for its scope (global or
+     * per-root layered). Graph `types` follow [schemas]' iteration order.
      */
     fun buildStatusGraph(schemas: Map<String, WorkItemSchema>): StatusGraphDto {
         val triggers = Trigger.User.entries.sortedBy { it.wire }
@@ -82,6 +58,23 @@ class StatusGraphBuilder(
             triggers = triggers.map { it.wire },
             types = types,
         )
+    }
+
+    /**
+     * The row of [role] in the status graph of the ONE resolved [schema] (null = schema-free): each user trigger the
+     * transition table allows from [role], by wire name, to its target role name, or [PREVIOUS_ROLE_SENTINEL] for the
+     * return-to-previous cell. Triggers the table rejects from [role] are absent.
+     */
+    fun rowFor(
+        schema: WorkItemSchema?,
+        role: Role,
+    ): Map<String, String> {
+        val facts = schema?.let { SchemaFacts(it.hasReviewPhase(), it.lifecycleMode) } ?: SchemaFacts.SCHEMA_FREE
+        val row = LinkedHashMap<String, String>()
+        for (trigger in Trigger.User.entries.sortedBy { it.wire }) {
+            resolveCell(role, trigger, facts)?.let { row[trigger.wire] = it }
+        }
+        return row
     }
 
     private fun buildTransitionsForType(

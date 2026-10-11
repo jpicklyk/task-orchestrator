@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -14,6 +13,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
 import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.tools.ItemContextProbe
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -241,7 +241,7 @@ work_item_schemas:
         itemId: UUID,
     ): JsonObject =
         extractData(
-            GetContextTool().execute(buildJsonObject { put("itemId", JsonPrimitive(itemId.toString())) }, composition.toolContext),
+            ItemContextProbe().execute(buildJsonObject { put("itemId", JsonPrimitive(itemId.toString())) }, composition.toolContext),
         )
 
     private suspend fun advanceMcp(
@@ -305,10 +305,9 @@ work_item_schemas:
             val mcpContextViolations =
                 runBlocking { getContextMcp(composition, contextItem.id) }["gateStatus"]!!.jsonObject["violations"]!!.jsonArray
 
-            val gateResponse =
-                client.get("/api/v1/items/${contextItem.id}/gate") { header("Authorization", "Bearer $WRITE_TOKEN") }
-            val restGateViolations = parseJson(gateResponse.bodyAsText())["gateStatus"]!!.jsonObject["violations"]!!.jsonArray
-            assertEquals(mcpContextViolations, restGateViolations, "mode=$mode: REST /gate must match get_context")
+            val gateResponse = client.restContext(contextItem.id, WRITE_TOKEN)
+            val restGateViolations = gateResponse.bodyAsText().contextGate()["violations"]!!.jsonArray
+            assertEquals(mcpContextViolations, restGateViolations, "mode=$mode: REST ops context must match the MCP context select")
 
             val advanceItem =
                 runBlocking {
@@ -369,7 +368,7 @@ work_item_schemas:
     // ─────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `R5 REST gate violations are byte-identical for admin and non-admin callers and never contain the actor id`(
+    fun `R5 REST context violations are byte-identical for admin and non-admin callers and never contain the actor id`(
         @TempDir tempDir: Path,
     ): Unit =
         testApplication {
@@ -385,10 +384,8 @@ work_item_schemas:
                     i
                 }
 
-            val nonAdminResponse =
-                client.get("/api/v1/items/${item.id}/gate") { header("Authorization", "Bearer $TEST_TOKEN") }
-            val adminResponse =
-                client.get("/api/v1/items/${item.id}/gate") { header("Authorization", "Bearer $ADMIN_TOKEN") }
+            val nonAdminResponse = client.restContext(item.id, TEST_TOKEN)
+            val adminResponse = client.restContext(item.id, ADMIN_TOKEN)
             assertEquals(HttpStatusCode.OK, nonAdminResponse.status)
             assertEquals(HttpStatusCode.OK, adminResponse.status)
 
@@ -397,8 +394,8 @@ work_item_schemas:
             assertFalse(nonAdminBody.contains(SENTINEL_ACTOR), "non-admin body must never contain the actor id: $nonAdminBody")
             assertFalse(adminBody.contains(SENTINEL_ACTOR), "admin body must never contain the actor id: $adminBody")
 
-            val nonAdminViolations = parseJson(nonAdminBody)["gateStatus"]!!.jsonObject["violations"]!!.jsonArray
-            val adminViolations = parseJson(adminBody)["gateStatus"]!!.jsonObject["violations"]!!.jsonArray
+            val nonAdminViolations = nonAdminBody.contextGate()["violations"]!!.jsonArray
+            val adminViolations = adminBody.contextGate()["violations"]!!.jsonArray
             assertEquals(1, nonAdminViolations.size, "violations: $nonAdminViolations")
             assertEquals(nonAdminViolations, adminViolations, "violations must be byte-identical for admin and non-admin callers")
             // Sanity: the entry names the SEAT, not the actor -- the field that would leak identity

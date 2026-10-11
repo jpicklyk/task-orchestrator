@@ -190,7 +190,7 @@ class RestCallLogTest {
             application { configureApp(rig.composition, writer) }
 
             val missing = UUID.randomUUID()
-            val typed = client.getWith("/items/$missing/gate") // a legacy ErrorDto route (item and note GETs answer envelopes)
+            val typed = client.getWith("/roots/$missing/config") // a legacy ErrorDto route (item and note GETs answer envelopes)
             assertEquals(HttpStatusCode.NotFound, typed.status)
             val typedCode =
                 Json
@@ -204,7 +204,7 @@ class RestCallLogTest {
 
             writer.flushNow()
             val byTool = callLogRows().associateBy { it["tool"] }
-            val typedRow = byTool.getValue("GET /api/v1/items/{id}/gate")
+            val typedRow = byTool.getValue("GET /api/v1/roots/{rootId}/config")
             assertEquals("error", typedRow["outcome"])
             assertEquals("not_found", typedRow["error_code"], "the typed ErrorDto.error, not http_404")
             assertEquals(typed.headers["X-Req-Id"], typedRow["req_id"])
@@ -231,7 +231,7 @@ class RestCallLogTest {
             val deep = client.getWith("/items/$a/zzz/$b")
             val keyed = client.getWith("/items/$a/notes/my-key")
             val listingResponse = client.getWith("/items?limit=5&includeChildren=true&title=x")
-            val schema = client.getWith("/items/$a/gate")
+            val schema = client.getWith("/roots/$a/config")
 
             writer.flushNow()
             val byReq = callLogRows().associateBy { it["req_id"] }
@@ -249,7 +249,7 @@ class RestCallLogTest {
             assertEquals(listOf("includeChildren", "limit"), shape.keys.toList())
             assertNull(listing["target_ids"])
             // G1: a matched multi-literal route keeps its declared template.
-            assertEquals("GET /api/v1/items/{id}/gate", byReq.getValue(schema.headers["X-Req-Id"])["tool"])
+            assertEquals("GET /api/v1/roots/{rootId}/config", byReq.getValue(schema.headers["X-Req-Id"])["tool"])
         }
 
     @Test
@@ -259,11 +259,11 @@ class RestCallLogTest {
             val writer = newWriter(rig.composition)
             application { configureApp(rig.composition, writer) }
             val id = UUID.randomUUID()
-            val matched = client.getWith("/items/$id/gate")
+            val matched = client.getWith("/roots/$id/config")
             val plain = client.getWith("/items/$id")
             writer.flushNow()
             val byReq = callLogRows().associateBy { it["req_id"] }
-            assertEquals("GET /api/v1/items/{id}/gate", byReq.getValue(matched.headers["X-Req-Id"])["tool"])
+            assertEquals("GET /api/v1/roots/{rootId}/config", byReq.getValue(matched.headers["X-Req-Id"])["tool"])
             assertEquals("GET /api/v1/items/{id}", byReq.getValue(plain.headers["X-Req-Id"])["tool"])
         }
 
@@ -440,7 +440,7 @@ class RestCallLogTest {
                     header("mcp-session-id", sessionId)
                     contentType(ContentType.Application.Json)
                     setBody(
-                        """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_context","arguments":{}}}"""
+                        """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"manage_items","arguments":{"operation":"create","items":[{"title":"s16","type":"test-item"}]}}}"""
                     )
                 }
             val payload =
@@ -468,7 +468,7 @@ class RestCallLogTest {
             val mcp = rows.filter { it["surface"] == "mcp" }
             assertEquals(1, mcp.size, "only the tools/call is an MCP call_log row: $rows")
             assertEquals(reqId, mcp.single()["req_id"])
-            assertEquals("get_context", mcp.single()["tool"])
+            assertEquals("manage_items", mcp.single()["tool"])
             assertEquals(
                 0,
                 rows.count { it["surface"] == "rest" },

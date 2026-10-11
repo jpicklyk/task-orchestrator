@@ -106,7 +106,7 @@ private fun Application.configureEffectiveConfigTestApp(
     authConfig: ApiAuthConfig = makeTestAuthConfig(),
 ) {
     configureTestApp(authConfig) {
-        effectiveConfigRoutes(repositoryProvider, configResolver, schemaService)
+        effectiveConfigRoutes(repositoryProvider, configResolver)
     }
 }
 
@@ -118,7 +118,7 @@ private fun Application.configureEffectiveAndLegacyConfigTestApp(
     authConfig: ApiAuthConfig = makeTestAuthConfig(),
 ) {
     configureTestApp(authConfig) {
-        effectiveConfigRoutes(repositoryProvider, configResolver, schemaService)
+        effectiveConfigRoutes(repositoryProvider, configResolver)
         configRoutes(schemaService)
     }
 }

@@ -4,7 +4,6 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
@@ -52,7 +51,7 @@ private val effectiveConfigLogger = LoggerFactory.getLogger("EffectiveConfigRout
  * [EffectiveConfigResolver.layered] read, wrapped in the same `config_unavailable` 503 envelope
  * `ItemRoutes` uses for [PerRootConfigUnavailableException].
  *
- * [schemaService] is used ONLY to build the status graph via [StatusGraphBuilder.buildStatusGraph].
+ * The status graph is built by [StatusGraphBuilder.buildStatusGraph] over the layered read's own schemas.
  * Type keys come from [io.github.jpicklyk.mcptask.current.application.config.LayeredConfig.typeKeys]. Every resolved value comes from [configResolver]'s single
  * [EffectiveConfigResolver.layered] read; no separate default-schema probing or per-root-vs-global
  * choice happens in this route.
@@ -60,10 +59,9 @@ private val effectiveConfigLogger = LoggerFactory.getLogger("EffectiveConfigRout
 fun Route.effectiveConfigRoutes(
     repositoryProvider: RepositoryProvider,
     configResolver: EffectiveConfigResolver,
-    schemaService: WorkItemSchemaService,
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
-    val graphBuilder = StatusGraphBuilder(schemaService)
+    val graphBuilder = StatusGraphBuilder()
 
     requireCapability(ApiCapability.READ) {
         // ─── GET /roots/{rootId}/config/effective ────────────────────────────
