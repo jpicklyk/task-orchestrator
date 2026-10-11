@@ -25,8 +25,9 @@ errors, per-root-config-unavailable failures, and internal errors.
 | `query_items` | Hierarchy & CRUD | Read | Get, search, or overview WorkItems |
 | `create_work_tree` | Hierarchy & CRUD | Write | Atomically create root + children + deps + notes |
 | `complete_tree` | Hierarchy & CRUD | Write | Batch-complete descendants in topological order |
-| `manage_notes` | Notes | Write | Upsert or delete Notes on WorkItems |
-| `query_notes` | Notes | Read | Get, list, or FTS5-search notes |
+| `notes_write` | Notes | Write | Upsert or delete notes on work items, in batches, with version guards (4.0 envelope) |
+| `notes_read` | Notes | Read | Get one note or list an item's notes (4.0 envelope) |
+| `query_notes` | Notes | Read | FTS5-search note bodies |
 | `manage_dependencies` | Dependencies | Write | Create or delete dependency edges |
 | `query_dependencies` | Dependencies | Read | Query deps with direction filter, optional BFS traversal, or backlinks lookup |
 | `advance_item` | Workflow | Write | Trigger-based role transitions with cascade and gate enforcement |
@@ -519,7 +520,7 @@ the document stays PENDING.
 
 **Purpose.** Atomically create a root WorkItem, optional child items, optional dependency edges
 between them, and optional blank notes — all in a single call. Eliminates the round-trips required
-when calling `manage_items`, `manage_dependencies`, and `manage_notes` separately.
+when calling `manage_items`, `manage_dependencies`, and `notes_write` separately.
 
 **Attach mode.** Pass `root.id` (UUID or hex prefix of an existing item) instead of `root.title` to
 attach children, deps, and notes directly to an existing item. When `root.id` is provided, `root.title`
@@ -544,7 +545,7 @@ under it at `existing.depth + 1`. Providing both `root.id` and `parentId` is rej
 | `actor` | object | No | Actor claim `{ id, kind: orchestrator\|subagent\|user\|external, parent?, proof? }`. Used for idempotency keying AND propagated as the actor attribution on every persisted note (explicit, `noteAnchors`-sourced, and `createNotes=true` blanks alike). |
 | `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). Requires `actor` to function. |
 
-**Note write policy.** Explicit `notes` and `noteAnchors`-sourced notes follow the same policy as [`manage_notes`](#manage_notes) (see its **Note write policy**). `role` may be given in any letter case (stored lowercase). Unlike `manage_notes`, which reports per-note failures, a policy rejection here fails the WHOLE `create_work_tree` call: an over-cap body (65536 UTF-8 bytes), a schema-role mismatch, or - under `note_limits.mode: reject` - a body over the schema `maxLength` returns `VALIDATION_ERROR` with zero items created and the plan document not adopted. Under `note_limits.mode: warn` the call succeeds and the affected note's entry in the `notes` response array carries a `warning` field naming the limit and actual length; for a duplicate `(itemRef, key)` the warning follows the last-wins note. `createNotes=true` blanks are built from the schema entry with an empty body and do not go through the policy.
+**Note write policy.** Explicit `notes` and `noteAnchors`-sourced notes follow the same policy as [`notes_write`](#notes_write) (see its **Note write policy**). `role` may be given in any letter case (stored lowercase). Unlike `notes_write`, which fails one element at a time, a policy rejection here fails the WHOLE `create_work_tree` call: an over-cap body (65536 UTF-8 bytes), a schema-role mismatch, or - under `note_limits.mode: reject` - a body over the schema `maxLength` returns `VALIDATION_ERROR` with zero items created and the plan document not adopted. Under `note_limits.mode: warn` the call succeeds and the affected note's entry in the `notes` response array carries a `warning` field naming the limit and actual length; for a duplicate `(itemRef, key)` the warning follows the last-wins note. `createNotes=true` blanks are built from the schema entry with an empty body and do not go through the policy.
 
 `root.priority` and each `children[i].priority` must be one of `high`, `medium`, `low` (case-insensitive); a blank or absent value defaults to `medium`, the same rule `manage_items` applies. An unrecognized non-blank value (e.g. `"urgent"`) is rejected with a validation error, not silently coerced to `medium`.
 
@@ -793,156 +794,112 @@ fails the whole `complete_tree` call before any item is touched.
 
 ## Category: Notes
 
-### manage_notes
+### notes_read
 
-**Purpose.** Write operations for Notes: batch-upsert (create-or-update by `(itemId, key)`) or
-delete by IDs, by item, or by item and key.
+**Purpose.** Read the notes on a work item: `get` one note with its body, or `list` an item's notes
+without bodies. The first 4.0 registry tools: a request is the 4.0 envelope request (`select` plus the
+select's fields) and every answer is the response envelope (`ok`, `data` or `error`, `meta.reqId`). The
+same tool is served over MCP and over REST `POST /api/v1/ops/notes_read`; the REST note resource GETs
+are thin translations to it (see `api-rest.md` section 11). `notes_read` replaces `query_notes` `get` and
+`list`. Each field is documented once in the tool's own schema (`describe: true`).
 
-**Operations.** `upsert`, `delete`
+**Selects.** `get`, `list`. Both need the `READ` capability and honor the caller's root and tag scope
+(`forbidden`, fail closed for a missing item under a restricted scope).
 
-#### Key Parameters
+| Select | Fields | Answer (`data`) |
+|---|---|---|
+| `get` | `itemId`, `key`, `ifVersion?` | `{id, key, role, version, body, modifiedAt, actor?, verification?}`; with `ifVersion` equal to the current version, `{unchanged: true, version}` and no body |
+| `list` | `itemId`, `role?`, `keys?`, `limit?` (1-200, default 50), `cursor?` | `{items: [{id, key, role, version, bodyLength, modifiedAt, actor?, verification?}], page: {total, truncated, next?}}` ordered by key then id |
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `operation` | string | Yes | One of: `upsert`, `delete` |
-| `notes` | array | Yes (upsert) | Array of note objects: `{ itemId, key, role, body?, bodyFromFile? }` |
-| `ids` | array | No (delete) | Array of note UUIDs to delete |
-| `itemId` | string (UUID) | No (delete) | Delete all notes for this WorkItem (or specific note with `key`) |
-| `key` | string | No (delete) | With `itemId`: delete the single note matching this key |
-| `actor` | object | No | Top-level actor claim `{ id, kind: orchestrator\|subagent\|user\|external, parent?, proof? }`. Used with `requestId` as the idempotency key (distinct from the per-note `actor` field below). |
-| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). Requires `actor` to function. |
-
-Providing both `ids` and `itemId` in the same delete call is an error — the server returns a validation error. Use one or the other. Deleting a non-existent note by `(itemId, key)` is not an error; it is reflected in the `notFound` count of the response.
-
-**Note object fields (upsert):**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `itemId` | string (UUID) | Yes | The WorkItem this note belongs to |
-| `key` | string | Yes | Logical name for this note (e.g., `requirements`, `done-criteria`) |
-| `role` | string | Yes | Workflow phase: `queue`, `work`, or `review` (any letter case; stored lowercase) |
-| `body` | string | No | Note content (default: `""`). Mutually exclusive with `bodyFromFile` — providing both fails that note. |
-| `bodyFromFile` | string | No | Server-side file path read in place of `body`. Resolved strictly relative to the agent config root (`AGENT_CONFIG_DIR`, falling back to the server's working directory) — absolute paths, `..` escapes, and symlink escapes are rejected. File must exist and be ≤65536 bytes. CRLF line endings are normalized to LF on read. |
-| `actor` | object | No | Optional actor claim — see Actor Attribution section |
-
-**Note write policy.** One service (`NoteCommandService`) applies the same policy to `manage_notes`, `create_work_tree` notes and the REST `PUT /items/{id}/notes/{key}`, in this order: (1) `role` is lowercased (locale-invariant, no trimming) and must be `queue`, `work` or `review`; (2) the raw body is capped at 65536 UTF-8 bytes in every `note_limits` mode (in `manage_notes` this note fails with `{ code: NOTE_BODY_TOO_LARGE, key, maxBytes, actualBytes }`); (3) CRLF is normalized to LF everywhere, inline and file-read alike (a lone CR is kept); (4) when the item's resolved schema declares the note's `key`, the role must equal the schema role, otherwise the note is rejected (off-schema keys and schema-free items are unconstrained); (5) the `maxLength` check below, measured in characters on the normalized body.
-
-**Note body length limits.** When the resolved schema declares `maxLength` for a note's `key`, the resolved body (from `body` or `bodyFromFile`) is checked against it after resolution. The top-level config `note_limits.mode` controls enforcement: `warn` (default) accepts the note and adds a `warning` field to that note's result naming the limit and actual size; `reject` fails that note with a structured error: `{ "code": "NOTE_BODY_TOO_LONG", "key": "...", "maxLength": N, "actualLength": N }` in its `failures` entry. `note_limits` is layered per-root: a per-root `manage_project_config` push that explicitly sets `note_limits.mode` wins for that root's items; a per-root document that omits `note_limits` entirely falls through to the global mode unchanged — see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md).
-
-Each upsert note element may include an optional `actor` object:
-- `id` (required string): Identifier for the actor writing this note
-- `kind` (required string): One of `orchestrator`, `subagent`, `user`, `external`
-- `parent` (optional string): ID of the dispatching agent (forms delegation chain)
-- `proof` (optional string): Opaque credential blob — checked by the configured actor verifier (not verified under `noop`), never returned in MCP responses. Since migration V17, the raw proof is never persisted — only a SHA-256 hash (always, when non-blank) and the verified JWT claims (when VERIFIED) are stored; see [Verification Record](#verification-record).
-
-When provided, the upsert response includes an `actor` object on each successfully upserted note, and the note is persisted with actor claim data that appears in subsequent `query_notes` responses. A `verification` object is also included, *except* when no actor verifier is configured (the default `noop` verifier) — in that case `verification` is omitted entirely, since a no-op result carries no information beyond "no verifier is configured." See [Verification Record](#verification-record).
-
-The `(itemId, key)` pair is unique — upserting with an existing pair updates the note in place
-(preserving its UUID).
-
-**Examples.**
+- `itemId` is a full UUID or 8 to 32 hex characters of one (`ambiguous_id` when a prefix matches more
+  than one item). A missing note is `not_found` with id `<itemUuid>/<key>`.
+- `list` entries carry an 8-hex-character short `id` and never a body; read a body with `get`. An empty
+  `keys` list matches nothing.
+- Paging follows the envelope's list rules (amendment U22): `page.total` is the full count on every
+  page, `truncated` is true exactly when notes exist after this page, and `next` (an opaque cursor) is
+  present exactly when `truncated`, so following `next` until it is absent always terminates.
+- `actor` (`{id, kind, parent?}`) and `verification` (`{status, verifier?, reason?}`) appear only when
+  the caller may see attribution: an MCP caller always, a REST token when it is `ADMIN` or
+  `API_REDACT_NOTE_ATTRIBUTION=false`. Proof evidence (the proof hash and verified claims) is never
+  returned.
 
 ```json
-// Fill required notes before starting an item
+{ "select": "get", "itemId": "550e8400", "key": "feature-summary" }
+{ "select": "list", "itemId": "550e8400-e29b-41d4-a716-446655440001", "role": "queue", "limit": 20 }
+```
+
+### notes_write
+
+**Purpose.** Create, replace or delete notes on work items, in batches. Replaces `manage_notes`. A
+request is `{ops: [...], atomic?}`; each `ops[i]` names its `op` and may carry an `idempotencyKey`.
+Every element commits on its own unless `atomic` is true; the answer is a batch result (`results[i]`
+with `ok`, and `207 partial_failure` over REST when some elements failed). Both ops need the
+`WRITE_NOTES` capability and honor the caller's scope.
+
+| Op | Fields | Result (`results[i]`) |
+|---|---|---|
+| `upsert` | `itemId`, `key`, `role`, exactly one of `body` / `bodyFromFile`, `expectedVersion?` | `{id, version, created?, warning?}` |
+| `delete` | `itemId`, `key`, `expectedVersion?` | `{id}` |
+
+- **Note version (V28).** Every note has a `version` that starts at 1 and goes up by one on every
+  successful upsert of an existing note. It is a concurrency token and cache key, not a history.
+  `expectedVersion` omitted writes unconditionally; `0` requires that the note does not exist; `n`
+  requires that its current version is `n`. Anything else is `version_conflict` and nothing is written.
+  A missing note on `delete` is `not_found`.
+- **`bodyFromFile` (`BodySource`).** One `BodySource`, built once from the agent config root
+  (`AGENT_CONFIG_DIR`, else the server's working directory), reads the file for `notes_write` and
+  `manage_plan_documents`: a relative path strictly inside the root (no absolute path, no `..`, no
+  symlink out of it), a regular UTF-8 file of at most 65536 bytes, CRLF normalized to LF. Failures use
+  fixed reasons that never echo filesystem text. An idempotency replay does not re-read the file. Giving
+  both or neither of `body` and `bodyFromFile` is `invalid_request`.
+- **Note write policy.** One service (`NoteCommandService`) applies the same policy to `notes_write`
+  and `create_work_tree` notes, in this order: (1) `role` is lowercased and must be `queue`, `work` or
+  `review`; (2) the body is capped at 65536 UTF-8 bytes in every `note_limits` mode
+  (`payload_too_large`); (3) CRLF becomes LF (a lone CR is kept); (4) when the item's resolved schema
+  declares the key, the role must equal the schema role (`schema_violation`); (5) the schema
+  `maxLength` check in characters: under `note_limits.mode: warn` (default) the note is stored and the
+  result carries `warning: {key, max, actual}`, under `reject` the element fails with `note_too_long`.
+  `note_limits` is layered per root (see
+  [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md)).
+  A per-root config that cannot be read answers `unavailable` (`retryAfterMs`).
+- **Attribution.** Over MCP the body `actor` is lifted as before and recorded with the note
+  (verification included); over REST `/ops` the principal is the bearer token's and a body `actor` is
+  ignored.
+
+```json
 {
-  "operation": "upsert",
-  "notes": [
-    {
-      "itemId": "550e8400-e29b-41d4-a716-446655440001",
-      "key": "feature-summary",
-      "role": "queue",
-      "body": "The handler must validate JWT signatures and return 401 on failure."
-    }
+  "ops": [
+    { "op": "upsert", "itemId": "550e8400", "key": "feature-summary", "role": "queue",
+      "body": "The handler must validate JWT signatures.", "expectedVersion": 0, "idempotencyKey": "k-1" },
+    { "op": "upsert", "itemId": "550e8400", "key": "implementation-notes", "role": "work",
+      "bodyFromFile": "logs/test-run.txt" },
+    { "op": "delete", "itemId": "550e8400", "key": "scratch", "expectedVersion": 3 }
   ]
 }
-
-// Fill a note from a file — verbatim artifacts (logs, diffs, test output) bypass inline paste
-{
-  "operation": "upsert",
-  "notes": [
-    { "itemId": "550e8400-e29b-41d4-a716-446655440001", "key": "implementation-notes", "role": "work", "bodyFromFile": "logs/test-run.txt" }
-  ]
-}
-
-// Delete all notes for an item
-{ "operation": "delete", "itemId": "550e8400-e29b-41d4-a716-446655440001" }
 ```
 
-**Response (upsert).**
-
-```json
-{
-  "notes": [
-    { "id": "uuid", "itemId": "uuid", "key": "feature-summary", "role": "queue" }
-  ],
-  "upserted": 1,
-  "failed": 0,
-  "itemContext": {
-    "<itemId>": {
-      "guidancePointer": "Guidance text for the next unfilled required note, or null",
-      "noteProgress": { "filled": 1, "remaining": 0, "total": 1 }
-    }
-  }
-}
-```
-
-Each note is validated independently under the **Note write policy** above, and a rejection is a per-note entry in `failures`; the rest of the batch proceeds. An over-cap body (65536 UTF-8 bytes) fails that note with `{ "code": "NOTE_BODY_TOO_LARGE", "key": "...", "maxBytes": 65536, "actualBytes": N }`; a role that is not `queue`/`work`/`review` (any letter case is accepted and stored lowercase) or a schema-role mismatch likewise fails only that note. A note whose body exceeded a schema `maxLength` under `note_limits.mode: warn` carries a `warning` field in its result (naming the limit and actual length); under `mode: reject` it instead appears in `failures` with `code: "NOTE_BODY_TOO_LONG"`, `key`, `maxLength`, and `actualLength`.
-
-A note whose schema or note-limits-mode could not be resolved because its item's per-root config was unavailable (see [Error Envelope](#error-envelope)) instead appears in `failures` as `{index, error, errorKind: "transient", errorCode: "config_unavailable"}`; nothing is stored for it and the rest of the batch proceeds.
-
-Note that `itemContext[itemId].guidancePointer` here carries the **full** guidance text (unlike `get_context`/`advance_item`, which return only a `guidanceKey` reference) — this is one of the two places full guidance text is returned directly, the other being the gate-failure `missingNotes` payload (see `advance_item`).
-
-The `itemContext` map is keyed by each `itemId` that had at least one successful upsert. For each item:
-- `guidancePointer` — the `guidance` text from the first unfilled required note in the item's current phase, or `null` if all required notes are filled (or no schema matches).
-- `skillPointer` — the skill name declared for the first unfilled required note; present only when that note's schema entry declares a `skill`, omitted otherwise.
-- `noteProgress` — `{ filled, remaining, total }` counts of required notes for the current phase, or `null` if the item has no matching schema or is in terminal state.
-
-This eliminates the need to call `get_context` after each `manage_notes` upsert to check remaining work.
-
-**Response (delete).**
-
-```json
-{ "deleted": 1, "notFound": 0, "failed": 0 }
-```
-
-- `deleted` — number of notes successfully deleted
-- `notFound` — number of `(itemId, key)` lookups where the key did not exist (not treated as an error)
-- `failed` — number of delete attempts that produced an error (with a `failures` array when non-zero)
+`manage_notes` is removed (its delete by note ids and delete of every note of an item have no
+replacement, and its `itemContext` guidance block is gone: read the next required note with
+`get_context`).
 
 ---
 
 ### query_notes
 
-**Purpose.** Read-only queries for Notes: fetch a single note by UUID, list all notes for a
-WorkItem, or FTS5 full-text search across note bodies.
+**Purpose.** Read-only FTS5 full-text search across note bodies. Its `get` and `list` operations are
+removed: read a note by key or list an item's notes with [`notes_read`](#notes_read). This 3.x tool
+goes away when search moves to the 4.0 item read tool.
 
-**Operations.** `get`, `list`, `search`
+**Operations.** `search`
 
-#### Key Parameters — get
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `operation` | string | Yes | `"get"` |
-| `noteId` | string (UUID) | Yes | Note UUID |
-
-#### Key Parameters — list
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `operation` | string | Yes | `"list"` |
-| `itemId` | string (UUID or 4+ char prefix) | Yes | WorkItem whose notes to list |
-| `role` | string | No | Filter by phase: `queue`, `work`, or `review` |
-| `keys` | array of strings | No | Filter results to notes with these keys |
-| `includeBody` | boolean | No | Include note body in response (default: **false**); when false, each note includes `bodyLength` instead |
-
-#### Key Parameters — search (FTS5)
+#### Key Parameters - search (FTS5)
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `operation` | string | Yes | `"search"` |
-| `query` | string | Yes | FTS5 search terms — multiple words produce implicit AND. Pass plain terms; special characters are auto-escaped. Control characters (other than ASCII whitespace) are rejected with `VALIDATION_ERROR`. |
-| `scope` | object | No | `itemId` (UUID — single item's notes), `ancestorId` (UUID — subtree of items). `role` and `tags` are not supported: a non-null value is rejected with `VALIDATION_ERROR` (an explicit `null` counts as absent). To filter by note role use `list` instead. |
-| `matchMode` | string | No | `"auto"` (default), `"substring"`, `"text"` — same semantics as `query_items.search` |
+| `query` | string | Yes | FTS5 search terms - multiple words produce implicit AND. Pass plain terms; special characters are auto-escaped. Control characters (other than ASCII whitespace) are rejected with `VALIDATION_ERROR`. |
+| `scope` | object | No | `itemId` (UUID - single item's notes), `ancestorId` (UUID - subtree of items). `role` and `tags` are not supported: a non-null value is rejected with `VALIDATION_ERROR` (an explicit `null` counts as absent). To filter by note role use `notes_read` `list` instead. |
+| `matchMode` | string | No | `"auto"` (default), `"substring"`, `"text"` - same semantics as `query_items.search` |
 | `snippet` | boolean | No | Include ~32-token snippet with highlights (default: true). Markdown preserved. |
 | `explain` | boolean | No | Include raw FTS5 ranks per hit (default: false) |
 | `limit` | integer | No | Max hits (default: 20, max: 100; a larger value is rejected with `VALIDATION_ERROR`, not capped) |
@@ -951,38 +908,12 @@ WorkItem, or FTS5 full-text search across note bodies.
 **Examples.**
 
 ```json
-// List queue-phase notes for an item (bodies omitted — the default)
-{ "operation": "list", "itemId": "550e8400-e29b-41d4-a716-446655440001", "role": "queue" }
-
-// List specific notes by key, with full bodies
-{ "operation": "list", "itemId": "550e8400-e29b-41d4-a716-446655440001", "keys": ["feature-summary"], "includeBody": true }
-
 // FTS5 search across all note bodies for "authentication"
 { "operation": "search", "query": "authentication token", "limit": 10 }
 
 // FTS5 search scoped to a feature's subtree
 { "operation": "search", "query": "migration strategy", "scope": { "ancestorId": "550e8400-e29b-41d4-a716-446655440000" } }
 ```
-
-**Response (list).**
-
-```json
-{
-  "notes": [
-    {
-      "id": "uuid",
-      "key": "feature-summary",
-      "role": "queue",
-      "bodyLength": 42,
-      "createdAt": "2025-01-01T00:00:00Z",
-      "modifiedAt": "2025-01-01T00:00:00Z"
-    }
-  ],
-  "total": 1
-}
-```
-
-Note objects omit the `itemId` echo in `list` results (you already supplied it). Each note carries `bodyLength` in place of `body` unless `includeBody: true` is passed, in which case `body` replaces `bodyLength`.
 
 **Response (search — FTS5 mode).**
 
@@ -1407,7 +1338,7 @@ commits.
 
 **Every failure carries `errorCode` + `errorKind`.** Every `applied: false` result — not only ownership/policy/resource-lease rejections — includes these two fields, so a caller (or a hook such as `subagent-start.mjs`) can branch on the code without inferring meaning from field absence. Per-transition codes: `gate_blocked` (permanent), `dependency_blocked` (permanent, `blockers` present), `validation_failed` (permanent, e.g. a `credentialRefs` rule with no `blockers`), `invalid_transition` (permanent — no transition exists for the trigger from the item's current role), `apply_failed` (transient — the transition was valid but the write failed), `item_not_found` (permanent — the item id did not resolve, or a resolved id's row does not exist), `invalid_trigger` (permanent — unrecognized trigger string), `invalid_actor` (permanent — the `actor` object failed to parse). `not_claim_holder`, `rejected_by_policy`, and `resource_unavailable` are documented separately below.
 
-**Gate-blocked failure.** When the gate itself rejects the transition (missing required notes), the result includes a `missingNotes` array instead of `blockers`, plus `previousRole` and `targetRole` naming the blocked transition (the phase the item was in when the gate fired, and the phase it would have moved to). Each `missingNotes` entry carries the **full** guidance text — this and `manage_notes(upsert)`'s `itemContext.guidancePointer` are the only two places full guidance text is returned directly (everywhere else you get a `guidanceKey`/`skillPointer` reference and resolve via `query_items(operation="schema")`):
+**Gate-blocked failure.** When the gate itself rejects the transition (missing required notes), the result includes a `missingNotes` array instead of `blockers`, plus `previousRole` and `targetRole` naming the blocked transition (the phase the item was in when the gate fired, and the phase it would have moved to). Each `missingNotes` entry carries the **full** guidance text — this is the only place full guidance text is returned directly (everywhere else you get a `guidanceKey`/`skillPointer` reference and resolve via `query_items(operation="schema")`):
 
 ```json
 {
@@ -1680,7 +1611,7 @@ When `mode` is omitted, the mode is inferred from which parameters are present (
 
 `dispatch` (object, optional): `{agent?, model?, effort?}` routing profile for the item's **current** role, resolved from the `dispatch` trait dimension — same resolution as `advance_item`'s `dispatch` field (per-item `traits` first, then `default_traits`; see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension) → "Dispatch (Trait Dimension)"). Omitted entirely (never `null`/`{}`) when no resolved trait declares a profile for the current role.
 
-`get_context` does not return `noteProgress` — `gateStatus` (`canAdvance`, `phase`, `missing[]`) is the canonical gate signal for the current phase. Required/remaining/total counts are still available via `advance_item` responses and `manage_notes(upsert)`'s `itemContext`.
+`get_context` does not return `noteProgress` — `gateStatus` (`canAdvance`, `phase`, `missing[]`) is the canonical gate signal for the current phase. Required/remaining/total counts are still available via `advance_item` responses (the 3.x `manage_notes` `itemContext` block is gone with that tool).
 
 `gateStatus.canAdvance` is the policy evaluation `advance_item(trigger="start")` would run on the item right now, claim ownership excluded: it is `false` when the transition table rejects `start` (a `terminal` or `blocked` item), a blocking dependency is unmet, a required note for the current phase is unfilled (or a `reject`-mode independence violation blocks), or an exclusive resource the item declares is held by another item. `gateStatus.blockedBy` (string, optional) names that gate — `"table"`, `"dependency"`, `"note"` or `"lease"` — and is present only when `canAdvance` is `false` and the item is not terminal. The preview reads the item's config, notes and blockers in one read unit, so a store or per-root config read fault there fails the `get_context` call (transient `config_unavailable` for a config fault) rather than rendering an empty `missing` list.
 
@@ -2223,7 +2154,7 @@ without evicting it, and logs a WARN naming the root and the error. Last-known-g
 next successful read refreshes it via the normal fingerprint-comparison hot-reload path, and it is
 shared by MCP and REST (one `EffectiveConfigResolver`, built once in `ServerComposition`). A read made
 inside a unit of work (a write's or a preview's read unit) never serves last-known-good — a fault there fails closed as below even
-with a warm cache; `manage_notes` upsert and REST note `PUT` read
+with a warm cache; `notes_write` upsert reads
 the config this way (`create_work_tree` reads it before its write, so the fallback still applies there). When there is no cached entry to serve — a cold
 cache, e.g. the first read for the root — the read fails closed with a transient
 `config_unavailable` error (see [Error Envelope](#error-envelope)) rather than silently resolving
@@ -2408,7 +2339,7 @@ pre-V11 row with no history). Callers deciding whether to push should treat `sup
 
 **Response (no config pushed for this root).** `error.code` is `RESOURCE_NOT_FOUND`.
 
-**Note on actor attribution.** Unlike `manage_notes`/`manage_items`, this tool does not accept an
+**Note on actor attribution.** Unlike `notes_write`/`manage_items`, this tool does not accept an
 `actor` parameter — its writes aren't part of the per-note/per-item attribution model (a config
 document has no "author" note field to stamp), so mirroring the actor-claim/verification machinery
 would add complexity with no corresponding read surface to expose it through.
@@ -2454,7 +2385,7 @@ Validates, in order:
 
 `body` (inline text) and `bodyFromFile` (server-side path) are mutually exclusive — providing both,
 or neither, fails validation. `bodyFromFile` resolves strictly relative to the agent config root
-(`AGENT_CONFIG_DIR`, same containment rules as `manage_notes`' `bodyFromFile`: rejects absolute
+(`AGENT_CONFIG_DIR`, the same `BodySource` as `notes_write`' `bodyFromFile`: rejects absolute
 paths, `..`, and symlink escapes; file must exist, ≤65536 bytes; CRLF is normalized to LF) —
 so a document stashed via REST PUT and via `bodyFromFile` land byte-identical content when the
 underlying text matches.
@@ -2702,11 +2633,11 @@ not accept an `actor` parameter -- it is read-only, with no write to attribute.
 
 ## Idempotency
 
-The mutating tools `manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, `complete_tree`, and `claim_item` support `requestId: UUID` for idempotency.
+The mutating tools `manage_items`, `manage_dependencies`, `advance_item`, `create_work_tree`, `complete_tree`, and `claim_item` support `requestId: UUID` for idempotency. The 4.0 tools (`notes_write`) use a per-element `ops[].idempotencyKey` instead; see [notes_write](#notes_write).
 
 **`claim_item` requires `requestId` (mandatory).** `claim_item` is a fleet-mode tool by definition — single-orchestrator deployments don't claim items. Fleet deployments using `claim_item` are by definition in a multi-agent context where network retries are a real concern, so `claim_item` enforces idempotency as a contract. Calls missing `requestId` are rejected at validation. For `claim_item`, the principal is the trusted agent identity (post-`DegradedModePolicy` resolution), matching the actor used by the claim itself.
 
-**The rest keep `requestId` optional.** `manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, and `complete_tree` serve both orchestrator-mode (single dispatcher, no idempotency needed) and fleet-mode (idempotency desired) callers. Omitting `requestId` (or the `actor` that identifies the principal) skips idempotency entirely — execution is exactly as before. When present, `requestId` must be a valid UUID — a malformed value is rejected at validation (see Constraints below), not silently ignored.
+**The rest keep `requestId` optional.** `manage_items`, `manage_dependencies`, `advance_item`, `create_work_tree`, and `complete_tree` serve both orchestrator-mode (single dispatcher, no idempotency needed) and fleet-mode (idempotency desired) callers. Omitting `requestId` (or the `actor` that identifies the principal) skips idempotency entirely — execution is exactly as before. When present, `requestId` must be a valid UUID — a malformed value is rejected at validation (see Constraints below), not silently ignored.
 
 **How it works.** With a `requestId` and a trusted `actor`, the server keys every **element** of the call — each `items[i]`, `notes[i]`, `transitions[i]`, `claims[i]` and `releases[i]`, or the whole call for an atomic tool — as `"<requestId>:<index>"` under the tool and operation (`mcp.<tool>[.<operation>]`; `claim_item` uses `mcp.claim_item.claim` and `mcp.claim_item.release`, each array numbered from 0). The element runs in one transaction together with its record, so a record exists only if the element's effects committed. A record lives for 24 hours, is stored in the database (it survives restarts and is shared by every server process on it), and is scoped to the trusted principal id: the actor id after the server's actor policy is applied, which is the self-reported id when the actor is unverified, and always under `degraded_mode_policy: accept-self-reported` (see below).
 
@@ -2718,8 +2649,8 @@ The mutating tools `manage_items`, `manage_notes`, `manage_dependencies`, `advan
 
 **Constraints:**
 - For `advance_item`, the `actor.id` of the **first** transition in the batch is the principal.
-- For `manage_items`, `manage_notes`, `manage_dependencies`, `create_work_tree`, and `complete_tree`, the top-level `actor.id` is the principal. (Implementation note: these tools extract actor from the request-level field, not per-item fields.)
-- `manage_dependencies` create, `create_work_tree`, `complete_tree` and a `manage_notes` delete by `itemId` are atomic or single calls: element `0` is the whole call. `complete_tree` opens a unit per item, so concurrent callers with the same key may both run; the call converges because already-terminal items are skipped.
+- For `manage_items`, `manage_dependencies`, `create_work_tree`, and `complete_tree`, the top-level `actor.id` is the principal. (Implementation note: these tools extract actor from the request-level field, not per-item fields.)
+- `manage_dependencies` create, `create_work_tree`, and `complete_tree` are atomic or single calls: element `0` is the whole call. `complete_tree` opens a unit per item, so concurrent callers with the same key may both run; the call converges because already-terminal items are skipped.
 - A non-UUID `requestId` string is rejected at validation on every one of these tools. There is no silent-ignore path.
 
 **Usage.** Generate a fresh UUID per logical operation:
@@ -2783,7 +2714,7 @@ or `contendedItemId` where they apply:
 ```
 
 **Per-element failure entries.** A failed element of a batch call (`manage_items` create, update and
-delete; `manage_notes` upsert and delete; `manage_dependencies` create; every `complete_tree` item that was
+delete; `manage_dependencies` create; every `complete_tree` item that was
 not applied, including a skipped dependent and an already-terminal item) carries `errorCode` and
 `errorKind` next to `error`. `errorCode` is the error catalog's wire code (`invalid_request`,
 `not_found`, `ambiguous_id`, `version_conflict`, `duplicate`, `cycle_detected`, `idempotency_mismatch`,
@@ -2845,13 +2776,13 @@ cache this falls back to. A read made inside a unit of work (an advance, and the
 has no fallback, so there it fails even when the cache is warm. `retryAfterMs` is null, per the
 `transient` kind's own-backoff rule.
 `advance_item` reports this per transition (the rest of a batch continues) and `complete_tree`
-reports it per item (`skipped: true`, outcome `REJECTED`, in-set dependents skipped); `manage_notes`
-reports it per note — a note whose schema/note-limits-mode resolution hits this error appears in
-`failures` as `{index, error, errorKind: "transient", errorCode: "config_unavailable"}` with nothing
-stored for that note, while the rest of the batch's notes are upserted normally; every other tool
+reports it per item (`skipped: true`, outcome `REJECTED`, in-set dependents skipped); `notes_write`
+reports it per element - an element whose schema/note-limits-mode resolution hits this error fails
+alone with the envelope code `unavailable` (`retryAfterMs`) and nothing stored for it, while the other
+elements of a non-atomic batch commit normally; every other tool
 fails the whole call with this envelope. A read failure resolving a RESPONSE-ONLY decoration
 (e.g. `advance_item`'s `dispatch`, `create_item`/`create_work_tree`'s `schemaMatch`/`expectedNotes`,
-`availableTraits`, or `manage_notes`'s `itemContext` entry) on an already-committed write is never
+or `availableTraits`) on an already-committed write is never
 reported as a failure of that write — the decoration is simply omitted and a WARN is logged instead.
 
 **`VALIDATION_ERROR` (permanent, adapter-level).** Any `ToolValidationException` thrown by a tool's
@@ -2878,7 +2809,7 @@ See [Idempotency](#idempotency): a retried transient failure re-executes under t
 
 ### Overview
 
-Actor attribution tracks *who* made changes to work items. Every `advance_item` transition and `manage_notes` upsert can include an optional `actor` claim. By default the server uses a no-op verifier, so claims are persisted as `unchecked`; configuring `actor_authentication.verifier: {type: jwks}` switches to cryptographic verification of the claim's proof. See [fleet-deployment.md](./fleet-deployment.md) → Actor authentication.
+Actor attribution tracks *who* made changes to work items. Every `advance_item` transition and `notes_write` upsert can include an optional `actor` claim. By default the server uses a no-op verifier, so claims are persisted as `unchecked`; configuring `actor_authentication.verifier: {type: jwks}` switches to cryptographic verification of the claim's proof. See [fleet-deployment.md](./fleet-deployment.md) → Actor authentication.
 
 ### Actor Claim Shape
 
@@ -2893,8 +2824,8 @@ Actor attribution tracks *who* made changes to work items. Every `advance_item` 
 
 Every persisted actor claim includes a verification record.
 
-**Output omission.** MCP tool responses (`manage_notes` upsert, `advance_item` transitions,
-`query_notes` get/list, `get_context` recent transitions) omit the `verification` object
+**Output omission.** MCP tool responses (`advance_item` transitions,
+`get_context` recent transitions) omit the `verification` object
 whenever `verifier == "noop"` — the default when no `actor_authentication.verifier` is
 configured. A no-op result carries no information beyond "no verifier is configured," which is
 a deployment-wide fact repeated on every attributed note and transition, so it is dropped from
@@ -2955,7 +2886,7 @@ actor_authentication:
   enabled: true   # read by the plugin hook, not the server
 ```
 
-When enabled, the plugin's `PreToolUse` hook blocks any `advance_item` or `manage_notes(upsert)` call where one or more elements are missing an `actor` object. The call never reaches the server — the agent must retry with actor claims included.
+When enabled, the plugin's `PreToolUse` hook blocks any `advance_item` or `notes_write` call where one or more elements are missing an `actor` object. The call never reaches the server — the agent must retry with actor claims included.
 
 When `enabled` is `false` or the `actor_authentication` section is absent, calls pass through with no enforcement. Actor claims can still be provided voluntarily.
 
@@ -2972,7 +2903,7 @@ Actor claims are self-reported by convention — the server does not inject them
 For reliable attribution, combine actor authentication enforcement with explicit delegation instructions:
 
 ```
-Include an "actor" object on every advance_item and manage_notes call:
+Include an "actor" object on every advance_item and notes_write call:
 { "id": "your-agent-name", "kind": "subagent", "parent": "orchestrator-id" }
 ```
 

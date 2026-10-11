@@ -2376,8 +2376,9 @@ paths:
         `{id (8 hex characters), key, role, version, bodyLength, modifiedAt, actor?, verification?}` ordered by key
         and never carry a body (read one with the single-note route). `actor` and `verification` are present only when
         the caller may see attribution (an admin, or `API_REDACT_NOTE_ATTRIBUTION=false`); proof evidence is never
-        shown. `data.page` is `{total, truncated, next?}` with an opaque cursor; a page's `total` counts from its own
-        offset on. A query parameter other than the four below is `invalid_request` (400).
+        shown. `data.page` is `{total, truncated, next?}` with an opaque cursor (envelope amendment U22): `total` is the
+        full count on every page, `truncated` is true exactly when notes exist after this page, and `next` is present
+        exactly when `truncated`. A query parameter other than the four below is `invalid_request` (400).
       parameters:
         - $ref: "#/components/parameters/itemId"
         - name: role
