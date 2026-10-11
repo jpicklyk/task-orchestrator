@@ -238,6 +238,7 @@ class LinkService(
         }
 
         val documents = resolveDocuments(rootId, targets.filterIsInstance<DocumentTarget>())
+        val items = resolveItems(rootId, targets.filterIsInstance<ItemTarget>())
         val desired = LinkedHashMap<String, Desired>()
         for (target in targets) {
             val to: EntityRef? =
@@ -247,7 +248,7 @@ class LinkService(
                         if (hit != null && hit.id == selfDocumentId) continue
                         hit?.let { EntityRef(RefKind.DOCUMENT, it.id) }
                     }
-                    is ItemTarget -> resolveItem(target, rootId)?.let { EntityRef(RefKind.ITEM, it) } ?: continue
+                    is ItemTarget -> items[target]?.let { EntityRef(RefKind.ITEM, it) } ?: continue
                 }
             val key = keyOf(to, target.toRef)
             desired.putIfAbsent(key, Desired(key, to, target.toRef, target.anchor))
@@ -296,20 +297,43 @@ class LinkService(
         }
     }
 
-    /** The id of the item [target] names when it exists, is unambiguous and lies under [rootId], else null. */
-    private suspend fun resolveItem(
-        target: ItemTarget,
+    /**
+     * The id of the item each of [targets] names when it exists, is unambiguous and lies under [rootId], else null.
+     * Full UUIDs are read in ONE batched id-set query and the roots of every candidate lacking a stored `rootId` in ONE
+     * ancestor-chain query; a short-id prefix needs its own prefix lookup (bounded by the target cap).
+     */
+    private suspend fun resolveItems(
         rootId: UUID,
-    ): UUID? {
-        val ref = IdRef.parse(target.id) ?: return null
-        val items = repositoryProvider.itemStore()
-        val item =
-            if (ref.raw.length == UUID_TEXT_LENGTH) {
-                items.getById(UUID.fromString(ref.raw))
-            } else {
-                items.findByIdPrefix(ref.raw, 2).singleOrNull()
-            } ?: return null
-        return if (eventRootOf(item, repositoryProvider.hierarchyStore()) == rootId) item.id else null
+        targets: List<ItemTarget>,
+    ): Map<ItemTarget, UUID?> {
+        if (targets.isEmpty()) return emptyMap()
+        val itemStore = repositoryProvider.itemStore()
+        val refs = targets.associateWith { IdRef.parse(it.id)?.raw }
+        val fullIds =
+            refs.values
+                .filterNotNull()
+                .filter { it.length == UUID_TEXT_LENGTH }
+                .map { UUID.fromString(it) }
+                .toSet()
+        val byId = if (fullIds.isEmpty()) emptyMap() else itemStore.findByIdSet(fullIds).associateBy { it.id }
+        val candidates =
+            refs.mapValues { (_, raw) ->
+                when {
+                    raw == null -> null
+                    raw.length == UUID_TEXT_LENGTH -> byId[UUID.fromString(raw)]
+                    else -> itemStore.findByIdPrefix(raw, 2).singleOrNull()
+                }
+            }
+        val unrooted =
+            candidates.values
+                .filterNotNull()
+                .filter { it.rootId == null }
+                .map { it.id }
+                .toSet()
+        val chains = if (unrooted.isEmpty()) emptyMap() else repositoryProvider.hierarchyStore().findAncestorChains(unrooted)
+        return candidates.mapValues { (_, item) ->
+            item?.takeIf { (it.rootId ?: chains[it.id]?.firstOrNull()?.id ?: it.id) == rootId }?.id
+        }
     }
 
     private fun notFound(

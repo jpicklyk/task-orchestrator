@@ -29,9 +29,6 @@ interface LinkStore {
         relation: LinkRelation
     ): List<Link>
 
-    /** Deletes every link with [ref] at either end. Returns the number of deleted links. */
-    suspend fun deleteTouching(ref: EntityRef): Int
-
     /**
      * Deletes the links whose source is [ref]: every relation when [relation] is null, else only that relation.
      * Returns the number deleted.

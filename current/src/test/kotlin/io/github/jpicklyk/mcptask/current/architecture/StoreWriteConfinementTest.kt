@@ -22,7 +22,7 @@ import kotlin.test.assertTrue
  *  - ConfigStore: append, fillCanonical
  *  - PlanDocumentStore: stash, markAdopted
  *  - DocumentStore: insert, updateCurrent, appendVersion, setArchived, delete
- *  - LinkStore: insert, deleteTouching, deleteFrom, deleteByIds, resolve, unresolveTo
+ *  - LinkStore: insert, deleteFrom, deleteByIds, resolve, unresolveTo
  * on a receiver that is one of those stores. A receiver is recognised two ways: an accessor chain
  * (`provider.workItemRepository().create(...)`, however the chain is wrapped across lines) or a name declared with a store
  * type (`repo: WorkItemRepository`, `val notes = provider.noteRepository()`). The scan is zero-tolerance (no baseline).
@@ -46,7 +46,7 @@ class StoreWriteConfinementTest {
         CONFIG(setOf("append", "fillCanonical")),
         PLAN(setOf("stash", "markAdopted")),
         DOCUMENT(setOf("insert", "updateCurrent", "appendVersion", "setArchived", "delete")),
-        LINK(setOf("insert", "deleteTouching", "deleteFrom", "deleteByIds", "resolve", "unresolveTo"))
+        LINK(setOf("insert", "deleteFrom", "deleteByIds", "resolve", "unresolveTo"))
     }
 
     companion object {
@@ -195,9 +195,9 @@ class StoreWriteConfinementTest {
             "provider.documentStore().setArchived(id, now)",
             "provider.documentStore().delete(id)",
             "provider.linkStore().insert(link)",
-            "provider.linkStore().deleteTouching(ref)",
+            "provider.linkStore().unresolveTo(ref)",
             "class C(private val docs: DocumentStore) { fun f() { docs.updateCurrent(id, 1, b, h, null, t) } }",
-            "fun f(links: LinkStore) { links.deleteTouching(ref) }",
+            "fun f(links: LinkStore) { links.deleteFrom(ref, null) }",
             "val docs = ctx.repositoryProvider.documentStore()\ndocs.appendVersion(v)"
         ).forEach { assertEquals(1, violations(it), "not flagged: $it") }
     }

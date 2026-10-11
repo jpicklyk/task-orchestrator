@@ -16,7 +16,6 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
-import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
@@ -94,15 +93,6 @@ class SqliteLinkStore(
                 }.sortedBy { it.createdAt }
         }
     }
-
-    override suspend fun deleteTouching(ref: EntityRef): Int =
-        databaseManager.writeTx("LinkStore.deleteTouching") {
-            val kind = ref.kind.toDbValue()
-            LinksTable.deleteWhere {
-                ((LinksTable.fromKind eq kind) and (LinksTable.fromId eq ref.id)) or
-                    ((LinksTable.toKind eq kind) and (LinksTable.toId eq ref.id))
-            }
-        }
 
     override suspend fun deleteFrom(
         ref: EntityRef,
