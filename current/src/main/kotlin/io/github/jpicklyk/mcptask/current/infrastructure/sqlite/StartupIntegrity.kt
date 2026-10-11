@@ -20,7 +20,8 @@ class StartupIntegrityException(
  *   external-content index); on failure `rebuild` then re-check; a second failure is a hard
  *   failure. SQLITE_BUSY means WARN and skip. Skipped (one WARN) under [FtsIntegrityMode.OFF]
  *   (`FTS_INTEGRITY=off`), whose cost grows with the indexed bytes; [verifyInventory] always runs.
- * - [reportPlacementDrift] / [reportMutualBlocks] / [reportDanglingLinks] / [reportUntypedItems] / [reportTraitsResidue]: WARN-only
+ * - [reportPlacementDrift] / [reportMutualBlocks] / [reportDanglingLinks] / [reportUntypedItems] / [reportUnpinnedItems] /
+ *   [reportTraitsResidue]: WARN-only
  *   reports; never fail, never write.
  */
 object StartupIntegrity {
@@ -72,6 +73,7 @@ object StartupIntegrity {
         reportMutualBlocks(connection)
         reportDanglingLinks(connection)
         reportUntypedItems(connection)
+        reportUnpinnedItems(connection)
         reportTraitsResidue(connection)
     }
 
@@ -204,6 +206,19 @@ object StartupIntegrity {
             connection,
             "work items with no type (expected on the first 4.0 start of a 3.x database: the type-backfill data step types them next)",
             "SELECT lower(hex(id)) AS ident FROM work_items WHERE type IS NULL OR trim(type) = ''"
+        )
+    }
+
+    /**
+     * WARN-only: items with no config pin (`pinned_at IS NULL`). Runs before the data steps, so on the first 4.0 boot
+     * these rows are expected and the `pin-backfill` data step pins them right after; on any later boot they are residue
+     * (they resolve at the config heads until a pin point fires).
+     */
+    fun reportUnpinnedItems(connection: Connection) {
+        report(
+            connection,
+            "work items with no config pin (expected on the first 4.0 start: the pin-backfill data step pins them next)",
+            "SELECT lower(hex(id)) AS ident FROM work_items WHERE pinned_at IS NULL"
         )
     }
 

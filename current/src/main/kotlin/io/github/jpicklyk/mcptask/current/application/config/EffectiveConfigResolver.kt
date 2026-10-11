@@ -25,20 +25,53 @@ import kotlin.coroutines.coroutineContext
  * at the point it needs it; a method whose trait list is empty returns before any per-root read
  * where documented.
  *
- * `PerRootConfigUnavailableException` from [perRoot] propagates unchanged from every method: a
- * per-root config read failure is never treated as "no per-root config, use the global layer".
+ * ## Pins (plan section 3.8)
+ *
+ * The item-facet methods (schema, review phase, resources, dispatch by role and by seat) resolve an item through
+ * [forItem]: a pinned item against the config VERSIONS and base schema it is pinned to, an unpinned item at the heads.
+ * The root-wide methods (labels, note limits, independence, registry, type and trait lists, every `*ForType`) always
+ * read the heads. Pins need a [ConfigVersionSource]: a resolver without one ([pinsEnabled] false) resolves every item
+ * at the heads and its callers write no pins.
+ *
+ * `PerRootConfigUnavailableException` from [perRoot] (and from a pinned version read) propagates unchanged from every
+ * method: a config read failure is never treated as "no per-root config, use the global layer".
  * Callers at an operation boundary catch it and report the transient `config_unavailable` outcome.
  */
 class EffectiveConfigResolver private constructor(
     private val server: ServerConfigSource,
     private val perRoot: PerRootConfigSource?,
     private val fixedGlobal: GlobalConfigLookup?,
+    private val versions: ConfigVersionSource?,
 ) {
-    /** The production form: the server layer is the DB head, read per call (memoised per [ConfigSession]). */
-    constructor(server: ServerConfigSource, perRoot: PerRootConfigSource?) : this(server, perRoot, null)
+    /**
+     * The production form: the server layer is the DB head, read per call (memoised per [ConfigSession]). [versions]
+     * defaults to whichever source also serves stored versions by id (production: the one `PerRootConfigService`).
+     */
+    constructor(
+        server: ServerConfigSource,
+        perRoot: PerRootConfigSource?,
+        versions: ConfigVersionSource? = (server as? ConfigVersionSource) ?: (perRoot as? ConfigVersionSource),
+    ) : this(server, perRoot, null, versions)
 
-    /** A fixed server lookup (tests, and any caller that holds one document): never reads a server source. */
-    constructor(global: GlobalConfigLookup, perRoot: PerRootConfigSource?) : this({ null }, perRoot, global)
+    /**
+     * A fixed server lookup (tests, and any caller that holds one document): never reads a server source. Pins are
+     * off unless [versions] is passed (a fixed server document has no versions; the server side of a pinned item is
+     * then always this lookup).
+     */
+    constructor(
+        global: GlobalConfigLookup,
+        perRoot: PerRootConfigSource?,
+        versions: ConfigVersionSource? = null,
+    ) : this({ null }, perRoot, global, versions)
+
+    /** Session-memo key of pinned version reads (distinct from the per-root and server sources). */
+    private val versionMemoKey = Any()
+
+    /**
+     * True when this resolver can read stored versions by id, so items can be pinned and resolved against their pins.
+     * False: every item resolves at the heads and callers write no pins.
+     */
+    val pinsEnabled: Boolean get() = versions != null
 
     /**
      * The fixed server lookup of a resolver built from a [GlobalConfigLookup]. A resolver built from a
@@ -55,6 +88,44 @@ class EffectiveConfigResolver private constructor(
      * layer (read here: the DB head, or the fixed lookup).
      */
     suspend fun layered(rootId: UUID?): LayeredConfig = LayeredConfig(rootId, layerFor(rootId), serverLookup())
+
+    /**
+     * The config [item] resolves against. Unpinned (or pins off): [layered] at the heads of its root, exactly as before
+     * pins existed. Pinned: the per-root layer is the pinned root version (none when the pin names none), the server
+     * layer the pinned server version (empty when the pin names none; a fixed server lookup always), and the base
+     * schema is forced to the pinned key and layer ([LayeredConfig.pinnedBase]). Pinned versions are memoised per
+     * [ConfigSession] by version id; a read fault propagates (fail closed).
+     */
+    suspend fun forItem(item: WorkItem): LayeredConfig {
+        val pin = item.pin
+        val source = versions
+        if (pin == null || source == null) return layered(item.rootId)
+        val perRootLayer = pin.rootVersionId?.let { pinnedLayer(source, it) }
+        val global = fixedGlobal ?: LayerBackedGlobalLookup(pin.serverVersionId?.let { pinnedLayer(source, it) })
+        return LayeredConfig(item.rootId, perRootLayer, global, PinnedBase(pin.schemaKey, pin.schemaLayer))
+    }
+
+    /** One read of a stored version by id, memoised per ambient [ConfigSession]; fresh with no session. */
+    private suspend fun pinnedLayer(
+        source: ConfigVersionSource,
+        versionId: UUID
+    ): ConfigLayer? {
+        val session = coroutineContext[ConfigSession.Key]
+        return if (session != null) {
+            session.memoized(versionMemoKey, versionId) { source.layerAt(versionId) }
+        } else {
+            source.layerAt(versionId)
+        }
+    }
+
+    /**
+     * The stored version [versionId] as a layer (see [ConfigVersionSource.layerAt]), or null when pins are off or no
+     * such version exists.
+     */
+    suspend fun versionLayer(versionId: UUID): ConfigLayer? = versions?.let { pinnedLayer(it, versionId) }
+
+    /** The config the item facets of [item] resolve against (see [forItem]). */
+    private suspend fun itemConfig(item: WorkItem): LayeredConfig = layered(item.rootId)
 
     /** The server side of a resolution: the fixed lookup, else a lookup over the freshly (or session-memoised) read layer. */
     private suspend fun serverLookup(): GlobalConfigLookup = fixedGlobal ?: LayerBackedGlobalLookup(serverLayer())
@@ -73,8 +144,18 @@ class EffectiveConfigResolver private constructor(
     }
 
     /** Effective (trait-merged) schema for [item], or null when no schema matches (schema-free). */
-    suspend fun resolveSchema(item: WorkItem): WorkItemSchema? {
-        val layered = layered(item.rootId)
+    suspend fun resolveSchema(item: WorkItem): WorkItemSchema? = mergedSchema(item, itemConfig(item))
+
+    /**
+     * The effective schema [item] would resolve to at the config HEADS, ignoring its pin (the Q9 rule over the current
+     * root and server documents, trait-merged). Used to detect a note key the head requires but the pin lacks.
+     */
+    suspend fun resolveSchemaAtHead(item: WorkItem): WorkItemSchema? = mergedSchema(item, layered(item.rootId))
+
+    private fun mergedSchema(
+        item: WorkItem,
+        layered: LayeredConfig
+    ): WorkItemSchema? {
         val baseSchema = layered.baseSchema(item.type)?.first ?: return null
         return TraitResolver(layered).mergeSchema(baseSchema, itemTraits(item), item.id)
     }
@@ -82,10 +163,10 @@ class EffectiveConfigResolver private constructor(
     /**
      * Same as [resolveSchema], plus which layer supplied the BASE schema and that layer's
      * fingerprint (fetched after trait merging, and from the global side only when the base came
-     * from the global layer).
+     * from the global layer). For a pinned item the fingerprint is the pinned version's.
      */
     suspend fun resolveSchemaWithSource(item: WorkItem): SchemaMatch? {
-        val layered = layered(item.rootId)
+        val layered = itemConfig(item)
         val (baseSchema, source) = layered.baseSchema(item.type) ?: return null
         val merged = TraitResolver(layered).mergeSchema(baseSchema, itemTraits(item), item.id)
         return SchemaMatch(merged, source, layered.fingerprintFor(source))
@@ -111,7 +192,7 @@ class EffectiveConfigResolver private constructor(
      * schema's defaultTraits); a null base schema is tolerated (item traits are still honored).
      */
     suspend fun resolveResourceRequirements(item: WorkItem): List<ResourceRequirement> {
-        val layered = layered(item.rootId)
+        val layered = itemConfig(item)
         val defaultTraits = layered.baseSchema(item.type)?.first?.defaultTraits ?: emptyList()
         return TraitResolver(layered).resources(TraitResolver.order(itemTraits(item), defaultTraits))
     }
@@ -131,19 +212,28 @@ class EffectiveConfigResolver private constructor(
         item: WorkItem,
         role: Role,
         resolvedSchema: WorkItemSchema?
-    ): DispatchProfile? = resolveDispatchProfilesForTraits(dispatchTraitsFor(item, resolvedSchema), item.rootId)[role]
+    ): DispatchProfile? = resolveDispatchProfiles(item, resolvedSchema)[role]
 
     /** Per-phase counterpart to [resolveDispatchProfile]: every role [item]'s traits declare. */
     suspend fun resolveDispatchProfiles(
         item: WorkItem,
         resolvedSchema: WorkItemSchema?
-    ): Map<Role, DispatchProfile> = resolveDispatchProfilesForTraits(dispatchTraitsFor(item, resolvedSchema), item.rootId)
+    ): Map<Role, DispatchProfile> {
+        val traits = dispatchTraitsFor(item, resolvedSchema)
+        // Returns BEFORE any config read when the trait list is empty (the common, trait-less case).
+        if (traits.isEmpty()) return emptyMap()
+        return TraitResolver(itemConfig(item)).dispatch(traits)
+    }
 
     /** Type-only counterpart to [resolveDispatchProfiles]: [defaultTraits] is the complete trait set. */
     suspend fun resolveDispatchProfilesForType(
         defaultTraits: List<String>,
         rootId: UUID?
-    ): Map<Role, DispatchProfile> = resolveDispatchProfilesForTraits(defaultTraits.distinct(), rootId)
+    ): Map<Role, DispatchProfile> {
+        val traits = defaultTraits.distinct()
+        if (traits.isEmpty()) return emptyMap()
+        return TraitResolver(layered(rootId)).dispatch(traits)
+    }
 
     /**
      * Per-seat dispatch profiles for [item], keyed by phase then seat name, filtered to
@@ -158,7 +248,7 @@ class EffectiveConfigResolver private constructor(
         val traits = dispatchTraitsFor(item, resolvedSchema)
         val seats = resolvedSchema?.seats ?: emptyList()
         if (traits.isEmpty() || seats.isEmpty()) return emptyMap()
-        return TraitResolver(layered(item.rootId)).dispatchBySeat(traits, seats)
+        return TraitResolver(itemConfig(item)).dispatchBySeat(traits, seats)
     }
 
     /** Type-only counterpart to [resolveDispatchBySeat]: [defaultTraits] is the complete trait set. */
@@ -231,15 +321,6 @@ class EffectiveConfigResolver private constructor(
 
     /** [item]'s own typed traits. */
     private fun itemTraits(item: WorkItem): List<String> = item.traits
-
-    /** Returns BEFORE any per-root read when [traits] is empty (the common, trait-less case). */
-    private suspend fun resolveDispatchProfilesForTraits(
-        traits: List<String>,
-        rootId: UUID?
-    ): Map<Role, DispatchProfile> {
-        if (traits.isEmpty()) return emptyMap()
-        return TraitResolver(layered(rootId)).dispatch(traits)
-    }
 
     /**
      * One per-root read for [rootId], or null (no read) when [rootId] is null or no source is

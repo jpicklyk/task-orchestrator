@@ -178,7 +178,8 @@ class TypeBackfillGoldenTest {
     /**
      * The dump of [url] minus what the other production step writes: `config-canonicalize` (phase CONFIG_CANONICALIZE,
      * before this step) fills `config_versions.canonical_json` / `model_version` and records its own `data_steps` row;
-     * `traits-from-properties` (same phase, after this step) moves `work_items.properties.traits` into `item_traits`.
+     * `traits-from-properties` (same phase, after this step) moves `work_items.properties.traits` into `item_traits`;
+     * `pin-backfill` (phase PIN, after this step) fills `work_items.lifecycle` and the five `pinned_*` columns.
      */
     private fun dumpOf(url: String) =
         DriverManager.getConnection(url).use { UpgradeHarness.dump(it) }.mapValues { (table, rows) ->
@@ -188,7 +189,8 @@ class TypeBackfillGoldenTest {
                     rows.filterValues { it["source"] != "file-import" }.mapValues { (_, row) -> row - "canonical_json" - "model_version" }
                 "config_heads" -> rows.filterValues { it["scope"] != "server" }
                 "data_steps" -> rows.filterValues { it["name"] == stepName }
-                "work_items" -> rows.mapValues { (_, row) -> row + ("properties" to withoutTraitsKey(row["properties"])) }
+                "work_items" ->
+                    rows.mapValues { (_, row) -> row - PIN_COLUMNS + ("properties" to withoutTraitsKey(row["properties"])) }
                 "item_traits" -> emptyMap()
                 else -> rows
             }
@@ -486,3 +488,7 @@ class TypeBackfillGoldenTest {
         assertNull(TypeBackfillStep.layerOf("a: b: c: ["))
     }
 }
+
+/** The V26 lifecycle and pin columns, filled by the later `pin-backfill` step (phase PIN). */
+private val PIN_COLUMNS =
+    setOf("lifecycle", "pinned_server_cfg", "pinned_root_cfg", "pinned_schema_key", "pinned_schema_layer", "pinned_at")

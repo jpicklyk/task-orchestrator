@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.application.port.StoreWrite
 import io.github.jpicklyk.mcptask.current.application.port.unitNow
 import io.github.jpicklyk.mcptask.current.domain.error.VersionConflictException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.SchemaPin
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.schema.ItemTraitsTable
@@ -29,6 +30,7 @@ import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.like
 import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.core.or
+import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.select
@@ -95,9 +97,26 @@ class SqliteItemStore(
             it[claimedAt] = item.claimedAt
             it[claimExpiresAt] = item.claimExpiresAt
             it[originalClaimedAt] = item.originalClaimedAt
+            writePin(it, item.pin)
         }
         insertTraits(item)
         return item
+    }
+
+    /**
+     * Writes [pin] into the V26 pin columns and `lifecycle` of [statement] (all NULL for an unpinned item). The layer is
+     * its lowercase wire value and the lifecycle its lowercase mode name, as the V26 CHECKs require.
+     */
+    private fun writePin(
+        statement: UpdateBuilder<*>,
+        pin: SchemaPin?
+    ) {
+        statement[WorkItemsTable.pinnedServerCfg] = pin?.serverVersionId
+        statement[WorkItemsTable.pinnedRootCfg] = pin?.rootVersionId
+        statement[WorkItemsTable.pinnedSchemaKey] = pin?.schemaKey
+        statement[WorkItemsTable.pinnedSchemaLayer] = pin?.schemaLayer?.wire
+        statement[WorkItemsTable.lifecycle] = pin?.lifecycle?.name?.lowercase()
+        statement[WorkItemsTable.pinnedAt] = pin?.pinnedAt
     }
 
     /** Writes [item]'s trait rows (positions 0..n-1) in the caller's transaction. */
@@ -149,6 +168,7 @@ class SqliteItemStore(
                     it[modifiedAt] = item.modifiedAt
                     it[roleChangedAt] = item.roleChangedAt
                     it[version] = item.version + 1
+                    writePin(it, item.pin)
                 }
             if (updatedCount > 0) {
                 // The trait list is replaced wholesale in the same unit (delete then insert, positions 0..n-1).
