@@ -58,8 +58,7 @@ check) — see "Policy Values"
 and "JWKS Sources" below. An absent file, or one that is empty or comment-only, is not an error: it
 keeps schema-free / no-actor-authentication defaults. **This is a behavior change**: a global
 config file that was broken before this fix ran silently in schema-free / noop-verifier mode; it
-now fails startup. Per-project config pushed via `manage_project_config` / `PUT
-/api/v1/roots/{rootId}/config` is unaffected — only the single, server-wide global file is on this
+now fails startup. Per-project config pushed via the `config` tool's `push` op (`POST /api/v1/ops/config`) is unaffected — only the single, server-wide global file is on this
 fail-closed path. One key in that file is exempt: a malformed `status_labels:` block (display-only
 labels) still falls back to the default labels with a WARN.
 
@@ -75,7 +74,7 @@ version another process appends to a shared volume is served on the next read.
   resets a stored head.
 - **Last booting process wins on a shared volume.** Two processes mounting different files onto one
   database alternate `file-import` versions at their boots (history shows each); use per-project
-  config (multi-project setup, `manage_project_config`) instead of differing mounts.
+  config (multi-project setup, the `config` tool) instead of differing mounts.
 - A file with no `project.rootId` becomes the **server** config. A file that sets `project.rootId` is
   imported as that depth-0 root's config instead; the root must exist in this database, and such a file
   must not carry `resources:` (the resource registry is server-only: drop `project.rootId` to declare
@@ -348,6 +347,8 @@ When `API_AUTH_MODE=jwks`, a JWT reaching a REST write route has already passed 
 This is different from the MCP actor `reject` policy, which governs MCP tool calls (`claim_item`, `advance_item`) carrying a self-reported `actor.id` under a degraded (non-`VERIFIED`) JWKS verification result — that path can still reject. Both layers share the same `DEGRADED_MODE_POLICY` env var but apply it independently.
 
 ### Client-side config sync (SessionStart hook)
+
+> **4.0 migration note (W8).** The per-root config and rule REST routes this hook calls (`PUT /api/v1/roots/{rootId}/config`, `GET /api/v1/roots/{rootId}/config`, `GET /api/v1/roots/{rootId}/rules`) were removed in 4.0 in favor of `POST /api/v1/ops/config` (the `config` tool). The plugin hook is moved to the new endpoint separately; until it is, the description below is the 3.x contract and the hook no-ops against a 4.0 server.
 
 In a shared HTTP deployment, per-project config lives in the DB per root (hot-reloaded, no restart), while the mounted global `.taskorchestrator/config.yaml` is only a fallback. The plugin's `config-sync.mjs` SessionStart hook keeps a project's DB config in sync with its workspace file: on session start it fingerprints the local file and, if it differs from the server's stored config, PUTs it to `PUT /api/v1/roots/{rootId}/config`. **The file is the source of truth; the DB row is a synced replica** (a byte-identical file is a no-op via `If-Match`/fingerprint).
 

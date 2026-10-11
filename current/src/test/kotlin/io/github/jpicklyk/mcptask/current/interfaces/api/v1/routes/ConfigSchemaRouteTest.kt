@@ -21,15 +21,15 @@ import kotlin.test.assertTrue
  * Independent tests (test-author seat, item edae92cb / Q16) for `GET /api/v1/config/schema`, scenario S13.
  *
  * Oracle P s4.4 and task-scope build item 2: the route returns the raw schema bytes, content type
- * `application/schema+json`, an ETag, under the same auth as `/config/schemas`. The schema declares JSON Schema 2020-12.
+ * `application/schema+json`, an ETag, under the READ capability (the other config reads moved to the `config` tool, Q23). The schema declares JSON Schema 2020-12.
  *
- * Harness: [configureTestApp] with [configRoutes] in the route block (the same arrangement as [ConfigRoutesTest]).
+ * Harness: [configureTestApp] with [configSchemaRoute] in the route block.
  */
 class ConfigSchemaRouteTest {
     @Test
     fun `S13 GET config schema returns 200 with the schema media type`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutesOver { ConfigRoutesTest.FakeSchemaService() } } }
+            application { configureTestApp { configSchemaRoute() } }
 
             val response = client.get("/api/v1/config/schema") { header("Authorization", "Bearer $TEST_TOKEN") }
 
@@ -41,7 +41,7 @@ class ConfigSchemaRouteTest {
     @Test
     fun `S13 the body is byte-equal to the schema resource and declares draft 2020-12`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutesOver { ConfigRoutesTest.FakeSchemaService() } } }
+            application { configureTestApp { configSchemaRoute() } }
 
             val response = client.get("/api/v1/config/schema") { header("Authorization", "Bearer $TEST_TOKEN") }
 
@@ -62,7 +62,7 @@ class ConfigSchemaRouteTest {
     @Test
     fun `S13 the response carries an ETag that is stable across reads and carries the schema digest`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutesOver { ConfigRoutesTest.FakeSchemaService() } } }
+            application { configureTestApp { configSchemaRoute() } }
 
             val first = client.get("/api/v1/config/schema") { header("Authorization", "Bearer $TEST_TOKEN") }
             val second = client.get("/api/v1/config/schema") { header("Authorization", "Bearer $TEST_TOKEN") }
@@ -77,23 +77,21 @@ class ConfigSchemaRouteTest {
         }
 
     @Test
-    fun `S13 the schema route has the same auth as the schemas route - no credentials is refused alike`(): Unit =
+    fun `S13 the schema route refuses no credentials and an unknown token alike`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutesOver { ConfigRoutesTest.FakeSchemaService() } } }
+            application { configureTestApp { configSchemaRoute() } }
 
             val schemaAnon = client.get("/api/v1/config/schema")
-            val schemasAnon = client.get("/api/v1/config/schemas")
             val wrongToken = client.get("/api/v1/config/schema") { header("Authorization", "Bearer not-a-token") }
 
             assertNotEquals(HttpStatusCode.OK, schemaAnon.status, "anonymous access must be refused")
-            assertEquals(schemasAnon.status, schemaAnon.status, "the same refusal as /config/schemas")
-            assertEquals(schemasAnon.status, wrongToken.status, "an unknown token is refused like a missing one")
+            assertEquals(schemaAnon.status, wrongToken.status, "an unknown token is refused like a missing one")
         }
 
     @Test
     fun `S13 a read-only token is sufficient`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutesOver { ConfigRoutesTest.FakeSchemaService() } } }
+            application { configureTestApp { configSchemaRoute() } }
 
             val response = client.get("/api/v1/config/schema") { header("Authorization", "Bearer $TEST_TOKEN") }
 

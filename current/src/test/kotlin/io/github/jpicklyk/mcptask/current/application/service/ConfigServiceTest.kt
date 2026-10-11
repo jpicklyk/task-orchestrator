@@ -25,7 +25,7 @@ import kotlin.test.assertTrue
 /**
  * Exercises [ConfigService.push] directly against a real SQLite-backed
  * [SqliteConfigStore] and [SQLiteWorkItemRepository] — mirrors
- * [io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigToolTest]'s DB-backed
+ * the former `manage_project_config` tool tests' DB-backed
  * style. Focused on the embedded `project.rootId` guard added on top of the existing
  * validate-then-persist pipeline (size cap / existence / depth-0 / parse are already covered at the
  * tool and route layers — this file's `basic push still works` case is a smoke check, not a full

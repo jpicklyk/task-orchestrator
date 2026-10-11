@@ -14,11 +14,11 @@ import java.util.UUID
 /**
  * Transport-agnostic read pipeline for git-tracked rule text, stored as `rule/<key>` plan
  * documents (see [PlanDocumentStore]) -- the same table `manage_plan_documents`/`PlanDocumentService`
- * already write to, so `query_rules` and the `rules` REST routes are pure READ surfaces over that
+ * already write to, so the `config` tool's `rules` op is a pure READ surface over that
  * store with no new table and no migration.
  *
  * Depends only on domain repositories ([PlanDocumentStore], [WorkItemRepository]) -- no
- * infrastructure import -- so both the MCP `query_rules` tool and the REST `rules` routes can share
+ * infrastructure import -- so the `config` tool's `rules` op (MCP and `POST /api/v1/ops/config`) can share
  * one instance without violating the `domain -> application -> infrastructure -> interfaces`
  * layering rule ([io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext] hands
  * out `RepositoryProvider`-backed domain-repository instances, never the provider or the
@@ -36,8 +36,8 @@ class RuleService(
     /**
      * Reads the rule document at `rule/<key>` under [rootId]. See [RuleGetResult] for the possible
      * outcomes. [key] is assumed to already have been validated against [KEY_PATTERN] by the caller
-     * (both `QueryRulesTool.validateParams` and the REST route check this before calling in, so the
-     * check stays 400/VALIDATION_ERROR at the transport boundary rather than a generic service error).
+     * (the `config` tool's `rules` op checks this before calling in, so a bad key stays an `invalid_request`
+     * at `/key` rather than a generic service error).
      */
     suspend fun get(
         rootId: UUID,

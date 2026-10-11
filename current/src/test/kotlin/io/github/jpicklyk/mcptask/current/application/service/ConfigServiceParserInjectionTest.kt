@@ -6,26 +6,28 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigViolation
 import io.github.jpicklyk.mcptask.current.application.config.ParseMode
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.SqliteConfigStore
+import io.github.jpicklyk.mcptask.current.test.callTool
+import io.github.jpicklyk.mcptask.current.test.errorAt
 import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -37,12 +39,11 @@ import kotlin.test.assertTrue
  * [ConfigDocumentParser.Outcome.Parsed] maps to `ConfigPushResult.Success` carrying the
  * parsed document's `warnings` as `schemaWarnings` and the raw root map's keys as `ignoredSections`
  * — confirmed verbatim in the declarations' `parseAndValidateYaml`/`push` excerpt. Oracle for S11:
- * the same Failed->ParseError mapping, surfaced through [ManageProjectConfigTool]'s push operation
- * response, mirroring [ManageProjectConfigToolTest]'s existing "push unparseable YAML returns error
- * containing parse detail" style but with an INJECTED fake parser rather than real YAML.
+ * the same Failed->ParseError mapping, surfaced through the `config` tool's push op
+ * (a `config_invalid` element error), with an INJECTED fake parser rather than real YAML.
  *
  * NEW-SURFACE (both scenarios): the [ConfigDocumentParser] injection point on [ConfigService]
- * and [ManageProjectConfigTool] is introduced by this feature. No source revert can yield behavioral
+ * is introduced by this feature. No source revert can yield behavioral
  * red; per the frozen plan, the substitute is "keep param, inline old parse" (an orchestrator-run
  * mutation).
  */
@@ -123,27 +124,42 @@ class ConfigServiceParserInjectionTest {
         }
 
     // ──────────────────────────────────────────────
-    // S11 — ManageProjectConfigTool(fake Failed("boom"))
+    // S11 — `config` push over a service with a fake Failed("boom") parser
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S11 - ManageProjectConfigTool push surfaces the injected parser's Failed detail in the error response`(): Unit =
+    fun `S11 - config push surfaces the injected parser's Failed detail in the config_invalid error`(): Unit =
         runBlocking {
-            val tool = ManageProjectConfigTool(FakeConfigDocumentParser(ConfigDocumentParser.Outcome.Failed("boom")))
-            val context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
+            val service =
+                ConfigService(
+                    repositoryProvider,
+                    FakeConfigDocumentParser(ConfigDocumentParser.Outcome.Failed("boom")),
+                    db.unitOfWork()
+                )
+            val context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork(), configService = service)
 
-            val params =
-                JsonObject(
-                    mapOf(
-                        "operation" to JsonPrimitive("push"),
-                        "rootId" to JsonPrimitive(rootId.toString()),
-                        "configYaml" to JsonPrimitive("irrelevant: yaml"),
-                    ),
+            val body =
+                context.callTool(
+                    "config",
+                    buildJsonObject {
+                        put(
+                            "ops",
+                            buildJsonArray {
+                                add(
+                                    buildJsonObject {
+                                        put("op", "push")
+                                        put("rootId", rootId.toString())
+                                        put("configYaml", "irrelevant: yaml")
+                                    }
+                                )
+                            }
+                        )
+                    }
                 )
 
-            val result = tool.execute(params, context) as JsonObject
-            assertFalse(result["success"]!!.jsonPrimitive.boolean, "expected a failed push response: $result")
-            val message = (result["error"] as JsonObject)["message"]!!.jsonPrimitive.content
-            assertTrue(message.contains("boom"), "expected the injected parser's detail in the error message: $message")
+            val error = body.errorAt(0)
+            assertEquals("config_invalid", error["code"]!!.jsonPrimitive.content)
+            val reasons = error["detail"]!!.jsonObject["errors"]!!.jsonArray.map { it.jsonObject["reason"]!!.jsonPrimitive.content }
+            assertTrue(reasons.any { it.contains("boom") }, "expected the injected parser's detail in the errors: $reasons")
         }
 }

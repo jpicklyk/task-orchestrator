@@ -222,22 +222,6 @@ data class ResourceRequirementDto(
 )
 
 /**
- * DTO for a full work-item schema type.
- *
- * `lifecycleMode` is the lowercase lifecycle mode ("auto", "manual", etc.).
- * `hasReviewPhase` is `true` when the schema contains at least one REVIEW-phase note.
- * `defaultTraits` lists trait names automatically applied to items of this type.
- */
-@Serializable
-data class SchemaDto(
-    val type: String,
-    val lifecycleMode: String,
-    val hasReviewPhase: Boolean,
-    val notes: List<NoteSchemaEntryDto>,
-    val defaultTraits: List<String>,
-)
-
-/**
  * DTO for a trait definition — a named set of note schema entries that can be
  * composed onto any work-item schema.
  *
@@ -283,24 +267,8 @@ data class StatusGraphDto(
 )
 
 /**
- * Full config snapshot DTO returned by `GET /api/v1/config`.
- *
- * Aggregates all schemas, traits, type names, and the status-transition graph.
- * `defaultSchema` is the schema registered under the key `"default"`, or `null`
- * if no default schema is configured.
- */
-@Serializable
-data class ConfigSnapshotDto(
-    val schemas: List<SchemaDto>,
-    val traits: List<TraitDto>,
-    val types: List<String>,
-    val statusGraph: StatusGraphDto,
-    val defaultSchema: SchemaDto? = null,
-)
-
-/**
- * A single type's RESOLVED base schema (no trait merging), from `GET
- * /api/v1/roots/{rootId}/config/effective` — see [EffectiveConfigDto].
+ * A single type's RESOLVED base schema (no trait merging), from the `config` tool's `effective` op — see
+ * [EffectiveConfigDto].
  *
  * [type] is the queried type key; [matchedType] is the schema that actually answered it
  * (`"default"` when a default schema answered a miss). [configSource] is `"per-root"` or
@@ -320,17 +288,15 @@ data class EffectiveSchemaDto(
 )
 
 /**
- * Full per-root EFFECTIVE (layered) config view returned by `GET
- * /api/v1/roots/{rootId}/config/effective` — every registered type resolved against [rootId]'s
- * per-root config over the global fallback, in one response. Additive: distinct from
- * [ConfigSnapshotDto] (GLOBAL-only) and the raw stored YAML `/roots/{rootId}/config` returns.
+ * The resolved (layered) config view returned by the `config` tool's `effective` op: every registered type resolved
+ * against [rootId]'s per-root config over the server config, in one result. [rootId] is omitted for the server-only view.
  *
- * [globalFingerprint]/[perRootFingerprint] are omitted when null (no global config loaded /
- * no per-root config pushed for this root, respectively).
- * */
+ * [globalFingerprint]/[perRootFingerprint] are omitted when null (no server config loaded / no per-root config pushed
+ * for this root, respectively).
+ */
 @Serializable
 data class EffectiveConfigDto(
-    val rootId: String,
+    val rootId: String? = null,
     val schemas: List<EffectiveSchemaDto>,
     val traits: List<TraitDto>,
     val types: List<String>,
@@ -362,56 +328,6 @@ data class SearchHitDto(
     val noteKey: String? = null,
     /** Title of the owning work item (the item's own title for an item hit); omitted when unreadable. */
     val title: String? = null,
-)
-
-/**
- * Response DTO for `PUT /api/v1/roots/{rootId}/config` and `GET /api/v1/roots/{rootId}/config`.
- *
- * Mirrors the `data` payload of the MCP `manage_project_config` tool's `push`/`get` operations
- * (see [io.github.jpicklyk.mcptask.current.application.service.ConfigPushResult.Success]) —
- * both surfaces converge on the same [io.github.jpicklyk.mcptask.current.application.service.ConfigService].
- * `configYaml` is included only on GET (omitted on PUT, which already echoed the caller's own body).
- * `warning` carries the non-fatal "root type is not 'project'" notice, when applicable.
- */
-@Serializable
-data class ProjectConfigResponseDto(
-    val rootId: String,
-    val fingerprint: String,
-    val updatedAt: String,
-    val configYaml: String? = null,
-    val warning: String? = null,
-    /** "current" | "superseded" | "unknown" — present only on GET when `?fingerprint=` was supplied. */
-    val relation: String? = null,
-    /** Advisory findings (resource fan-out, a required note no seat owns); present only on PUT, and only when non-empty. The push still succeeds and stores the config. */
-    val schemaWarnings: List<String>? = null,
-    /** The version number of the returned config version (the new head on PUT / rollback). */
-    val version: Int? = null,
-    /** How the returned version came to exist: push, file-import, migration, rollback or reset. */
-    val source: String? = null,
-    /** PUT / rollback only: false when nothing was written (an identical re-push, or a rollback to the head's own content). */
-    val appended: Boolean? = null,
-)
-
-/** One row of `GET /api/v1/roots/{rootId}/config/history` - a version's metadata, never its YAML. */
-@Serializable
-data class ConfigVersionSummaryDto(
-    val version: Int,
-    val fingerprint: String,
-    val source: String,
-    val createdAt: String,
-    val principalId: String? = null,
-    val warningsCount: Int,
-    /** False only for a migrated version the `config-canonicalize` step has not filled yet. */
-    val canonical: Boolean,
-)
-
-/** Response DTO for `GET /api/v1/roots/{rootId}/config/history`; [versions] is newest first. */
-@Serializable
-data class ConfigHistoryResponseDto(
-    val rootId: String,
-    /** The current head's version, or null when the root has no config at all. */
-    val headVersion: Int? = null,
-    val versions: List<ConfigVersionSummaryDto>,
 )
 
 /**

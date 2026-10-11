@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
@@ -16,7 +15,6 @@ import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.upsert
 import io.ktor.client.request.get
 import io.ktor.client.request.header
-import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.testing.testApplication
@@ -42,7 +40,8 @@ import kotlin.test.assertTrue
  *
  * r1 (fix-decision H1): the advance (and its cascade targets) and the gate preview resolve per-root config INSIDE a unit of
  * work, where there is no last-known-good, so S4/S5 now pin a fail-closed config_unavailable on those surfaces while the ONE
- * shared cache still serves reads made outside any unit (GET /roots/{rootId}/config/effective, api-rest.md section 18).
+ * shared cache still serves reads made outside any unit (a direct EffectiveConfigResolver read; the REST effective route moved
+ * to the `config` tool in Q23, whose reads run inside a unit).
  *
  * Harness mirrors [ConfigUnavailableRoutesTest]'s `FailableProjectConfigRepository`/
  * `FailableRepositoryProvider` pattern (each file defines its own copy; no shared harness class
@@ -72,14 +71,13 @@ class SharedConfigCacheRestMcpTest {
                 description: "shared cache test note"
         """.trimIndent()
 
-    /** Registers itemGateRoutes and effectiveConfigRoutes over the SAME [ctx], mirroring O1's shared wiring. */
+    /** Registers itemGateRoutes over the [ctx]'s resolver, mirroring O1's shared wiring. */
     private fun Application.configureSharedApp(
         provider: RepositoryProvider,
         ctx: ToolExecutionContext,
     ) {
         configureTestApp(makeWriteAuthConfig()) {
             itemGateRoutes(provider, ctx.configResolver, ctx.transitionPreview())
-            effectiveConfigRoutes(provider, ctx.configResolver, ServerConfigSource { null })
         }
     }
 
@@ -169,10 +167,11 @@ class SharedConfigCacheRestMcpTest {
             assertTrue(e.message.orEmpty().contains("inside a unit of work"), "the fault names the unit-of-work read: ${e.message}")
 
             // The REST-warmed cache is still the shared cache for reads outside any unit.
-            val effective =
-                client.get("/api/v1/roots/${item.rootId}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
-            assertEquals(HttpStatusCode.OK, effective.status, effective.bodyAsText())
-            assertTrue(effective.bodyAsText().contains(SCHEMA_TYPE), effective.bodyAsText())
+            val layered = ctx.configResolver.layered(item.rootId)
+            assertTrue(
+                SCHEMA_TYPE in layered.typeKeys(),
+                "the warmed per-root layer is served from the shared cache: ${layered.typeKeys()}"
+            )
         }
 
     // ──────────────────────────────────────────────

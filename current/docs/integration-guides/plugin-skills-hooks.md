@@ -242,7 +242,7 @@ doing any work, so calling the script directly without going through that entry 
 supported way to drive a wave.
 
 Each seat the script dispatches fetches its own rule text by key via
-[`query_rules`](../api-reference.md#query_rules) rather than carrying that text inline, and reads
+the [`config`](../api-reference.md#config) tool's `rules` op rather than carrying that text inline, and reads
 its item's resolved schema via [`query_items`](../api-reference.md#query_items) (`schema`
 operation) rather than assuming note requirements.
 

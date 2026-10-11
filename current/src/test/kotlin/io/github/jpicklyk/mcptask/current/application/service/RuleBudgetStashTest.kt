@@ -315,7 +315,7 @@ class RuleBudgetStashTest {
      * every tool call -- there is no REST path for `create_work_tree`. A bare `execute()` call
      * skips that validation phase and does not represent production, so this scenario is driven
      * through the REAL [McpToolAdapter] -- mirrors
-     * [io.github.jpicklyk.mcptask.current.interfaces.mcp.QueryRulesConfigUnavailableTest]'s own
+     * the former `query_rules` config-unavailable test's own
      * real [Server]/[Client] pair over [ChannelTransport.createLinkedPair]. Same oracle as before:
      * the call fails, zero items are created, and the rule/ document stays PENDING and
      * re-stashable.

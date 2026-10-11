@@ -170,7 +170,13 @@ class ConfigService(
                             warning = typeWarning,
                             schemaWarnings = schemaWarnings,
                         )
-                    is ConfigAppendOutcome.Superseded -> ConfigPushResult.Superseded(rootItemId, outcome.currentCreatedAt)
+                    is ConfigAppendOutcome.Superseded ->
+                        ConfigPushResult.Superseded(
+                            rootItemId,
+                            outcome.currentCreatedAt,
+                            outcome.matchedVersion,
+                            outcome.currentVersion
+                        )
                     is ConfigAppendOutcome.PreconditionFailed ->
                         ConfigPushResult.PreconditionFailed(rootItemId, outcome.currentVersion, outcome.currentFingerprint)
                 }
@@ -674,10 +680,16 @@ sealed class ConfigPushResult {
         val embeddedRootId: UUID
     ) : ConfigPushResult()
 
-    /** The content's fingerprint is known-old (SUPERSEDED); rejected unless `force`. [currentUpdatedAt] = head's creation time. */
+    /**
+     * The content's fingerprint is known-old (SUPERSEDED); rejected unless `force`. [currentUpdatedAt] = head's creation
+     * time, [currentVersion] the head's version, [matchedVersion] the newest stored version with that content (0 when
+     * only the pre-versioning history knew it).
+     */
     data class Superseded(
         val rootItemId: UUID,
-        val currentUpdatedAt: Instant
+        val currentUpdatedAt: Instant,
+        val matchedVersion: Int = 0,
+        val currentVersion: Int = 0
     ) : ConfigPushResult()
 
     /** A supplied expected version / fingerprint did not match the head at the point of the write. Not skipped by `force`. */

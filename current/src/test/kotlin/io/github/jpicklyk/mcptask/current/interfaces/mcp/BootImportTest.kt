@@ -23,35 +23,30 @@ import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordi
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.GoldenV17
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade.UpgradeHarness
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.EffectiveConfigDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.str
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.TEST_TOKEN
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.WRITE_TOKEN
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureTestApp
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.effectiveConfigRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeWriteAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.projectConfigRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.serviceRoutes
 import io.github.jpicklyk.mcptask.current.test.StrictConfigCases
 import io.github.jpicklyk.mcptask.current.test.callTool
+import io.github.jpicklyk.mcptask.current.test.errorAt
+import io.github.jpicklyk.mcptask.current.test.results
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.put
-import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
 import io.ktor.server.application.Application
 import io.ktor.server.testing.testApplication
-import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -386,7 +381,7 @@ class BootImportTest {
         val root = seedRoot()
 
         testApplication {
-            application { restApp(composition, service) }
+            application { restApp(service) }
 
             val info = client.get("/api/v1/info") { header(HttpHeaders.Authorization, "Bearer $TEST_TOKEN") }
             assertEquals(HttpStatusCode.OK, info.status)
@@ -399,15 +394,10 @@ class BootImportTest {
                     .map { it.jsonPrimitive.content }
             assertEquals(stored, warnings, "/info.configWarnings equals the stored server head warnings")
             assertEquals(4, warnings.size)
-
-            val put =
-                client.put("/api/v1/roots/${root.id}/config") {
-                    header(HttpHeaders.Authorization, "Bearer $WRITE_TOKEN")
-                    contentType(ContentType.Text.Plain)
-                    setBody(legacy3x)
-                }
-            assertEquals(HttpStatusCode.UnprocessableEntity, put.status, "the push keeps Q16 strictness: ${put.bodyAsText()}")
         }
+
+        val put = runBlocking { composition.toolContext.callTool("config", configCall("push", root.id, "configYaml" to legacy3x)) }
+        assertEquals("config_invalid", put.errorAt(0)["code"]!!.jsonPrimitive.content, "the push keeps Q16 strictness: $put")
 
         val pushed = runBlocking { service.push(root.id, legacy3x) }
         val invalid = assertIs<ConfigPushResult.Invalid>(pushed, "push result: $pushed")
@@ -423,7 +413,7 @@ class BootImportTest {
         val service = strictConfigService(composition)
 
         testApplication {
-            application { restApp(composition, service) }
+            application { restApp(service) }
 
             val info = client.get("/api/v1/info") { header(HttpHeaders.Authorization, "Bearer $TEST_TOKEN") }
             assertEquals(HttpStatusCode.OK, info.status)
@@ -804,41 +794,24 @@ class BootImportTest {
     }
 
     @Test
-    fun `S9 the config routes follow the head - ETag, effective globalFingerprint and the empty case`() {
+    fun `S9 the config effective op follows the head - globalFingerprint and the empty case`() {
         val empty = boot(agent("none"), null)
         val root = seedRoot()
-        val emptyService = strictConfigService(empty)
 
-        testApplication {
-            application { restApp(empty, emptyService) }
-            val noConfig = client.get("/api/v1/config") { header(HttpHeaders.Authorization, "Bearer $TEST_TOKEN") }
-            assertEquals("\"cfg-no-config\"", noConfig.headers[HttpHeaders.ETag], "no head means the no-config ETag")
-        }
+        val noConfig = runBlocking { empty.toolContext.callTool("config", configCall("effective")) }.results()[0]
+        assertNull(noConfig["globalFingerprint"], "no head means no server fingerprint: $noConfig")
 
         val composition = boot(agent("a"), base)
-        val service = strictConfigService(composition)
-        testApplication {
-            application { restApp(composition, service) }
-            val v1 = client.get("/api/v1/config") { header(HttpHeaders.Authorization, "Bearer $TEST_TOKEN") }
-            assertEquals("\"cfg-${configFingerprint(base)}\"", v1.headers[HttpHeaders.ETag])
-        }
+        val v1 = runBlocking { composition.toolContext.callTool("config", configCall("effective")) }.results()[0]
+        assertEquals(configFingerprint(base), v1["globalFingerprint"]!!.jsonPrimitive.content)
 
         val v2 = other + "# appended by another process\n"
         appendServerVersion(v2)
 
-        testApplication {
-            application { restApp(composition, service) }
-            val etag = client.get("/api/v1/config") { header(HttpHeaders.Authorization, "Bearer $TEST_TOKEN") }
-            assertEquals("\"cfg-${configFingerprint(v2)}\"", etag.headers[HttpHeaders.ETag], "the new head is served without a restart")
-
-            val effective =
-                client.get(
-                    "/api/v1/roots/${root.id}/config/effective"
-                ) { header(HttpHeaders.Authorization, "Bearer $TEST_TOKEN") }
-            assertEquals(HttpStatusCode.OK, effective.status)
-            val dto = McpJson.decodeFromString<EffectiveConfigDto>(effective.bodyAsText())
-            assertEquals(configFingerprint(v2), dto.globalFingerprint)
-        }
+        val server = runBlocking { composition.toolContext.callTool("config", configCall("effective")) }.results()[0]
+        assertEquals(configFingerprint(v2), server["globalFingerprint"]!!.jsonPrimitive.content, "the new head is served without a restart")
+        val effective = runBlocking { composition.toolContext.callTool("config", configCall("effective", root.id)) }.results()[0]
+        assertEquals(configFingerprint(v2), effective["globalFingerprint"]!!.jsonPrimitive.content)
     }
 
     // ------------------------------------------------------------------------------------------------ S12
@@ -989,15 +962,30 @@ class BootImportTest {
             serverConfig = composition.serverConfig
         )
 
-    private fun Application.restApp(
-        composition: CompositionResult,
-        service: ConfigService
-    ) {
+    private fun Application.restApp(service: ConfigService) {
         configureTestApp(makeWriteAuthConfig()) {
             serviceRoutes(db.repositoryProvider(), "boot-import", "test", false, service)
-            projectConfigRoutes(db.repositoryProvider(), service)
-            configRoutes(composition.serverConfig)
-            effectiveConfigRoutes(db.repositoryProvider(), composition.toolContext.configResolver, composition.serverConfig)
         }
     }
+
+    /** A `config` call with one [op] element for [root] (omitted for the server-only `effective`), plus [extra] fields. */
+    private fun configCall(
+        op: String,
+        root: UUID? = null,
+        vararg extra: Pair<String, String>
+    ): JsonObject =
+        buildJsonObject {
+            put(
+                "ops",
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("op", JsonPrimitive(op))
+                            root?.let { put("rootId", JsonPrimitive(it.toString())) }
+                            extra.forEach { (k, v) -> put(k, JsonPrimitive(v)) }
+                        }
+                    )
+                }
+            )
+        }
 }

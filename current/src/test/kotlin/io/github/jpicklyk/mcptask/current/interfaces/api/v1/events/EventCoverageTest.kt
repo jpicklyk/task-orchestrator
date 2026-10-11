@@ -7,7 +7,6 @@ import io.github.jpicklyk.mcptask.current.application.port.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
-import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -19,7 +18,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolRegistry
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.buildToolSpecs
@@ -651,7 +649,7 @@ class EventCoverageTest {
         }
 
     @Test
-    fun `S6 manage_project_config push and manage_plan_documents stash record config and plan document rows`(
+    fun `S6 config push and manage_plan_documents stash record config and plan document rows`(
         @TempDir dir: Path,
     ): Unit =
         runBlocking {
@@ -659,14 +657,7 @@ class EventCoverageTest {
             val root = rig.seed("cfg root")
 
             val (_, cfg) =
-                rig.written {
-                    rig.callOk(
-                        ManageProjectConfigTool(YamlConfigDocumentParser),
-                        "operation" to JsonPrimitive("push"),
-                        "rootId" to JsonPrimitive(root.id.toString()),
-                        "configYaml" to JsonPrimitive(EventLogRig.GATED_CONFIG),
-                    )
-                }
+                rig.written { rig.ctx.callTool("config", configPush(root.id, EventLogRig.GATED_CONFIG)) }
             val pushed = cfg.single()
             assertEquals("config.version_created", pushed.type)
             assertEquals("config", pushed.entityKind)
@@ -1095,12 +1086,7 @@ class EventCoverageTest {
                                     put("title", "S17 tree")
                                 }
                         ),
-                    "manage_project_config" to
-                        arrayOf(
-                            "operation" to JsonPrimitive("push"),
-                            "rootId" to JsonPrimitive(root.id.toString()),
-                            "configYaml" to JsonPrimitive(EventLogRig.GATED_CONFIG),
-                        ),
+                    "config" to emptyArray(),
                     "manage_plan_documents" to
                         arrayOf(
                             "operation" to JsonPrimitive("stash"),
@@ -1118,6 +1104,7 @@ class EventCoverageTest {
                             "notes_write" -> rig.ctx.upsertNoteVia(child.id, "k", "work", "b")
                             "deps_write" -> rig.ctx.callTool("deps_write", depsCreate(child.id, depTarget.id))
                             "advance" -> rig.ctx.callTool("advance", advanceStart(other.id))
+                            "config" -> rig.ctx.callTool("config", configPush(root.id, EventLogRig.GATED_CONFIG))
                             else -> rig.call(tools.getValue(name), *params)
                         }
                     }
@@ -1137,7 +1124,6 @@ class EventCoverageTest {
                     "get_next_status" to arrayOf("itemId" to JsonPrimitive(root.id.toString())),
                     "get_next_item" to emptyArray(),
                     "get_blocked_items" to emptyArray(),
-                    "query_rules" to arrayOf("operation" to JsonPrimitive("list"), "rootId" to JsonPrimitive(root.id.toString())),
                     "notes_read" to emptyArray(),
                     "deps_read" to emptyArray(),
                     "items_read" to emptyArray(),
@@ -1193,7 +1179,7 @@ class EventCoverageTest {
                 "advance" to setOf("item.transitioned"),
                 "complete_tree" to setOf("item.transitioned"),
                 "create_work_tree" to setOf("item.created"),
-                "manage_project_config" to setOf("config.version_created"),
+                "config" to setOf("config.version_created"),
                 "manage_plan_documents" to setOf("document.created", "document.updated"),
             )
 
@@ -1204,7 +1190,6 @@ class EventCoverageTest {
                 "get_next_item",
                 "get_blocked_items",
                 "get_context",
-                "query_rules",
                 "notes_read",
                 "deps_read",
                 "items_read",
@@ -1224,6 +1209,26 @@ class EventCoverageTest {
                             }
                         )
                     }
+                )
+            }
+
+        /** A `config` call pushing [configYaml] as the next config version of [root]. */
+        fun configPush(
+            root: UUID,
+            configYaml: String,
+        ): JsonObject =
+            buildJsonObject {
+                put(
+                    "ops",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("op", "push")
+                                put("rootId", root.toString())
+                                put("configYaml", configYaml)
+                            },
+                        )
+                    },
                 )
             }
 

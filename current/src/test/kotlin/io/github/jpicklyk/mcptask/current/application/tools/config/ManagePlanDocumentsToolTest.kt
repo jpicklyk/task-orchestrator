@@ -27,7 +27,7 @@ import kotlin.test.assertTrue
 
 /**
  * Exercises [ManagePlanDocumentsTool] against a real SQLite-backed [PlanDocumentStore] and
- * [SQLiteWorkItemRepository] — mirrors [ManageProjectConfigToolTest]'s DB-backed style.
+ * [SQLiteWorkItemRepository] — mirrors the DB-backed style of the former `manage_project_config` tool tests.
  */
 class ManagePlanDocumentsToolTest {
     @RegisterExtension
