@@ -463,7 +463,7 @@ class CallLogFieldsTest {
         assertEquals(1, record.failedCount)
         assertEquals(4, record.resultCount)
         assertEquals(9, record.eligibleCount)
-        assertNull(record.host, "host stays null until W4/W5")
+        assertNull(record.host, "a telemetry without host records null host")
         assertNull(record.runId, "run_id stays null until W4/W5")
         assertNull(record.seat, "seat stays null until W4/W5")
     }

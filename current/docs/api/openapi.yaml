@@ -10,6 +10,9 @@ info:
     api-rest.md are authoritative. See api-rest.md for full semantics including merge-patch
     rules, ETag formats, idempotency, audit model, and the SSE replay known limitation.
 
+    Every operation also accepts the optional X-Client-Host request header
+    (components/parameters/clientHost), which names the calling client in the call log.
+
 servers:
   - url: /api/v1
     description: REST API base
@@ -29,6 +32,17 @@ components:
         accepts requests with no Authorization header at all — loopback-only, see api-rest.md §1.
 
   parameters:
+    clientHost:
+      name: X-Client-Host
+      in: header
+      required: false
+      description: >-
+        Optional name of the calling client application, recorded as the host on the request's call_log
+        and events rows. Precedence: this header, else the first User-Agent product token (the text before
+        the first slash), else rest. Normalized: control characters dropped, trimmed, lowercased, capped at
+        64 code points; an empty result counts as absent. Accepted on every operation. See api-rest.md section 6a.
+      schema:
+        type: string
     idempotencyKey:
       name: Idempotency-Key
       in: header
