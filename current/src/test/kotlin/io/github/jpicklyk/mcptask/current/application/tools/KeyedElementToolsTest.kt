@@ -1,8 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -17,7 +15,6 @@ import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -36,8 +33,6 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNotEquals
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -186,36 +181,6 @@ class KeyedElementToolsTest {
             val notes = ctx.noteRepository().findByItemId(itemId)
             assertEquals(1, notes.size)
             assertEquals("First body", notes.single().body, "the mismatched retry must not overwrite the note")
-        }
-
-    @Test
-    fun `S6 create_work_tree replays an identical retry and rejects a changed one as a mismatch`(): Unit =
-        runBlocking {
-            val ctx = context()
-            val key = UUID.randomUUID().toString()
-
-            fun treeParams(title: String) =
-                obj(
-                    "root" to
-                        buildJsonObject {
-                            put("type", "test-item")
-                            put("title", title)
-                        },
-                    "requestId" to JsonPrimitive(key),
-                    "actor" to actor()
-                )
-
-            val first = CreateWorkTreeTool().execute(treeParams("Tree"), ctx)
-            val rootId = (data(first)["root"] as JsonObject)["id"]!!.jsonPrimitive.content
-
-            val replay = CreateWorkTreeTool().execute(treeParams("Tree"), ctx)
-            assertEquals(true, data(replay)["replayed"]?.jsonPrimitive?.booleanOrNull, "single-element tools report data.replayed: $replay")
-            assertEquals(rootId, (data(replay)["root"] as JsonObject)["id"]!!.jsonPrimitive.content)
-            assertEquals(1, itemRows())
-
-            val mismatch = CreateWorkTreeTool().execute(treeParams("Different title"), ctx)
-            assertTrue("idempotency_mismatch" in mismatch.toString(), "a changed tree is a mismatch: $mismatch")
-            assertEquals(1, itemRows(), "a mismatch must not create a second tree")
         }
 
     // ---------------------------------------------------------------- S2 / S7
@@ -406,54 +371,6 @@ class KeyedElementToolsTest {
     // ---------------------------------------------------------------- S11 / S15
 
     // ---------------------------------------------------------------- S17
-
-    @Test
-    fun `S17 complete_tree cancel is recorded and replays with data replayed true`(): Unit =
-        runBlocking {
-            val ctx = context()
-            val item = queueItem("To cancel")
-            val key = UUID.randomUUID().toString()
-            val params =
-                obj(
-                    "itemIds" to JsonArray(listOf(JsonPrimitive(item.id.toString()))),
-                    "trigger" to JsonPrimitive("cancel"),
-                    "requestId" to JsonPrimitive(key),
-                    "actor" to actor()
-                )
-            CompleteTreeTool().execute(params, ctx)
-            assertEquals(Role.TERMINAL, items.getById(item.id)!!.role)
-            assertEquals(1, records())
-
-            val replay = CompleteTreeTool().execute(params, ctx)
-            assertEquals(true, data(replay)["replayed"]?.jsonPrimitive?.booleanOrNull, "single-element tools report data.replayed: $replay")
-            assertEquals(1, records())
-        }
-
-    @Test
-    fun `S17 complete_tree with a gate failure is not recorded and the retry with the same key executes`(): Unit =
-        runBlocking {
-            val ctx = context(schema = gateSchema)
-            val gated = queueItem("Gated tree item", tags = "feature-task")
-            val key = UUID.randomUUID().toString()
-            val params =
-                obj(
-                    "itemIds" to JsonArray(listOf(JsonPrimitive(gated.id.toString()))),
-                    "trigger" to JsonPrimitive("complete"),
-                    "requestId" to JsonPrimitive(key),
-                    "actor" to actor()
-                )
-
-            CompleteTreeTool().execute(params, ctx)
-            assertNotEquals(Role.TERMINAL, items.getById(gated.id)!!.role, "attempt 1 must be gate-blocked")
-            assertEquals(0, records(), "a gate failure must not be recorded")
-
-            fillAcceptanceNote(gated.id, ctx)
-            val retry = CompleteTreeTool().execute(params, ctx)
-            assertNotEquals(true, data(retry)["replayed"]?.jsonPrimitive?.booleanOrNull, "the retry executes, it does not replay: $retry")
-            assertNotNull(items.getById(gated.id))
-            assertEquals(Role.TERMINAL, items.getById(gated.id)!!.role)
-            assertEquals(1, records())
-        }
 
     // ---------------------------------------------------------------- probes
 

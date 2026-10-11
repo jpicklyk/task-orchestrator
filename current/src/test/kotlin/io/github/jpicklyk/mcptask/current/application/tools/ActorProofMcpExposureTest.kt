@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
@@ -10,7 +9,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.envelopeOk
 import io.github.jpicklyk.mcptask.current.test.getNoteVia
+import io.github.jpicklyk.mcptask.current.test.itemsWrite
 import io.github.jpicklyk.mcptask.current.test.listNotesVia
+import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
 import kotlinx.coroutines.runBlocking
@@ -34,7 +35,7 @@ import kotlin.test.assertTrue
 
 /**
  * Regression tests for item d426fbfa: an actor proof (a bearer JWT) supplied on `notes_write`,
- * `notes_read`, `advance_item`, or `create_work_tree` must never be echoed back over MCP.
+ * `notes_read`, `advance_item`, or `items_write` `create_tree` must never be echoed back over MCP.
  *
  * The 3.x tools funnel through [ActorClaim.toJson]; the 4.0 note tools have no proof mapping at all (a note view
  * maps `actor` to `{id, kind, parent?}` and `verification` to `{status, verifier?, reason?}`). These tests exercise
@@ -51,7 +52,6 @@ class ActorProofMcpExposureTest {
     private lateinit var repositoryProvider: DefaultRepositoryProvider
     private lateinit var context: ToolExecutionContext
     private lateinit var advanceItemTool: AdvanceItemTool
-    private lateinit var createWorkTreeTool: CreateWorkTreeTool
 
     /** A unique, JWT-shaped bearer credential used as the actor proof in a scenario. */
     private fun freshSecret(): String = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.${UUID.randomUUID()}"
@@ -61,7 +61,6 @@ class ActorProofMcpExposureTest {
         repositoryProvider = db.repositoryProvider()
         context = ToolExecutionContext(repositoryProvider, unitOfWork = db.unitOfWork())
         advanceItemTool = AdvanceItemTool()
-        createWorkTreeTool = CreateWorkTreeTool()
     }
 
     /** Creates a WorkItem directly via the repository and returns its UUID string. */
@@ -179,17 +178,17 @@ class ActorProofMcpExposureTest {
         }
 
     // -----------------------------------------------------------------------
-    // S4 — create_work_tree top-level actor proof never leaks, including via follow-up notes_read
+    // S4 — items_write create_tree top-level actor proof never leaks, including via follow-up notes_read
     // -----------------------------------------------------------------------
 
     @Test
-    fun `S4 create_work_tree response and follow-up notes_read list are SECRET-free`(): Unit =
+    fun `S4 create_tree response and follow-up notes_read list are SECRET-free`(): Unit =
         runBlocking {
             val secret = freshSecret()
 
-            val params =
+            val op =
                 buildJsonObject {
-                    put("actor", actorJson(id = "agent-4", proof = secret))
+                    put("op", "create_tree")
                     put(
                         "root",
                         buildJsonObject {
@@ -212,11 +211,11 @@ class ActorProofMcpExposureTest {
                     )
                 }
 
-            val result = createWorkTreeTool.execute(params, context) as JsonObject
-            assertTrue(result["success"]!!.jsonPrimitive.boolean, "expected success; got $result")
-            assertFalse(result.toString().contains(secret), "create_work_tree response must be SECRET-free")
+            val result = context.itemsWrite(op, actor = actorJson(id = "agent-4", proof = secret))
+            val element = result.okResult(0)
+            assertFalse(result.toString().contains(secret), "create_tree response must be SECRET-free")
 
-            val rootId = ((result["data"] as JsonObject)["root"] as JsonObject)["id"]!!.jsonPrimitive.content
+            val rootId = element["id"]!!.jsonPrimitive.content
 
             val listResult = context.listNotesVia(UUID.fromString(rootId))
             assertFalse(listResult.toString().contains(secret), "follow-up notes_read list must be SECRET-free")

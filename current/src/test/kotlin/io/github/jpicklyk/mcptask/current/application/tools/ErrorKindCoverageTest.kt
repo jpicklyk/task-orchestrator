@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
@@ -55,7 +54,7 @@ import kotlin.test.fail
  * Oracles: [T] task-scope Build steps 3 and 5 and AC1/AC2 (every MCP error, top-level and per-element, carries a kind
  * equal to its catalog code's kind; every 3.x code and message is unchanged; additions only; new `errorCode` values
  * use the catalog wire code); [E] the catalog table in `ErrorCatalogTest` (kind per code, lowercase strings); [M]
- * api-reference `complete_tree` entry shapes and the `advance_item` error-code list as of the base commit
+ * api-reference `advance_item` error-code list as of the base commit
  * (`gate_blocked`, `dependency_blocked`, `invalid_trigger`); [P] test-plan S3-S6 and S12.
  */
 class ErrorKindCoverageTest {
@@ -103,7 +102,6 @@ class ErrorKindCoverageTest {
                 )
             val adapter = McpToolAdapter()
             listOf(
-                CompleteTreeTool(),
                 ClaimItemTool(),
                 AdvanceItemTool()
             ).forEach { adapter.registerToolWithServer(server, it, context) }
@@ -219,87 +217,6 @@ class ErrorKindCoverageTest {
             kindByWireCode[code] ?: fail("$context: errorCode '$code' is in neither the 3.x nor the catalog wire vocabulary: $entry")
         assertEquals(expected, kind, "$context: errorKind for '$code' must equal its catalog kind: $entry")
     }
-
-    // ----------------------------------------------
-    // S4 - complete_tree per-item failures
-    // ----------------------------------------------
-
-    @Test
-    fun `S4 complete_tree gate-blocked item keeps its gate fields and gains errorCode gate_blocked with errorKind permanent`(): Unit =
-        runBlocking {
-            val gated = item("gated", tags = "gated")
-
-            val result = call("complete_tree", mapOf("itemIds" to listOf(gated.id.toString())))
-
-            val entry = result.data().byItem(gated.id)
-            assertEquals("gated", entry.str("title"))
-            assertEquals("false", entry["applied"]!!.jsonPrimitive.content)
-            val gateErrors = entry["gateErrors"]!!.jsonArray
-            assertTrue(gateErrors.any { it.jsonPrimitive.content.contains("acceptance-criteria") }, "gateErrors kept: $entry")
-            assertTrue(entry["missingNotes"].toString().contains("acceptance-criteria"), "missingNotes kept: $entry")
-            assertEquals("gate_blocked", entry.str("errorCode"))
-            assertEquals("permanent", entry.str("errorKind"))
-        }
-
-    @Test
-    fun `S4 complete_tree item with an unmet external blocker keeps error and blockers and gains errorCode dependency_blocked`(): Unit =
-        runBlocking {
-            val outsider = item("outside the set")
-            val blocked = item("blocked target")
-            db.repositoryProvider().dependencyRepository().create(
-                Dependency(fromItemId = outsider.id, toItemId = blocked.id, type = DependencyType.BLOCKS)
-            )
-
-            val result = call("complete_tree", mapOf("itemIds" to listOf(blocked.id.toString())))
-
-            val entry = result.data().byItem(blocked.id)
-            assertEquals("false", entry["applied"]!!.jsonPrimitive.content)
-            assertNotNull(entry["error"], "the human-readable error is kept: $entry")
-            assertNotNull(entry["blockers"], "the blockers array is kept: $entry")
-            assertEquals("dependency_blocked", entry.str("errorCode"))
-            assertEquals("permanent", entry.str("errorKind"))
-        }
-
-    @Test
-    fun `S4 complete_tree every non-applied variant carries errorCode and errorKind consistent with the catalog`(): Unit =
-        runBlocking {
-            val upstream = item("upstream")
-            val gated = item("gated middle", tags = "gated")
-            val downstream = item("downstream")
-            val alreadyTerminal = item("already terminal", role = Role.TERMINAL)
-            val deps = db.repositoryProvider().dependencyRepository()
-            deps.create(Dependency(fromItemId = upstream.id, toItemId = gated.id, type = DependencyType.BLOCKS))
-            deps.create(Dependency(fromItemId = gated.id, toItemId = downstream.id, type = DependencyType.BLOCKS))
-
-            val result =
-                call(
-                    "complete_tree",
-                    mapOf("itemIds" to listOf(upstream, gated, downstream, alreadyTerminal).map { it.id.toString() })
-                )
-
-            val data = result.data()
-            assertEquals("true", data.byItem(upstream.id)["applied"]!!.jsonPrimitive.content, "control: the unblocked item completes")
-            assertCodeAndKind(data.byItem(gated.id), "gate failure")
-            val skippedDownstream = data.byItem(downstream.id)
-            assertEquals("true", skippedDownstream["skipped"]!!.jsonPrimitive.content, "control: the dependent is skipped")
-            assertCodeAndKind(skippedDownstream, "dependency skip")
-            val skippedTerminal = data.byItem(alreadyTerminal.id)
-            assertEquals("true", skippedTerminal["skipped"]!!.jsonPrimitive.content, "control: the terminal item is skipped")
-            assertCodeAndKind(skippedTerminal, "already terminal skip")
-        }
-
-    @Test
-    fun `S4 probe an applied complete_tree entry carries no error fields`(): Unit =
-        runBlocking {
-            val plain = item("plain")
-
-            val result = call("complete_tree", mapOf("itemIds" to listOf(plain.id.toString())))
-
-            val entry = result.data().byItem(plain.id)
-            assertEquals("true", entry["applied"]!!.jsonPrimitive.content, "control: it completes: $entry")
-            assertNull(entry["errorCode"])
-            assertNull(entry["errorKind"])
-        }
 
     // ----------------------------------------------
     // S6 - claim_item results carry kind and code

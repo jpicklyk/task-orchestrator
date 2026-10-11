@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.service.NoteCommandService
 import io.github.jpicklyk.mcptask.current.application.service.NoteUpsertCommand
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -16,7 +15,12 @@ import io.github.jpicklyk.mcptask.current.domain.model.Link
 import io.github.jpicklyk.mcptask.current.domain.model.LinkRelation
 import io.github.jpicklyk.mcptask.current.domain.model.RefKind
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.test.createTreeOp
+import io.github.jpicklyk.mcptask.current.test.itemsWrite
+import io.github.jpicklyk.mcptask.current.test.okResult
+import io.github.jpicklyk.mcptask.current.test.results
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import io.github.jpicklyk.mcptask.current.test.treeItemId
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -46,7 +50,7 @@ import kotlin.test.fail
  *
  * Scenario ids are the test-plan's; additions that refine a scenario carry a letter suffix (S9b, S13b, ...) and cite the
  * decision they derive from. Sources are driven through the production services only: [NoteCommandService] for notes,
- * [DocumentService] for documents, [CreateWorkTreeTool] for the tree, and [LinkService] for attach/detach and the reads.
+ * [DocumentService] for documents, the `items_write` `create_tree` op for the tree, and [LinkService] for attach/detach and the reads.
  * Links are observed through the link store's `findFrom` and `links` row counts.
  *
  * Fixture invariants (satisfied by construction): a root is a depth-0 item whose `rootId` is its own id; a child has
@@ -603,7 +607,7 @@ class LinkServiceTest {
             assertEquals(docRef(d), refs(noteRef(stays)).single().to)
             assertEquals(1, linkRows())
         }
-    // ---------------------------------------------------------------- S16 create_work_tree derived_from (D11)
+    // ---------------------------------------------------------------- S16 create_tree derived_from (D11)
 
     private val planBody = "# Overview\nFeature overview text.\n# Task 1\nTask 1 detail text."
 
@@ -675,15 +679,20 @@ class LinkServiceTest {
         }
 
     private suspend fun runTree(params: JsonObject): JsonObject =
-        CreateWorkTreeTool().execute(params, ToolExecutionContext(provider, unitOfWork = db.unitOfWork())) as JsonObject
+        ToolExecutionContext(provider, unitOfWork = db.unitOfWork()).itemsWrite(
+            createTreeOp(
+                *params.entries
+                    .map {
+                        it.key to it.value
+                    }.toTypedArray()
+            )
+        )
 
-    private fun JsonObject.succeeded(): Boolean = this["success"]!!.jsonPrimitive.boolean
+    private fun JsonObject.succeeded(): Boolean = results()[0]["ok"]!!.jsonPrimitive.boolean
 
-    private fun JsonObject.treeRootId(): UUID =
-        UUID.fromString(((this["data"] as JsonObject)["root"] as JsonObject)["id"]!!.jsonPrimitive.content)
+    private fun JsonObject.treeRootId(): UUID = okResult(0).treeItemId(0)
 
-    private fun JsonObject.treeChildId(): UUID =
-        UUID.fromString((((this["data"] as JsonObject)["children"] as JsonArray)[0] as JsonObject)["id"]!!.jsonPrimitive.content)
+    private fun JsonObject.treeChildId(): UUID = okResult(0).treeItemId(1)
 
     private suspend fun noteIdOf(
         itemId: UUID,

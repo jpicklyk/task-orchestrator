@@ -3,10 +3,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools.advance
 import io.github.jpicklyk.mcptask.current.application.api.CallContext
 import io.github.jpicklyk.mcptask.current.application.api.advance.TransitionRequest
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
-import io.github.jpicklyk.mcptask.current.application.service.AdvanceCascadeEvent
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceResult
-import io.github.jpicklyk.mcptask.current.application.service.BlockerInfo
 import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation
 import io.github.jpicklyk.mcptask.current.application.service.buildDispatchProfileJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
@@ -17,7 +15,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJ
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
-import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.OpSpec
@@ -26,7 +23,6 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
@@ -134,26 +130,12 @@ private suspend fun WriteScope.element(
 
     return buildJsonObject {
         put("itemId", result.itemId.toString())
-        put("previousRole", wire(result.previousRole))
-        put("newRole", wire(result.newRole))
+        put("previousRole", TransitionJson.role(result.previousRole))
+        put("newRole", TransitionJson.role(result.newRole))
         put("trigger", result.trigger)
         result.statusLabel?.let { put("statusLabel", it) }
-        if (result.cascadeEvents.isNotEmpty()) put("cascades", JsonArray(result.cascadeEvents.map(::cascade)))
-        if (result.unblockedItems.isNotEmpty()) {
-            put(
-                "unblocked",
-                buildJsonArray {
-                    result.unblockedItems.forEach {
-                        add(
-                            buildJsonObject {
-                                put("itemId", it.itemId.toString())
-                                put("title", it.title)
-                            }
-                        )
-                    }
-                }
-            )
-        }
+        TransitionJson.cascades(result.cascadeEvents)?.let { put("cascades", it) }
+        TransitionJson.unblocked(result.unblockedItems)?.let { put("unblocked", it) }
         if (expectedKeys.isNotEmpty()) put("expectedNotes", JsonArray(expectedKeys.map { JsonPrimitive(it) }))
         phase?.guidanceKey?.let { put("guidanceKey", it) }
         phase?.skillPointer?.let { put("skillPointer", it) }
@@ -161,56 +143,3 @@ private suspend fun WriteScope.element(
         NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty(result.violations)?.let { put("violations", it) }
     }
 }
-
-private fun cascade(event: AdvanceCascadeEvent): JsonObject =
-    buildJsonObject {
-        put("itemId", event.itemId.toString())
-        put("previousRole", wire(event.previousRole))
-        put("targetRole", wire(event.targetRole))
-        put("applied", event.applied)
-        val blocked =
-            when {
-                event.gateBlocked -> "gate"
-                event.resourceBlocked -> "resource"
-                event.roleBlocked -> "role"
-                event.dependencyBlocked -> "dependency"
-                else -> null
-            }
-        blocked?.let { put("blocked", it) }
-        if (event.gateBlocked && event.gateMissingNotes.isNotEmpty()) {
-            put(
-                "missing",
-                buildJsonArray {
-                    event.gateMissingNotes.forEach { note ->
-                        add(
-                            buildJsonObject {
-                                put("key", note.key)
-                                put("role", wire(note.role))
-                                note.seat?.let { put("seat", it) }
-                            }
-                        )
-                    }
-                }
-            )
-        }
-        if (event.resourceBlocked && event.contendedResources.isNotEmpty()) {
-            put("contended", JsonArray(event.contendedResources.map { JsonPrimitive(it) }))
-        }
-        if (event.dependencyBlocked && event.blockers.isNotEmpty()) {
-            put(
-                "blockers",
-                buildJsonArray {
-                    event.blockers.forEach { blocker ->
-                        add(
-                            buildJsonObject {
-                                put("id", blocker.fromItemId.toString())
-                                put("role", blocker.currentRole?.let(::wire) ?: BlockerInfo.UNKNOWN_ROLE)
-                            }
-                        )
-                    }
-                }
-            )
-        }
-    }
-
-private fun wire(role: Role): String = role.name.lowercase()

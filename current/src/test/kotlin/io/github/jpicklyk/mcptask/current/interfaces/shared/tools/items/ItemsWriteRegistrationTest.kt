@@ -56,19 +56,25 @@ class ItemsWriteRegistrationTest {
     fun `S18 the registry holds items_write with the three ops, their capability, profile and destructive flags`() {
         val spec = assertNotNull(registry["items_write"])
         assertTrue(spec is OpsToolSpec<*>)
-        assertEquals(listOf("create", "update", "delete"), spec.ops.map { it.name })
-        for (op in spec.ops) {
+        assertEquals(listOf("create", "update", "delete", "create_tree", "complete_tree"), spec.ops.map { it.name })
+        for (op in spec.ops.filter { it.name != "complete_tree" }) {
             assertEquals(ApiCapability.WRITE_ITEMS, op.capability, op.name)
             assertEquals(ToolProfile.KNOWLEDGE, op.profile, op.name)
         }
-        assertEquals(listOf(false, false, true), spec.ops.map { it.destructive }, "only delete is destructive")
+        // Q21: complete_tree is N transitions through the advance pipeline (capability advance, orchestration profile).
+        val completeTree = spec.ops.single { it.name == "complete_tree" }
+        assertEquals(ApiCapability.ADVANCE, completeTree.capability)
+        assertEquals(ToolProfile.ORCHESTRATION, completeTree.profile)
+        assertEquals(listOf(false, false, true, false, false), spec.ops.map { it.destructive }, "only delete is destructive")
     }
 
     @Test
     fun `S18 manage_items is gone from the MCP tool list while other tools remain`() {
         val names = buildMcpTools().map { it.name }
-        assertTrue(names.isNotEmpty() && "complete_tree" in names, "control: the list still holds other tools: $names")
+        assertTrue(names.isNotEmpty() && "get_context" in names, "control: the list still holds other tools: $names")
         assertTrue("manage_items" !in names, "manage_items must not be registered: $names")
+        assertTrue("create_work_tree" !in names, "create_work_tree must not be registered (Q21): $names")
+        assertTrue("complete_tree" !in names, "complete_tree must not be registered (Q21): $names")
     }
 
     @Test
@@ -76,7 +82,16 @@ class ItemsWriteRegistrationTest {
         assertEquals(emptyList(), ParityCoverage.missing(registry, ProductionParity.scenarios, ProductionParity.exemptions))
         assertEquals(emptyList(), ParityCoverage.stale(registry, ProductionParity.scenarios))
         val itemsWriteMembers = ParityCoverage.members(registry).filter { it.first == "items_write" }
-        assertEquals(listOf("items_write" to "create", "items_write" to "update", "items_write" to "delete"), itemsWriteMembers)
+        assertEquals(
+            listOf(
+                "items_write" to "create",
+                "items_write" to "update",
+                "items_write" to "delete",
+                "items_write" to "create_tree",
+                "items_write" to "complete_tree"
+            ),
+            itemsWriteMembers
+        )
     }
 
     @Test
@@ -84,7 +99,8 @@ class ItemsWriteRegistrationTest {
         assertEquals(emptyList(), ToolSurfaceChecks.budgetViolations(registry))
         assertEquals(emptyList(), ToolSurfaceChecks.docViolations(registry))
         val size = assertNotNull(ToolSurfaceChecks.sizes(registry, ToolProfile.KNOWLEDGE)["items_write"])
-        assertTrue(size in 1..3_000, "items_write knowledge surface is $size chars; the D8 target is at most 3000")
+        // Q21 D7 raised the target to 6000 with create_tree (Q18 D8 was 3000).
+        assertTrue(size in 1..6_000, "items_write knowledge surface is $size chars; the Q21 D7 target is at most 6000")
     }
 
     @Test

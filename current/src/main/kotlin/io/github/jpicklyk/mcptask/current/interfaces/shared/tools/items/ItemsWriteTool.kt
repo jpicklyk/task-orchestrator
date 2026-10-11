@@ -43,14 +43,17 @@ data class CascadeSummary(
 )
 
 /**
- * The result of one `items_write` element. [version] is set by create and update, [deleted] (the item plus its
- * descendants) by delete; [cascade] lists the old parent's cascades and is omitted from the wire when empty.
+ * The result of one `items_write` element. [id] is the item the element wrote (the tree root for `create_tree`, the
+ * `rootId` of a `complete_tree`; omitted when there is none). [version] is set by create, update and `create_tree`,
+ * [deleted] (the item plus its descendants) by delete; [cascade] lists the old parent's cascades and is omitted from
+ * the wire when empty. [payload] holds an op's own members, spliced into `results[i]` after them.
  */
 data class ItemWriteResult(
-    val id: UUID,
+    val id: UUID? = null,
     val version: Long? = null,
     val deleted: Int? = null,
-    val cascade: List<CascadeSummary> = emptyList()
+    val cascade: List<CascadeSummary> = emptyList(),
+    val payload: JsonObject = JsonObject(emptyMap())
 )
 
 /** Optional fields an `update` can set to null. */
@@ -96,14 +99,14 @@ internal object ItemDocs {
     const val RECURSIVE = "Delete the subtree; required when the item has children."
 }
 
-internal const val ITEMS_WRITE_DESCRIPTION = "Create, update and delete work items, one ops[] element each."
+internal const val ITEMS_WRITE_DESCRIPTION = "Create, update and delete work items or whole trees, one ops[] element each."
 
-/** The `items_write` tool: `create`, `update` and `delete` over one `ops[]` array. */
+/** The `items_write` tool: `create`, `update`, `delete`, `create_tree` and `complete_tree` over one `ops[]` array. */
 internal fun itemsWriteTool(): OpsToolSpec<ItemWriteResult> =
     OpsToolSpec(
         name = "items_write",
         description = ITEMS_WRITE_DESCRIPTION,
-        ops = listOf(createItemOp(), updateItemOp(), deleteItemOp()),
+        ops = listOf(createItemOp(), updateItemOp(), deleteItemOp(), createTreeOp(), completeTreeOp()),
         codec = ItemWriteCodec,
         element = ::itemWriteElement
     )
@@ -111,7 +114,7 @@ internal fun itemsWriteTool(): OpsToolSpec<ItemWriteResult> =
 /** The `results[i]` fields of a successful element. */
 internal fun itemWriteElement(result: ItemWriteResult): JsonObject =
     buildJsonObject {
-        put("id", result.id.toString())
+        result.id?.let { put("id", it.toString()) }
         result.version?.let { put("version", it) }
         result.deleted?.let { put("deleted", it) }
         if (result.cascade.isNotEmpty()) {
@@ -130,16 +133,20 @@ internal fun itemWriteElement(result: ItemWriteResult): JsonObject =
                 )
             )
         }
+        for ((key, value) in result.payload) put(key, value)
     }
 
 /** Stores an element's result in an idempotency record: exactly the fields [itemWriteElement] emits. */
 internal object ItemWriteCodec : IdempotencyCodec<ItemWriteResult> {
+    /** The members [itemWriteElement] writes from the typed fields; every other member is [ItemWriteResult.payload]. */
+    private val RESULT_MEMBERS = setOf("id", "version", "deleted", "cascade")
+
     override fun encode(value: ItemWriteResult): JsonElement = itemWriteElement(value)
 
     override fun decode(json: JsonElement): ItemWriteResult {
         val obj = json.jsonObject
         return ItemWriteResult(
-            id = UUID.fromString(obj.getValue("id").jsonPrimitive.content),
+            id = obj["id"]?.jsonPrimitive?.contentOrNull?.let(UUID::fromString),
             version = obj["version"]?.jsonPrimitive?.longOrNull,
             deleted = obj["deleted"]?.jsonPrimitive?.intOrNull,
             cascade =
@@ -152,7 +159,8 @@ internal object ItemWriteCodec : IdempotencyCodec<ItemWriteResult> {
                         applied = c.getValue("applied").jsonPrimitive.booleanOrNull ?: false,
                         reason = c["reason"]?.jsonPrimitive?.contentOrNull
                     )
-                }
+                },
+            payload = JsonObject(obj.filterKeys { it !in RESULT_MEMBERS })
         )
     }
 }

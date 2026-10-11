@@ -1,9 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventLogRig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.payload
+import io.github.jpicklyk.mcptask.current.test.createTreeOp
 import io.github.jpicklyk.mcptask.current.test.envelopeOk
+import io.github.jpicklyk.mcptask.current.test.itemsWrite
+import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.github.jpicklyk.mcptask.current.test.upsertNoteVia
 import kotlinx.coroutines.runBlocking
@@ -31,7 +33,7 @@ import kotlin.test.assertTrue
  * bodyFromFile upsert (never the file's text) and is present-as-null for an inline body. Oracle: the r1 declaration
  * (key always present; value is the supplied path; null for inline; file contents never recorded).
  *
- * F6a: create_work_tree in attach mode (`root: {id}`) adopts an existing root and records NO `item.created` for it,
+ * F6a: items_write create_tree in attach mode (`root: {id}`) adopts an existing root and records NO `item.created` for it,
  * only for each new child. Oracle: attach mode creates nothing for the root, so there is no creation to record.
  *
  * F6b (fan-out guard, throwing live subscriber): NOT COVERED. No public declaration or existing test seam lets a
@@ -101,27 +103,29 @@ class ItemCommandServiceR1Test {
 
             val (_, rows) =
                 rig.written {
-                    rig.callOk(
-                        CreateWorkTreeTool(),
-                        "root" to buildJsonObject { put("id", existing.id.toString()) },
-                        "children" to
-                            buildJsonArray {
-                                add(
-                                    buildJsonObject {
-                                        put("ref", "a")
-                                        put("type", "test-item")
-                                        put("title", "Child A")
-                                    },
-                                )
-                                add(
-                                    buildJsonObject {
-                                        put("ref", "b")
-                                        put("type", "test-item")
-                                        put("title", "Child B")
-                                    },
-                                )
-                            },
-                    )
+                    rig
+                        .itemsWrite(
+                            createTreeOp(
+                                "root" to buildJsonObject { put("id", existing.id.toString()) },
+                                "children" to
+                                    buildJsonArray {
+                                        add(
+                                            buildJsonObject {
+                                                put("ref", "a")
+                                                put("type", "test-item")
+                                                put("title", "Child A")
+                                            },
+                                        )
+                                        add(
+                                            buildJsonObject {
+                                                put("ref", "b")
+                                                put("type", "test-item")
+                                                put("title", "Child B")
+                                            },
+                                        )
+                                    }
+                            )
+                        ).okResult(0)
                 }
 
             val created = rows.filter { it.type == "item.created" }

@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
@@ -17,6 +16,10 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeWriteAuth
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.shared.tools.ToolProfile
+import io.github.jpicklyk.mcptask.current.test.completeTreeOp
+import io.github.jpicklyk.mcptask.current.test.itemsWrite
+import io.github.jpicklyk.mcptask.current.test.okResult
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.delete
 import io.ktor.client.request.header
@@ -35,6 +38,7 @@ import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -52,7 +56,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Write paths that no other test runs under the production [OutsideUnitPolicy.FAIL]: `complete_tree`,
+ * Write paths that no other test runs under the production [OutsideUnitPolicy.FAIL]: `items_write` `complete_tree`,
  * `manage_plan_documents` stash (MCP) and `PUT /roots/{rootId}/plans/{slug}` (REST), `claim_item` claim and
  * release, and the operator lease force-release `DELETE /resources/leases/{key}`. Each runs over a REAL
  * [ServerComposition] whose database refuses any store write outside a unit of work, so a write site that
@@ -133,15 +137,12 @@ class FailPolicyWritePathsTest {
             val child = composition.seedItem("FAIL complete_tree child", parentId = root.id)
 
             val result =
-                CompleteTreeTool().execute(
-                    buildJsonObject {
-                        put("rootId", root.id.toString())
-                        put("trigger", "complete")
-                    },
-                    composition.toolContext
+                composition.toolContext.itemsWrite(
+                    completeTreeOp("rootId" to JsonPrimitive(root.id.toString()), "trigger" to JsonPrimitive("complete")),
+                    profile = ToolProfile.ORCHESTRATION
                 )
 
-            assertSuccess(result)
+            result.okResult(0)
             val stored =
                 composition.toolContext.repositoryProvider
                     .workItemRepository()

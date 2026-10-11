@@ -9,8 +9,6 @@ import io.github.jpicklyk.mcptask.current.application.service.ConfigService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.QueryRulesTool
@@ -595,9 +593,6 @@ internal fun buildMcpTools(): List<ToolDefinition> =
         GetNextStatusTool(),
         GetNextItemTool(),
         GetBlockedItemsTool(),
-        // Phase 3: Compound operations
-        CompleteTreeTool(),
-        CreateWorkTreeTool(),
         // Phase 3: Context
         GetContextTool(),
         // Per-root schema layering: transport-agnostic config sync

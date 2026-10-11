@@ -235,7 +235,7 @@ class StoreWriteConfinementTest {
     fun `the scope covers tools routes and non store infrastructure and excludes only owners ports and the SQLite stores`() {
         listOf(
             "application/tools/items/CreateItemHandler.kt",
-            "application/tools/compound/CreateWorkTreeTool.kt",
+            "interfaces/shared/tools/items/CreateTreeOp.kt",
             "application/tools/ToolExecutionContext.kt",
             "interfaces/api/v1/routes/ItemWriteRoutes.kt",
             "interfaces/api/v1/routes/NoteWriteRoutes.kt",
