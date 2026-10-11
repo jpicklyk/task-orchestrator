@@ -80,7 +80,7 @@ class PrecedenceTableTest {
             rootId = rootId,
             tags = tags,
             depth = 0,
-            properties = if (traits.isEmpty()) null else """{"traits":[${traits.joinToString(",") { "\"$it\"" }}]}"""
+            traits = traits
         )
 
     private fun serverResolver(

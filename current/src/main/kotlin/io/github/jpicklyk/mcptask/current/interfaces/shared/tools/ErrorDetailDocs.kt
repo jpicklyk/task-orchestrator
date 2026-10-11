@@ -46,7 +46,12 @@ object ErrorDetailDocs {
                     "retryAfterMs" to "integer, optional"
                 ),
             ErrorCode.SCHEMA_VIOLATION to
-                linkedMapOf("type" to "string, optional", "reason" to "string", "availableTypes" to "array of string, optional"),
+                linkedMapOf(
+                    "type" to "string, optional",
+                    "reason" to "string",
+                    "availableTypes" to "array of string, optional",
+                    "availableTraits" to "array of string, optional"
+                ),
             ErrorCode.SCHEMA_PINNED_CONFLICT to
                 linkedMapOf("itemId" to ID, "pinnedVersion" to "string", "currentVersion" to "string"),
             ErrorCode.CONFIG_INVALID to linkedMapOf("errors" to "array of {path: string, reason: string}"),

@@ -96,7 +96,7 @@ components:
   schemas:
     ItemDto:
       type: object
-      required: [id, title, summary, role, priority, requiresVerification, tags, properties,
+      required: [id, title, summary, role, priority, requiresVerification, tags, traits, properties,
                  createdAt, modifiedAt, roleChangedAt, etag, depth, isClaimed]
       properties:
         id:
@@ -138,6 +138,11 @@ components:
           type: array
           items:
             type: string
+        traits:
+          type: array
+          items:
+            type: string
+          description: The item's trait names in order. Always present, possibly empty.
         properties:
           type: object
         createdAt:
@@ -477,9 +482,17 @@ components:
         statusLabel:
           type: string
           nullable: true
+        traits:
+          type: array
+          items:
+            type: string
+          description: >-
+            Trait names in order. Each must be non-blank, trimmed, comma-free, at most 100 characters and unique; when
+            the root declares any trait an undeclared name is rejected with 400 validation_error (details.availableTraits).
         properties:
           type: object
           nullable: true
+          description: A "traits" key inside it is rejected with 400 validation_error; use the typed traits field.
         metadata:
           type: string
           nullable: true
@@ -1954,7 +1967,8 @@ paths:
             schema:
               type: object
               description: |
-                RFC 7396 merge patch. tags must be a CSV string (not array).
+                RFC 7396 merge patch. tags must be a CSV string (not array). traits is an array of names
+                (null clears it; arrays replace wholesale).
                 Server-owned fields id, role, previousRole, roleChangedAt, depth,
                 createdAt, modifiedAt, version, claimedBy, claimedAt, claimExpiresAt,
                 originalClaimedAt cannot be patched (400 field_not_patchable).

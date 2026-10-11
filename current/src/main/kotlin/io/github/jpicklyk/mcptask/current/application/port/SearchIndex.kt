@@ -49,6 +49,8 @@ data class TextQuery(
  * @property roles Only content whose owning item is in one of these roles. Null or empty means any role.
  * @property tagsAny The caller's tag filter: the owning item carries at least one of these tags, compared
  *   case-insensitively. Null or empty means no tag filter.
+ * @property traitsAny The owning item carries at least one of these trait names, compared exactly (case-sensitive)
+ *   after trimming each element and dropping empty ones. Null or effectively empty means no trait filter.
  * @property principalTagsAny Access scope tag allowlist: the owning item carries at least one of these tags, compared
  *   exactly (case-sensitive, after trimming each element of the item's comma-separated tag list). Null or empty
  *   means no tag constraint.
@@ -59,6 +61,7 @@ data class ScopeFilter(
     val rootIds: Set<UUID>? = null,
     val roles: Set<Role>? = null,
     val tagsAny: List<String>? = null,
+    val traitsAny: List<String>? = null,
     val principalTagsAny: Set<String>? = null,
 )
 

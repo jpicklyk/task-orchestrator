@@ -114,7 +114,7 @@ class GetContextToolResourceLeaseTest {
                     id = itemId,
                     title = "Migration task",
                     role = Role.WORK,
-                    properties = """{"traits":["needs-lock"]}"""
+                    traits = listOf("needs-lock")
                 )
             val schemaService =
                 fakeSchemaService(
@@ -154,7 +154,7 @@ class GetContextToolResourceLeaseTest {
                     id = itemId,
                     title = "Migration task",
                     role = Role.WORK,
-                    properties = """{"traits":["needs-lock"]}"""
+                    traits = listOf("needs-lock")
                 )
             val schemaService =
                 fakeSchemaService(

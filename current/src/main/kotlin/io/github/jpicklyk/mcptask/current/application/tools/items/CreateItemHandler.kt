@@ -11,10 +11,10 @@ import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCanc
 import io.github.jpicklyk.mcptask.current.application.tools.ElementOutcome
 import io.github.jpicklyk.mcptask.current.application.tools.ElementResult
 import io.github.jpicklyk.mcptask.current.application.tools.KeyedCall
-import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.current.application.tools.TraitList
 import io.github.jpicklyk.mcptask.current.application.tools.omitOnConfigUnavailable
 import io.github.jpicklyk.mcptask.current.application.tools.putElementError
 import io.github.jpicklyk.mcptask.current.application.tools.resolveWorkItemIdString
@@ -195,9 +195,8 @@ class CreateItemHandler {
         val metadata = extractItemString(itemObj, "metadata")
         val tags = extractItemString(itemObj, "tags")
         val type = extractItemString(itemObj, "type")
-        val rawProperties = extractItemString(itemObj, "properties")
-        val traitsStr = extractItemString(itemObj, "traits") ?: sharedTraits
-        val properties = PropertiesHelper.mergeTraitsFromString(rawProperties, traitsStr)
+        val properties = extractItemString(itemObj, "properties")
+        val traits = TraitList.parse(extractItemString(itemObj, "traits") ?: sharedTraits)
 
         // Resolve parentId: per-item overrides shared default
         val itemParentIdStr = extractItemString(itemObj, "parentId")
@@ -236,7 +235,8 @@ class CreateItemHandler {
             metadata = metadata,
             tags = tags,
             type = type,
-            properties = properties
+            properties = properties,
+            traits = traits
         )
     }
 

@@ -107,7 +107,7 @@ class DataStepsStartupTest {
     }
 
     /** The once steps the production composition registers (the shipped data steps). */
-    private val productionSteps = listOf("config-canonicalize", "type-backfill")
+    private val productionSteps = listOf("config-canonicalize", "type-backfill", "traits-from-properties")
 
     /** The ledger [ledger] reads (ordered by name) after the production steps and the [extra] once steps ran. */
     private fun expectedLedger(vararg extra: String): List<String> = (productionSteps + extra).sorted()

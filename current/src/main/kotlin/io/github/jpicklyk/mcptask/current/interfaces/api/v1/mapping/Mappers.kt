@@ -90,6 +90,7 @@ fun WorkItem.toDto(
         complexity = complexity,
         requiresVerification = requiresVerification,
         tags = tagList() ?: emptyList(),
+        traits = traits,
         properties = parsePropertiesOrEmpty(properties),
         createdAt = createdAt.toString(),
         modifiedAt = modifiedAt.toString(),

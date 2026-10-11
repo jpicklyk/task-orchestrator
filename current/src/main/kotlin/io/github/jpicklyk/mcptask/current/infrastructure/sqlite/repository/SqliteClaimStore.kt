@@ -149,7 +149,7 @@ class SqliteClaimStore(
                 if (row == null) {
                     ClaimResult.NotFound(itemId)
                 } else {
-                    val item = WorkItemRows.toWorkItem(row)
+                    val item = WorkItemRows.withTraits(WorkItemRows.toWorkItem(row))
                     when {
                         item.role == Role.TERMINAL -> ClaimResult.TerminalItem(itemId)
                         item.claimedBy == agentId -> ClaimResult.Success(item)
@@ -197,7 +197,7 @@ class SqliteClaimStore(
                 val updatedRow =
                     WorkItemsTable.selectAll().where { WorkItemsTable.id eq itemId }.singleOrNull()
                         ?: return@writeTx ReleaseResult.NotFound(itemId)
-                ReleaseResult.Success(WorkItemRows.toWorkItem(updatedRow))
+                ReleaseResult.Success(WorkItemRows.withTraits(WorkItemRows.toWorkItem(updatedRow)))
             } else {
                 val exists = WorkItemsTable.selectAll().where { WorkItemsTable.id eq itemId }.singleOrNull()
                 if (exists == null) ReleaseResult.NotFound(itemId) else ReleaseResult.NotClaimedByYou(itemId)
@@ -215,6 +215,7 @@ class SqliteClaimStore(
                 .selectAll()
                 .where { WorkItemsTable.claimedBy eq agentId }
                 .map { WorkItemRows.toWorkItem(it) }
+                .let { WorkItemRows.withTraits(it) }
         }
 
     override suspend fun findLapsedClaims(): List<WorkItem> {
@@ -224,6 +225,7 @@ class SqliteClaimStore(
                 .selectAll()
                 .where { ClaimPredicates.lapsed(now) }
                 .map { WorkItemRows.toWorkItem(it) }
+                .let { WorkItemRows.withTraits(it) }
         }
     }
 
@@ -253,6 +255,7 @@ class SqliteClaimStore(
                 .where { conditions.reduce { acc, op -> acc and op } }
                 .limit(limit)
                 .map { WorkItemRows.toWorkItem(it) }
+                .let { WorkItemRows.withTraits(it) }
         }
     }
 
@@ -307,7 +310,7 @@ class SqliteClaimStore(
                     NextItemOrder.NEWEST_FIRST -> baseQuery.orderBy(WorkItemsTable.createdAt, SortOrder.DESC)
                 }
 
-            val candidates = orderedQuery.limit(limit).map { WorkItemRows.toWorkItem(it) }
+            val candidates = orderedQuery.limit(limit).map { WorkItemRows.toWorkItem(it) }.let { WorkItemRows.withTraits(it) }
 
             // Ancestor-claim filter (strict-by-default sub-tree isolation): disqualify a candidate whose ancestor
             // holds an active claim by a disqualifying agent. With a requesting agent only OTHER agents' claims
@@ -443,6 +446,7 @@ class SqliteClaimStore(
                     .limit(limit)
                     .offset(offset.coerceAtLeast(0).toLong())
                     .map { WorkItemRows.toWorkItem(it) }
+                    .let { WorkItemRows.withTraits(it) }
             // The exact eligible count, always a second statement (never inferred from a short page) so the
             // statement count of a call does not depend on how many rows match.
             val total =

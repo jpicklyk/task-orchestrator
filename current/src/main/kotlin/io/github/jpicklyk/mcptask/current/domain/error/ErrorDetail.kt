@@ -179,7 +179,8 @@ sealed interface ErrorDetail {
     data class SchemaViolation(
         val type: String? = null,
         val reason: String,
-        val availableTypes: List<String>? = null
+        val availableTypes: List<String>? = null,
+        val availableTraits: List<String>? = null
     ) : ErrorDetail
 
     data class SchemaPinnedConflict(

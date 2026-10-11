@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
 import io.github.jpicklyk.mcptask.current.application.service.statusLabelKey
-import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.domain.lifecycle.Trigger
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
@@ -194,8 +193,8 @@ class EffectiveConfigResolver(
         resolvedSchema: WorkItemSchema?
     ): List<String> = TraitResolver.order(itemTraits(item), resolvedSchema?.defaultTraits ?: emptyList())
 
-    /** [item]'s own traits from its properties bag. */
-    private fun itemTraits(item: WorkItem): List<String> = PropertiesHelper.extractTraits(item.properties)
+    /** [item]'s own typed traits. */
+    private fun itemTraits(item: WorkItem): List<String> = item.traits
 
     /** Returns BEFORE any per-root read when [traits] is empty (the common, trait-less case). */
     private suspend fun resolveDispatchProfilesForTraits(

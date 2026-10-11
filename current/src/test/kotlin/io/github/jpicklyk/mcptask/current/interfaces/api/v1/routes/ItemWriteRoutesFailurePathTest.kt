@@ -345,7 +345,7 @@ class ItemWriteRoutesFailurePathTest {
             val item =
                 (
                     sqlite.workItemRepository().create(
-                        WorkItem(title = "Traited S1", role = Role.QUEUE, depth = 0, properties = """{"traits":["needs-staging-db"]}""")
+                        WorkItem(title = "Traited S1", role = Role.QUEUE, depth = 0, traits = listOf("needs-staging-db"))
                     )!!
                 )
             val failingRoleTx = FailingRoleTransitionRepository(sqlite.roleTransitionRepository(), failFor = item.id)
@@ -382,7 +382,7 @@ class ItemWriteRoutesFailurePathTest {
                             title = "Traited S1 replay",
                             role = Role.QUEUE,
                             depth = 0,
-                            properties = """{"traits":["needs-staging-db"]}"""
+                            traits = listOf("needs-staging-db")
                         )
                     )!!
                 )
@@ -417,7 +417,7 @@ class ItemWriteRoutesFailurePathTest {
             val p =
                 (
                     sqlite.workItemRepository().create(
-                        WorkItem(title = "P S4", role = Role.QUEUE, depth = 0, properties = """{"traits":["needs-staging-db"]}""")
+                        WorkItem(title = "P S4", role = Role.QUEUE, depth = 0, traits = listOf("needs-staging-db"))
                     )!!
                 )
             val pStamped = (sqlite.workItemRepository().update(p.copy(rootId = p.id))!!)
@@ -582,7 +582,7 @@ class ItemWriteRoutesFailurePathTest {
             val item =
                 (
                     sqlite.workItemRepository().create(
-                        WorkItem(title = "Traited S8", role = Role.QUEUE, depth = 0, properties = """{"traits":["needs-staging-db"]}""")
+                        WorkItem(title = "Traited S8", role = Role.QUEUE, depth = 0, traits = listOf("needs-staging-db"))
                     )!!
                 )
             val leaseFake = SimpleLeaseFakeRepository()
@@ -623,7 +623,7 @@ class ItemWriteRoutesFailurePathTest {
                             title = "Traited S8 probe 1ms",
                             role = Role.QUEUE,
                             depth = 0,
-                            properties = """{"traits":["needs-staging-db"]}"""
+                            traits = listOf("needs-staging-db")
                         )
                     )!!
                 )
@@ -655,7 +655,7 @@ class ItemWriteRoutesFailurePathTest {
                             title = "Traited S8 probe 0ms",
                             role = Role.QUEUE,
                             depth = 0,
-                            properties = """{"traits":["needs-staging-db"]}"""
+                            traits = listOf("needs-staging-db")
                         )
                     )!!
                 )

@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.service.rest
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -21,7 +22,7 @@ import kotlinx.serialization.json.jsonObject
  * The output is used as the "base" in [MergePatchApplier.apply].
  *
  * Allowed patchable fields: title, description, summary, statusLabel, priority, complexity,
- * tags, type, properties, metadata, requiresVerification, parentId.
+ * tags, type, traits, properties, metadata, requiresVerification, parentId.
  */
 object WorkItemPatchProjection {
     private val lenientJson =
@@ -71,6 +72,7 @@ object WorkItemPatchProjection {
             } else {
                 put("parentId", JsonNull)
             }
+            put("traits", JsonArray(item.traits.map { JsonPrimitive(it) }))
             // properties: stored as JSON string; project it as a JsonObject for merge
             // (or JsonNull if absent). The patch handler applies MergePatchApplier on the
             // sub-object when the patch for "properties" is a JsonObject.

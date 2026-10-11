@@ -1,0 +1,2 @@
+index|idx_item_traits_name|item_traits|CREATE INDEX idx_item_traits_name ON item_traits(name)
+table|item_traits|item_traits|CREATE TABLE item_traits ( item_id BLOB NOT NULL REFERENCES work_items(id) ON DELETE CASCADE, position INTEGER NOT NULL CHECK (position >= 0), name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 100), PRIMARY KEY (item_id, position), UNIQUE (item_id, name) )

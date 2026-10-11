@@ -2148,7 +2148,7 @@ class ManageItemsToolTest {
     // ────────���─────────────────────────────────────
 
     @Test
-    fun `create item with traits parameter stores traits in properties JSON`(): Unit =
+    fun `create item with traits parameter stores typed traits`(): Unit =
         runBlocking {
             val result =
                 tool.execute(
@@ -2183,17 +2183,13 @@ class ManageItemsToolTest {
                 ) as JsonObject
 
             val itemData = getResult["data"] as JsonObject
-            val properties = itemData["properties"]!!.jsonPrimitive.content
-            val propsJson =
-                kotlinx.serialization.json.Json
-                    .parseToJsonElement(properties)
-                    .jsonObject
-            val traits = propsJson["traits"]!!.jsonArray.map { it.jsonPrimitive.content }
+            assertNull(itemData["properties"], "traits are typed and never stored in properties")
+            val traits = itemData["traits"]!!.jsonArray.map { it.jsonPrimitive.content }
             assertEquals(listOf("needs-security-review", "needs-perf-review"), traits)
         }
 
     @Test
-    fun `update item with traits parameter merges into existing properties`(): Unit =
+    fun `update item with traits parameter sets typed traits and keeps existing properties`(): Unit =
         runBlocking {
             // Create with existing properties
             val createResult =
@@ -2248,13 +2244,15 @@ class ManageItemsToolTest {
                     context
                 ) as JsonObject
 
-            val properties = (getResult["data"] as JsonObject)["properties"]!!.jsonPrimitive.content
+            val data = getResult["data"] as JsonObject
+            val properties = data["properties"]!!.jsonPrimitive.content
             val propsJson =
                 kotlinx.serialization.json.Json
                     .parseToJsonElement(properties)
                     .jsonObject
             assertEquals("value", propsJson["custom"]!!.jsonPrimitive.content)
-            assertEquals(listOf("new-trait"), propsJson["traits"]!!.jsonArray.map { it.jsonPrimitive.content })
+            assertNull(propsJson["traits"], "traits are typed and never stored in properties")
+            assertEquals(listOf("new-trait"), data["traits"]!!.jsonArray.map { it.jsonPrimitive.content })
         }
 
     private suspend fun traitsOf(itemId: String): List<String> {
@@ -2264,18 +2262,12 @@ class ManageItemsToolTest {
                 params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(itemId)),
                 context
             ) as JsonObject
-        val properties = (getResult["data"] as JsonObject)["properties"]?.jsonPrimitive?.contentOrNull
-        if (properties.isNullOrBlank()) return emptyList()
-        val propsJson =
-            kotlinx.serialization.json.Json
-                .parseToJsonElement(properties)
-                .jsonObject
-        val traitsElement = propsJson["traits"] ?: return emptyList()
+        val traitsElement = (getResult["data"] as JsonObject)["traits"] ?: return emptyList()
         return traitsElement.jsonArray.map { it.jsonPrimitive.content }
     }
 
     @Test
-    fun `update with top-level traits param merges the trait into properties (regression for silent no-op bug)`(): Unit =
+    fun `update with top-level traits param sets the typed trait (regression for silent no-op bug)`(): Unit =
         runBlocking {
             val createResult =
                 tool.execute(

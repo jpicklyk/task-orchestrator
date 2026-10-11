@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
 import io.github.jpicklyk.mcptask.current.application.port.WriteScope
 import io.github.jpicklyk.mcptask.current.application.support.LegacyFaults
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
 import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
@@ -29,6 +30,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import java.util.UUID
 
 /**
@@ -48,7 +51,9 @@ data class ItemCreateCommand(
     val metadata: String? = null,
     val tags: String? = null,
     val type: String? = null,
-    val properties: String? = null
+    val properties: String? = null,
+    /** The item's trait names, in order; stored in `item_traits`, never in [properties]. */
+    val traits: List<String> = emptyList()
 )
 
 /** What a patch does to the item's parent. */
@@ -86,7 +91,9 @@ data class ItemPatchCommand(
     val metadata: String?,
     val tags: String?,
     val type: String?,
-    val properties: String?
+    val properties: String?,
+    /** The FINAL trait list, like every other patch field. */
+    val traits: List<String>
 )
 
 /**
@@ -186,6 +193,8 @@ class ItemCommandService(
             rootId = placement.rootId
         }
         undeclaredTypeError(cmd.type, rootId)?.let { return Outcome.Err(it) }
+        propertiesCarryTraits(cmd.properties)?.let { return Outcome.Err(it) }
+        if (cmd.traits.isNotEmpty()) undeclaredTraitError(cmd.traits, rootId)?.let { return Outcome.Err(it) }
         val item =
             try {
                 WorkItem(
@@ -204,7 +213,8 @@ class ItemCommandService(
                     metadata = cmd.metadata,
                     tags = cmd.tags,
                     type = cmd.type,
-                    properties = cmd.properties
+                    properties = cmd.properties,
+                    traits = cmd.traits
                 )
             } catch (e: ValidationException) {
                 return Outcome.Err(ItemCommandErrors.invalid(e.message ?: "Validation failed"))
@@ -231,6 +241,30 @@ class ItemCommandService(
         if (type == null) return null
         val available = configResolver.availableTypes(rootId)
         return if (available.isNotEmpty() && type !in available) ItemCommandErrors.undeclaredType(type, available) else null
+    }
+
+    /**
+     * The U7 analogue for traits: every name must be one of the root's declared traits whenever any is declared; an empty
+     * declared set accepts any well-formed name. Exact, case-sensitive match. Names are checked in the given order.
+     */
+    private suspend fun undeclaredTraitError(
+        traits: List<String>,
+        rootId: UUID?
+    ): DomainError? {
+        val available = configResolver.availableTraits(listOfNotNull(rootId))
+        if (available.isEmpty()) return null
+        val missing = traits.firstOrNull { it !in available } ?: return null
+        return ItemCommandErrors.undeclaredTrait(missing, available)
+    }
+
+    /**
+     * `traits` is a typed field: a `properties` string that parses to a JSON object holding a `traits` key is rejected. An
+     * unparseable or non-object string is not inspected (it is stored as-is, as before).
+     */
+    private fun propertiesCarryTraits(properties: String?): DomainError? {
+        if (properties.isNullOrBlank()) return null
+        val parsed = runCatchingNonCancellation { Json.parseToJsonElement(properties) }.getOrNull()
+        return if (parsed is JsonObject && "traits" in parsed) ItemCommandErrors.propertiesCarryTraits() else null
     }
 
     // -------------------------------------------------------------------------
@@ -300,6 +334,13 @@ class ItemCommandService(
             undeclaredTypeError(cmd.type, newRootId ?: existing.id)?.let { return Outcome.Err(it) }
         }
 
+        // A changed `properties` value holding a traits key is rejected (an unchanged legacy residue stays editable).
+        if (cmd.properties != existing.properties) propertiesCarryTraits(cmd.properties)?.let { return Outcome.Err(it) }
+        // Declared-set rule only when the patch changes the list (a stale trait name already on the item stays editable).
+        if (cmd.traits != existing.traits) {
+            undeclaredTraitError(cmd.traits, newRootId ?: existing.id)?.let { return Outcome.Err(it) }
+        }
+
         val updated =
             try {
                 existing
@@ -318,7 +359,8 @@ class ItemCommandService(
                             metadata = cmd.metadata,
                             tags = cmd.tags,
                             type = cmd.type,
-                            properties = cmd.properties
+                            properties = cmd.properties,
+                            traits = cmd.traits
                         )
                     }.also { it.validate() }
             } catch (e: ValidationException) {
@@ -690,6 +732,28 @@ object ItemCommandErrors {
             message = if (availableTypes.isEmpty()) reason else "$reason; available types: ${availableTypes.joinToString(", ")}",
             detail = ErrorDetail.SchemaViolation(type = type, reason = reason, availableTypes = availableTypes.takeIf { it.isNotEmpty() })
         )
+
+    /** A create or trait change naming [trait], which the root's non-empty declared set [availableTraits] does not contain. */
+    fun undeclaredTrait(
+        trait: String,
+        availableTraits: List<String>
+    ): DomainError =
+        DomainError(
+            code = ErrorCode.SCHEMA_VIOLATION,
+            message = "trait '$trait' is not declared; available traits: ${availableTraits.joinToString(", ")}",
+            detail = ErrorDetail.SchemaViolation(type = null, reason = "trait '$trait' is not declared", availableTraits = availableTraits)
+        )
+
+    /** A `properties` value that carries a `traits` key (traits is a typed field). */
+    fun propertiesCarryTraits(): DomainError =
+        DomainError(
+            code = ErrorCode.INVALID_REQUEST,
+            message = "traits is a typed field; pass traits",
+            detail = ErrorDetail.InvalidRequest(listOf(FieldViolation("properties", "traits is a typed field; pass traits")))
+        )
+
+    /** The declared traits a trait rejection lists, or null. */
+    fun availableTraits(error: DomainError): List<String>? = (error.detail as? ErrorDetail.SchemaViolation)?.availableTraits
 
     /** True when [error] is a type rule rejection (missing, cleared or undeclared `type`). */
     fun isTypeViolation(error: DomainError): Boolean =

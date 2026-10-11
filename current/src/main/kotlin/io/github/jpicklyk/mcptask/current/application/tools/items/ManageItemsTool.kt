@@ -148,7 +148,7 @@ Creating or moving under a terminal auto-lifecycle parent fails (reopen it). Mov
                                 "description",
                                 JsonPrimitive(
                                     "Comma-separated trait names adding note requirements from the traits: config; " +
-                                        "merged into properties automatically. Shared default for every item in the " +
+                                        "stored as the item's typed traits. Shared default for every item in the " +
                                         "create or update batch; a per-item `traits` field overrides it for that item. " +
                                         "On update, absent from both levels leaves existing traits untouched; an " +
                                         "explicit empty string clears them."

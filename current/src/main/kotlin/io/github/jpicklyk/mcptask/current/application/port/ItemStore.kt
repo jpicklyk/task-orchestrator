@@ -174,6 +174,13 @@ interface ItemStore {
     suspend fun rolesOf(ids: Set<UUID>): Map<UUID, Role>
 
     /**
+     * The trait names of each id in [ids], in their stored position order, as ONE statement for any number of ids.
+     * An id with no row or no traits is absent from the result. An empty set returns an empty map without
+     * touching the database.
+     */
+    suspend fun traitsOf(ids: Set<UUID>): Map<UUID, List<String>>
+
+    /**
      * The items with the ids in [ids], in no particular order, as ONE statement for any number of
      * ids (unlike [findByIds], which chunks its IN list). An id with no row is absent.
      */

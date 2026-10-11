@@ -3,6 +3,8 @@ package io.github.jpicklyk.mcptask.current.infrastructure.sqlite.upgrade
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepKind
 import io.github.jpicklyk.mcptask.current.application.upgrade.DataStepPhase
 import io.github.jpicklyk.mcptask.current.application.upgrade.LegacyTypeInference
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
@@ -175,16 +177,30 @@ class TypeBackfillGoldenTest {
 
     /**
      * The dump of [url] minus what the other production step writes: `config-canonicalize` (phase CONFIG_CANONICALIZE,
-     * before this step) fills `config_versions.canonical_json` / `model_version` and records its own `data_steps` row.
+     * before this step) fills `config_versions.canonical_json` / `model_version` and records its own `data_steps` row;
+     * `traits-from-properties` (same phase, after this step) moves `work_items.properties.traits` into `item_traits`.
      */
     private fun dumpOf(url: String) =
         DriverManager.getConnection(url).use { UpgradeHarness.dump(it) }.mapValues { (table, rows) ->
             when (table) {
                 "config_versions" -> rows.mapValues { (_, row) -> row - "canonical_json" - "model_version" }
                 "data_steps" -> rows.filterValues { it["name"] == stepName }
+                "work_items" -> rows.mapValues { (_, row) -> row + ("properties" to withoutTraitsKey(row["properties"])) }
+                "item_traits" -> emptyMap()
                 else -> rows
             }
         }
+
+    /**
+     * [properties] with only the `traits` key removed (an emptied bag reads as null), so every other properties key
+     * still takes part in the comparison; parsed and re-serialized so both sides compare in one canonical form.
+     */
+    private fun withoutTraitsKey(properties: Any?): Any? {
+        val text = properties as? String ?: return properties
+        val parsed = runCatching { Json.parseToJsonElement(text) }.getOrNull() as? JsonObject ?: return text
+        val rest = JsonObject(parsed - "traits")
+        return if (rest.isEmpty()) null else rest.toString()
+    }
 
     private val perRootYaml = "work_item_schemas:\n  task-a:\n    notes: []\n  default:\n    notes: []\n"
     private val globalYaml = "work_item_schemas:\n  task-b:\n    notes: []\n"

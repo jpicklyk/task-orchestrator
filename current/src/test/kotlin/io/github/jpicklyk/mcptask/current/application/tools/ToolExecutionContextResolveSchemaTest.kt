@@ -173,13 +173,13 @@ class ToolExecutionContextResolveSchemaTest {
 
     private fun makeItemWithProperties(
         type: String? = null,
-        properties: String? = null
+        traits: List<String> = emptyList()
     ): WorkItem =
         WorkItem(
             id = UUID.randomUUID(),
             title = "Test Item",
             type = type,
-            properties = properties,
+            traits = traits,
             depth = 0
         )
 
@@ -240,7 +240,7 @@ class ToolExecutionContextResolveSchemaTest {
             server.schemas["feature-task"] = WorkItemSchema(type = "feature-task", notes = listOf(workEntry()))
             server.traits["needs-perf-review"] = listOf(traitEntry("performance-baseline", Role.QUEUE))
 
-            val item = makeItemWithProperties(type = "feature-task", properties = """{"traits": ["needs-perf-review"]}""")
+            val item = makeItemWithProperties(type = "feature-task", traits = listOf("needs-perf-review"))
             val result = context.resolveSchema(item)!!
 
             assertEquals(2, result.notes.size)
@@ -255,7 +255,7 @@ class ToolExecutionContextResolveSchemaTest {
             server.traits["trait-a"] = listOf(traitEntry("note-a"))
             server.traits["trait-b"] = listOf(traitEntry("note-b"))
 
-            val item = makeItemWithProperties(type = "feature-task", properties = """{"traits": ["trait-b", "trait-a"]}""")
+            val item = makeItemWithProperties(type = "feature-task", traits = listOf("trait-b", "trait-a"))
             val result = context.resolveSchema(item)!!
 
             assertEquals(listOf("work-note", "note-b", "note-a"), result.notes.map { it.key })
