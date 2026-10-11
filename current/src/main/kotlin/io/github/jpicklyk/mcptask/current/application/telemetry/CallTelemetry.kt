@@ -44,12 +44,16 @@ class CallTelemetry(
 
     /**
      * What a search call recorded about its query for `request_shape`: a hash of the normalized terms, the term
-     * count and the match mode. Never the query text.
+     * count and the match mode, plus the hit mix once the search has run. Never the query text.
+     *
+     * @property hitsByKind Hits per searched kind in the capped result list (zeros kept, one key per searched kind);
+     *   null until the search ran.
      */
     data class SearchShape(
         val queryHash: String,
         val termCount: Int,
-        val matchMode: String
+        val matchMode: String,
+        val hitsByKind: Map<String, Int>? = null
     )
 
     val principal: Principal? get() = principalRef.get()
@@ -101,6 +105,11 @@ class CallTelemetry(
         searchShapeRef.compareAndSet(null, shape)
     }
 
+    /** Adds the per-kind hit counts to the recorded search shape; a no-op when no shape was recorded. */
+    fun setHitsByKind(counts: Map<String, Int>) {
+        searchShapeRef.updateAndGet { it?.copy(hitsByKind = counts) }
+    }
+
     companion object Key : CoroutineContext.Key<CallTelemetry>
 }
 
@@ -150,4 +159,9 @@ suspend fun recordCallSearchShape(
     matchMode: String
 ) {
     currentCallTelemetry()?.setSearchShape(CallTelemetry.SearchShape(queryHash, termCount, matchMode))
+}
+
+/** Records how many hits of each searched kind the search returned (page-invariant); a no-op outside a call. */
+suspend fun recordCallSearchHitMix(hitsByKind: Map<String, Int>) {
+    currentCallTelemetry()?.setHitsByKind(hitsByKind)
 }

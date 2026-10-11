@@ -232,7 +232,7 @@ class SearchEngineTraitsAnyTest {
             val fx = fixture()
             val wanted = listOf("x", "y")
 
-            for (corpus in Corpus.entries) {
+            for (corpus in Corpus.entries.filter { it.itemFacets }) {
                 assertCandidates(
                     fx,
                     corpus,
@@ -281,7 +281,7 @@ class SearchEngineTraitsAnyTest {
             val root = root("Window root")
             val docs = (0 until 10).map { child(root, "traitprobe w$it", listOf("unique-$it", "shared")) }
 
-            for (corpus in Corpus.entries) {
+            for (corpus in Corpus.entries.filter { it.itemFacets }) {
                 for ((index, doc) in docs.withIndex()) {
                     val found = cands(corpus, Analyzer.SUBSTRING, ScopeFilter(traitsAny = listOf("unique-$index")), window = 1)
                     assertEquals(listOf(doc.item.id), found.map { it.ownerItemId }, "$corpus: unique-$index must be found with window=1")
@@ -301,7 +301,7 @@ class SearchEngineTraitsAnyTest {
         runBlocking {
             val fx = fixture()
 
-            for (corpus in Corpus.entries) {
+            for (corpus in Corpus.entries.filter { it.itemFacets }) {
                 for (wanted in listOf(null, emptyList(), listOf(""), listOf(" "), listOf("", "  "))) {
                     assertCandidates(fx, corpus, Analyzer.SUBSTRING, ScopeFilter(traitsAny = wanted), wanted)
                     assertEquals(
@@ -322,7 +322,7 @@ class SearchEngineTraitsAnyTest {
         runBlocking {
             val fx = fixture()
 
-            for (corpus in Corpus.entries) {
+            for (corpus in Corpus.entries.filter { it.itemFacets }) {
                 assertEquals(
                     setOf("f"),
                     ownerTitles(fx, cands(corpus, Analyzer.SUBSTRING, ScopeFilter(traitsAny = listOf("X")))).keys,
@@ -351,7 +351,7 @@ class SearchEngineTraitsAnyTest {
         runBlocking {
             val fx = fixture()
 
-            for (corpus in Corpus.entries) {
+            for (corpus in Corpus.entries.filter { it.itemFacets }) {
                 assertEquals(
                     setOf("g"),
                     ownerTitles(fx, cands(corpus, Analyzer.SUBSTRING, ScopeFilter(traitsAny = listOf("pct%")))).keys,

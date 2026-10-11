@@ -73,7 +73,7 @@ lists. `clear` lists optional fields to set to null: `description`, `statusLabel
 
 **Delete semantics.** A parent without `recursive: true` fails `invalid_request` with a violation on `recursive`
 whose `received` is the child count; nothing is deleted. `recursive: true` deletes the whole subtree, deepest first,
-in one unit. Notes and dependency edges go with their items. `expectedVersion` guards the item itself.
+in one unit. Notes and dependency edges go with their items, as do the links the removed notes and items were the source of and the resolved links into the removed items (an `adopted_by` link is kept). `expectedVersion` guards the item itself.
 
 **Cascade.** A reparent away from, or a delete under, a parent re-evaluates that old parent like a child
 completion. `cascade` (omitted when empty) lists `{itemId, from, to, applied, reason?}`; `reason` is the catalog code
@@ -186,20 +186,33 @@ on REST `GET /api/v1/info` and the `.well-known` service descriptor (see `api-re
 per-root rule text served by [`query_rules`](#query_rules) and `GET /api/v1/roots/{rootId}/rules[/{key}]`.
 
 **`search`.** Ranked full-text hits through the shared search service. `kinds` picks the content: `item`
-(title, summary, description) and/or `note` (bodies); default both, fused in one ranking; an empty `kinds`
-is `invalid_request`. `query` terms must all match and are matched literally (special characters are
+(title, summary, description), `note` (bodies) and/or `document` (title and body of plan, rule and page
+documents); an empty `kinds` is `invalid_request`. With `kinds` absent the search covers every kind the other
+filters apply to, fused in one ranking: all three when none of `role`, `tags` and `traits` is set, `item` and
+`note` when any is (they describe items, so they cannot filter documents). Naming `document` in `kinds`
+together with `role`, `tags` or `traits` is `invalid_request` on `/role`, `/tags` or `/traits` (the first one
+set, in that order); a filter is never silently dropped. `query` terms must all match and are matched literally (special characters are
 escaped); a query the search core rejects (for example a control character other than ASCII whitespace) is
 `invalid_request` on `/query`. `matchMode` is `auto` (default: the trigram and the stemmed tables fused by
 RRF), `substring` (trigram only, terms of 3 or more characters) or `text` (stemmed). `itemId` keeps only
 that item's own content; `ancestorId` its subtree; `role`, `tags` and `traits` filter on the item that owns
-the content. The caller's scope filters candidates before ranking and capping, so a restricted token gets a
-full page of in-scope hits. A hit is `{kind, itemId, noteKey?, title?, field, snippet?, score, matchedIn,
-explain?}`: `kind` is `item` or `note`, `itemId` is the 8-hex short id, `noteKey` is set on note hits,
-`title` is the owning item's title, `field` is the field holding the match (`title` or `summary`, `title`
-when both do, `body` for a note), `snippet` (default on) carries `<mark>` highlights, `score` is the fused
-RRF value (higher is more relevant), and `explain` (default off) adds `{trigramRank?, textRank?, rrfK}`.
-`page.total` is the size of the capped hit list (at most 100); `page.capped` is true when more matches
-existed than the cap: refine the query or narrow the filters.
+the content. A document is owned by its root item, so `itemId` or `ancestorId` set to that root finds the
+root's documents and any other id finds none. Archived documents are never searched; an edited document is
+searchable at once. The caller's scope filters candidates before ranking and capping, so a restricted token
+gets a full page of in-scope hits; a document is visible exactly when its root item is (a token scoped to an
+id below the root, or by a tag the root does not carry, does not see the root's documents). A hit is
+`{kind, itemId, noteKey?, title?, field, snippet?, score, matchedIn, explain?}` for an item or note:
+`kind` is `item` or `note`, `itemId` is the 8-hex short id, `noteKey` is set on note hits, `title` is the
+owning item's title, `field` is the field holding the match (`title` or `summary`, `title` when both do,
+`body` for a note). A document hit is `{kind: "document", rootId, docKind, slug, title?, field, snippet?,
+score, matchedIn, explain?}`: `rootId` is the root's 8-hex short id, `docKind` is `plan`, `rule` or `page`,
+`title` is the document's own title (omitted when it has none), `field` is `title` or `body` (`title` when
+both match), and it has no `itemId` or `noteKey`; `rootId`, `docKind` and `slug` address the document for
+`docs_read`. `snippet` (default on) carries `<mark>` highlights, `score` is the fused RRF value (higher is
+more relevant), and `explain` (default off) adds `{trigramRank?, textRank?, rrfK}`. `page.total` is the size of the capped hit list (at most 100); `page.capped` is true when more matches
+existed than the cap: refine the query or narrow the filters. The call log's `request_shape` for a search
+carries `hitsByKind`, the count of hits per searched kind in the capped list (zeros kept, the same on every
+page), and each document hit on the returned page records its id and version as a target version.
 
 **`overview`.** Three modes:
 
