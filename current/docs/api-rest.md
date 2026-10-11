@@ -1152,7 +1152,7 @@ separate cache, no `ETag`/`If-None-Match` handling
 ## 10. Endpoints — Items (Write)
 
 Item creates, updates and deletes are no longer separate routes: `POST /items`, `PATCH /items/{id}` and
-`DELETE /items/{id}` answer `404`. Use the `items_write` tool, `POST /api/v1/ops/items_write` (§20a), with
+`DELETE /items/{id}` never succeed or write: they answer `404`, or `405` for `POST /items` because `GET /items` still serves that path. Use the `items_write` tool, `POST /api/v1/ops/items_write` (§20a), with
 `ops[]` elements `create`, `update` and `delete`; the fields, the optimistic lock (`expectedVersion`, replacing
 `If-Match`), the soft delete rules (`recursive`), the scope checks and the errors are in
 [`api-reference.md`](./api-reference.md#items_write). Write elements take an `idempotencyKey` in place of the

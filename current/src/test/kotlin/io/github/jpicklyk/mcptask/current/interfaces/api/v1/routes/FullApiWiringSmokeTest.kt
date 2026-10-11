@@ -20,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.test.get
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
@@ -39,7 +40,6 @@ import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 /**
  * App-wiring / startup smoke test for the whole REST surface.
@@ -168,26 +168,28 @@ abstract class FullApiWiringSmokeScenarios(
                         Outcome.Ok(stores.workItemRepository().create(WorkItem(title = "smoke-seed", type = "test-item")))
                     } as Outcome.Ok
                 ).value
-            val notePath = "/api/v1/items/${seeded.id}/notes/smoke"
+            // The item and note write routes are gone (items_write / notes_write); the advance route is the remaining
+            // legacy REST write route under /api/v1.
+            val advancePath = "/api/v1/items/${seeded.id}/advance"
 
             // Write route: READ-only token is forbidden (capability gate distinguishes read vs write
             // even though both groups share the /api/v1 parent — the bug class this test guards against)
             val forbidden =
-                client.put(notePath) {
+                client.post(advancePath) {
                     header("Authorization", "Bearer $TEST_TOKEN")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"role":"work","body":"should-not-write"}""")
+                    setBody("""{"trigger":"cancel"}""")
                 }
             assertEquals(HttpStatusCode.Forbidden, forbidden.status, "READ token cannot write")
 
             // Write route: WRITE token succeeds — write path is wired and granted
             val written =
-                client.put(notePath) {
+                client.post(advancePath) {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     contentType(ContentType.Application.Json)
-                    setBody("""{"role":"work","body":"smoke-written"}""")
+                    setBody("""{"trigger":"cancel"}""")
                 }
-            assertTrue(written.status.value in 200..201, "WRITE token writes a note: ${written.status} ${written.bodyAsText()}")
+            assertEquals(HttpStatusCode.OK, written.status, "WRITE token advances the item: ${written.bodyAsText()}")
 
             // Phase 6: SSE events route — proving it is WIRED. A request with NO auth is rejected
             // by the pre-flight inline auth BEFORE any stream is opened, so .status completes.

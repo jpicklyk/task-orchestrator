@@ -67,7 +67,7 @@ class ItemsWriteRegistrationTest {
     @Test
     fun `S18 manage_items is gone from the MCP tool list while other tools remain`() {
         val names = buildMcpTools().map { it.name }
-        assertTrue(names.isNotEmpty() && "manage_notes" in names, "control: the list still holds other tools: $names")
+        assertTrue(names.isNotEmpty() && "advance_item" in names, "control: the list still holds other tools: $names")
         assertTrue("manage_items" !in names, "manage_items must not be registered: $names")
     }
 
@@ -98,7 +98,7 @@ class ItemsWriteRegistrationTest {
     // ------------------------------------------------------------------ AC1 REST removal
 
     @Test
-    fun `AC1 POST PATCH and DELETE on api v1 items answer 404 while the advance route still exists`() {
+    fun `AC1 POST PATCH and DELETE on api v1 items answer 404 or 405 and change nothing while the advance route still exists`() {
         val admin = ParityToken("iw-reg-admin", setOf(ApiCapability.ADMIN))
         testApplication {
             val rig = EventLogRig.build(db.db, dir)
@@ -108,6 +108,7 @@ class ItemsWriteRegistrationTest {
                 header(HttpHeaders.Authorization, "Bearer ${admin.raw}")
                 contentType(ContentType.Application.Json)
             }
+            val before = IwKit(rig).snapshot()
             val post =
                 client.post("/api/v1/items") {
                     auth()
@@ -119,11 +120,14 @@ class ItemsWriteRegistrationTest {
                     setBody("""{"title":"y"}""")
                 }
             val del = client.delete("/api/v1/items/${item.id}") { auth() }
-            assertEquals(
-                listOf(404, 404, 404),
-                listOf(post.status.value, patch.status.value, del.status.value),
-                "statuses of POST /items, PATCH /items/{id}, DELETE /items/{id} (AC1)"
+            // Ruling C1 (fix-decisions-r1, item 5462835d) amends AC1: a removed REST write method never succeeds or mutates;
+            // it answers 404 when no route serves the path and 405 when the path still serves GET (GET /items remains).
+            val statuses = listOf(post.status.value, patch.status.value, del.status.value)
+            assertTrue(
+                statuses.all { it == 404 || it == 405 },
+                "statuses of POST /items, PATCH /items/{id}, DELETE /items/{id} must each be 404 or 405 (AC1, C1): $statuses"
             )
+            assertEquals(before, IwKit(rig).snapshot(), "the removed write routes changed no table (AC1, C1)")
             val advance =
                 client.post("/api/v1/items/${item.id}/advance") {
                     auth()

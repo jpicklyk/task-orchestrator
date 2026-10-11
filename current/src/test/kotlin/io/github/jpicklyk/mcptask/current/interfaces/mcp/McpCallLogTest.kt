@@ -355,7 +355,7 @@ class McpCallLogTest {
         }
 
     @Test
-    fun `S6 a batch of three item updates with one failing records batch_size 3 and failed_count 1`() =
+    fun `S6 a batch of three transitions with one failing records batch_size 3 and failed_count 1`() =
         runBlocking {
             val first = rig.seed("S6 batch a")
             val second = rig.seed("S6 batch b")
@@ -365,23 +365,24 @@ class McpCallLogTest {
                     add(
                         buildJsonObject {
                             put("itemId", first.id.toString())
-                            put("title", "S6 batch a renamed")
+                            put("trigger", "cancel")
                         }
                     )
                     add(
                         buildJsonObject {
                             put("itemId", second.id.toString())
-                            put("title", "S6 batch b renamed")
+                            put("trigger", "cancel")
                         }
                     )
                     add(
                         buildJsonObject {
                             put("itemId", UUID.randomUUID().toString())
-                            put("title", "S6 batch unknown")
+                            put("trigger", "cancel")
                         }
                     )
                 }
-            val result = call("manage_items", "operation" to jstr("update"), "items" to notes)
+            // manage_items is removed (Q18); advance_item is the remaining 3.x batch tool with a summary.failed count.
+            val result = call("advance_item", "transitions" to notes)
             // The MCP structuredContent is the tool's data payload itself (summary.failed, else failed).
             val payload = result.structuredContent
             val failed =
@@ -395,13 +396,13 @@ class McpCallLogTest {
             assertEquals(
                 1,
                 failed,
-                "fixture: exactly one of the three updates fails per the tool's own summary: ${result.structuredContent}"
+                "fixture: exactly one of the three transitions fails per the tool's own summary: ${result.structuredContent}"
             )
             val row = flush().single()
             assertEquals(3L, row["batch_size"])
             assertEquals(1L, row["failed_count"])
             val ids = Json.parseToJsonElement(row["target_ids"] as String).jsonArray.map { it.jsonPrimitive.content }
-            assertTrue(item.id.toString() in ids, "elements of the top-level items array contribute their itemId: $ids")
+            assertTrue(item.id.toString() in ids, "elements of the top-level transitions array contribute their itemId: $ids")
         }
 
     @Test
