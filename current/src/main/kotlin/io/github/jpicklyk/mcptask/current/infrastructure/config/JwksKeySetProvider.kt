@@ -25,7 +25,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
-import java.nio.file.Paths
+import java.nio.file.Path
 import java.time.Clock
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
@@ -119,6 +119,8 @@ interface JwksKeySetProvider {
  */
 class DefaultJwksKeySetProvider(
     private val config: VerifierConfig.Jwks,
+    /** The directory `jwks_path` resolves against (the agent config base directory, built once by the composition root). */
+    private val configBaseDir: Path,
     private val clock: Clock = Clock.systemUTC(),
     private val didResolverRegistry: DidResolverRegistry = DidResolverRegistry(listOf(DidWebResolver())),
     private val didDocumentJwksExtractor: DidDocumentJwksExtractor =
@@ -408,11 +410,7 @@ class DefaultJwksKeySetProvider(
         val pathKeys: JWKSet? =
             config.jwksPath?.let { relPath ->
                 try {
-                    val basePath =
-                        Paths.get(
-                            AppConfig.resolveConfigBaseDir(System.getenv("AGENT_CONFIG_DIR"))
-                        )
-                    val resolved = basePath.resolve(relPath)
+                    val resolved = configBaseDir.resolve(relPath)
                     val content = resolved.toFile().readText()
                     JWKSet.parse(content)
                 } catch (e: Exception) {

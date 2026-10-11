@@ -2,7 +2,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.port.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
@@ -413,11 +412,9 @@ private val sseInlineAuthPlugin =
 fun Route.eventRoutes(
     eventBus: ApiEventBus,
     tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry> = emptyMap(),
-    allowQueryToken: Boolean =
-        EnvBoolean.parse("API_ALLOW_QUERY_TOKEN_FOR_SSE", System.getenv("API_ALLOW_QUERY_TOKEN_FOR_SSE"), false),
+    allowQueryToken: Boolean = false,
     jwksVerifier: JwksApiVerifier? = null,
-    authCheckIntervalSeconds: Int =
-        System.getenv("API_SSE_AUTH_CHECK_INTERVAL_SECONDS")?.toIntOrNull() ?: 30,
+    authCheckIntervalSeconds: Int = 30,
     authConfig: ApiAuthConfig = ApiAuthConfig.Disabled,
     workItemRepository: WorkItemRepository? = null,
     redactAttribution: Boolean = AppConfig.fromEnv().apiRedactNoteAttribution,

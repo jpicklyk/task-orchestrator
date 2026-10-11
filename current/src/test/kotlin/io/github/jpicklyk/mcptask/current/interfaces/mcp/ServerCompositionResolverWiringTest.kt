@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLo
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
+import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 import kotlin.test.assertIs
@@ -55,7 +56,7 @@ class ServerCompositionResolverWiringTest {
             "composition.advanceServiceFactory must be the tool context's own lazily-built factory",
         )
         assertIs<LayerBackedGlobalLookup>(
-            composition.configResolver.global,
+            runBlocking { composition.configResolver.layered(null) }.global,
             "production composition must resolve global config through LayerBackedGlobalLookup, not ServiceBackedGlobalLookup",
         )
     }

@@ -69,7 +69,7 @@ class ConfigRoutesDispatchTest {
                         ),
                     traitResources = mapOf("delegated" to listOf(ResourceRequirement(key = "db")))
                 )
-            application { configureTestApp { configRoutes(service) } }
+            application { configureTestApp { configRoutesOver { service } } }
             val response = client.get("/api/v1/config/traits") { header("Authorization", "Bearer $TEST_TOKEN") }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
@@ -100,7 +100,7 @@ class ConfigRoutesDispatchTest {
                     traitDispatch = emptyMap(),
                     traitResources = emptyMap()
                 )
-            application { configureTestApp { configRoutes(service) } }
+            application { configureTestApp { configRoutesOver { service } } }
             val response = client.get("/api/v1/config/traits") { header("Authorization", "Bearer $TEST_TOKEN") }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
@@ -141,7 +141,7 @@ class ConfigRoutesDispatchTest {
                     traitDispatch = emptyMap(),
                     traitResources = emptyMap()
                 )
-            application { configureTestApp { configRoutes(service) } }
+            application { configureTestApp { configRoutesOver { service } } }
             val response = client.get("/api/v1/config/traits") { header("Authorization", "Bearer $TEST_TOKEN") }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()

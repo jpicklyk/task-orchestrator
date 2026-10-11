@@ -764,7 +764,7 @@ components:
     ServiceInfoDto:
       type: object
       required: [serverName, version, apiVersion, capabilities, claimModeAvailable,
-                 actorAuthenticationEnabled, features]
+                 actorAuthenticationEnabled, features, configWarnings]
       properties:
         serverName:
           type: string
@@ -789,6 +789,14 @@ components:
             ["seats", "dispatchBySeat", "independent_of", "rules"]), advertised unconditionally regardless
             of whether the resolved config for any given root declares seats or independent_of.
             Same list as WellKnownDto.features.
+        configWarnings:
+          type: array
+          items:
+            type: string
+          description: >-
+            Warnings stored with the SERVER config head: the reasons recorded when the global config file was
+            imported at boot (one per legacy top-level key such as orchestration, retrospective, actor_attribution
+            or schema_resolution), in the form push warnings use. Empty when there is no server config.
 
     WellKnownDto:
       type: object

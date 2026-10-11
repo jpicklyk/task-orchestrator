@@ -265,7 +265,7 @@ item itself being touched.
 ### Config ETags
 
 Config/schema endpoints (`/config`, `/config/schemas`, etc.) use a fingerprint-based ETag:
-- Format: `"cfg-<fingerprint>"` where fingerprint is a SHA-256 hex digest computed once, at process startup, over the exact bytes parsed from the global config file (normalized first — see below) — not a fresh re-read of the file on each request, so it is stable for the life of the process even if the file changes on disk (restart to pick up new bytes; there is no lastModified/size fallback)
+- Format: `"cfg-<fingerprint>"` where fingerprint is the SHA-256 hex digest of the stored SERVER config head (`"cfg-no-config"` when there is none), read from the database on every request. A boot-time `file-import` of the global config file stores the digest over the exact bytes of the file (normalized first — see below), so it is the value 3.x reported; editing the file does nothing until the next restart re-imports it, and a version another process appends to a shared database changes the ETag on the next request
 - Stable across reads when the config has not changed
 - `If-None-Match` → `304` when fingerprint matches
 
@@ -351,6 +351,7 @@ other 403 codes (`host_not_allowed`, `scope_forbidden`, `insufficient_capability
 | `not_claim_holder` | 403 | Not an `ErrorDto` route error: the `advance` tool (`POST /ops/advance`, section 20a) returns it in its envelope for a `transition` on an item another actor holds, or a `release`/`heartbeat` of an item the caller does not hold. Claim ownership applies on REST as on MCP since 4.0 |
 | `internal` | 500 | An exception escaped a `/api/v1` route. The message is always `Internal server error`: the exception text is logged at ERROR and never returned. Produced by the REST safety net (see below) |
 | `config_unavailable` | 503 | Per-root config read failed (a transient database error) and there was no last-known-good cached config to serve for that root — transient, retryable; the caller applies its own backoff (no `Retry-After` header). Returned by `GET /items/{id}/gate` (see §9, §10) and `GET /roots/{rootId}/config/effective` (see §18). REST and the MCP tools now read per-root config through the same `EffectiveConfigResolver`/last-known-good cache (one shared instance, built once in `ServerComposition`) — a transient DB error on one surface is absorbed by a cache warmed by the other, so this error is rarer than it was when each surface kept its own cache. Exception: `GET /items/{id}/gate` reads inside its preview's read unit; a unit has no last-known-good fallback, so on that route (and in the `advance` tool, which answers `unavailable` with `retryAfterMs` 1000 per element) a read fault answers `config_unavailable` even when the cache is warm. |
+| `config_invalid` | 422 | A stored config head (the server head, or a root's) has no canonical form or cannot be decoded. Fail closed: the config is never treated as absent and never falls through to another layer. Returned by `GET /items/{id}/gate`, `/config*` and `GET /roots/{rootId}/config/effective` (item writes and the item schema view moved to `/ops/items_write` and `/ops/items_read`, which answer it in the 4.0 envelope); permanent, a fresh config push restores the root. |
 | `db_error` | 500 | A store fault: a read route responds `Database query failed` (or the route's own read text), a write route its existing text (e.g. `Failed to create item`). A store fault on a read is never reported as `404 not_found`; `404` means only that the row does not exist. |
 
 **One mapper, one safety net.** Every `ErrorDto` body is built by one mapper (`LegacyRestErrorMapper`): each
@@ -1287,7 +1288,7 @@ pipeline as these routes (both converge on identical DB state for the same paylo
 **Versioned store.** A root's config is a sequence of immutable versions (`config_versions`, numbered 1, 2, ...
 per root) plus a head pointer; a push appends the next version and moves the head, a rollback appends a copy of an
 older version, and `DELETE` appends an empty *reset* version. Nothing is ever overwritten or deleted, so
-`GET .../config/history` shows every change. Each version records its `source` (`push`, `file-import`, `migration`,
+`GET .../config/history` shows every change. Each version records its `source` (`push`, `file-import` (the boot import of the mounted global file, which lands on the SERVER scope, or on the root named by its `project.rootId`), `migration`,
 `rollback`, `reset`), the pushing principal and request id, and the soft parse warnings the push produced. A
 reset head reads as "no config": `GET` (without `?version=`) answers `404` and schema resolution falls through to
 the global layer, exactly as for a root that never had a config.
@@ -1614,9 +1615,15 @@ Requires `READ`. Returns server metadata and the caller's resolved capabilities.
   "capabilities": ["read", "write-items"],
   "claimModeAvailable": true,
   "actorAuthenticationEnabled": false,
-  "features": ["seats", "dispatchBySeat", "independent_of", "rules"]
+  "features": ["seats", "dispatchBySeat", "independent_of", "rules"],
+  "configWarnings": []
 }
 ```
+
+`configWarnings` (array of strings, additive) is the stored SERVER config head's warnings: the reasons recorded when the
+global config file was imported at boot (for example one per legacy top-level key such as `orchestration`), in the
+same string form push warnings use. Empty when there is no server config or it imported clean. A server-head read
+fault answers `503 config_unavailable`; `/health` never reads it.
 
 `features` (array, A1) advertises server-wide optional-response capabilities this server version
 can serve, **unconditionally** — regardless of whether the resolved config for any given root

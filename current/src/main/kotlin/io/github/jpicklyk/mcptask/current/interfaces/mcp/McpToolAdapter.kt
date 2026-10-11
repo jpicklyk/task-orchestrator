@@ -16,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.infrastructure.logging.MdcValues
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.PersistenceFaults
@@ -232,6 +233,18 @@ class McpToolAdapter(
                             content = listOf(TextContent(text = message)),
                             isError = true,
                             structuredContent = ResponseUtil.extractErrorPayload(errorEnvelope)
+                        )
+                    } catch (e: PerRootConfigInvalidException) {
+                        // Fail closed: a config head that cannot be loaded is a data fault, not absence and not
+                        // INTERNAL. Permanent kind: retrying cannot help until the config is pushed again.
+                        val message = "Config invalid in '${toolDefinition.name}': ${e.message}"
+                        logger.warn(message)
+                        logResponseSize(toolDefinition.name, success = false, responseChars = message.length)
+                        val invalidEnvelope = LegacyMcpErrorMapper.envelope(message, LegacyMcpCode.CONFIG_INVALID)
+                        CallToolResult(
+                            content = listOf(TextContent(text = message)),
+                            isError = true,
+                            structuredContent = ResponseUtil.extractErrorPayload(invalidEnvelope)
                         )
                     } catch (e: Exception) {
                         e.rethrowIfCancellation()

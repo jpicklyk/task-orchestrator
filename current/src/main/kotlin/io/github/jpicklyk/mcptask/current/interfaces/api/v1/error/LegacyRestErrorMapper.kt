@@ -55,7 +55,8 @@ enum class LegacyRestCode(
     DB_ERROR("db_error", HttpStatusCode.InternalServerError, ErrorCode.INTERNAL),
     INTERNAL("internal", HttpStatusCode.InternalServerError, ErrorCode.INTERNAL),
     UNAVAILABLE("unavailable", HttpStatusCode.ServiceUnavailable, ErrorCode.UNAVAILABLE),
-    CONFIG_UNAVAILABLE("config_unavailable", HttpStatusCode.ServiceUnavailable, ErrorCode.INTERNAL)
+    CONFIG_UNAVAILABLE("config_unavailable", HttpStatusCode.ServiceUnavailable, ErrorCode.INTERNAL),
+    CONFIG_INVALID("config_invalid", HttpStatusCode.UnprocessableEntity, ErrorCode.CONFIG_INVALID)
 }
 
 /**

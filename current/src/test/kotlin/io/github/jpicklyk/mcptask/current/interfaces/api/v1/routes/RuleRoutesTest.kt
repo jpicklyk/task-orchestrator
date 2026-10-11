@@ -103,7 +103,7 @@ class RuleRoutesTest {
             serverName = "rule-routes-test",
             serverVersion = "test",
             actorAuthEnabled = composition.actorAuthEnabled,
-            noteSchemaService = composition.noteSchemaService,
+            serverConfig = composition.serverConfig,
             toolContext = composition.toolContext,
             degradedModePolicy = composition.degradedModePolicy,
         )
@@ -606,7 +606,7 @@ class RuleRoutesRootLookupFailureTest {
                     serverName = "rule-routes-root-lookup-failure-test",
                     serverVersion = "test",
                     actorAuthEnabled = composition.actorAuthEnabled,
-                    noteSchemaService = composition.noteSchemaService,
+                    serverConfig = composition.serverConfig,
                     toolContext = composition.toolContext,
                     degradedModePolicy = composition.degradedModePolicy,
                 )

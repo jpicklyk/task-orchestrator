@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParse
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
+import io.github.jpicklyk.mcptask.current.application.config.ServerConfigSource
 import io.github.jpicklyk.mcptask.current.application.port.ConfigStore
 import io.github.jpicklyk.mcptask.current.application.port.UnitElement
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
@@ -62,7 +63,8 @@ import kotlin.coroutines.coroutineContext
 class PerRootConfigService(
     private val store: ConfigStore,
     private val parser: ConfigDocumentParser = YamlConfigDocumentParser,
-) : PerRootConfigSource {
+) : PerRootConfigSource,
+    ServerConfigSource {
     private val logger = LoggerFactory.getLogger(PerRootConfigService::class.java)
 
     private data class LastKnownGood(
@@ -87,29 +89,43 @@ class PerRootConfigService(
      * Callers needing several facets for the same root should call this once and read the document locally.
      * Throws [PerRootConfigInvalidException] / [PerRootConfigUnavailableException] per the class kdoc.
      */
-    override suspend fun layer(rootId: UUID): ConfigLayer? {
+    override suspend fun layer(rootId: UUID): ConfigLayer? = readLayer(ConfigScope.ROOT, rootId)
+
+    /**
+     * The server-scope counterpart of [layer] (the `(SERVER, null)` head, tagged [ConfigSource.GLOBAL]) with exactly
+     * the same absence / invalid-data / read-failure rules; the exceptions carry a null root id.
+     */
+    override suspend fun layer(): ConfigLayer? = readLayer(ConfigScope.SERVER, null)
+
+    private suspend fun readLayer(
+        scope: ConfigScope,
+        rootId: UUID?
+    ): ConfigLayer? {
+        val key = rootId ?: SERVER_KEY
         val head =
             try {
-                store.head(ConfigScope.ROOT, rootId)
+                store.head(scope, rootId)
             } catch (e: Throwable) {
                 e.rethrowIfCancellation()
-                return lastKnownGoodOrThrow(rootId, e)
+                return lastKnownGoodOrThrow(scope, rootId, e)
             }
         if (head == null || head.source == ConfigVersionSource.RESET) {
-            lastKnownGood.remove(rootId)
+            lastKnownGood.remove(key)
             return null
         }
 
         val document =
             documents[head.versionId] ?: loadDocument(rootId, head)?.also { documents[head.versionId] = it }
-                ?: return lastKnownGoodOrThrow(rootId, IllegalStateException("version row unreadable"))
-        lastKnownGood.put(rootId, LastKnownGood(head, document))
-        return ConfigLayer(document = document, fingerprint = head.fingerprint, source = ConfigSource.PER_ROOT)
+                ?: return lastKnownGoodOrThrow(scope, rootId, IllegalStateException("version row unreadable"))
+        lastKnownGood.put(key, LastKnownGood(head, document))
+        return ConfigLayer(document = document, fingerprint = head.fingerprint, source = sourceOf(scope))
     }
+
+    private fun sourceOf(scope: ConfigScope): ConfigSource = if (scope == ConfigScope.SERVER) ConfigSource.GLOBAL else ConfigSource.PER_ROOT
 
     /** Loads and builds the document of [head]'s version; null only when the store read itself failed under LKG rules. */
     private suspend fun loadDocument(
-        rootId: UUID,
+        rootId: UUID?,
         head: ConfigHead
     ): ConfigDocument? {
         val version =
@@ -176,21 +192,24 @@ class PerRootConfigService(
      * when there is nothing to serve (cold cache) or when called inside a unit of work.
      */
     private suspend fun lastKnownGoodOrThrow(
-        rootItemId: UUID,
+        scope: ConfigScope,
+        rootItemId: UUID?,
         error: Throwable
     ): ConfigLayer {
         val insideUnit = coroutineContext[UnitElement] != null
-        logger.warn("Per-root config read failed for root {}: {}", rootItemId, error.message)
+        val subject = if (rootItemId == null) "server config" else "per-root config for root $rootItemId"
+        logger.warn("Config read failed for {}: {}", subject, error.message)
         if (!insideUnit) {
-            lastKnownGood[rootItemId]?.let {
-                return ConfigLayer(document = it.document, fingerprint = it.head.fingerprint, source = ConfigSource.PER_ROOT)
+            lastKnownGood[rootItemId ?: SERVER_KEY]?.let {
+                return ConfigLayer(document = it.document, fingerprint = it.head.fingerprint, source = sourceOf(scope))
             }
         }
         // The full store error (which may carry SQL/driver text) stays in the server log above; the exception
         // message reaches MCP and REST clients, so it names only the root.
         throw PerRootConfigUnavailableException(
             rootItemId,
-            "Per-root config for root $rootItemId is temporarily unavailable " +
+            (if (rootItemId == null) "Server config" else "Per-root config for root $rootItemId") +
+                " is temporarily unavailable " +
                 if (insideUnit) "(read failed inside a unit of work)" else "(read failed; no last-known-good config cached)",
             error
         )
@@ -198,5 +217,8 @@ class PerRootConfigService(
 
     private companion object {
         const val DOCUMENT_CACHE_SIZE = 128
+
+        /** Sentinel key of the server scope in the last-known-good map (no real root has the nil UUID). */
+        val SERVER_KEY = UUID(0L, 0L)
     }
 }

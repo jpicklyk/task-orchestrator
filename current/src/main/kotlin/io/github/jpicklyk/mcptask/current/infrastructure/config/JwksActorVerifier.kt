@@ -44,7 +44,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class JwksActorVerifier(
     private val config: VerifierConfig.Jwks,
-    private val keySetProvider: JwksKeySetProvider = DefaultJwksKeySetProvider(config),
+    private val keySetProvider: JwksKeySetProvider,
     private val clock: Clock = Clock.systemUTC(),
     private val replayCache: JtiReplayCache = JtiReplayCache(clock = clock)
 ) : ActorVerifier {

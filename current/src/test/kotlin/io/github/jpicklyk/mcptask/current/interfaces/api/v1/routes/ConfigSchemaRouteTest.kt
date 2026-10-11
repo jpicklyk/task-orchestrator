@@ -29,7 +29,7 @@ class ConfigSchemaRouteTest {
     @Test
     fun `S13 GET config schema returns 200 with the schema media type`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(ConfigRoutesTest.FakeSchemaService()) } }
+            application { configureTestApp { configRoutesOver { ConfigRoutesTest.FakeSchemaService() } } }
 
             val response = client.get("/api/v1/config/schema") { header("Authorization", "Bearer $TEST_TOKEN") }
 
@@ -41,7 +41,7 @@ class ConfigSchemaRouteTest {
     @Test
     fun `S13 the body is byte-equal to the schema resource and declares draft 2020-12`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(ConfigRoutesTest.FakeSchemaService()) } }
+            application { configureTestApp { configRoutesOver { ConfigRoutesTest.FakeSchemaService() } } }
 
             val response = client.get("/api/v1/config/schema") { header("Authorization", "Bearer $TEST_TOKEN") }
 
@@ -62,7 +62,7 @@ class ConfigSchemaRouteTest {
     @Test
     fun `S13 the response carries an ETag that is stable across reads and carries the schema digest`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(ConfigRoutesTest.FakeSchemaService()) } }
+            application { configureTestApp { configRoutesOver { ConfigRoutesTest.FakeSchemaService() } } }
 
             val first = client.get("/api/v1/config/schema") { header("Authorization", "Bearer $TEST_TOKEN") }
             val second = client.get("/api/v1/config/schema") { header("Authorization", "Bearer $TEST_TOKEN") }
@@ -79,7 +79,7 @@ class ConfigSchemaRouteTest {
     @Test
     fun `S13 the schema route has the same auth as the schemas route - no credentials is refused alike`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(ConfigRoutesTest.FakeSchemaService()) } }
+            application { configureTestApp { configRoutesOver { ConfigRoutesTest.FakeSchemaService() } } }
 
             val schemaAnon = client.get("/api/v1/config/schema")
             val schemasAnon = client.get("/api/v1/config/schemas")
@@ -93,7 +93,7 @@ class ConfigSchemaRouteTest {
     @Test
     fun `S13 a read-only token is sufficient`(): Unit =
         testApplication {
-            application { configureTestApp { configRoutes(ConfigRoutesTest.FakeSchemaService()) } }
+            application { configureTestApp { configRoutesOver { ConfigRoutesTest.FakeSchemaService() } } }
 
             val response = client.get("/api/v1/config/schema") { header("Authorization", "Bearer $TEST_TOKEN") }
 

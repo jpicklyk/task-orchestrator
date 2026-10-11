@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.EntityKind
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorCode
 import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
 import io.github.jpicklyk.mcptask.current.domain.error.VersionConflictException
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import java.sql.SQLException
 
 /**
@@ -50,6 +51,8 @@ object LegacyFaults {
         var current: Throwable? = e
         var depth = 0
         while (current != null && depth < MAX_CHAIN) {
+            // An unloadable config head is a permanent data fault, never `internal` (fail closed).
+            if (current is PerRootConfigInvalidException) return current.toDomainError()
             if (current is VersionConflictException) {
                 val id = current.id.toString()
                 return DomainError(

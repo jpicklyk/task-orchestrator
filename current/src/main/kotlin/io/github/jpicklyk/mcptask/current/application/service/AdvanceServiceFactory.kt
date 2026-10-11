@@ -29,7 +29,7 @@ class AdvanceServiceFactory(
     val configResolver: EffectiveConfigResolver,
     /** The transaction boundary every built [AdvanceService] runs its unit in. */
     private val unitOfWork: UnitOfWork,
-    private val resourceLeasesEnforced: () -> Boolean = { AdvanceService.resourceLeasesEnforcedFromEnv() },
+    private val resourceLeasesEnforced: () -> Boolean = { true },
     /** The one time source every built [AdvanceService] reads (the ambient unit instant wins inside a unit). */
     private val clock: Clock = Clock.SYSTEM,
     /** Where every built [AdvanceService] routes its claim and lease writes (and their events). */
@@ -60,7 +60,7 @@ class AdvanceServiceFactory(
      * `PerRootConfigUnavailableException` (`config_unavailable`), keyed or unkeyed alike; one on a cascade
      * target skips that cascade and the primary still commits.
      *
-     * [resourceLeasesEnforced] is read fresh on EVERY call.
+     * [resourceLeasesEnforced] is invoked on EVERY call (production binds it to the value read once at startup).
      */
     fun forItem(item: WorkItem): AdvanceService {
         val rootId = item.rootId

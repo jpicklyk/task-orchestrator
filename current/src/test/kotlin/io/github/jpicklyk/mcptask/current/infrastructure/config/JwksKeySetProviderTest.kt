@@ -81,7 +81,11 @@ class JwksKeySetProviderTest {
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
                 val config = VerifierConfig.Jwks(jwksPath = "test-jwks.json")
-                val provider = DefaultJwksKeySetProvider(config)
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        tempDir
+                    )
                 try {
                     val result = provider.getKeySet()
                     assertNotNull(result.keys)
@@ -114,7 +118,12 @@ class JwksKeySetProviderTest {
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
                 val config = VerifierConfig.Jwks(jwksPath = "test-jwks.json", cacheTtlSeconds = 300)
-                val provider = DefaultJwksKeySetProvider(config, clock = fixedClock)
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        tempDir,
+                        clock = fixedClock
+                    )
                 try {
                     val first = provider.getKeySet()
                     val second = provider.getKeySet()
@@ -151,7 +160,12 @@ class JwksKeySetProviderTest {
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
                 val config = VerifierConfig.Jwks(jwksPath = "test-jwks.json", cacheTtlSeconds = 60)
-                val provider = DefaultJwksKeySetProvider(config, clock = advancingClock)
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        tempDir,
+                        clock = advancingClock
+                    )
                 try {
                     val first = provider.getKeySet()
 
@@ -188,7 +202,12 @@ class JwksKeySetProviderTest {
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
                 val config = VerifierConfig.Jwks(jwksPath = "test-jwks.json", cacheTtlSeconds = 300)
-                val provider = DefaultJwksKeySetProvider(config, clock = fixedClock)
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        tempDir,
+                        clock = fixedClock
+                    )
                 try {
                     // Launch 20 concurrent fetches — all should succeed without exceptions.
                     val results =
@@ -238,7 +257,11 @@ class JwksKeySetProviderTest {
                         oidcDiscovery = "http://192.0.2.1:1/nonexistent",
                         jwksPath = "test-jwks.json"
                     )
-                val provider = DefaultJwksKeySetProvider(config)
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        tempDir
+                    )
                 try {
                     val result = provider.getKeySet()
                     assertNotNull(result.keys)
@@ -267,7 +290,11 @@ class JwksKeySetProviderTest {
                 VerifierConfig.Jwks(
                     oidcDiscovery = "http://192.0.2.1:1/nonexistent"
                 )
-            val provider = DefaultJwksKeySetProvider(config)
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    tempDir
+                )
             try {
                 assertThrows<Exception> {
                     provider.getKeySet()
@@ -285,7 +312,11 @@ class JwksKeySetProviderTest {
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
                 val config = VerifierConfig.Jwks(jwksPath = "does-not-exist.json")
-                val provider = DefaultJwksKeySetProvider(config)
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        tempDir
+                    )
                 try {
                     assertThrows<Exception> {
                         provider.getKeySet()
@@ -308,7 +339,11 @@ class JwksKeySetProviderTest {
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
                 val config = VerifierConfig.Jwks(jwksPath = "test-jwks.json")
-                val provider = DefaultJwksKeySetProvider(config)
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        tempDir
+                    )
                 try {
                     provider.getKeySet() // trigger fetch
                     assertNull(provider.getResolvedIssuer())
@@ -351,7 +386,12 @@ class JwksKeySetProviderTest {
                         cacheTtlSeconds = 60,
                         staleOnError = true
                     )
-                val provider = DefaultJwksKeySetProvider(config, clock = advancingClock)
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        tempDir,
+                        clock = advancingClock
+                    )
                 try {
                     // First successful fetch
                     val first = provider.getKeySet()
@@ -391,7 +431,11 @@ class JwksKeySetProviderTest {
                         jwksPath = "does-not-exist.json",
                         staleOnError = true
                     )
-                val provider = DefaultJwksKeySetProvider(config)
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        tempDir
+                    )
                 try {
                     assertThrows<Exception> {
                         provider.getKeySet()
@@ -430,7 +474,12 @@ class JwksKeySetProviderTest {
                         cacheTtlSeconds = 60,
                         staleOnError = false
                     )
-                val provider = DefaultJwksKeySetProvider(config, clock = advancingClock)
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        tempDir,
+                        clock = advancingClock
+                    )
                 try {
                     // First successful fetch
                     provider.getKeySet()
@@ -461,7 +510,11 @@ class JwksKeySetProviderTest {
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
                 val config = VerifierConfig.Jwks(jwksPath = "test-jwks.json")
-                val provider = DefaultJwksKeySetProvider(config)
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        tempDir
+                    )
                 try {
                     val result = provider.getKeySet()
                     assertTrue(!result.cacheState.fromStaleCache, "Expected fromStaleCache=false after fresh fetch")
@@ -543,6 +596,7 @@ class JwksKeySetProviderTest {
                 val provider =
                     DefaultJwksKeySetProvider(
                         config,
+                        tempDir,
                         clock = makeFixedClock(),
                         didResolverRegistry = mockRegistry
                     )
@@ -577,6 +631,7 @@ class JwksKeySetProviderTest {
                 val provider =
                     DefaultJwksKeySetProvider(
                         config,
+                        tempDir,
                         clock = makeFixedClock(),
                         didResolverRegistry = mockRegistry
                     )
@@ -596,7 +651,11 @@ class JwksKeySetProviderTest {
                         didAllowlist = listOf("did:web:trusted.example.com"),
                         cacheTtlSeconds = 300
                     )
-                val provider = DefaultJwksKeySetProvider(config)
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        tempDir
+                    )
 
                 assertThrows<IssuerNotTrustedException> {
                     provider.getKeySetForIssuer("did:web:untrusted.example.com")
@@ -620,6 +679,7 @@ class JwksKeySetProviderTest {
                 val provider =
                     DefaultJwksKeySetProvider(
                         config,
+                        tempDir,
                         clock = makeFixedClock(),
                         didResolverRegistry = mockRegistry
                     )
@@ -662,6 +722,7 @@ class JwksKeySetProviderTest {
                 val provider =
                     DefaultJwksKeySetProvider(
                         config,
+                        tempDir,
                         clock = advancingClock,
                         didResolverRegistry = mockRegistry
                     )
@@ -719,6 +780,7 @@ class JwksKeySetProviderTest {
                 val provider =
                     DefaultJwksKeySetProvider(
                         config,
+                        tempDir,
                         clock = advancingClock,
                         didResolverRegistry = mockRegistry
                     )
@@ -766,6 +828,7 @@ class JwksKeySetProviderTest {
                 val provider =
                     DefaultJwksKeySetProvider(
                         config,
+                        tempDir,
                         clock = fixedClock,
                         didResolverRegistry = mockRegistry
                     )
@@ -786,7 +849,11 @@ class JwksKeySetProviderTest {
         // DID-T8: matchesGlob unit tests — segment-bounded wildcard (Phase 4)
         @Test
         fun `matchesGlob handles wildcard and anchoring correctly`() {
-            val provider = DefaultJwksKeySetProvider(VerifierConfig.Jwks(didAllowlist = listOf("x")))
+            val provider =
+                DefaultJwksKeySetProvider(
+                    VerifierConfig.Jwks(didAllowlist = listOf("x")),
+                    tempDir
+                )
 
             // Exact match (no wildcard)
             assertTrue(provider.matchesGlob("did:web:example.com", "did:web:example.com"))
@@ -837,6 +904,7 @@ class JwksKeySetProviderTest {
                 val provider =
                     DefaultJwksKeySetProvider(
                         config,
+                        tempDir,
                         clock = makeFixedClock(),
                         didResolverRegistry = mockRegistry
                     )
@@ -859,6 +927,7 @@ class JwksKeySetProviderTest {
                 val provider2 =
                     DefaultJwksKeySetProvider(
                         config2,
+                        tempDir,
                         clock = makeFixedClock(),
                         didResolverRegistry = mockRegistry
                     )
@@ -913,7 +982,12 @@ class JwksKeySetProviderTest {
             System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
             try {
                 val config = VerifierConfig.Jwks(jwksPath = "test-jwks.json", cacheTtlSeconds = 60, staleOnError = true)
-                val provider = DefaultJwksKeySetProvider(config, clock = advancingClock)
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        tempDir,
+                        clock = advancingClock
+                    )
                 try {
                     // Call 1: fresh fetch at T=0
                     val call1 = provider.getKeySet()
@@ -976,7 +1050,12 @@ class JwksKeySetProviderTest {
                 }
 
             val config = VerifierConfig.Jwks(jwksUri = "https://auth.example.com/jwks.json")
-            val provider = DefaultJwksKeySetProvider(config, httpClientEngineForTest = engine)
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    tempDir,
+                    httpClientEngineForTest = engine
+                )
             try {
                 assertThrows<Exception> {
                     provider.getKeySet()
@@ -1000,7 +1079,12 @@ class JwksKeySetProviderTest {
                 }
 
             val config = VerifierConfig.Jwks(jwksUri = "https://auth.example.com/jwks.json")
-            val provider = DefaultJwksKeySetProvider(config, httpClientEngineForTest = engine)
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    tempDir,
+                    httpClientEngineForTest = engine
+                )
             try {
                 val ex =
                     assertThrows<Exception> {
@@ -1029,7 +1113,12 @@ class JwksKeySetProviderTest {
                 }
 
             val config = VerifierConfig.Jwks(jwksUri = "https://auth.example.com/jwks.json")
-            val provider = DefaultJwksKeySetProvider(config, httpClientEngineForTest = engine)
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    tempDir,
+                    httpClientEngineForTest = engine
+                )
             try {
                 assertThrows<Exception> {
                     provider.getKeySet()
@@ -1052,7 +1141,12 @@ class JwksKeySetProviderTest {
                 }
 
             val config = VerifierConfig.Jwks(jwksUri = "https://auth.example.com/jwks.json")
-            val provider = DefaultJwksKeySetProvider(config, httpClientEngineForTest = engine)
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    tempDir,
+                    httpClientEngineForTest = engine
+                )
             try {
                 val result = provider.getKeySet()
                 assertNotNull(result.keys)
@@ -1085,7 +1179,12 @@ class JwksKeySetProviderTest {
 
         val registry = DidResolverRegistry(listOf(trackingResolver))
         val config = VerifierConfig.Jwks(didAllowlist = listOf("did:web:example.com"))
-        val provider = DefaultJwksKeySetProvider(config, didResolverRegistry = registry)
+        val provider =
+            DefaultJwksKeySetProvider(
+                config,
+                tempDir,
+                didResolverRegistry = registry
+            )
 
         provider.close()
 
@@ -1162,6 +1261,7 @@ class JwksKeySetProviderTest {
             val provider =
                 DefaultJwksKeySetProvider(
                     config,
+                    tempDir,
                     clock = Clock.fixed(Instant.parse("2024-01-01T00:00:00Z"), ZoneOffset.UTC),
                     didResolverRegistry = mockRegistry,
                 )
@@ -1250,6 +1350,7 @@ class JwksKeySetProviderTest {
             val provider =
                 DefaultJwksKeySetProvider(
                     config,
+                    tempDir,
                     clock = Clock.fixed(Instant.parse("2024-01-01T00:00:00Z"), ZoneOffset.UTC),
                     didResolverRegistry = mockRegistry,
                 )
@@ -1333,7 +1434,12 @@ class JwksKeySetProviderTest {
                     cacheTtlSeconds = 300,
                 )
             val registry = DidResolverRegistry(listOf(DidWebResolver(engine)))
-            val provider = DefaultJwksKeySetProvider(config, didResolverRegistry = registry)
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    tempDir,
+                    didResolverRegistry = registry
+                )
             try {
                 val result = provider.getKeySetForIssuer(did)
                 assertNotNull(result.keys)
@@ -1384,7 +1490,12 @@ class JwksKeySetProviderTest {
 
             val config = VerifierConfig.Jwks(didAllowlist = listOf(did))
             val registry = DidResolverRegistry(listOf(DidWebResolver(engine)))
-            val provider = DefaultJwksKeySetProvider(config, didResolverRegistry = registry)
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    tempDir,
+                    didResolverRegistry = registry
+                )
             try {
                 assertThrows<Exception> {
                     provider.getKeySetForIssuer(did)
