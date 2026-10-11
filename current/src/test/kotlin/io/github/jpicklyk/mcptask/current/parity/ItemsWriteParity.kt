@@ -57,6 +57,8 @@ internal object ItemsWriteParity {
 
     private fun delete(id: UUID) = """{"op":"delete","id":"$id"}"""
 
+    private fun repin(id: UUID) = """{"op":"repin","id":"$id"}"""
+
     private fun create(
         title: String,
         extra: String = ""
@@ -129,8 +131,24 @@ internal object ItemsWriteParity {
             expectDbChanged = true
         )
 
+    /**
+     * The repin HAPPY scenario (item 934b25e4): a seeded row has no pin, so recomputing one is a change (`repinned:true`, the
+     * version goes up, an `item.pinned` row is recorded), which the shared runner compares across both transports.
+     */
+    val repinHappy =
+        scenario(
+            "items_write repin happy",
+            "repin",
+            ParityKind.HAPPY,
+            writer,
+            ops(repin(c1)),
+            200,
+            expectContains = listOf("\"id\":\"$c1\"", "\"repinned\":true"),
+            expectDbChanged = true
+        )
+
     /** Scenarios whose writes carry generated ids or transport-dependent event hosts; run by the test's own runner. */
-    val writing: List<ParityScenario> = listOf(createHappy, updateHappy, deleteHappy)
+    val writing: List<ParityScenario> = listOf(createHappy, updateHappy, deleteHappy, repinHappy)
 
     /** Scenarios that leave the database unchanged: the shared harness compares them as is. */
     val nonWriting: List<ParityScenario> =
@@ -167,6 +185,39 @@ internal object ItemsWriteParity {
                 207,
                 "partial_failure",
                 forbiddenRoot,
+                expectDbChanged = false
+            ),
+            scenario(
+                "items_write repin scope-forbidden out-of-root item",
+                "repin",
+                ParityKind.SCOPE_FORBIDDEN,
+                rootScoped,
+                ops(repin(r2)),
+                207,
+                "partial_failure",
+                forbiddenRoot,
+                expectDbChanged = false
+            ),
+            scenario(
+                "items_write repin capability forbidden",
+                "repin",
+                ParityKind.OTHER,
+                readOnly,
+                ops(repin(c1)),
+                207,
+                "partial_failure",
+                listOf("\"scope\":\"capability\"", "\"required\":\"write-items\""),
+                expectDbChanged = false
+            ),
+            scenario(
+                "items_write repin not_found",
+                "repin",
+                ParityKind.OTHER,
+                writer,
+                ops(repin(UUID.fromString("c3000000-0000-4000-8000-0000000000ee"))),
+                207,
+                "partial_failure",
+                listOf("\"code\":\"not_found\""),
                 expectDbChanged = false
             ),
             scenario(
@@ -298,7 +349,7 @@ class ItemsWriteParityTest {
     @Test
     fun `S6 control - the catalog holds a happy and a scope-forbidden scenario for each op`() {
         val byMember = ItemsWriteParity.scenarios.groupBy { it.member }
-        assertEquals(setOf("create", "update", "delete"), byMember.keys)
+        assertEquals(setOf("create", "update", "delete", "repin"), byMember.keys)
         for ((member, list) in byMember) {
             assertTrue(list.any { it.kind == ParityKind.HAPPY }, "$member has a HAPPY scenario")
             assertTrue(
@@ -316,6 +367,9 @@ class ItemsWriteParityTest {
 
     @Test
     fun `S6 delete happy agrees across MCP and REST`() = runWriting(ItemsWriteParity.deleteHappy)
+
+    @Test
+    fun `S6 repin happy agrees across MCP and REST`() = runWriting(ItemsWriteParity.repinHappy)
 
     /**
      * The shared harness cannot compare a write that emits event rows: the event `host` is the MCP client name on one leg and the
