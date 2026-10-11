@@ -72,11 +72,12 @@ object DocHandlers {
                     is Outcome.Ok -> admitted.value
                 }
             val doc = stores.documentStore().get(rootId, req.kind.domain, req.slug) ?: return@read Outcome.Err(documentNotFound(req.slug))
-            recordCallTargetVersion(doc.id, doc.version.toLong())
             if (version != null) {
                 val stored =
                     stores.documentStore().getVersion(doc.id, version)
                         ?: return@read Outcome.Err(documentNotFound("${req.slug}@$version"))
+                // call_log joins document search hits to later reads (Q26): record only the version returned.
+                recordCallTargetVersion(doc.id, stored.version.toLong())
                 return@read Outcome.Ok(
                     DocGetResult.Version(
                         DocVersionView(
@@ -91,6 +92,7 @@ object DocHandlers {
                     )
                 )
             }
+            recordCallTargetVersion(doc.id, doc.version.toLong())
             if (ifVersion != null && ifVersion == doc.version) return@read Outcome.Ok(DocGetResult.Unchanged(doc.version))
             val adopter = adopters(stores, ctx, listOf(doc.id))[doc.id]
             Outcome.Ok(DocGetResult.Found(view(doc, adopter)))
