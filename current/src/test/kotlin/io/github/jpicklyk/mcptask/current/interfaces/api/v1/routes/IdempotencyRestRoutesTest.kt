@@ -35,7 +35,7 @@ import kotlin.test.assertTrue
  * routes, over a real SQLite database through `configureWriteTestApp`.
  *
  * Oracles: plan section 3.9 l.280 and the frozen task-scope REST adapter: POST /items, PATCH /items/{id},
- * PUT /items/{id}/notes/{key}, POST /items/{id}/advance and POST /dependencies honour the header; a replay sends the
+ * and POST /dependencies honour the header; a replay sends the
  * stored status, body and ETag verbatim plus the header `Idempotent-Replayed: true`; the same key with another
  * request (fingerprint over op, path, If-Match and body) is 409 `idempotency_mismatch` and executes nothing; a 2xx and
  * a body-parse 400 `validation_error` are recorded, any other non-2xx (here: 400 `cycle_detected`) is not, so a retry
@@ -137,26 +137,6 @@ class IdempotencyRestRoutesTest {
             assertVerbatimReplay(first, firstBody, second)
             assertEquals(1, records())
             assertEquals("Patched Once", runBlocking { repo.workItemRepository().getById(item.id) }!!.title)
-        }
-
-    @Test
-    fun `S4 PUT note replays and keeps a single note`(): Unit =
-        testApplication {
-            val repo = db.repositoryProvider()
-            val item = runBlocking { repo.workItemRepository().create(WorkItem(title = "Note host", depth = 0)) }
-            application { configureWriteTestApp(repo, unitOfWork = db.unitOfWork()) }
-            val key = UUID.randomUUID().toString()
-            val path = "/api/v1/items/${item.id}/notes/impl-note"
-            val body = """{"role":"work","body":"detail"}"""
-
-            val first = send("PUT", path, body, key)
-            val firstBody = first.bodyAsText()
-            val second = send("PUT", path, body, key)
-
-            assertEquals(HttpStatusCode.Created, first.status)
-            assertVerbatimReplay(first, firstBody, second)
-            assertEquals(1, rawInt("SELECT count(*) FROM notes"))
-            assertEquals(1, records())
         }
 
     @Test

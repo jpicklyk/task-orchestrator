@@ -175,7 +175,7 @@ class EnvelopeEncoderTest {
 
     @Test
     fun `S1 probe an arbitrary reqId and an escaped message survive encoding as valid JSON`() {
-        val awkward = DomainError(ErrorCode.INTERNAL, "He said \"hi\"\nthen left \u00e9 \\ done", null, emptyMap())
+        val awkward = DomainError(ErrorCode.INVALID_CURSOR, "He said \"hi\"\nthen left \u00e9 \\ done", null, emptyMap())
         val envelope = EnvelopeEncoder.error(awkward, "r\"1")
 
         assertEquals(
@@ -223,7 +223,12 @@ class EnvelopeEncoderTest {
             assertEquals(present.sortedBy { errorKeyOrder.indexOf(it) }, present, "$label: error member order")
             assertEquals(code.wire, error.getValue("code").jsonPrimitive.content, label)
             assertEquals(code.kind.name.lowercase(), error.getValue("kind").jsonPrimitive.content, "$label: kind")
-            assertEquals(failure.message, error.getValue("message").jsonPrimitive.content, "$label: message")
+            val expectedMessage = if (code == ErrorCode.INTERNAL) EnvelopeEncoder.INTERNAL_MESSAGE else failure.message
+            assertEquals(
+                expectedMessage,
+                error.getValue("message").jsonPrimitive.content,
+                "$label: message (internal is always the fixed text)"
+            )
             assertEquals(code.detailClass != null, "detail" in error, "$label: detail iff the code defines one")
             val fix = failure.fix
             if (fix != null) {

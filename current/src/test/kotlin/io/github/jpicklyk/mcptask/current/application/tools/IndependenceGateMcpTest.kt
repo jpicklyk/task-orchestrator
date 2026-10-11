@@ -1,15 +1,17 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.DatabaseManager
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
+import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
@@ -195,36 +197,7 @@ work_item_schemas:
         body: String,
         actorId: String?
     ) {
-        val result =
-            ManageNotesTool().execute(
-                buildJsonObject {
-                    put("operation", JsonPrimitive("upsert"))
-                    put(
-                        "notes",
-                        buildJsonArray {
-                            add(
-                                buildJsonObject {
-                                    put("itemId", JsonPrimitive(itemId.toString()))
-                                    put("key", JsonPrimitive(key))
-                                    put("role", JsonPrimitive(role))
-                                    put("body", JsonPrimitive(body))
-                                    if (actorId != null) {
-                                        put(
-                                            "actor",
-                                            buildJsonObject {
-                                                put("id", JsonPrimitive(actorId))
-                                                put("kind", JsonPrimitive("subagent"))
-                                            }
-                                        )
-                                    }
-                                }
-                            )
-                        }
-                    )
-                },
-                toolContext
-            )
-        assertTrue((result as JsonObject)["success"]!!.jsonPrimitive.boolean, "note upsert must succeed: $result")
+        toolContext.putNote(itemId, key, role, body, actor = actorId?.let { ActorClaim(it, ActorKind.SUBAGENT) })
     }
 
     private fun extractData(result: JsonElement): JsonObject {

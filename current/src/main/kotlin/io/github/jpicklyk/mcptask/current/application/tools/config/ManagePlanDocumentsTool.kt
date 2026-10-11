@@ -4,16 +4,15 @@ import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentServic
 import io.github.jpicklyk.mcptask.current.application.service.PlanDocumentStashResult
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.error.DomainError
+import io.github.jpicklyk.mcptask.current.domain.error.ErrorDetail
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocument
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentSummary
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.security.PathContainment
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
-import java.nio.file.Path
-import java.nio.file.Paths
 
 /**
  * MCP tool for stashing, reading back, and listing per-root plan documents — the transport-agnostic
@@ -26,14 +25,10 @@ import java.nio.file.Paths
  * - **get**: reads back the full stored document (including body) for a `rootId`+`slug`.
  * - **list**: reads back metadata-only summaries (no body) for every document under a `rootId`.
  *
- * @param agentConfigBaseDir The trusted root that `bodyFromFile` paths are resolved strictly
- *   relative to (see [PathContainment]) — same `AGENT_CONFIG_DIR` -> `user.dir` resolution as
- *   [io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool]. Overridable for tests.
+ * `bodyFromFile` is read through [ToolExecutionContext.bodySource], the one file reader every tool shares: a path is
+ * resolved strictly inside the agent config root the composition wired, with the 64 KiB cap and strict UTF-8.
  */
-class ManagePlanDocumentsTool(
-    private val agentConfigBaseDir: Path =
-        Paths.get(AppConfig.resolveConfigBaseDir(System.getenv("AGENT_CONFIG_DIR")))
-) : BaseToolDefinition() {
+class ManagePlanDocumentsTool : BaseToolDefinition() {
     override val name = "manage_plan_documents"
 
     override val description =
@@ -212,10 +207,17 @@ optionally filtered to a single `status` (pending or adopted).
         val bodyInline = optionalString(params, "body")
         val bodyFromFilePath = optionalString(params, "bodyFromFile")
         val body =
-            try {
-                if (bodyFromFilePath != null) readBodyFromFile(bodyFromFilePath) else (bodyInline ?: "")
-            } catch (e: ToolValidationException) {
-                return errorResponse(e.message ?: "bodyFromFile could not be read", LegacyMcpCode.VALIDATION_ERROR)
+            if (bodyFromFilePath != null) {
+                when (val read = context.bodySource.read(bodyFromFilePath)) {
+                    is Outcome.Err -> return errorResponse(
+                        "bodyFromFile rejected: ${bodyFileReason(read.error)}",
+                        LegacyMcpCode.VALIDATION_ERROR
+                    )
+                    // Files authored or edited on Windows commonly contain CRLF; every stash path stores LF.
+                    is Outcome.Ok -> read.value.replace("\r\n", "\n")
+                }
+            } else {
+                bodyInline ?: ""
             }
 
         val service = PlanDocumentService(context.repositoryProvider, context.unitOfWork)
@@ -317,6 +319,12 @@ optionally filtered to a single `status` (pending or adopted).
     // JSON shaping
     // ──────────────────────────────────────────────
 
+    /** The rejection text of a [BodySource] error: the offending path and why, else the error's own message. */
+    private fun bodyFileReason(error: DomainError): String {
+        val field = (error.detail as? ErrorDetail.InvalidRequest)?.fields?.firstOrNull()
+        return if (field?.received != null) "'${field.received}' ${field.reason}" else error.message
+    }
+
     private fun documentToJson(
         document: PlanDocument,
         includeBody: Boolean
@@ -344,35 +352,4 @@ optionally filtered to a single `status` (pending or adopted).
             put("createdAt", JsonPrimitive(summary.createdAt.toString()))
             put("updatedAt", JsonPrimitive(summary.modifiedAt.toString()))
         }
-
-    // ──────────────────────────────────────────────
-    // bodyFromFile resolution
-    // ──────────────────────────────────────────────
-
-    /**
-     * Reads and validates a `bodyFromFile` path via [PathContainment], enforcing the same 64KB cap
-     * as [PlanDocumentService.MAX_BODY_BYTES] and normalizing CRLF to LF — mirrors
-     * [io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool.readBodyFromFile]
-     * exactly, so a file stashed via REST PUT and via this path land byte-identical content.
-     */
-    private fun readBodyFromFile(relativePath: String): String {
-        when (val result = PathContainment.resolveWithinBase(agentConfigBaseDir, relativePath)) {
-            is PathContainment.Result.Rejected ->
-                throw ToolValidationException("bodyFromFile rejected — ${result.reason}")
-            is PathContainment.Result.Allowed -> {
-                val file = result.realPath.toFile()
-                val size = file.length()
-                if (size > PlanDocumentService.MAX_BODY_BYTES) {
-                    throw ToolValidationException(
-                        "bodyFromFile '$relativePath' is $size bytes, exceeds the " +
-                            "${PlanDocumentService.MAX_BODY_BYTES} byte cap"
-                    )
-                }
-                val raw = file.readText(Charsets.UTF_8)
-                // Normalize CRLF line endings to LF, matching ManageNotesTool's bodyFromFile
-                // behavior — files authored or edited on Windows commonly contain CRLF.
-                return raw.replace("\r\n", "\n")
-            }
-        }
-    }
 }

@@ -44,8 +44,8 @@ class PlanDocumentService(
      * Validates and persists [body] as the PENDING document at `(rootItemId, slug)`. See
      * [PlanDocumentStashResult] for the possible outcomes.
      *
-     * The 64KB body cap mirrors `ManageNotesTool`'s `bodyFromFile` cap
-     * ([io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool]) — kept
+     * The 64KB body cap mirrors the `bodyFromFile` cap of `notes_write`
+     * ([io.github.jpicklyk.mcptask.current.application.port.BodySource.MAX_FILE_BYTES]) - kept
      * code-side (not a SQL CHECK) for consistency with how note bodies are capped elsewhere. A
      * `slug` starting with [RuleService.RULE_SLUG_PREFIX] (`rule/`) is capped tighter, at
      * [RuleService.MAX_RULE_BODY_BYTES] — the single enforcement point for both `manage_plan_documents`
@@ -173,7 +173,7 @@ class PlanDocumentService(
     companion object {
         /**
          * Hard cap on a stashed document body's UTF-8 byte size (CWE-770: uncontrolled resource
-         * consumption), mirroring `ManageNotesTool.MAX_BODY_FILE_BYTES`. Enforced before any
+         * consumption), mirroring `BodySource.MAX_FILE_BYTES`. Enforced before any
          * repository call.
          */
         const val MAX_BODY_BYTES = DocumentService.MAX_PLAN_BODY_BYTES

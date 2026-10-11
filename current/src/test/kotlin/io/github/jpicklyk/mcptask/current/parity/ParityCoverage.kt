@@ -142,11 +142,12 @@ object ParityCoverage {
 }
 
 /**
- * The production parity catalog. `buildToolSpecs()` is empty until the first production tool lands, so both lists are empty
- * and the guard test passes vacuously. Every later tool item that registers a select or op MUST append its HAPPY and
- * SCOPE_FORBIDDEN scenarios (or a reasoned [ScopeExempt]) here, or `ParityCoverageGuardTest` fails.
+ * The production parity catalog. Every item that registers a select or op MUST append its HAPPY and SCOPE_FORBIDDEN
+ * scenarios (or a reasoned [ScopeExempt]) here, or `ParityCoverageGuardTest` fails. `notes_read` / `notes_write` (Q11) are the
+ * first production tools; their scenarios live in `NotesParityCatalog` (they need notes seeded beforehand) and run in
+ * `NotesParityTest`.
  */
 object ProductionParity {
-    val scenarios: List<ParityScenario> = AdvanceParityScenarios.all
-    val exemptions: List<ScopeExempt> = emptyList()
+    val scenarios: List<ParityScenario> = NotesParityCatalog.scenarios + AdvanceParityScenarios.all
+    val exemptions: List<ScopeExempt> = NotesParityCatalog.exemptions
 }

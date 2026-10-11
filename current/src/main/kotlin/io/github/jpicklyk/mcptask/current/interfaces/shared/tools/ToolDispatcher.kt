@@ -19,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
+import io.github.jpicklyk.mcptask.current.infrastructure.security.sha256Hex
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.PersistenceFaults
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.configName
@@ -99,7 +100,7 @@ class ToolDispatcher(
                         is Outcome.Err -> return Dispatched(EnvelopeEncoder.error(lifted.error, reqId), null, batchSize)
                         is Outcome.Ok -> lifted.value
                     }
-            val ctx = CallContext(reqId, surface, principal, access.scope)
+            val ctx = CallContext(reqId, surface, principal, access.scope, access.attributionVisible)
 
             when (val describe = describeFlag(arguments)) {
                 is Outcome.Err -> return Dispatched(EnvelopeEncoder.error(describe.error, reqId), null, batchSize)
@@ -191,7 +192,14 @@ class ToolDispatcher(
         }
         if (bounds.isNotEmpty()) return Outcome.Err(invalidFields(bounds))
         val claim = ActorClaim(request.id, request.kind.kind, request.parent, request.proof)
-        val verification = actorVerifier.verify(claim)
+        // Forensic hash, computed here (not in the verifier) so every verifier gets identical evidence: set whenever a
+        // non-blank proof was presented, whatever the verification outcome. The raw proof itself is never persisted.
+        val verified = actorVerifier.verify(claim)
+        val verification =
+            claim.proof
+                ?.takeIf { it.isNotBlank() }
+                ?.let { verified.copy(proofSha256 = sha256Hex(it.toByteArray(Charsets.UTF_8))) }
+                ?: verified
         recordCallPrincipal(claim, verification)
         return Outcome.Ok(CallPrincipal(claim, verification))
     }

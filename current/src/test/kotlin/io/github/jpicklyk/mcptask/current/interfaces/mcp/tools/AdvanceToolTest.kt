@@ -1,7 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp.tools
 
-import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
@@ -21,6 +22,7 @@ import io.github.jpicklyk.mcptask.current.parity.callMcp
 import io.github.jpicklyk.mcptask.current.parity.installParityRestApp
 import io.github.jpicklyk.mcptask.current.parity.parityAuthConfig
 import io.github.jpicklyk.mcptask.current.test.P11_BASE_YAML
+import io.github.jpicklyk.mcptask.current.test.putNote
 import io.github.jpicklyk.mcptask.current.test.sqlite.SqliteTestDatabase
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -34,12 +36,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import java.nio.file.Files
@@ -474,28 +473,7 @@ work_item_schemas:
         key: String,
         actorId: String
     ) {
-        callOk(
-            ManageNotesTool(),
-            "operation" to JsonPrimitive("upsert"),
-            "notes" to
-                buildJsonArray {
-                    add(
-                        buildJsonObject {
-                            put("itemId", item.toString())
-                            put("key", key)
-                            put("role", "work")
-                            put("body", "filled $key")
-                            put(
-                                "actor",
-                                buildJsonObject {
-                                    put("id", actorId)
-                                    put("kind", "subagent")
-                                }
-                            )
-                        }
-                    )
-                }
-        )
+        ctx.putNote(item, key, "work", "filled $key", actor = ActorClaim(actorId, ActorKind.SUBAGENT))
     }
 
     private fun independenceSeed(

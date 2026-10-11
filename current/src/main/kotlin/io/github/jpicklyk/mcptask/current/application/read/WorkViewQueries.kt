@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.read
 
-import io.github.jpicklyk.mcptask.current.application.api.CursorCodec
 import io.github.jpicklyk.mcptask.current.application.api.ListPage
 import io.github.jpicklyk.mcptask.current.application.api.PageRequest
 import io.github.jpicklyk.mcptask.current.application.port.ItemSlice
@@ -19,9 +18,9 @@ import java.util.UUID
  * counted in the same unit as its items. Views return plain data ([OverviewView], [BlockedEntry], ...); the
  * tools and routes that serve them render it.
  *
- * Paging: a page's `next` cursor encodes `offset + items.size` and is present whenever `items.size < total`
- * (the [ListPage] invariant), so the cursor of the final page of a multi-page list points past the end and reads
- * an empty page. Pages are disjoint and stable for unchanged data.
+ * Paging ([ListPage.of], envelope amendment U22): every page reports the full `total`; a page's `next` cursor
+ * encodes `offset + items.size` and is present exactly when items exist after the page, so the final page of a
+ * multi-page list has no cursor. Pages are disjoint and stable for unchanged data.
  */
 class WorkViewQueries(
     private val unitOfWork: UnitOfWork,
@@ -203,13 +202,6 @@ class WorkViewQueries(
         page: PageRequest,
     ): ListPage<T> {
         // Page and count share one read unit, so total >= items.size; the max only guards the ListPage invariant.
-        val exact = maxOf(total, items.size)
-        val truncated = items.size < exact
-        return ListPage(
-            items = items,
-            total = exact,
-            truncated = truncated,
-            next = if (truncated) CursorCodec.encode(page.offset + items.size) else null,
-        )
+        return ListPage.of(items, total = maxOf(total, items.size), page = page)
     }
 }

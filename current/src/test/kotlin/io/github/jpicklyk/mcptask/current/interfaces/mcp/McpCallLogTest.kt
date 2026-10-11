@@ -397,37 +397,33 @@ class McpCallLogTest {
         }
 
     @Test
-    fun `S6 a batch of three notes with one failing records batch_size 3 and failed_count 1`() =
+    fun `S6 a batch of three item updates with one failing records batch_size 3 and failed_count 1`() =
         runBlocking {
-            val item = rig.seed("S6 notes")
+            val first = rig.seed("S6 batch a")
+            val second = rig.seed("S6 batch b")
+            val item = first
             val notes =
                 buildJsonArray {
                     add(
                         buildJsonObject {
-                            put("itemId", item.id.toString())
-                            put("key", "n1")
-                            put("role", "work")
-                            put("body", "b1")
+                            put("itemId", first.id.toString())
+                            put("title", "S6 batch a renamed")
                         }
                     )
                     add(
                         buildJsonObject {
-                            put("itemId", item.id.toString())
-                            put("key", "n2")
-                            put("role", "work")
-                            put("body", "b2")
+                            put("itemId", second.id.toString())
+                            put("title", "S6 batch b renamed")
                         }
                     )
                     add(
                         buildJsonObject {
                             put("itemId", UUID.randomUUID().toString())
-                            put("key", "n3")
-                            put("role", "work")
-                            put("body", "b3")
+                            put("title", "S6 batch unknown")
                         }
                     )
                 }
-            val result = call("manage_notes", "operation" to jstr("upsert"), "notes" to notes)
+            val result = call("manage_items", "operation" to jstr("update"), "items" to notes)
             // The MCP structuredContent is the tool's data payload itself (summary.failed, else failed).
             val payload = result.structuredContent
             val failed =
@@ -438,12 +434,16 @@ class McpCallLogTest {
                     ?.jsonPrimitive
                     ?.intOrNull
                     ?: payload?.get("failed")?.jsonPrimitive?.intOrNull
-            assertEquals(1, failed, "fixture: exactly one of the three notes fails per the tool's own summary: ${result.structuredContent}")
+            assertEquals(
+                1,
+                failed,
+                "fixture: exactly one of the three updates fails per the tool's own summary: ${result.structuredContent}"
+            )
             val row = flush().single()
             assertEquals(3L, row["batch_size"])
             assertEquals(1L, row["failed_count"])
             val ids = Json.parseToJsonElement(row["target_ids"] as String).jsonArray.map { it.jsonPrimitive.content }
-            assertTrue(item.id.toString() in ids, "elements of the top-level notes array contribute their itemId: $ids")
+            assertTrue(item.id.toString() in ids, "elements of the top-level items array contribute their itemId: $ids")
         }
 
     @Test
