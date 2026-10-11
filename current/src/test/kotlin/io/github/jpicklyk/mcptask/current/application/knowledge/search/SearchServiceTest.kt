@@ -5,14 +5,21 @@ import io.github.jpicklyk.mcptask.current.application.port.Analyzer
 import io.github.jpicklyk.mcptask.current.application.port.Candidate
 import io.github.jpicklyk.mcptask.current.application.port.Corpus
 import io.github.jpicklyk.mcptask.current.application.port.MAX_FTS_RESULTS
+import io.github.jpicklyk.mcptask.current.application.port.ReadScope
+import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.ScopeFilter
 import io.github.jpicklyk.mcptask.current.application.port.SearchIndex
 import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.application.port.SearchResult
 import io.github.jpicklyk.mcptask.current.application.port.TextQuery
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.port.WriteScope
+import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
+import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -72,10 +79,39 @@ class SearchServiceTest {
         snippet = "note <mark>needle</mark> $noteN",
     )
 
+    /** Records how many times `read` is entered and whether an index call happens while a read is open. */
+    private class CountingUnitOfWork : UnitOfWork {
+        var reads = 0
+        var inRead = false
+
+        override suspend fun <T> write(
+            op: String,
+            block: suspend WriteScope.() -> Outcome<T>
+        ): Outcome<T> = error("search never writes")
+
+        override suspend fun <T> read(block: suspend ReadScope.() -> T): T {
+            reads++
+            inRead = true
+            try {
+                return object : ReadScope {
+                    override val stores: RepositoryProvider = mockk(relaxed = true)
+                    override val now: Instant = Instant.EPOCH
+                }.block()
+            } finally {
+                inRead = false
+            }
+        }
+    }
+
+    private val uow = CountingUnitOfWork()
+
     private class FakeSearchIndex(
         private val lists: Map<Pair<Corpus, Analyzer>, List<Candidate>> = emptyMap(),
         private val titleMap: Map<UUID, String> = emptyMap(),
+        private val uow: CountingUnitOfWork? = null,
     ) : SearchIndex {
+        val outsideRead = mutableListOf<String>()
+
         data class Call(
             val corpus: Corpus,
             val query: TextQuery,
@@ -94,11 +130,13 @@ class SearchServiceTest {
             filter: ScopeFilter,
             window: Int,
         ): List<Candidate> {
+            if (uow != null && !uow.inRead) outsideRead += "candidates"
             calls += Call(corpus, query, analyzer, filter, window)
             return (lists[corpus to analyzer] ?: emptyList()).take(window)
         }
 
         override suspend fun titles(itemIds: Set<UUID>): Map<UUID, String> {
+            if (uow != null && !uow.inRead) outsideRead += "titles"
             titleCalls += itemIds
             return titleMap.filterKeys { it in itemIds }
         }
@@ -116,7 +154,7 @@ class SearchServiceTest {
     private fun search(
         index: SearchIndex,
         request: SearchRequest,
-    ): SearchResult = runBlocking { SearchService(index).search(request) }
+    ): SearchResult = runBlocking { SearchService(index, uow).search(request) }
 
     // -- S4: cap before slice, paging -------------------------------------------------------------
 
@@ -286,12 +324,35 @@ class SearchServiceTest {
         assertEquals(listOf(Ranker.label(Analyzer.SUBSTRING)), byId.getValue(uuid(1)).matchedIn)
         assertEquals(listOf(Ranker.label(Analyzer.STEMMED)), byId.getValue(uuid(3)).matchedIn)
 
-        assertNotNull(byId.getValue(uuid(2)).trigramRank)
-        assertNotNull(byId.getValue(uuid(2)).textRank)
-        assertNotNull(byId.getValue(uuid(1)).trigramRank)
+        assertEquals(-999.0, byId.getValue(uuid(2)).trigramRank)
+        assertEquals(-1000.0, byId.getValue(uuid(2)).textRank)
+        assertEquals(-1000.0, byId.getValue(uuid(1)).trigramRank)
         assertNull(byId.getValue(uuid(1)).textRank, "a SUBSTRING-only hit has no text rank")
         assertNull(byId.getValue(uuid(3)).trigramRank, "a STEMMED-only hit has no trigram rank")
-        assertNotNull(byId.getValue(uuid(3)).textRank)
+        assertEquals(-999.0, byId.getValue(uuid(3)).textRank)
+    }
+
+    @Test
+    fun `a dual-matched hit takes field and snippet from the lower raw rank and from the substring analyzer on a tie`() {
+        val trigramLower = itemCandidate(n = 1, position = 0, field = "title")
+        val textHigher = itemCandidate(n = 1, position = 5, field = "summary")
+        val textLower = itemCandidate(n = 2, position = 0, field = "summary")
+        val trigramHigher = itemCandidate(n = 2, position = 5, field = "title")
+        val tieTrigram = itemCandidate(n = 3, position = 2, field = "title")
+        val tieText = itemCandidate(n = 3, position = 2, field = "description")
+        val index =
+            FakeSearchIndex(
+                mapOf(
+                    (Corpus.ITEM to Analyzer.SUBSTRING) to listOf(trigramLower, trigramHigher, tieTrigram),
+                    (Corpus.ITEM to Analyzer.STEMMED) to listOf(textLower, textHigher, tieText),
+                )
+            )
+
+        val byId = search(index, request(matchMode = SearchMatchMode.AUTO)).hits.associateBy { it.itemId }
+
+        assertEquals("title", byId.getValue(uuid(1)).field, "substring rank is lower")
+        assertEquals("summary", byId.getValue(uuid(2)).field, "text rank is lower")
+        assertEquals("title", byId.getValue(uuid(3)).field, "tie goes to the substring analyzer")
     }
 
     // -- plan: which analyzers, which corpus, which terms ---------------------------------------------
@@ -407,7 +468,7 @@ class SearchServiceTest {
             val index = FakeSearchIndex()
             val ex =
                 assertFailsWith<SearchValidationException>("query '${blank.replace("\n", "\\n").replace("\t", "\\t")}'") {
-                    runBlocking { SearchService(index).search(request(query = blank, matchMode = SearchMatchMode.AUTO)) }
+                    runBlocking { SearchService(index, uow).search(request(query = blank, matchMode = SearchMatchMode.AUTO)) }
                 }
             assertEquals(SearchService.EMPTY_QUERY_MESSAGE, ex.message)
             assertTrue(index.calls.isEmpty(), "validation precedes any index call")
@@ -420,11 +481,68 @@ class SearchServiceTest {
             val index = FakeSearchIndex()
             val ex =
                 assertFailsWith<SearchValidationException>("query '$shortQuery'") {
-                    runBlocking { SearchService(index).search(request(query = shortQuery, matchMode = SearchMatchMode.SUBSTRING)) }
+                    runBlocking { SearchService(index, uow).search(request(query = shortQuery, matchMode = SearchMatchMode.SUBSTRING)) }
                 }
-            assertFalse(ex.message.isNullOrBlank())
+            assertEquals(
+                "Trigram search requires at least one token with \u22653 characters. " +
+                    "Got tokens: ${shortQuery.split(" ").joinToString(", ") { "\"$it\"" }}. " +
+                    "Try a longer search term or use matchMode=text for stemming-based search.",
+                ex.message
+            )
             assertTrue(index.calls.isEmpty(), "validation precedes any index call")
         }
+    }
+
+    @Test
+    fun `a control character in the query is rejected with the exact message before any read or index access`() {
+        listOf(0x0000, 0x0001, 0x001F, 0x007F, 0x0085, 0x009F).forEach { code ->
+            val index = FakeSearchIndex()
+            val ex =
+                assertFailsWith<SearchValidationException>("U+%04X".format(code)) {
+                    runBlocking {
+                        SearchService(
+                            index,
+                            uow
+                        ).search(request(query = "ab${code.toChar()}cd", matchMode = SearchMatchMode.AUTO))
+                    }
+                }
+            assertEquals("Search query contains a control character (U+%04X). Remove it and retry.".format(code), ex.message)
+            assertTrue(index.calls.isEmpty() && index.titleCalls.isEmpty(), "rejected before any index call")
+        }
+        assertEquals(0, uow.reads, "a validation rejection never enters read")
+    }
+
+    @Test
+    fun `whitespace separators and ordinary non-ASCII text are not control characters`() {
+        val hit = itemCandidate(n = 9, position = 0)
+        val index = FakeSearchIndex(mapOf((Corpus.ITEM to Analyzer.SUBSTRING) to listOf(hit)))
+
+        listOf("alpha\tbeta", "alpha\nbeta", "alpha\rbeta", "caf\u00e9 latte", "non\u00a0breaking").forEach { q ->
+            search(index, request(query = q, matchMode = SearchMatchMode.SUBSTRING))
+        }
+        assertEquals(listOf("alpha", "beta"), QueryTokenizer.tokenize("alpha\tbeta"))
+    }
+
+    @Test
+    fun `every candidate and title call runs inside exactly one read`() {
+        val hit = itemCandidate(n = 9, position = 0)
+        val index =
+            FakeSearchIndex(
+                mapOf(
+                    (Corpus.ITEM to Analyzer.SUBSTRING) to listOf(hit),
+                    (Corpus.ITEM to Analyzer.STEMMED) to listOf(hit),
+                ),
+                mapOf(uuid(9) to "Nine"),
+                uow,
+            )
+
+        val result = search(index, request(matchMode = SearchMatchMode.AUTO))
+
+        assertEquals(1, uow.reads)
+        assertEquals(2, index.calls.size)
+        assertEquals(1, index.titleCalls.size)
+        assertTrue(index.outsideRead.isEmpty(), "outside read: ${index.outsideRead}")
+        assertEquals("Nine", result.hits.single().title)
     }
 
     @Test
@@ -443,7 +561,7 @@ class SearchServiceTest {
             val index = FakeSearchIndex()
             val ex =
                 assertFailsWith<SearchValidationException>("limit $tooBig") {
-                    runBlocking { SearchService(index).search(request(limit = tooBig)) }
+                    runBlocking { SearchService(index, uow).search(request(limit = tooBig)) }
                 }
             assertEquals(SearchService.limitTooLargeMessage(tooBig), ex.message)
             assertTrue(index.calls.isEmpty(), "validation precedes any index call")

@@ -5,6 +5,8 @@ import io.github.jpicklyk.mcptask.current.application.knowledge.search.SearchSer
 import io.github.jpicklyk.mcptask.current.application.port.Corpus
 import io.github.jpicklyk.mcptask.current.application.port.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.application.port.SearchMatchMode
+import io.github.jpicklyk.mcptask.current.application.port.UnitOfWork
+import io.github.jpicklyk.mcptask.current.application.support.UnscopedUnitOfWork
 import io.github.jpicklyk.mcptask.current.application.support.legacyRead
 import io.github.jpicklyk.mcptask.current.application.support.runCatchingNonCancellation
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -44,11 +46,14 @@ private val noteLogger = LoggerFactory.getLogger("NoteRoutes")
  * allowed tag (filtered inside the search, before the page is taken); the per-item routes are already gated by
  * [enforceScopeForItem].
  */
-fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
+fun Route.noteRoutes(
+    repositoryProvider: RepositoryProvider,
+    unitOfWork: UnitOfWork = UnscopedUnitOfWork(repositoryProvider),
+) {
     val workItemRepo = repositoryProvider.workItemRepository()
     val noteRepo = repositoryProvider.noteRepository()
     val redactor = AttributionRedactor.fromEnv()
-    val searchService by lazy { SearchService(repositoryProvider.searchIndex()) }
+    val searchService by lazy { SearchService(repositoryProvider.searchIndex(), unitOfWork) }
 
     requireCapability(ApiCapability.READ) {
         // ─── GET /items/{id}/notes ──────────────────────────────────────────

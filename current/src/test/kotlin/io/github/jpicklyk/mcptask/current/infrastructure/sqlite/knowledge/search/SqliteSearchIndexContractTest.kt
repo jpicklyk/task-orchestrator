@@ -801,7 +801,7 @@ class SearchServiceOnSqliteTest {
     val sqliteDb = SqliteTestDatabase.perMethod()
 
     private val provider get() = sqliteDb.repositoryProvider()
-    private val service get() = SearchService(provider.searchIndex())
+    private val service get() = SearchService(provider.searchIndex(), sqliteDb.unitOfWork())
 
     private suspend fun item(
         title: String,

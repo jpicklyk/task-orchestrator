@@ -58,7 +58,9 @@ syntax. The SQLite adapter is the only place FTS5 syntax is produced: it wraps e
 quotes (doubling any embedded `"`), so `*`, `:`, `-`, parentheses and the operator words `AND`,
 `OR`, `NOT`, `NEAR` are matched literally.
 
-An empty or whitespace-only query is rejected. For `matchMode="substring"`, a query whose every
+An empty or whitespace-only query is rejected, and so is a query containing a control character
+(U+0000-U+001F or U+007F-U+009F other than tab, line feed, vertical tab, form feed, carriage return
+and space): MCP answers `VALIDATION_ERROR`, REST answers `400`. For `matchMode="substring"`, a query whose every
 term is shorter than 3 characters is rejected too (the trigram index minimum).
 
 You do not need to escape or quote search terms — pass them as plain text.
