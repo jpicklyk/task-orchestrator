@@ -91,7 +91,6 @@ data class AppConfig(
     val schemaModeRaw: String? = null,
     /** `FTS_INTEGRITY` (`startup` default | `off`) -- whether startup runs the FTS5 integrity check ([FtsIntegrityMode]). */
     val ftsIntegrity: FtsIntegrityMode = FtsIntegrityMode.STARTUP,
-    // ---- Resource leases (AdvanceServiceFactory) ----
     /** `RESOURCE_LEASES_ENFORCED` -- the lease kill switch, read ONCE at startup (restart to change). Default true; false skips the lease gate and acquisition on every advance. */
     val resourceLeasesEnforced: Boolean = true,
     // ---- REST API: SSE / events ----

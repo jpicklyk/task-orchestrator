@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.application.api.ScopeGuard
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.support.rethrowIfCancellation
+import io.github.jpicklyk.mcptask.current.application.support.toDomainError
 import io.github.jpicklyk.mcptask.current.application.telemetry.recordCallPrincipal
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.error.DomainError
@@ -19,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.domain.error.ForbiddenScope
 import io.github.jpicklyk.mcptask.current.domain.error.Outcome
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigInvalidException
 import io.github.jpicklyk.mcptask.current.infrastructure.security.sha256Hex
 import io.github.jpicklyk.mcptask.current.infrastructure.sqlite.PersistenceFaults
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -131,6 +133,10 @@ class ToolDispatcher(
                 }
                 is OpsToolSpec<*> -> runOps(spec, profile, arguments, ctx, access) { operation = it }
             }
+        } catch (e: PerRootConfigInvalidException) {
+            // The whole-request twin of the per-element mapping: an unloadable config head is config_invalid, not internal.
+            logger.warn("Tool '{}' (reqId {}) failed closed on an invalid config head: {}", spec.name, reqId, e.message)
+            Dispatched(EnvelopeEncoder.error(e.toDomainError(), reqId), operation, batchSize)
         } catch (e: Exception) {
             e.rethrowIfCancellation()
             val translated = PersistenceFaults.translate(e)

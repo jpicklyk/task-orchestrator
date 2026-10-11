@@ -862,7 +862,7 @@ with `ok`, and `207 partial_failure` over REST when some elements failed). Both 
   result carries `warning: {key, max, actual}`, under `reject` the element fails with `note_too_long`.
   `note_limits` is layered per root (see
   [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md)).
-  A per-root config that cannot be read answers `unavailable` (`retryAfterMs`).
+  A per-root config that cannot be read answers `unavailable` (`retryAfterMs`). A config head that exists but cannot be loaded answers `config_invalid` (permanent).
 - **Attribution.** Over MCP the body `actor` is lifted as before and recorded with the note
   (verification included); over REST `/ops` the principal is the bearer token's and a body `actor` is
   ignored.
@@ -1095,7 +1095,8 @@ such as `/ops/0/trigger`, `/ops/1/ttlSeconds`, `/ops/2/itemId`, `/ops/0/credenti
 claiming a terminal item), `gate_blocked` (`detail.missing[]`; for an independence block `missing` is empty and
 `detail.violations` is `[{gate: "independence", reason}]`), `dependency_unmet`, `not_claim_holder`, `claim_held`
 (`detail.expiresAt`, `detail.retryAfterMs`), `resource_unavailable` (`detail.resources[]` with the contended key and its mode,
-`retryAfterMs`; never the holder), `unauthenticated`, `unavailable` (per-root config could not be read; `retryAfterMs` 1000),
+`retryAfterMs`; never the holder), `unauthenticated`, `unavailable` (per-root config could not be read; `retryAfterMs` 1000), `config_invalid` (a config head, the server's or the root's, has no loadable canonical form; permanent,
+`detail.errors[0].path` empty; never `internal`),
 `idempotency_mismatch`.
 
 Resource leases: a `transition` that enters `work` acquires an exclusive lease for each resource the item's traits declare;
