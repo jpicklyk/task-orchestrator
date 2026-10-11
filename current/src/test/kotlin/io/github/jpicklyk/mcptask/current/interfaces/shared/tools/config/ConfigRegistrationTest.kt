@@ -212,9 +212,9 @@ class ConfigRegistrationTest {
     // ------------------------------------------------------------------ S19 removal
 
     @Test
-    fun `S19 manage_project_config and query_rules are gone from the MCP tool list while other tools remain`() {
+    fun `S19 manage_project_config and query_rules are gone and the legacy MCP tool list is empty`() {
         val names = buildMcpTools().map { it.name }
-        assertTrue(names.isNotEmpty() && "complete_tree" in names, "control: the list still holds other tools: $names")
+        assertTrue(names.isEmpty(), "control: every 3.x tool is removed, so the 3.x list is empty: $names")
         assertTrue("manage_project_config" !in names, "manage_project_config must not be registered: $names")
         assertTrue("query_rules" !in names, "query_rules must not be registered: $names")
         assertTrue("config" !in names, "config belongs to the shared registry, not the 3.x list: $names")
