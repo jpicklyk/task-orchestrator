@@ -40,6 +40,10 @@ class ProfileVisibilityAllowlistTest {
                 assertTrue(member in orchestration[spec.name].orEmpty(), "${spec.name}.$member must be visible in orchestration")
             }
         }
+        for (tool in HIDDEN_WHOLE_TOOLS) {
+            assertTrue(registry[tool] != null, "tool $tool is expected to be registered (Q23 added config)")
+            assertTrue(tool in orchestration, "tool $tool must be visible in orchestration")
+        }
         assertTrue(checked > 0, "no hidden member of plan section 2 is registered; the guard would be vacuous")
         for (tool in HIDDEN_WHOLE_TOOLS) {
             assertTrue(tool !in knowledge, "tool $tool must be wholly absent from knowledge")
@@ -58,7 +62,7 @@ class ProfileVisibilityAllowlistTest {
     }
 
     private companion object {
-        /** Tools plan section 2 hides entirely from knowledge. `config` is skipped while it is not registered. */
+        /** Tools plan section 2 hides entirely from knowledge. */
         val HIDDEN_WHOLE_TOOLS = setOf("advance", "config")
 
         /** Individual members plan section 2 hides from knowledge. `repin` is skipped while it is not registered. */
